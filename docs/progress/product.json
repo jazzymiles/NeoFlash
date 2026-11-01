@@ -2411,8 +2411,8 @@
       "category": "imports",
       "title": "Binary FLA to editable document",
       "status": "partial",
-      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps, uncompressed PCM (`audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever and preset effects) and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits. 101 of 106 local documents import and every one round-trips save/reopen unchanged.",
-      "limitations": "Filters, blend modes, 3D, compressed legacy audio codecs (ADPCM/GSM/Nellymoser), custom multi-point sound envelopes/trim points, video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. The four largest geometry-heavy local documents exceed the 128 MiB project JSON limit. Font metrics may differ; output is not claimed pixel-identical to Flash.",
+      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps, uncompressed PCM (`audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever and preset effects) and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits, and oversized documents fit within the 128 MiB project JSON budget by shedding largest media first, compacting provenance placement tables and degrading excess later vector paths to placeholders with warnings. 105 of 106 local documents import (every non-empty file) and every one round-trips save/reopen unchanged.",
+      "limitations": "Filters, blend modes, 3D, compressed legacy audio codecs (ADPCM/GSM/Nellymoser), custom multi-point sound envelopes/trim points, video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. Documents whose converted media and geometry exceed the 128 MiB project JSON limit shed oversized media or later vector paths to placeholders rather than streaming unbounded assets. Font metrics may differ; output is not claimed pixel-identical to Flash.",
       "items": [
         {
           "id": "scene-library",
@@ -2482,7 +2482,7 @@
         {
           "id": "large-documents",
           "title": "Large documents beyond the project size limits",
-          "status": "planned"
+          "status": "partial"
         }
       ],
       "evidence": [

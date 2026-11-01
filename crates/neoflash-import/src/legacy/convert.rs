@@ -334,7 +334,42 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             .collect()
     };
     // The provenance record is sized first: it shares the same budget.
-    let provenance = |embedded: bool| serde_json::json!({"schema":2,"source_resources":if embedded {part_ids.clone()} else {vec![]},"source_bytes":document.original_bytes.len(),"source_fnv1a64":format!("{:016x}",fnv1a64(&document.original_bytes)),"authoring_version":document.inspection.authoring_version,"contents_revision":c.revision,"language":language,"publish_hidden_layers":include_hidden,"container_tolerances":document.inspection.container_tolerances,"descriptors":c.descriptors,"folders":c.extensions.as_ref().map(|e|&e.folders),"placements":context.provenance,"note":"Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."});
+    let provenance = |embedded: bool, detail: ProvenanceDetail| {
+        let (descriptors, folders, placements) = match detail {
+            ProvenanceDetail::Full => (
+                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
+                    .unwrap_or(serde_json::Value::Null),
+                serde_json::Value::Array(context.provenance.clone()),
+            ),
+            ProvenanceDetail::NoPlacements => (
+                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
+                    .unwrap_or(serde_json::Value::Null),
+                serde_json::Value::Array(vec![]),
+            ),
+            ProvenanceDetail::Minimal => (
+                serde_json::Value::Array(vec![]),
+                serde_json::Value::Null,
+                serde_json::Value::Array(vec![]),
+            ),
+        };
+        serde_json::json!({
+            "schema": 2,
+            "source_resources": if embedded { part_ids.clone() } else { vec![] },
+            "source_bytes": document.original_bytes.len(),
+            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
+            "authoring_version": document.inspection.authoring_version,
+            "contents_revision": c.revision,
+            "language": language,
+            "publish_hidden_layers": include_hidden,
+            "container_tolerances": document.inspection.container_tolerances,
+            "descriptors": descriptors,
+            "folders": folders,
+            "placements": placements,
+            "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
+        })
+    };
     if !document.inspection.container_tolerances.is_empty() {
         context.report.warning("fla_container_compatibility","CFB directory",format!("The source container has non-canonical metadata outside its live streams ({}). Streams were read from their directory chains unchanged; the original FLA is retained.",document.inspection.container_tolerances.join("; ")))
     }
@@ -376,9 +411,10 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         .iter()
         .map(|r| r.data_base64.len() / 4 * 3 + 3)
         .sum();
-    let provenance_json = serde_json::to_vec(&provenance(true)).map_or(usize::MAX, |v| v.len());
+    let provenance_json = serde_json::to_vec(&provenance(true, ProvenanceDetail::Full))
+        .map_or(usize::MAX, |v| v.len());
     let encoded = |bytes: usize| bytes.div_ceil(3) * 4;
-    let embedded = !parts.is_empty()
+    let mut embedded = !parts.is_empty()
         && project.resources.len() + parts.len() < MAX_RESOURCES
         && used + document.original_bytes.len() + provenance_json + 4096
             <= MAX_RESOURCE_TOTAL_BYTES
@@ -402,23 +438,40 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     } else {
         context.report.warning("fla_source_not_embedded","Original FLA",format!("The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size and FNV-1a digest.",document.original_bytes.len()/(1024*1024)));
     }
-    let metadata = provenance(embedded);
-    project.resources.push(
-        ResourceUnit::from_bytes(
-            "fla-provenance",
-            "legacy/provenance.json",
-            "application/json",
-            &serde_json::to_vec(&metadata).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?,
-    );
+    let mut prov_detail = ProvenanceDetail::Full;
+    let mut prov_warned = false;
+    update_provenance_resource(
+        &mut project,
+        &mut prov_detail,
+        &mut prov_warned,
+        embedded,
+        !context.provenance.is_empty(),
+        context.report,
+        &provenance,
+    )?;
     project.upgrade_format_for_features();
+    let mut json = serde_json::to_string_pretty(&project).map_err(|e| e.to_string())?;
+    if json.len() > MAX_PROJECT_JSON_BYTES {
+        fit_project_json_budget(
+            &mut project,
+            &mut json,
+            &mut embedded,
+            &mut prov_detail,
+            &mut prov_warned,
+            document.original_bytes.len(),
+            !context.provenance.is_empty(),
+            context.report,
+            &provenance,
+        )?;
+    }
     project
         .validate()
         .map_err(|e| format!("Converted document validation: {e}"))?;
+    if json.len() > MAX_PROJECT_JSON_BYTES {
+        return Err("Invalid project: document exceeds the 128 MiB encoded JSON limit".into());
+    }
     // Import reserves authored IDs through the same parser as opening .nflash.
-    let project = Project::from_json(&project.to_json().map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let project = Project::from_json(&json).map_err(|e| e.to_string())?;
     context.report.statistics.symbols = project.symbols.len();
     for symbol in &project.symbols {
         context.report.statistics.layers += symbol.timeline.layers.len();
@@ -1336,4 +1389,512 @@ fn ease(f: &TimelineFrame) -> Result<(Option<Easing>, TweenKind), String> {
         // Motion-object and IK spans keep their stored keyframe poses.
         _ => Ok((None, TweenKind::Classic)),
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProvenanceDetail {
+    Full,
+    NoPlacements,
+    Minimal,
+}
+
+fn update_provenance_resource(
+    project: &mut Project,
+    detail: &mut ProvenanceDetail,
+    warned: &mut bool,
+    embedded: bool,
+    has_placements: bool,
+    report: &mut ImportReport,
+    make_provenance: &dyn Fn(bool, ProvenanceDetail) -> serde_json::Value,
+) -> Result<(), String> {
+    let other_decoded: usize = project
+        .resources
+        .iter()
+        .filter(|r| r.id != "fla-provenance")
+        .map(ResourceUnit::byte_len)
+        .sum();
+    let candidates: &[ProvenanceDetail] = match *detail {
+        ProvenanceDetail::Full => &[
+            ProvenanceDetail::Full,
+            ProvenanceDetail::NoPlacements,
+            ProvenanceDetail::Minimal,
+        ],
+        ProvenanceDetail::NoPlacements => {
+            &[ProvenanceDetail::NoPlacements, ProvenanceDetail::Minimal]
+        }
+        ProvenanceDetail::Minimal => &[ProvenanceDetail::Minimal],
+    };
+    let mut chosen = None;
+    for &candidate in candidates {
+        let bytes =
+            serde_json::to_vec(&make_provenance(embedded, candidate)).map_err(|e| e.to_string())?;
+        if bytes.len() <= MAX_RESOURCE_BYTES
+            && other_decoded.saturating_add(bytes.len()) <= MAX_RESOURCE_TOTAL_BYTES
+        {
+            chosen = Some((candidate, bytes));
+            break;
+        }
+    }
+    let (chosen_detail, bytes) =
+        chosen.ok_or_else(|| "Import provenance exceeds the project resource budget".to_owned())?;
+    if chosen_detail != ProvenanceDetail::Full && !*warned && has_placements {
+        *warned = true;
+        report.warning(
+            "fla_provenance_compacted",
+            "legacy/provenance.json",
+            "Per-placement source offsets were omitted from provenance to fit project size limits; source digest, stream descriptors and container metadata are retained.",
+        );
+    }
+    *detail = chosen_detail;
+    let unit = ResourceUnit::from_bytes(
+        "fla-provenance",
+        "legacy/provenance.json",
+        "application/json",
+        &bytes,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(slot) = project
+        .resources
+        .iter_mut()
+        .find(|r| r.id == "fla-provenance")
+    {
+        *slot = unit;
+    } else {
+        project.resources.push(unit);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fit_project_json_budget(
+    project: &mut Project,
+    json: &mut String,
+    embedded: &mut bool,
+    prov_detail: &mut ProvenanceDetail,
+    prov_warned: &mut bool,
+    original_len: usize,
+    has_placements: bool,
+    report: &mut ImportReport,
+    make_provenance: &dyn Fn(bool, ProvenanceDetail) -> serde_json::Value,
+) -> Result<(), String> {
+    if *embedded {
+        project
+            .resources
+            .retain(|r| r.media_type != "application/x-neoflash-fla-source");
+        *embedded = false;
+        report.warning(
+            "fla_source_not_embedded",
+            "Original FLA",
+            format!(
+                "The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size and FNV-1a digest.",
+                original_len / (1024 * 1024)
+            ),
+        );
+        update_provenance_resource(
+            project,
+            prov_detail,
+            prov_warned,
+            false,
+            has_placements,
+            report,
+            make_provenance,
+        )?;
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    // 1. Shed imported audio resources (legacy-sound-*, largest first).
+    while json.len() > MAX_PROJECT_JSON_BYTES {
+        let excess = json.len() - MAX_PROJECT_JSON_BYTES;
+        if !shed_audio_resources(project, report, excess) {
+            break;
+        }
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    // 2. Shed imported bitmap resources (legacy-bitmap-*, largest first).
+    while json.len() > MAX_PROJECT_JSON_BYTES {
+        let excess = json.len() - MAX_PROJECT_JSON_BYTES;
+        if !shed_bitmap_resources(project, report, excess) {
+            break;
+        }
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    // Compact bulky provenance placement mappings before degrading vector artwork.
+    if json.len() > MAX_PROJECT_JSON_BYTES && *prov_detail == ProvenanceDetail::Full {
+        *prov_detail = ProvenanceDetail::NoPlacements;
+        update_provenance_resource(
+            project,
+            prov_detail,
+            prov_warned,
+            *embedded,
+            has_placements,
+            report,
+            make_provenance,
+        )?;
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    // 3. Degrade excess vector shape elements in later symbols/frames to placeholders.
+    while json.len() > MAX_PROJECT_JSON_BYTES {
+        let target = (json.len() - MAX_PROJECT_JSON_BYTES).saturating_add(65_536);
+        if !degrade_excess_vector_shapes(project, report, target) {
+            break;
+        }
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    if json.len() > MAX_PROJECT_JSON_BYTES && *prov_detail != ProvenanceDetail::Minimal {
+        *prov_detail = ProvenanceDetail::Minimal;
+        update_provenance_resource(
+            project,
+            prov_detail,
+            prov_warned,
+            *embedded,
+            has_placements,
+            report,
+            make_provenance,
+        )?;
+        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn shed_audio_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
+    let mut candidates: Vec<(usize, u16, String)> = project
+        .resources
+        .iter()
+        .filter_map(|r| {
+            let suffix = r.id.strip_prefix("legacy-sound-")?;
+            let media_id = suffix.parse::<u16>().ok()?;
+            Some((r.data_base64.len(), media_id, r.id.clone()))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    let mut shed = Vec::new();
+    let mut saved = 0usize;
+    for (b64_len, media_id, res_id) in candidates {
+        shed.push((res_id, media_id));
+        saved = saved.saturating_add(b64_len.saturating_add(80));
+        if saved >= excess {
+            break;
+        }
+    }
+    let shed_ids: std::collections::HashSet<&str> =
+        shed.iter().map(|(id, _)| id.as_str()).collect();
+    project
+        .resources
+        .retain(|r| !shed_ids.contains(r.id.as_str()));
+    for (res_id, media_id) in &shed {
+        report.warning(
+            "fla_media_not_imported",
+            format!("media {media_id}"),
+            "Decoded sound exceeds the project's 128 MiB encoded JSON budget alongside converted timelines; this sound remains in the original FLA.",
+        );
+        for symbol in &mut project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    if key
+                        .sound
+                        .as_ref()
+                        .is_some_and(|sound| &sound.resource == res_id)
+                    {
+                        key.sound = None;
+                        report.warning(
+                            "fla_frame_sound",
+                            format!("{} layer {} frame {}", symbol.name, layer.name, key.frame + 1),
+                            format!(
+                                "Timeline sound references media #{media_id}, which was omitted to fit the 128 MiB project JSON budget."
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+fn shed_bitmap_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
+    let mut placement_counts = BTreeMap::<String, usize>::new();
+    for element in project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+    {
+        if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
+            *placement_counts.entry(resource_id.clone()).or_default() += 1;
+        }
+    }
+    let mut candidates: Vec<(usize, u16, String)> = project
+        .resources
+        .iter()
+        .filter_map(|r| {
+            let suffix = r.id.strip_prefix("legacy-bitmap-")?;
+            let media_id = suffix.parse::<u16>().ok()?;
+            Some((r.data_base64.len(), media_id, r.id.clone()))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    let mut shed = Vec::new();
+    let mut saved = 0usize;
+    for (b64_len, media_id, res_id) in candidates {
+        let uses = placement_counts.get(&res_id).copied().unwrap_or(0);
+        let net = b64_len.saturating_sub(600usize.saturating_add(uses.saturating_mul(40)));
+        shed.push((res_id, media_id));
+        saved = saved.saturating_add(net.max(1));
+        if saved >= excess {
+            break;
+        }
+    }
+    let shed_ids: std::collections::HashSet<&str> =
+        shed.iter().map(|(id, _)| id.as_str()).collect();
+    project
+        .resources
+        .retain(|r| !shed_ids.contains(r.id.as_str()));
+    let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
+    for (res_id, media_id) in &shed {
+        report.warning(
+            "fla_bitmap_skipped",
+            format!("media {media_id}"),
+            "Decoded bitmap exceeds the project's 128 MiB encoded JSON budget alongside converted timelines; this bitmap becomes an unresolved placeholder.",
+        );
+        let missing_id = format!("fla-missing-bitmap-{media_id}");
+        let placeholder_symbol = if project.symbols.iter().any(|s| s.id == missing_id) {
+            Some(missing_id)
+        } else if project.symbols.len() < 10_000 {
+            project.symbols.push(group_symbol(
+                &missing_id,
+                format!("Unresolved bitmap #{media_id}"),
+                vec![],
+            ));
+            Some(missing_id)
+        } else if project.symbols.iter().any(|s| s.id == PLACEHOLDER) {
+            Some(PLACEHOLDER.to_owned())
+        } else {
+            None
+        };
+        for symbol in &mut project.symbols {
+            let can_nest = allowed_leaf.contains(&symbol.id);
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for element in &mut key.elements {
+                        if matches!(
+                            &element.kind,
+                            ElementKind::Bitmap { resource_id, .. } if resource_id == res_id
+                        ) {
+                            element.name = format!("Unresolved source bitmap #{media_id}");
+                            element.kind = match (&placeholder_symbol, can_nest) {
+                                (Some(sid), true) => ElementKind::Instance {
+                                    symbol_id: sid.clone(),
+                                    playback: InstancePlayback::SingleFrame(0),
+                                },
+                                _ => ElementKind::Rectangle {
+                                    width: 0.0,
+                                    height: 0.0,
+                                    fill: [0; 4],
+                                    stroke: [0; 4],
+                                    stroke_width: 0.0,
+                                },
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+fn is_vector_path(element: &Element) -> bool {
+    matches!(
+        element.kind,
+        ElementKind::PaintedPath { .. } | ElementKind::Path { .. }
+    )
+}
+
+fn pretty_element_bytes(element: &Element) -> usize {
+    match serde_json::to_string_pretty(element) {
+        Ok(s) => {
+            let lines = s.bytes().filter(|&b| b == b'\n').count() + 1;
+            s.len() + 18 * lines + 2
+        }
+        Err(_) => 512,
+    }
+}
+
+fn symbols_allowing_leaf_instance(symbols: &[Symbol]) -> std::collections::HashSet<String> {
+    let mut parents: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    for symbol in symbols {
+        for element in symbol
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+        {
+            if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                parents
+                    .entry(symbol_id.as_str())
+                    .or_default()
+                    .push(symbol.id.as_str());
+            }
+        }
+    }
+    fn ancestor_depth<'a>(
+        id: &'a str,
+        parents: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+        active: &mut std::collections::HashSet<&'a str>,
+        memo: &mut std::collections::HashMap<&'a str, usize>,
+    ) -> usize {
+        if let Some(&d) = memo.get(id) {
+            return d;
+        }
+        if !active.insert(id) || active.len() > 64 {
+            active.remove(id);
+            return 65;
+        }
+        let mut best = 1usize;
+        if let Some(ps) = parents.get(id) {
+            for &p in ps {
+                best = best.max(1 + ancestor_depth(p, parents, active, memo));
+                if best >= 65 {
+                    break;
+                }
+            }
+        }
+        active.remove(id);
+        memo.insert(id, best);
+        best
+    }
+    let mut active = std::collections::HashSet::new();
+    let mut memo = std::collections::HashMap::new();
+    symbols
+        .iter()
+        .filter(|s| ancestor_depth(&s.id, &parents, &mut active, &mut memo) < 64)
+        .map(|s| s.id.clone())
+        .collect()
+}
+
+fn degrade_excess_vector_shapes(
+    project: &mut Project,
+    report: &mut ImportReport,
+    target_savings: usize,
+) -> bool {
+    if !project.symbols.iter().any(|s| s.id == PLACEHOLDER) && project.symbols.len() < 10_000 {
+        project.symbols.push(group_symbol(
+            PLACEHOLDER,
+            "Unsupported source object (see import report)".into(),
+            vec![],
+        ));
+    }
+    let has_placeholder = project.symbols.iter().any(|s| s.id == PLACEHOLDER);
+    let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
+    let mut saved = 0usize;
+
+    for preserve_special_layers in [true, false] {
+        for symbol in project.symbols.iter_mut().rev() {
+            if symbol.id == PLACEHOLDER || symbol.id.starts_with("fla-missing-bitmap-") {
+                continue;
+            }
+            let is_group_symbol = symbol.id.ends_with("-group");
+            let use_placeholder = has_placeholder && allowed_leaf.contains(&symbol.id);
+            for layer in symbol.timeline.layers.iter_mut().rev() {
+                if preserve_special_layers
+                    && matches!(layer.properties.role, LayerRole::Guide | LayerRole::Mask)
+                {
+                    continue;
+                }
+                for key in layer.keyframes.iter_mut().rev() {
+                    if !key.elements.iter().any(is_vector_path) {
+                        continue;
+                    }
+                    let path_bytes: usize = key
+                        .elements
+                        .iter()
+                        .filter(|e| is_vector_path(e))
+                        .map(pretty_element_bytes)
+                        .sum();
+                    if is_group_symbol {
+                        key.elements.retain(|e| !is_vector_path(e));
+                        report.warning(
+                            "fla_shape_approximated",
+                            &symbol.name,
+                            "Vector path geometry was omitted as a placeholder to fit the project's 128 MiB encoded JSON limit; original artwork remains in the source FLA.",
+                        );
+                        saved = saved.saturating_add(path_bytes);
+                    } else {
+                        let first_id = key
+                            .elements
+                            .iter()
+                            .find(|e| is_vector_path(e))
+                            .unwrap()
+                            .id
+                            .clone();
+                        let replacement = Element {
+                            id: first_id,
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: if use_placeholder {
+                                ElementKind::Instance {
+                                    symbol_id: PLACEHOLDER.into(),
+                                    playback: InstancePlayback::SingleFrame(0),
+                                }
+                            } else {
+                                ElementKind::Rectangle {
+                                    width: 0.0,
+                                    height: 0.0,
+                                    fill: [0; 4],
+                                    stroke: [0; 4],
+                                    stroke_width: 0.0,
+                                }
+                            },
+                            scripts: vec![],
+                            accessibility: None,
+                        };
+                        let repl_bytes = pretty_element_bytes(&replacement);
+                        if path_bytes <= repl_bytes {
+                            continue;
+                        }
+                        let mut replaced = false;
+                        key.elements.retain_mut(|element| {
+                            if !is_vector_path(element) {
+                                return true;
+                            }
+                            if !replaced {
+                                *element = replacement.clone();
+                                replaced = true;
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        report.warning(
+                            "fla_shape_approximated",
+                            format!("{} layer {} frame {}", symbol.name, layer.name, key.frame + 1),
+                            "Vector path geometry was replaced by a placeholder to fit the project's 128 MiB encoded JSON limit; original artwork remains in the source FLA.",
+                        );
+                        saved = saved.saturating_add(path_bytes - repl_bytes);
+                    }
+                    if saved >= target_savings {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    saved > 0
 }

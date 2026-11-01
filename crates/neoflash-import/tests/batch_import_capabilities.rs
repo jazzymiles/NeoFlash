@@ -810,3 +810,403 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
     fs::write(&cws_path, &over_64m).unwrap();
     assert!(inspect(&cws_path).is_err());
 }
+
+#[test]
+fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
+    use neoflash_core::MAX_PROJECT_JSON_BYTES;
+
+    fn u16b(out: &mut Vec<u8>, v: u16) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    fn u32b(out: &mut Vec<u8>, v: u32) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    fn string(out: &mut Vec<u8>, s: &str) {
+        out.push(s.len() as u8);
+        out.extend_from_slice(s.as_bytes());
+    }
+    fn compact_utf16(out: &mut Vec<u8>, s: &str) {
+        out.push(s.len() as u8);
+        for b in s.bytes() {
+            u16b(out, u16::from(b));
+        }
+    }
+    fn class(out: &mut Vec<u8>, name: &str) {
+        u16b(out, 0xffff);
+        u16b(out, 1);
+        u16b(out, name.len() as u16);
+        out.extend_from_slice(name.as_bytes());
+    }
+    fn point_min(out: &mut Vec<u8>) {
+        out.extend_from_slice(&i32::MIN.to_le_bytes());
+        out.extend_from_slice(&i32::MIN.to_le_bytes());
+    }
+    fn dense_quadratic_shape(out: &mut Vec<u8>, edge_count: usize) {
+        out.extend_from_slice(&[1, 0, 0, 0]);
+        point_min(out);
+        out.push(2); // CPicShape rev 2
+        for v in [65536_i32, 0, 0, 65536, 0, 0] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.push(5); // data rev 5
+        u32b(out, 0); // metadata
+        u16b(out, 0); // 0 fills
+        u16b(out, 1); // 1 stroke
+        u32b(out, 0xff336699);
+        u16b(out, 40);
+        u16b(out, 0);
+        u16b(out, 0);
+        for i in 0..edge_count {
+            if i == 0 {
+                // Byte style indices [stroke=1, fill0=0, fill1=0] + i16 control/end deltas
+                out.push(0xd4);
+                out.extend_from_slice(&[1, 0, 0]);
+            } else {
+                // Inherited styles + zero start delta + i16 control/end deltas
+                out.push(0x14);
+            }
+            for delta in [3_i16, -7, 11, 13] {
+                out.extend_from_slice(&delta.to_le_bytes());
+            }
+        }
+        out.push(0); // edge terminator
+        u32b(out, 0); // 0 auxiliary curves
+    }
+    fn vector_and_sound_frame(out: &mut Vec<u8>, edge_count: usize, sound_media_id: u16) {
+        dense_quadratic_shape(out, edge_count);
+        out.push(21); // CPicFrame rev 21
+        u16b(out, 1); // duration = 1
+        u16b(out, 0); // key_mode
+        u16b(out, 0); // acceleration
+        u16b(out, sound_media_id);
+        u16b(out, 0); // envelope count
+        u16b(out, 1); // loop_count
+        out.push(0); // Event sync
+        u32b(out, 0); // in_point
+        u32b(out, 0); // out_point
+        u16b(out, 0); // sound_zoom
+        string(out, "");
+        u32b(out, 0);
+        u32b(out, 1);
+        string(out, "");
+        u32b(out, 0);
+        u32b(out, 0);
+        u32b(out, 0);
+        u16b(out, 0);
+        u32b(out, 0);
+        u16b(out, 0);
+        string(out, "");
+        u32b(out, 0);
+        u32b(out, 0);
+    }
+    fn cmedia_sound(
+        out: &mut Vec<u8>,
+        stream_name: &str,
+        item_name: &str,
+        media_id: u16,
+        sample_count: u32,
+        encoded_byte_count: u32,
+    ) {
+        out.push(6);
+        compact_utf16(out, stream_name);
+        string(out, item_name);
+        u16b(out, media_id);
+        string(out, "");
+        u32b(out, 0);
+        u32b(out, 3);
+        u32b(out, 0);
+        u32b(out, 0);
+        u32b(out, 0);
+        u32b(out, 0);
+        out.push(8);
+        u16b(out, 0x0e); // 44.1 kHz, 16-bit, mono uncompressed PCM
+        u32b(out, sample_count);
+        out.extend_from_slice(&0_i16.to_le_bytes());
+        out.extend_from_slice(&0_i16.to_le_bytes());
+        u32b(out, encoded_byte_count);
+        out.push(0);
+        u16b(out, 0);
+        u32b(out, 0);
+    }
+
+    let mut contents = vec![0x3f]; // Flash 8
+    u32b(&mut contents, 1);
+    u32b(&mut contents, 0);
+    contents.push(0);
+    contents.push(0);
+    for _ in [0x21, 0x2b, 0x3b] {
+        u32b(&mut contents, 0);
+    }
+    class(&mut contents, "CDocumentPage");
+    contents.push(23);
+    compact_utf16(&mut contents, "Page 1");
+    string(&mut contents, "Scene 1");
+    u32b(&mut contents, 7);
+    contents.push(0);
+    string(&mut contents, "");
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 6);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    contents.push(2);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    contents.push(0);
+    u32b(&mut contents, 1);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    contents.push(0);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    contents.push(1);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    contents.push(7);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    string(&mut contents, "");
+    contents.push(0);
+    u32b(&mut contents, 1);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    contents.push(0);
+    string(&mut contents, "");
+    contents.push(8);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    contents.extend_from_slice(&[0; 12]);
+    string(&mut contents, "");
+    for _ in 0..3 {
+        contents.push(2);
+        string(&mut contents, "");
+        u32b(&mut contents, 0);
+        u32b(&mut contents, 0);
+    }
+    string(&mut contents, "");
+    contents.push(1);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    u32b(&mut contents, u32::MAX);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    contents.extend_from_slice(&[0; 8]);
+    contents.push(3);
+    string(&mut contents, "");
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    string(&mut contents, "");
+    u32b(&mut contents, 0);
+    string(&mut contents, "");
+    contents.extend_from_slice(&[0; 20]);
+
+    u16b(&mut contents, 0); // end scenes
+    u16b(&mut contents, 1);
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 2); // selected_scene
+    u16b(&mut contents, 0); // end symbols
+    u16b(&mut contents, 0);
+
+    // 4 PCM sounds totaling ~54.8 MB decoded (< 56 MiB resource media budget, ~73.1 MB base64):
+    // Media 4 is largest (14.0 MB) and should be shed first when combined with ~66 MB vector JSON.
+    let small_samples = 6_800_000_u32;
+    let small_bytes = small_samples * 2;
+    let large_samples = 7_000_000_u32;
+    let large_bytes = large_samples * 2;
+    class(&mut contents, "CMediaSound");
+    cmedia_sound(
+        &mut contents,
+        "Media 1",
+        "One.wav",
+        1,
+        small_samples,
+        small_bytes,
+    );
+    u16b(&mut contents, 0x8003);
+    cmedia_sound(
+        &mut contents,
+        "Media 2",
+        "Two.wav",
+        2,
+        small_samples,
+        small_bytes,
+    );
+    u16b(&mut contents, 0x8003);
+    cmedia_sound(
+        &mut contents,
+        "Media 3",
+        "Three.wav",
+        3,
+        small_samples,
+        small_bytes,
+    );
+    u16b(&mut contents, 0x8003);
+    cmedia_sound(
+        &mut contents,
+        "Media 4",
+        "Largest.wav",
+        4,
+        large_samples,
+        large_bytes,
+    );
+    u16b(&mut contents, 0); // end media
+    u16b(&mut contents, 4);
+
+    // Document settings:
+    u16b(&mut contents, 2);
+    contents.push(0);
+    for word in [0_i32, 11000, 0, 8000] {
+        contents.extend_from_slice(&word.to_le_bytes());
+    }
+    u32b(&mut contents, 20 * 65536);
+    contents.extend_from_slice(&[0; 5]);
+    contents.extend_from_slice(&[0; 16]);
+    contents.extend_from_slice(&[0; 4]);
+    u32b(&mut contents, 65536);
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 0);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 0xffffffff);
+    u32b(&mut contents, 24 * 65536);
+    contents.extend_from_slice(&[0; 3]);
+    u32b(&mut contents, 20);
+
+    // 25 keyframes * 9,600 quadratic stroke edges = 240,000 QuadraticTo commands (~67 MB JSON).
+    // Combined with ~73.1 MB base64 WAV media = ~140 MB > 128 MiB MAX_PROJECT_JSON_BYTES.
+    let frame_count = 25usize;
+    let edges_per_frame = 9_600usize;
+    let mut page = vec![1];
+    class(&mut page, "CPicPage"); // 1
+    page.extend_from_slice(&[1, 0]);
+    class(&mut page, "CPicLayer"); // 3
+    page.extend_from_slice(&[1, 0]);
+    class(&mut page, "CPicFrame"); // 5
+    for idx in 0..frame_count {
+        if idx > 0 {
+            u16b(&mut page, 0x8005);
+        }
+        let sound_id = if idx < 4 { (idx + 1) as u16 } else { 0 };
+        vector_and_sound_frame(&mut page, edges_per_frame, sound_id);
+    }
+    u16b(&mut page, 0); // end layer children
+    point_min(&mut page);
+    page.push(8);
+    string(&mut page, "HeavyArtAndAudio");
+    page.extend_from_slice(&[0; 3]);
+    page.extend_from_slice(&[0; 16]);
+    page.push(0);
+    page.extend_from_slice(&[0; 5]);
+    u16b(&mut page, 0); // end page children
+    point_min(&mut page);
+    page.push(3);
+    u16b(&mut page, 1);
+    page.extend_from_slice(&[0; 4]);
+
+    let small_pcm = vec![0u8; small_bytes as usize];
+    let large_pcm = vec![0u8; large_bytes as usize];
+    let mut compound = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
+    compound
+        .create_stream("Contents")
+        .unwrap()
+        .write_all(&contents)
+        .unwrap();
+    compound
+        .create_stream("Page 1")
+        .unwrap()
+        .write_all(&page)
+        .unwrap();
+    for (name, payload) in [
+        ("Media 1", &small_pcm),
+        ("Media 2", &small_pcm),
+        ("Media 3", &small_pcm),
+        ("Media 4", &large_pcm),
+    ] {
+        compound
+            .create_stream(name)
+            .unwrap()
+            .write_all(payload)
+            .unwrap();
+    }
+
+    let temp = TempDir::new();
+    let fla_path = temp.0.join("budget_128m.fla");
+    fs::write(&fla_path, compound.into_inner().into_inner()).unwrap();
+
+    let report = inspect(&fla_path).unwrap();
+    assert!(report.can_import, "{:?}", report.diagnostics);
+    assert!(
+        !report
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error),
+        "{:?}",
+        report.diagnostics
+    );
+    assert!(
+        report.diagnostics.iter().any(|d| {
+            d.code == "fla_media_not_imported"
+                && d.location == "media 4"
+                && d.message.contains("128 MiB")
+        }),
+        "{:?}",
+        report.diagnostics
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| { d.code == "fla_frame_sound" && d.message.contains("media #4") }),
+        "{:?}",
+        report.diagnostics
+    );
+
+    let project = import_project(&fla_path).unwrap();
+    project.validate().unwrap();
+    let json = project.to_json().unwrap();
+    assert!(
+        json.len() <= MAX_PROJECT_JSON_BYTES,
+        "encoded JSON {} exceeded {}",
+        json.len(),
+        MAX_PROJECT_JSON_BYTES
+    );
+
+    // Largest sound (legacy-sound-4) was shed, while sounds 1..=3 and all 25 vector frames remain:
+    assert!(project.resources.iter().all(|r| r.id != "legacy-sound-4"));
+    for kept in ["legacy-sound-1", "legacy-sound-2", "legacy-sound-3"] {
+        assert!(
+            project.resources.iter().any(|r| r.id == kept),
+            "expected {kept} to remain imported"
+        );
+    }
+    let root = project.symbol(&project.root).unwrap();
+    let kfs = &root.timeline.layers[0].keyframes;
+    assert_eq!(kfs.len(), frame_count);
+    assert_eq!(kfs[0].sound.as_ref().unwrap().resource, "legacy-sound-1");
+    assert_eq!(kfs[1].sound.as_ref().unwrap().resource, "legacy-sound-2");
+    assert_eq!(kfs[2].sound.as_ref().unwrap().resource, "legacy-sound-3");
+    assert!(kfs[3].sound.is_none());
+    let total_quads: usize = kfs
+        .iter()
+        .flat_map(|k| &k.elements)
+        .map(|e| match &e.kind {
+            ElementKind::PaintedPath { commands, .. } => commands
+                .iter()
+                .filter(|c| matches!(c, PathCommand::QuadraticTo { .. }))
+                .count(),
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(total_quads, frame_count * edges_per_frame);
+}

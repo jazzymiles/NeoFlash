@@ -563,3 +563,205 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
     );
     assert_eq!(context.report.diagnostics.len(), 3);
 }
+
+#[test]
+fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shapes() {
+    // 1x1 PNG resource for bitmap shedding:
+    let mut png_bytes = Vec::new();
+    {
+        let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([10, 20, 30, 255]));
+        img.write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    }
+    let bmp1 = ResourceUnit::from_bytes(
+        "legacy-bitmap-1",
+        "legacy/bitmaps/1/a.png",
+        "image/png",
+        &png_bytes,
+    )
+    .unwrap();
+    let mut larger_png = png_bytes.clone();
+    // Make a second valid PNG slightly larger (2x2) so largest-first picks legacy-bitmap-2 first:
+    larger_png.clear();
+    {
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([40, 50, 60, 255]));
+        img.write_to(
+            &mut std::io::Cursor::new(&mut larger_png),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    }
+    let bmp2 = ResourceUnit::from_bytes(
+        "legacy-bitmap-2",
+        "legacy/bitmaps/2/b.png",
+        "image/png",
+        &larger_png,
+    )
+    .unwrap();
+
+    let dense_commands: Vec<PathCommand> = std::iter::once(PathCommand::MoveTo { x: 0.0, y: 0.0 })
+        .chain((1..=80).map(|i| PathCommand::QuadraticTo {
+            cx: i as f64 * 1.25,
+            cy: i as f64 * -0.75,
+            x: i as f64 * 2.5,
+            y: i as f64 * 1.5,
+        }))
+        .collect();
+    let make_path = |id: &str| Element {
+        id: id.into(),
+        name: "Stroke 1".into(),
+        transform: Transform::default(),
+        kind: ElementKind::PaintedPath {
+            commands: dense_commands.clone(),
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [255, 0, 0, 255],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 2.0,
+        },
+        scripts: vec![],
+        accessibility: None,
+    };
+
+    let root_symbol = Symbol {
+        id: "fla-symbol-1".into(),
+        name: "Scene 1".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 2,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: "fla-layer-1-1".into(),
+                name: "Main".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![
+                            Element {
+                                id: "bmp-el-1".into(),
+                                name: String::new(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Bitmap {
+                                    resource_id: "legacy-bitmap-1".into(),
+                                    width: 1,
+                                    height: 1,
+                                    smoothing: false,
+                                },
+                                scripts: vec![],
+                                accessibility: None,
+                            },
+                            Element {
+                                id: "bmp-el-2".into(),
+                                name: String::new(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Bitmap {
+                                    resource_id: "legacy-bitmap-2".into(),
+                                    width: 2,
+                                    height: 2,
+                                    smoothing: true,
+                                },
+                                scripts: vec![],
+                                accessibility: None,
+                            },
+                            make_path("root-path-f0"),
+                        ],
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 1,
+                        elements: vec![
+                            Element {
+                                id: "grp-inst".into(),
+                                name: String::new(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: "fla-1-1-9-group".into(),
+                                    playback: InstancePlayback::SingleFrame(0),
+                                },
+                                scripts: vec![],
+                                accessibility: None,
+                            },
+                            make_path("root-path-f1"),
+                        ],
+                        ..Default::default()
+                    },
+                ],
+            }],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    let group_sym = group_symbol(
+        "fla-1-1-9-group",
+        "Source group 9".into(),
+        vec![make_path("grp-paint-stroke-0")],
+    );
+
+    let mut project = Project {
+        format_version: 5,
+        name: "budget".into(),
+        width: 550,
+        height: 400,
+        fps: 24,
+        background: [255; 4],
+        root: "fla-symbol-1".into(),
+        symbols: vec![root_symbol, group_sym],
+        library_folders: vec![],
+        sources: vec![],
+        resources: vec![bmp1, bmp2],
+        document_class: None,
+        scenes: vec![],
+    };
+    let mut rep = report();
+
+    // Shed largest bitmap first (excess = 1 byte):
+    assert!(shed_bitmap_resources(&mut project, &mut rep, 1));
+    assert!(project.resources.iter().all(|r| r.id != "legacy-bitmap-2"));
+    assert!(project.resources.iter().any(|r| r.id == "legacy-bitmap-1"));
+    assert!(
+        rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_bitmap_skipped" && d.location == "media 2")
+    );
+    project.validate().unwrap();
+
+    // Degrade later group vector shape first while keeping root frame 0 shape intact:
+    assert!(degrade_excess_vector_shapes(&mut project, &mut rep, 1_000));
+    assert!(
+        project.symbol("fla-1-1-9-group").unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert!(
+        project.symbol("fla-symbol-1").unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .any(|e| e.id == "root-path-f0" && is_vector_path(e))
+    );
+    assert!(
+        rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_shape_approximated")
+    );
+    project.validate().unwrap();
+
+    // Degrade authored frame 1 vector shape to PLACEHOLDER instance:
+    assert!(degrade_excess_vector_shapes(&mut project, &mut rep, 1_000));
+    let f1_el =
+        &project.symbol("fla-symbol-1").unwrap().timeline.layers[0].keyframes[1].elements[1];
+    assert_eq!(f1_el.id, "root-path-f1");
+    assert!(matches!(
+        &f1_el.kind,
+        ElementKind::Instance { symbol_id, .. } if symbol_id == PLACEHOLDER
+    ));
+    project.validate().unwrap();
+}
