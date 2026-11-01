@@ -14,14 +14,31 @@ pub(crate) struct Source {
     pub format: ImportFormat,
     pub version: Option<String>,
     pub files: BTreeMap<String, String>,
+    pub binary_files: BTreeMap<String, Vec<u8>>,
     pub binary: Option<crate::legacy::BinaryTimelineDocument>,
     pub swf: Option<crate::swf::SwfContainer>,
 }
 
+fn is_xfl_binary_media(name: &str) -> bool {
+    if !(name.starts_with("LIBRARY/") || name.starts_with("bin/")) {
+        return false;
+    }
+    Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "wav" | "mp3" | "dat"
+            )
+        })
+}
+
 pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
     let mut files = BTreeMap::new();
+    let mut binary_files = BTreeMap::new();
     if path.is_dir() {
-        read_directory(path, &mut files)?;
+        read_directory(path, &mut files, &mut binary_files)?;
         return Ok(Source {
             format: if files.contains_key("DOMDocument.xml") {
                 ImportFormat::XflDirectory
@@ -30,6 +47,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             },
             version: None,
             files,
+            binary_files,
             binary: None,
             swf: None,
         });
@@ -52,6 +70,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 String::from_utf8_lossy(&header[..3])
             )),
             files,
+            binary_files,
             binary: None,
             swf: Some(swf),
         });
@@ -68,6 +87,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 .as_ref()
                 .and_then(|b| b.inspection.authoring_version.clone()),
             files,
+            binary_files,
             binary,
             swf: None,
         });
@@ -110,18 +130,32 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                     "ZIP exceeds 8 MiB per entry or 64 MiB total uncompressed limit".into(),
                 ));
             }
-            if name.ends_with(".xml") && !entry.is_dir() {
-                let mut content = String::new();
-                entry
-                    .by_ref()
-                    .take(MAX_FILE + 1)
-                    .read_to_string(&mut content)?;
-                if content.len() as u64 > MAX_FILE {
-                    return Err(ImportError::Container(
-                        "ZIP entry exceeded its size budget".into(),
-                    ));
+            if !entry.is_dir() {
+                if name.ends_with(".xml") {
+                    let mut content = String::new();
+                    entry
+                        .by_ref()
+                        .take(MAX_FILE + 1)
+                        .read_to_string(&mut content)?;
+                    if content.len() as u64 > MAX_FILE {
+                        return Err(ImportError::Container(
+                            "ZIP entry exceeded its size budget".into(),
+                        ));
+                    }
+                    files.insert(name, content);
+                } else if is_xfl_binary_media(&name) {
+                    let mut content = Vec::new();
+                    entry
+                        .by_ref()
+                        .take(MAX_FILE + 1)
+                        .read_to_end(&mut content)?;
+                    if content.len() as u64 > MAX_FILE {
+                        return Err(ImportError::Container(
+                            "ZIP entry exceeded its size budget".into(),
+                        ));
+                    }
+                    binary_files.insert(name, content);
                 }
-                files.insert(name, content);
             }
         }
         let format = if files.contains_key("DOMDocument.xml") {
@@ -133,6 +167,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             format,
             version: None,
             files,
+            binary_files,
             binary: None,
             swf: None,
         });
@@ -141,6 +176,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         format: ImportFormat::Unknown,
         version: None,
         files,
+        binary_files,
         binary: None,
         swf: None,
     })
@@ -169,7 +205,11 @@ pub(crate) fn safe_name(name: &str) -> Result<(), ImportError> {
     Ok(())
 }
 
-fn read_directory(root: &Path, files: &mut BTreeMap<String, String>) -> Result<(), ImportError> {
+fn read_directory(
+    root: &Path,
+    files: &mut BTreeMap<String, String>,
+    binary_files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<(), ImportError> {
     let root = root.canonicalize()?;
     let mut total = 0;
     let mut count = 0;
@@ -180,6 +220,7 @@ fn read_directory(root: &Path, files: &mut BTreeMap<String, String>) -> Result<(
         total: &mut u64,
         count: &mut usize,
         files: &mut BTreeMap<String, String>,
+        binary_files: &mut BTreeMap<String, Vec<u8>>,
     ) -> Result<(), ImportError> {
         if depth > 16 {
             return Err(ImportError::Container(
@@ -202,7 +243,15 @@ fn read_directory(root: &Path, files: &mut BTreeMap<String, String>) -> Result<(
                 )));
             }
             if kind.is_dir() {
-                walk(root, &entry.path(), depth + 1, total, count, files)?;
+                walk(
+                    root,
+                    &entry.path(),
+                    depth + 1,
+                    total,
+                    count,
+                    files,
+                    binary_files,
+                )?;
                 continue;
             }
             if !kind.is_file() {
@@ -215,14 +264,14 @@ fn read_directory(root: &Path, files: &mut BTreeMap<String, String>) -> Result<(
                     "directory exceeds 8 MiB per file or 64 MiB total limit".into(),
                 ));
             }
+            let rel_name = entry
+                .path()
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
             if entry.path().extension().is_some_and(|ext| ext == "xml") {
-                let name = entry
-                    .path()
-                    .strip_prefix(root)
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned();
-                safe_name(&name)?;
+                safe_name(&rel_name)?;
                 let mut content = String::new();
                 File::open(entry.path())?
                     .take(MAX_FILE + 1)
@@ -232,10 +281,22 @@ fn read_directory(root: &Path, files: &mut BTreeMap<String, String>) -> Result<(
                         "source file grew beyond limit".into(),
                     ));
                 }
-                files.insert(name, content);
+                files.insert(rel_name, content);
+            } else if is_xfl_binary_media(&rel_name) {
+                safe_name(&rel_name)?;
+                let mut content = Vec::new();
+                File::open(entry.path())?
+                    .take(MAX_FILE + 1)
+                    .read_to_end(&mut content)?;
+                if content.len() as u64 > MAX_FILE {
+                    return Err(ImportError::Container(
+                        "source file grew beyond limit".into(),
+                    ));
+                }
+                binary_files.insert(rel_name, content);
             }
         }
         Ok(())
     }
-    walk(&root, &root, 0, &mut total, &mut count, files)
+    walk(&root, &root, 0, &mut total, &mut count, files, binary_files)
 }

@@ -521,7 +521,8 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
     assert_eq!(legacy_preset.effect, SoundEffect::LeftChannel);
     assert!(context.report.diagnostics.is_empty());
 
-    // Non-preset custom envelope + trim points keep sound and emit fla_frame_sound warning:
+    // Non-preset custom envelope imports as SoundEffect::Custom without envelope warning,
+    // while in/out trim points still emit one fla_frame_sound warning:
     frame.sound_effect = Some(7); // 7 = Custom
     let mut custom_env = Vec::new();
     for (p, l, r) in [
@@ -544,8 +545,14 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
     let custom = context
         .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
         .unwrap();
-    assert_eq!(custom.effect, SoundEffect::None);
-    assert_eq!(context.report.diagnostics.len(), 2);
+    assert_eq!(custom.effect, SoundEffect::Custom);
+    let env_pts = custom.envelope.as_ref().unwrap();
+    assert_eq!(env_pts.len(), 3);
+    assert_eq!(env_pts[0], [0.0, 0.5, 0.5]);
+    assert!((env_pts[1][0] - (20_000.0 / 44_100.0)).abs() < 1e-12);
+    assert_eq!((env_pts[1][1], env_pts[1][2]), (1.0, 0.25));
+    assert_eq!(env_pts[2], [1.0, 0.0, 0.0]);
+    assert_eq!(context.report.diagnostics.len(), 1);
     assert!(
         context
             .report
@@ -561,7 +568,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
             .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
             .is_none()
     );
-    assert_eq!(context.report.diagnostics.len(), 3);
+    assert_eq!(context.report.diagnostics.len(), 2);
 }
 
 #[test]

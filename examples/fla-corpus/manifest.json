@@ -716,8 +716,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
-          "symbol_type"
+          "external_script_configuration"
         ]
       }
     },
@@ -736,8 +735,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
-          "symbol_type"
+          "external_script_configuration"
         ]
       }
     },
@@ -759,8 +757,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
-          "unsupported_assets"
+          "external_script_configuration"
         ]
       }
     },
@@ -781,8 +778,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
-          "unsupported_assets"
+          "external_script_configuration"
         ]
       }
     },
@@ -805,8 +801,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "external_script_configuration",
-          "unsupported_assets"
+          "external_script_configuration"
         ]
       }
     },

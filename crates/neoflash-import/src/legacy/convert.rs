@@ -580,6 +580,15 @@ impl Context<'_> {
                     .collect(),
             )
         };
+        let full_span_fade = |p0: u32, p1: u32| -> bool {
+            let dur = u64::from(asset.duration_44);
+            p0 <= 64
+                && if dur > 0 {
+                    u64::from(p1).abs_diff(dur) <= 64
+                } else {
+                    p1 > 0
+                }
+        };
         let classify_envelope = |pts: &[(u32, u16, u16)]| -> Option<SoundEffect> {
             if pts.is_empty() || pts.iter().all(|&(_, l, r)| l == 0x8000 && r == 0x8000) {
                 Some(SoundEffect::None)
@@ -587,35 +596,85 @@ impl Context<'_> {
                 Some(SoundEffect::LeftChannel)
             } else if pts.iter().all(|&(_, l, r)| l == 0 && r == 0x8000) {
                 Some(SoundEffect::RightChannel)
-            } else if let [(0, 0, 0), (_, 0x8000, 0x8000)] = pts {
+            } else if let [(p0, 0, 0), (p1, 0x8000, 0x8000)] = *pts
+                && full_span_fade(p0, p1)
+            {
                 Some(SoundEffect::FadeIn)
-            } else if let [(_, 0x8000, 0x8000), (_, 0, 0)] = pts {
+            } else if let [(p0, 0x8000, 0x8000), (p1, 0, 0)] = *pts
+                && full_span_fade(p0, p1)
+            {
                 Some(SoundEffect::FadeOut)
-            } else if let [(_, 0x8000, 0), (_, 0, 0x8000)] = pts {
+            } else if let [(p0, 0x8000, 0), (p1, 0, 0x8000)] = *pts
+                && full_span_fade(p0, p1)
+            {
                 Some(SoundEffect::FadeLeftToRight)
-            } else if let [(_, 0, 0x8000), (_, 0x8000, 0)] = pts {
+            } else if let [(p0, 0, 0x8000), (p1, 0x8000, 0)] = *pts
+                && full_span_fade(p0, p1)
+            {
                 Some(SoundEffect::FadeRightToLeft)
             } else {
                 None
             }
         };
-        let effect = match f.sound_effect {
-            Some(0) => SoundEffect::None,
-            Some(1) => SoundEffect::LeftChannel,
-            Some(2) => SoundEffect::RightChannel,
-            Some(3) => SoundEffect::FadeLeftToRight,
-            Some(4) => SoundEffect::FadeRightToLeft,
-            Some(5) => SoundEffect::FadeIn,
-            Some(6) => SoundEffect::FadeOut,
-            Some(7) | None => match envelope_points().as_deref().and_then(classify_envelope) {
-                Some(preset) => preset,
+        let (effect, envelope) = match f.sound_effect {
+            Some(1) => (SoundEffect::LeftChannel, None),
+            Some(2) => (SoundEffect::RightChannel, None),
+            Some(3) => (SoundEffect::FadeLeftToRight, None),
+            Some(4) => (SoundEffect::FadeRightToLeft, None),
+            Some(5) => (SoundEffect::FadeIn, None),
+            Some(6) => (SoundEffect::FadeOut, None),
+            Some(0) | Some(7) | None => match envelope_points() {
+                Some(mut pts) => match classify_envelope(&pts) {
+                    Some(preset) => (preset, None),
+                    None => {
+                        pts.sort_by_key(|p| p.0);
+                        if pts.len() > FrameSound::MAX_ENVELOPE_POINTS {
+                            self.report.warning(
+                                "fla_frame_sound",
+                                at,
+                                format!(
+                                    "Custom frame-sound envelope has {} points; truncated to {} points and full envelope data remains in the embedded source.",
+                                    pts.len(),
+                                    FrameSound::MAX_ENVELOPE_POINTS
+                                ),
+                            );
+                            pts.truncate(FrameSound::MAX_ENVELOPE_POINTS);
+                        }
+                        let max_mark = pts.iter().map(|p| u64::from(p.0)).max().unwrap_or(0);
+                        let denom = u64::from(asset.duration_44).max(max_mark);
+                        if pts.iter().any(|&(_, l, r)| l > 0x8000 || r > 0x8000) {
+                            self.report.warning(
+                                "fla_frame_sound",
+                                at,
+                                "Custom frame-sound envelope gain above 100% was clamped to 1.0; original envelope levels remain in the embedded source.",
+                            );
+                        }
+                        let mut prev_pos = 0.0_f64;
+                        let points = pts
+                            .into_iter()
+                            .map(|(mark44, l, r)| {
+                                let pos = if denom == 0 {
+                                    0.0
+                                } else {
+                                    (u64::from(mark44) as f64 / denom as f64).clamp(0.0, 1.0)
+                                }
+                                .max(prev_pos);
+                                prev_pos = pos;
+                                let left = (f64::from(l) / 32768.0).clamp(0.0, 1.0);
+                                let right = (f64::from(r) / 32768.0).clamp(0.0, 1.0);
+                                [pos, left, right]
+                            })
+                            .collect();
+                        (SoundEffect::Custom, Some(points))
+                    }
+                },
                 None => {
                     self.report.warning(
                         "fla_frame_sound",
                         at,
-                        "Custom frame-sound envelope is approximated without gain automation; the envelope points remain in the embedded source.",
+                        "Corrupt frame-sound envelope span could not be decoded; imported without gain automation and original bytes remain in the embedded source.",
                     );
-                    SoundEffect::None
+                    (SoundEffect::None, None)
                 }
             },
             Some(other) => {
@@ -626,7 +685,7 @@ impl Context<'_> {
                         "Unknown frame-sound effect {other}; imported without an effect preset."
                     ),
                 );
-                SoundEffect::None
+                (SoundEffect::None, None)
             }
         };
         let in_trimmed = f.sound_in_point.unwrap_or(0) > 0;
@@ -648,7 +707,7 @@ impl Context<'_> {
             loops,
             loop_forever,
             effect,
-            envelope: None,
+            envelope,
         })
     }
     fn actions(

@@ -245,8 +245,8 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
     // Media 2: codec 2 (MP3 -> 0x20) | 44.1kHz (0x0c) | 16-bit (0x02) -> 0x2e, 8 encoded bytes
     cmedia_sound(&mut contents, "Media 2", "Theme.mp3", 2, 0x2e, 576, 8);
     u16b(&mut contents, 0x8003);
-    // Media 3: codec 1 (ADPCM -> 0x10) | 22.05kHz (0x08) | 16-bit (0x02) -> 0x1a, 4 encoded bytes
-    cmedia_sound(&mut contents, "Media 3", "VoiceAdpcm.wav", 3, 0x1a, 32, 4);
+    // Media 3: codec 1 (ADPCM -> 0x10) | 22.05kHz (0x08) | 16-bit (0x02) -> 0x1a, 4 samples (5 encoded bytes)
+    cmedia_sound(&mut contents, "Media 3", "VoiceAdpcm.wav", 3, 0x1a, 4, 5);
     u16b(&mut contents, 0); // end media list
     u16b(&mut contents, 3); // media_counter
 
@@ -270,7 +270,7 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
     u32b(&mut contents, 20);
 
     // Build Page 1 stream with 3 keyframes on 1 layer:
-    // Frame 0 (dur 2): Media 1 (PCM), Stream (3), loops=1, FadeIn (4)
+    // Frame 0 (dur 2): Media 1 (PCM), Stream (3), loops=1, FadeIn (5)
     // Frame 2 (dur 2): Media 2 (MP3), Start (1), loop_forever (0x7fff), None (0)
     // Frame 4 (dur 1): Media 3 (ADPCM), Event (0), loops=2, None (0)
     let mut page = vec![1];
@@ -300,7 +300,8 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
 
     let pcm_bytes = [0x00_u8, 0x10, 0x00, 0x20, 0x00, 0xf0, 0x00, 0xe0];
     let mp3_bytes = [0xff_u8, 0xfb, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00];
-    let adpcm_bytes = [0xaa_u8, 0xbb, 0xcc, 0xdd];
+    // 4-bit mono ADPCM (code_size_index=2): initial=1000, step_index=10, codes=[0x4, 0xa, 0x1]
+    let adpcm_bytes = [0x80_u8, 0xfa, 0x0a, 0x4a, 0x10];
 
     let mut compound = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
     compound
@@ -336,21 +337,14 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
     let report = inspect(&fla_path).unwrap();
     assert_eq!(report.format, ImportFormat::LegacyBinaryFla);
     assert!(report.can_import, "{:?}", report.diagnostics);
-    // Only Media 3 (ADPCM) should emit fla_media_not_imported and fla_frame_sound:
-    let media_warns: Vec<_> = report
-        .diagnostics
-        .iter()
-        .filter(|d| d.code == "fla_media_not_imported")
-        .collect();
-    assert_eq!(media_warns.len(), 1, "{:?}", report.diagnostics);
-    assert_eq!(media_warns[0].location, "media 3");
-    assert!(media_warns[0].message.contains("ADPCM"));
-    let frame_sound_warns: Vec<_> = report
-        .diagnostics
-        .iter()
-        .filter(|d| d.code == "fla_frame_sound")
-        .collect();
-    assert_eq!(frame_sound_warns.len(), 1, "{:?}", report.diagnostics);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| d.code != "fla_media_not_imported" && d.code != "fla_frame_sound"),
+        "{:?}",
+        report.diagnostics
+    );
 
     let project = import_project(&fla_path).unwrap();
     project.validate().unwrap();
@@ -376,6 +370,28 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
     assert!(mp3_res.path.ends_with("Theme.mp3"));
     assert_eq!(mp3_res.decoded_bytes().unwrap(), mp3_bytes);
 
+    let adpcm_res = project
+        .resources
+        .iter()
+        .find(|r| r.id == "legacy-sound-3")
+        .unwrap();
+    assert_eq!(adpcm_res.media_type, "audio/wav");
+    assert!(adpcm_res.path.ends_with("VoiceAdpcm.wav"));
+    let adpcm_decoded = adpcm_res.decoded_bytes().unwrap();
+    assert_eq!(&adpcm_decoded[0..4], b"RIFF");
+    assert_eq!(
+        u32::from_le_bytes(adpcm_decoded[24..28].try_into().unwrap()),
+        22_050
+    );
+    let adpcm_samples: Vec<i16> = adpcm_decoded[44..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .copied()
+        .map(i16::from_le_bytes)
+        .collect();
+    assert_eq!(adpcm_samples, vec![1000, 1021, 1008, 1015]);
+
     let root = project.symbol(&project.root).unwrap();
     let kfs = &root.timeline.layers[0].keyframes;
     assert_eq!(kfs.len(), 3);
@@ -387,7 +403,12 @@ fn binary_fla_imports_pcm_wav_and_mp3_sounds_with_frame_sounds_and_warns_on_adpc
     assert_eq!(s1.resource, "legacy-sound-2");
     assert_eq!(s1.sync, SoundSync::Start);
     assert!(s1.loop_forever);
-    assert!(kfs[2].sound.is_none());
+    let s2 = kfs[2].sound.as_ref().unwrap();
+    assert_eq!(s2.resource, "legacy-sound-3");
+    assert_eq!(s2.sync, SoundSync::Event);
+    assert_eq!(s2.loops, 2);
+    assert!(!s2.loop_forever);
+    assert_eq!(s2.effect, SoundEffect::None);
 
     // Runtime Player schedules imported frame sounds cleanly:
     let mut player = Player::new(&project);

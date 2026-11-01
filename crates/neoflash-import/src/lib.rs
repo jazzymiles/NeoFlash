@@ -144,7 +144,7 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
     };
     let project = match source.format {
         ImportFormat::XflDirectory | ImportFormat::XflArchive => {
-            xfl::convert(&source.files, &mut report)
+            xfl::convert(&source.files, &source.binary_files, &mut report)
         }
         ImportFormat::LegacyBinaryFla => source
             .binary

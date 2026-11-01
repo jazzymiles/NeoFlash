@@ -155,7 +155,7 @@ fn convex_triangle_is_general_and_shape_matrix_is_retained() {
 }
 
 #[test]
-fn refuses_unrepresentable_strokes_and_partial_stroke_coverage() {
+fn imports_hairline_non_round_and_partial_strokes_and_refuses_invalid_strokes() {
     for change in [
         STROKE.replace("normal", "none"),
         STROKE.replace(" scaleMode=\"normal\"", ""),
@@ -177,15 +177,58 @@ fn refuses_unrepresentable_strokes_and_partial_stroke_coverage() {
             "scaleMode=\"normal\" sharpCorners=\"true\"",
         ),
     ] {
+        let source = Source::new(&shape(
+            &edge(SQUARE, r#"fillStyle1="1" strokeStyle="1""#),
+            &change,
+        ));
+        let report = inspect(&source.0).unwrap();
+        assert!(report.can_import, "{:?}", report.diagnostics);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Warning && d.code == "xfl_stroke_rendering"),
+            "expected xfl_stroke_rendering warning for {change}; got {:?}",
+            report.diagnostics
+        );
+        let project = import_project(&source.0).unwrap();
+        project.validate().unwrap();
+        let items = evaluate(&project, &project.root, 0);
+        assert_eq!(items.len(), 2);
+        assert!(matches!(
+            &items[1].kind,
+            ElementKind::PaintedPath { stroke_width, .. } if *stroke_width == 1.0
+        ));
+    }
+
+    // Partial stroke coverage (only two sides of the filled square are stroked).
+    let partial_edges = [
+        edge("!0 0|400 0", r#"fillStyle1="1" strokeStyle="1""#),
+        edge("!400 0|400 400|0 400|0 0", r#"fillStyle1="1""#),
+    ]
+    .join("");
+    let partial_source = Source::new(&shape(&partial_edges, STROKE));
+    let partial_project = import_project(&partial_source.0).unwrap();
+    partial_project.validate().unwrap();
+    assert_eq!(
+        evaluate(&partial_project, &partial_project.root, 0).len(),
+        2
+    );
+
+    // Invalid stroke parameters and dangling stroke style references are still refused.
+    for bad in [
+        STROKE.replace("scaleMode=\"normal\"", "scaleMode=\"normal\" weight=\"-1\""),
+        STROKE.replace("scaleMode=\"normal\"", "scaleMode=\"normal\" caps=\"butt\""),
+        STROKE.replace(
+            "scaleMode=\"normal\"",
+            "scaleMode=\"normal\" joints=\"sharp\"",
+        ),
+    ] {
         reject(
-            &shape(&edge(SQUARE, r#"fillStyle1="1" strokeStyle="1""#), &change),
+            &shape(&edge(SQUARE, r#"fillStyle1="1" strokeStyle="1""#), &bad),
             "xfl_shape_stroke",
         );
     }
-    reject(
-        &shape(&edge(SQUARE, r#"fillStyle1="1""#), STROKE),
-        "xfl_shape_stroke_topology",
-    );
     reject(
         &shape(&edge(SQUARE, r#"fillStyle1="1" strokeStyle="2""#), STROKE),
         "xfl_shape_stroke_topology",
@@ -197,7 +240,7 @@ fn refuses_unrepresentable_strokes_and_partial_stroke_coverage() {
 }
 
 #[test]
-fn refuses_unknown_missing_or_unused_paints_and_style_indices() {
+fn refuses_unknown_missing_paints_and_style_indices_and_allows_unused_declared_styles() {
     for attrs in ["", r#"fillStyle1="2""#, r#"fillStyle0="1" fillStyle1="1""#] {
         reject(
             &shape(&edge(SQUARE, attrs), ""),
@@ -220,13 +263,6 @@ fn refuses_unknown_missing_or_unused_paints_and_style_indices() {
         "xfl_shape_paint",
     );
     reject(
-        &no_stroke(SQUARE).replace(
-            "</fills>",
-            "<FillStyle index=\"2\"><SolidColor/></FillStyle></fills>",
-        ),
-        "xfl_shape_fill",
-    );
-    reject(
         &shape(
             &edge(SQUARE, r#"fillStyle1="1" strokeStyle="1""#),
             &STROKE.replace(
@@ -236,16 +272,49 @@ fn refuses_unknown_missing_or_unused_paints_and_style_indices() {
         ),
         "xfl_shape_stroke",
     );
+
+    // Unused declared fill styles in <fills> are harmless in authored XFL documents.
+    let unused_fill = Source::new(&no_stroke(SQUARE).replace(
+        "</fills>",
+        "<FillStyle index=\"2\"><SolidColor color=\"#00FF00\"/></FillStyle></fills>",
+    ));
+    let project = import_project(&unused_fill.0).unwrap();
+    project.validate().unwrap();
+    assert_eq!(evaluate(&project, &project.root, 0).len(), 1);
 }
 
 #[test]
-fn rejects_unsupported_edge_syntax_instead_of_skipping_tokens() {
+fn parses_curves_decimal_and_hex_twips_and_rejects_malformed_edge_syntax() {
+    // Closed quadratic curves ([ and ]), decimal fractions, 24.8 signed hex twips, and cubics hints.
+    let curved = Source::new(
+        r##"<DOMShape><fills><FillStyle index="1"><SolidColor color="#FF0000"/></FillStyle></fills><edges><Edge fillStyle1="1" edges="!0.5 -0.5[100 0 #C8.00 #64.00]#FFFFFF.80 200 0.5 -0.5"/><Edge cubics="!0 0(;0,0 100,0 200,100)q0 0 200 100;"/></edges></DOMShape>"##,
+    );
+    let report = inspect(&curved.0).unwrap();
+    assert!(report.can_import, "{:?}", report.diagnostics);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.code == "xfl_cubic_editing_metadata")
+    );
+    let project = import_project(&curved.0).unwrap();
+    project.validate().unwrap();
+    let items = evaluate(&project, &project.root, 0);
+    assert_eq!(items.len(), 1);
+    let ElementKind::PaintedPath { commands, .. } = &items[0].kind else {
+        panic!("expected PaintedPath")
+    };
+    assert!(
+        commands
+            .iter()
+            .any(|c| matches!(c, PathCommand::QuadraticTo { .. }))
+    );
+
     for (commands, code) in [
-        ("!0 0[100 0 100 100", "xfl_shape_curve_unsupported"),
-        ("!0 0]100 0 100 100", "xfl_shape_curve_unsupported"),
-        ("!0.5 0|100 0", "xfl_shape_coordinate"),
-        ("!#A.00 0|100 0", "xfl_shape_coordinate"),
         ("!2147483648 0|100 0", "xfl_shape_coordinate"),
+        ("!#1234567.00 0|100 0", "xfl_shape_coordinate"),
+        ("!#A.123 0|100 0", "xfl_shape_coordinate"),
+        ("!1e2 0|100 0", "xfl_shape_coordinate"),
         ("!0 0S8|100 0", "xfl_shape_selection"),
         ("!0 0S12|100 0", "xfl_shape_selection"),
         ("|100 0", "xfl_shape_edges"),
@@ -259,27 +328,60 @@ fn rejects_unsupported_edge_syntax_instead_of_skipping_tokens() {
 }
 
 #[test]
-fn rejects_open_branching_duplicate_and_multiple_contours() {
+fn rejects_open_branching_and_duplicate_fill_contours_and_imports_islands_and_holes() {
     for commands in [
         "!0 0|100 0|100 100|0 100",
+        "!0 0[100 0 100 100",
         "!0 0|100 0|100 100|0 0!0 0|200 0",
         "!0 0|100 0|100 100|0 0!0 0|100 0",
-        "!0 0|0 0|100 0|100 100|0 0",
-        "!0 0|100 0|0 100|0 0!200 200|300 200|200 300|200 200",
+        "!0 0|0 0",
     ] {
         reject(&no_stroke(commands), "xfl_shape_topology");
     }
+
+    // Zero-length segments inside an otherwise valid closed fill contour are ignored, and
+    // disjoint islands + interior holes (with interior bridge seams) assemble cleanly.
+    let donut_edges = [
+        edge("!0 0|0 0|400 0|400 400|0 400|0 0", r#"fillStyle1="1""#),
+        edge(
+            "!100 100|100 300|300 300|300 100|100 100",
+            r#"fillStyle1="1""#,
+        ),
+        edge("!0 0|100 100", r#"fillStyle0="1" fillStyle1="1""#),
+        edge("!500 0|600 0|500 100|500 0", r#"fillStyle1="1""#),
+    ]
+    .join("");
+    let donut_source = Source::new(&shape(&donut_edges, ""));
+    let project = import_project(&donut_source.0).unwrap();
+    project.validate().unwrap();
+    let items = evaluate(&project, &project.root, 0);
+    assert_eq!(items.len(), 1);
+    let ElementKind::PaintedPath { commands, .. } = &items[0].kind else {
+        panic!("expected PaintedPath")
+    };
+    let closes = commands
+        .iter()
+        .filter(|c| matches!(c, PathCommand::Close))
+        .count();
+    assert_eq!(closes, 3);
 }
 
 #[test]
-fn rejects_concave_self_intersecting_star_and_collinear_contours() {
+fn imports_concave_self_intersecting_star_and_collinear_contours() {
     for commands in [
         "!0 0|100 0|50 50|100 100|0 100|0 0",
         "!0 0|100 100|0 100|100 0|0 0",
         "!0 -100|59 81|-95 -31|95 -31|-59 81|0 -100",
         "!0 0|50 0|100 0|100 100|0 100|0 0",
     ] {
-        reject(&no_stroke(commands), "xfl_shape_convexity");
+        let source = Source::new(&no_stroke(commands));
+        let report = inspect(&source.0).unwrap();
+        assert!(report.can_import, "{:?}", report.diagnostics);
+        let project = import_project(&source.0).unwrap();
+        project.validate().unwrap();
+        let items = evaluate(&project, &project.root, 0);
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0].kind, ElementKind::PaintedPath { .. }));
     }
 }
 
@@ -301,8 +403,16 @@ fn validates_xml_semantics_and_resource_limits() {
         &no_stroke(SQUARE).replace("<edges>", "<edges><Unknown/>"),
         "unsupported_element",
     );
+    let half = format!("!0 0{}", "|20 20".repeat(8_200));
     reject(
-        &no_stroke(&format!("!0 0{}", "|20 20".repeat(513))),
+        &shape(
+            &format!(
+                "{}{}",
+                edge(&half, r#"fillStyle1="1""#),
+                edge(&half, r#"fillStyle1="1""#),
+            ),
+            "",
+        ),
         "xfl_shape_limit",
     );
     reject(

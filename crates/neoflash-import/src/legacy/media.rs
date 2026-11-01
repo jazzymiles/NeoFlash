@@ -367,10 +367,221 @@ fn looks_like_mp3(bytes: &[u8]) -> bool {
     (start..end).any(|i| is_mpeg_frame_header(bytes[i..i + 4].try_into().unwrap()))
 }
 
+const ADPCM_STEP_TABLE: [i32; 89] = [
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66,
+    73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449,
+    494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272,
+    2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493,
+    10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
+];
+const ADPCM_INDEX_2: [i32; 2] = [-1, 2];
+const ADPCM_INDEX_3: [i32; 4] = [-1, -1, 2, 4];
+const ADPCM_INDEX_4: [i32; 8] = [-1, -1, -1, -1, 2, 4, 6, 8];
+const ADPCM_INDEX_5: [i32; 16] = [-1, -1, -1, -1, -1, -1, -1, -1, 1, 2, 4, 6, 8, 10, 13, 16];
+
+struct MsbBitReader<'a> {
+    bytes: &'a [u8],
+    bit_pos: usize,
+}
+impl<'a> MsbBitReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, bit_pos: 0 }
+    }
+    fn remaining_bits(&self) -> usize {
+        self.bytes
+            .len()
+            .saturating_mul(8)
+            .saturating_sub(self.bit_pos)
+    }
+    fn read_bits(&mut self, count: usize) -> u32 {
+        debug_assert!(count <= 24 && count <= self.remaining_bits());
+        let mut value = 0_u32;
+        let mut left = count;
+        while left > 0 {
+            let byte_idx = self.bit_pos >> 3;
+            let bit_in_byte = self.bit_pos & 7;
+            let avail = 8 - bit_in_byte;
+            let take = left.min(avail);
+            let shift = avail - take;
+            let mask = ((1_u32 << take) - 1) as u8;
+            let chunk = (self.bytes[byte_idx] >> shift) & mask;
+            value = (value << take) | u32::from(chunk);
+            self.bit_pos += take;
+            left -= take;
+        }
+        value
+    }
+}
+
+fn wrap_pcm_wav(
+    pcm: &[u8],
+    channels: u16,
+    sample_rate_hz: u32,
+    bits_per_sample: u16,
+) -> Result<Vec<u8>> {
+    let block_align = channels * (bits_per_sample / 8);
+    let count = pcm.len();
+    let pad = count & 1;
+    let wav_len = 44usize
+        .checked_add(count)
+        .and_then(|n| n.checked_add(pad))
+        .filter(|&n| n <= neoflash_core::MAX_RESOURCE_BYTES)
+        .ok_or_else(|| {
+            error(
+                "fla_sound_limit",
+                0,
+                "WAV output exceeds the 16 MiB resource limit.",
+            )
+        })?;
+    let riff_chunk_size = (36 + count + pad) as u32;
+    let byte_rate = sample_rate_hz * u32::from(block_align);
+    let mut wav = Vec::with_capacity(wav_len);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&riff_chunk_size.to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&channels.to_le_bytes());
+    wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&block_align.to_le_bytes());
+    wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(count as u32).to_le_bytes());
+    wav.extend_from_slice(pcm);
+    if pad != 0 {
+        wav.push(0);
+    }
+    Ok(wav)
+}
+
+fn decode_flash_adpcm(
+    primary: &[u8],
+    channels: u16,
+    sample_rate_hz: u32,
+    scale_44: u64,
+    sample_count: u32,
+    short_read: bool,
+) -> Result<DecodedBinarySound> {
+    let ch_count = usize::from(channels);
+    let mut bits = MsbBitReader::new(primary);
+    if bits.remaining_bits() < 2 + 22 * ch_count {
+        return Err(error(
+            "fla_sound_truncated",
+            0,
+            "ADPCM media stream ends before the first block header.",
+        ));
+    }
+    let code_size_index = bits.read_bits(2) as usize;
+    let adpcm_bits = code_size_index + 2;
+    let index_table: &[i32] = match adpcm_bits {
+        2 => &ADPCM_INDEX_2,
+        3 => &ADPCM_INDEX_3,
+        4 => &ADPCM_INDEX_4,
+        _ => &ADPCM_INDEX_5,
+    };
+    let sign_mask = 1usize << (adpcm_bits - 1);
+    let mag_mask = sign_mask - 1;
+    let frame_pcm_bytes = ch_count * 2;
+    let max_pcm_bytes = neoflash_core::MAX_RESOURCE_BYTES - 44;
+    let bounded_hint = primary.len().saturating_mul(10).min(max_pcm_bytes);
+    let reserve = if sample_count > 0 {
+        (sample_count as usize)
+            .saturating_mul(frame_pcm_bytes)
+            .min(bounded_hint)
+    } else {
+        bounded_hint
+    };
+    let mut pcm = Vec::with_capacity(reserve);
+    let target_frames = (sample_count > 0).then_some(sample_count as usize);
+    let mut decoded_frames = 0usize;
+    let mut truncated_bitstream = false;
+
+    'blocks: loop {
+        if target_frames.is_some_and(|t| decoded_frames >= t) {
+            break 'blocks;
+        }
+        if bits.remaining_bits() < 22 * ch_count {
+            if target_frames.is_some() || bits.remaining_bits() >= 8 {
+                truncated_bitstream = true;
+            }
+            break 'blocks;
+        }
+        if 44 + pcm.len() + frame_pcm_bytes > neoflash_core::MAX_RESOURCE_BYTES {
+            return Err(error(
+                "fla_sound_budget",
+                0,
+                "Decoded ADPCM WAV exceeds the 16 MiB resource limit.",
+            ));
+        }
+        let mut predictor = [0_i32; 2];
+        let mut step_index = [0_i32; 2];
+        for ch in 0..ch_count {
+            let initial = (bits.read_bits(16) as u16 as i16) as i32;
+            let idx = (bits.read_bits(6) as i32).clamp(0, 88);
+            predictor[ch] = initial;
+            step_index[ch] = idx;
+            pcm.extend_from_slice(&(initial as i16).to_le_bytes());
+        }
+        decoded_frames += 1;
+
+        for _ in 1..4096 {
+            if target_frames.is_some_and(|t| decoded_frames >= t) {
+                break 'blocks;
+            }
+            if bits.remaining_bits() < adpcm_bits * ch_count {
+                if target_frames.is_some() || bits.remaining_bits() >= 8 {
+                    truncated_bitstream = true;
+                }
+                break 'blocks;
+            }
+            if 44 + pcm.len() + frame_pcm_bytes > neoflash_core::MAX_RESOURCE_BYTES {
+                return Err(error(
+                    "fla_sound_budget",
+                    0,
+                    "Decoded ADPCM WAV exceeds the 16 MiB resource limit.",
+                ));
+            }
+            for ch in 0..ch_count {
+                let code = bits.read_bits(adpcm_bits) as usize;
+                let mag = code & mag_mask;
+                let step = ADPCM_STEP_TABLE[step_index[ch] as usize];
+                let mut diff = step >> (adpcm_bits - 1);
+                for bit in 0..(adpcm_bits - 1) {
+                    if (mag & (1 << (adpcm_bits - 2 - bit))) != 0 {
+                        diff += step >> bit;
+                    }
+                }
+                if (code & sign_mask) != 0 {
+                    predictor[ch] = (predictor[ch] - diff).clamp(-32768, 32767);
+                } else {
+                    predictor[ch] = (predictor[ch] + diff).clamp(-32768, 32767);
+                }
+                step_index[ch] = (step_index[ch] + index_table[mag]).clamp(0, 88);
+                pcm.extend_from_slice(&(predictor[ch] as i16).to_le_bytes());
+            }
+            decoded_frames += 1;
+        }
+    }
+
+    let wav = wrap_pcm_wav(&pcm, channels, sample_rate_hz, 16)?;
+    let duration_44 = (decoded_frames as u64)
+        .saturating_mul(scale_44)
+        .min(u64::from(u32::MAX)) as u32;
+    Ok(DecodedBinarySound {
+        media_type: "audio/wav",
+        extension: "wav",
+        bytes: wav,
+        duration_44,
+        short_read: short_read || truncated_bitstream,
+    })
+}
+
 /// Decode a sound media stream into a standalone `audio/wav` or `audio/mpeg`
-/// payload. Codecs without a standalone source container (ADPCM, GSM,
-/// Nellymoser) return an explicit error so conversion can warn and keep the
-/// original stream in provenance without failing the document.
+/// payload. Flash ADPCM streams are decoded into 16-bit signed PCM WAV. Codecs
+/// without a standalone decoder (GSM, Nellymoser) return an explicit error so
+/// conversion can warn and keep the original stream in provenance without
+/// failing the document.
 pub fn decode_binary_sound(
     bytes: &[u8],
     subtype_revision: u8,
@@ -400,7 +611,9 @@ pub fn decode_binary_sound(
     let scale_44 = 1_u64 << (3 - rate_code);
 
     let encoded = settings.encoded_byte_count.unwrap_or(0) as usize;
-    let expected = if codec_id != 0 && encoded > 0 {
+    let expected = if !matches!(codec_id, 0 | 3) {
+        if encoded > 0 { encoded } else { bytes.len() }
+    } else if codec_id != 0 && encoded > 0 {
         encoded
     } else {
         pcm_byte_count(flags, settings.sample_count)
@@ -450,37 +663,7 @@ pub fn decode_binary_sound(
                     "Sound media stream contains no complete PCM sample frames.",
                 ));
             }
-            let pad = count & 1;
-            let wav_len = 44usize
-                .checked_add(count)
-                .and_then(|n| n.checked_add(pad))
-                .filter(|&n| n <= neoflash_core::MAX_RESOURCE_BYTES)
-                .ok_or_else(|| {
-                    error(
-                        "fla_sound_limit",
-                        0,
-                        "WAV output exceeds the 16 MiB resource limit.",
-                    )
-                })?;
-            let riff_chunk_size = (36 + count + pad) as u32;
-            let byte_rate = sample_rate_hz * u32::from(block_align);
-            let mut wav = Vec::with_capacity(wav_len);
-            wav.extend_from_slice(b"RIFF");
-            wav.extend_from_slice(&riff_chunk_size.to_le_bytes());
-            wav.extend_from_slice(b"WAVEfmt ");
-            wav.extend_from_slice(&16_u32.to_le_bytes());
-            wav.extend_from_slice(&1_u16.to_le_bytes());
-            wav.extend_from_slice(&channels.to_le_bytes());
-            wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
-            wav.extend_from_slice(&byte_rate.to_le_bytes());
-            wav.extend_from_slice(&block_align.to_le_bytes());
-            wav.extend_from_slice(&bits_per_sample.to_le_bytes());
-            wav.extend_from_slice(b"data");
-            wav.extend_from_slice(&(count as u32).to_le_bytes());
-            wav.extend_from_slice(&primary[..count]);
-            if pad != 0 {
-                wav.push(0);
-            }
+            let wav = wrap_pcm_wav(&primary[..count], channels, sample_rate_hz, bits_per_sample)?;
             let actual_samples = (count / block) as u64;
             let duration_44 = (actual_samples * scale_44).min(u64::from(u32::MAX)) as u32;
             Ok(DecodedBinarySound {
@@ -491,6 +674,14 @@ pub fn decode_binary_sound(
                 short_read,
             })
         }
+        1 => decode_flash_adpcm(
+            primary,
+            channels,
+            sample_rate_hz,
+            scale_44,
+            settings.sample_count,
+            short_read,
+        ),
         2 => {
             if primary.is_empty() {
                 return Err(error("fla_sound_empty", 0, "MP3 media stream is empty."));
@@ -519,11 +710,6 @@ pub fn decode_binary_sound(
                 short_read,
             })
         }
-        1 => Err(error(
-            "fla_sound_codec_unsupported",
-            0,
-            "ADPCM sound codec is not supported for editable audio import.",
-        )),
         4 => Err(error(
             "fla_sound_codec_unsupported",
             0,
@@ -799,8 +985,40 @@ mod tests {
             "fla_sound_format"
         );
 
-        // ADPCM (1), Nellymoser (4, 5, 6), GSM (9) produce explicit unsupported codec error:
-        for codec in [1_u8, 4, 5, 6, 9] {
+        // Flash ADPCM (codec 1 -> 1<<4 = 0x10): 4-bit mono (code_size_index = 2 -> 0b10),
+        // initial_sample = 1000 (0x03e8), step_index = 0, delta code = 0b0100 (mag 4 -> +step 7 = 1007):
+        // Bits: 10 | 00000011_11101000 | 000000 | 0100 | 0000(pad)
+        //     = 1000_0000 1111_1010 0000_0000 0100_0000 = [0x80, 0xfa, 0x00, 0x40]
+        let adpcm =
+            decode_binary_sound(&[0x80, 0xfa, 0x00, 0x40], 8, &settings(0x1a, 2, Some(4))).unwrap();
+        assert_eq!(adpcm.media_type, "audio/wav");
+        assert!(!adpcm.short_read);
+        assert_eq!(adpcm.bytes.len(), 44 + 4);
+        assert_eq!(i16::from_le_bytes([adpcm.bytes[44], adpcm.bytes[45]]), 1000);
+        assert_eq!(i16::from_le_bytes([adpcm.bytes[46], adpcm.bytes[47]]), 1007);
+        // sample_count == 0 decodes until insufficient bits remain (3 frames in 4 bytes = 28 bits + 4 bits):
+        let adpcm_zero_count =
+            decode_binary_sound(&[0x80, 0xfa, 0x00, 0x40], 8, &settings(0x1a, 0, None)).unwrap();
+        assert!(!adpcm_zero_count.short_read);
+        assert_eq!(adpcm_zero_count.bytes.len(), 44 + 6);
+        // Corrupt huge sample_count does not blindly pre-allocate and marks short_read:
+        let adpcm_huge_count = decode_binary_sound(
+            &[0x80, 0xfa, 0x00, 0x40],
+            8,
+            &settings(0x1a, u32::MAX, Some(4)),
+        )
+        .unwrap();
+        assert!(adpcm_huge_count.short_read);
+        assert_eq!(adpcm_huge_count.bytes.len(), 44 + 6);
+        assert_eq!(
+            decode_binary_sound(&[0x80, 0xfa], 8, &settings(0x1a, 2, Some(2)))
+                .unwrap_err()
+                .code,
+            "fla_sound_truncated"
+        );
+
+        // GSM (4), Nellymoser (5, 6), and unknown codecs (9) produce explicit unsupported codec error:
+        for codec in [4_u8, 5, 6, 9] {
             assert_eq!(
                 decode_binary_sound(&[1, 2, 3, 4], 8, &settings(codec << 4, 4, Some(4)))
                     .unwrap_err()

@@ -2163,8 +2163,8 @@
       "category": "imports",
       "title": "XFL and ZIP-FLA to project",
       "status": "partial",
-      "scope": "Multiple scenes (`DOMTimeline`), library symbols and folders, normal/guide/mask/folder layers, held keys, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), labels, nested instances (including Graphic `firstFrame` offsets), non-singular 2D affine matrices (including skew) and alpha, primitives, simple static text, single-fill straight convex `DOMShape` polygons and unfilled single-stroke straight/quadratic `DOMShape` paths. Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
-      "limitations": "One unchanged real CS6 FLA has browser acceptance. Concave/curved filled `DOMShape` contours, media/bitmap/font assets, rich/dynamic text, CS4+ motion-object/IK layers and multi-segment/per-property custom eases remain incomplete. Adjacent non-tweened same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
+      "scope": "Multiple scenes (`DOMTimeline`), library symbols (MovieClip, Graphic, 4-frame Button) and folders, normal/guide/mask/folder layers, held keys, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), labels, nested instances (including Graphic `firstFrame` offsets and Button placements), non-singular 2D affine matrices (including skew) and alpha, primitives, simple static text, general `DOMShape` compound contours (concave, holes, islands, straight/quadratic edges, decimal and `#hex` 24.8 twips) with solid, linear and radial gradient fills/strokes (`ElementKind::PaintedPath`, while keeping `ElementKind::Path` for simple convex polygons and stroke chains), PNG/JPEG/`bin/*.dat` bitmaps with `DOMBitmapInstance` placements, WAV/MP3/`bin/*.dat` sounds, and `DOMFrame` timeline frame sounds (presets and format-7 custom `<SoundEnvelope>`s). Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
+      "limitations": "One unchanged real CS6 FLA has browser acceptance. `<BitmapFill>` and patterned strokes are approximated with warnings; video/font library assets, bitmap/sound AS3 linkage, rich/dynamic text, CS4+ motion-object/IK layers and multi-segment/per-property custom eases remain incomplete. Adjacent non-tweened same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
       "items": [
         {
           "id": "xfl-zip-fla",
@@ -2174,6 +2174,11 @@
         {
           "id": "scene-library",
           "title": "Scenes, library folders and nested instances",
+          "status": "working"
+        },
+        {
+          "id": "buttons",
+          "title": "Button symbols and placements",
           "status": "working"
         },
         {
@@ -2198,7 +2203,7 @@
         },
         {
           "id": "shapes",
-          "title": "Convex filled shapes and single-stroke straight/quadratic paths",
+          "title": "General DOMShape contours, holes, curves and linear/radial gradients",
           "status": "partial"
         },
         {
@@ -2208,8 +2213,8 @@
         },
         {
           "id": "media",
-          "title": "Media",
-          "status": "planned"
+          "title": "PNG/JPEG/WAV/MP3 media, binary caches and timeline frame sounds",
+          "status": "partial"
         },
         {
           "id": "rich-text",
@@ -2223,8 +2228,11 @@
         }
       ],
       "evidence": [
+        "crates/neoflash-import/src/source.rs",
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/shape.rs",
+        "crates/neoflash-import/tests/xfl_parity_batch.rs",
+        "crates/neoflash-import/tests/xfl_shapes.rs",
         "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/public_fla.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
@@ -2438,8 +2446,8 @@
       "category": "imports",
       "title": "Binary FLA to editable document",
       "status": "partial",
-      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps, uncompressed PCM (`audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever and preset effects) and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits, and oversized documents fit within the 128 MiB project JSON budget by shedding largest media first, compacting provenance placement tables and degrading excess later vector paths to placeholders with warnings. 105 of 106 local documents import (every non-empty file) and every one round-trips save/reopen unchanged.",
-      "limitations": "Filters, blend modes, 3D, compressed legacy audio codecs (ADPCM/GSM/Nellymoser), custom multi-point sound envelopes/trim points, video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. Documents whose converted media and geometry exceed the 128 MiB project JSON limit shed oversized media or later vector paths to placeholders rather than streaming unbounded assets. Font metrics may differ; output is not claimed pixel-identical to Flash.",
+      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps, uncompressed PCM and compressed Flash ADPCM (`codec_id == 1`, 2/3/4/5-bit mono and stereo decoded to 16-bit PCM `audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever, preset effects and format-7 custom multi-point stereo envelopes via `SoundEffect::Custom` / `FrameSound.envelope`) and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits, and oversized documents fit within the 128 MiB project JSON budget by shedding largest media first, compacting provenance placement tables and degrading excess later vector paths to placeholders with warnings. 105 of 106 local documents import (every non-empty file) and every one round-trips save/reopen unchanged.",
+      "limitations": "Filters, blend modes, 3D, rare legacy audio codecs (GSM/Nellymoser/Speex), frame-sound in/out trim points, video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. Documents whose converted media and geometry exceed the 128 MiB project JSON limit shed oversized media or later vector paths to placeholders rather than streaming unbounded assets. Font metrics may differ; output is not claimed pixel-identical to Flash.",
       "items": [
         {
           "id": "scene-library",
@@ -2518,6 +2526,7 @@
         "crates/neoflash-import/src/legacy/convert.rs",
         "crates/neoflash-import/src/legacy/convert/assets.rs",
         "crates/neoflash-import/src/legacy/media.rs",
+        "crates/neoflash-import/tests/binary_adpcm_and_envelopes.rs",
         "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/legacy_samples.rs",
         "crates/neoflash-script/tests/legacy-import.mjs",

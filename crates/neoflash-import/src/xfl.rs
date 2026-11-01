@@ -8,6 +8,7 @@ mod shape;
 
 pub(crate) fn convert(
     files: &BTreeMap<String, String>,
+    binary_files: &BTreeMap<String, Vec<u8>>,
     report: &mut ImportReport,
 ) -> Option<Project> {
     let xml = files.get("DOMDocument.xml")?;
@@ -31,6 +32,10 @@ pub(crate) fn convert(
     let mut parser = Parser {
         report,
         symbols: HashMap::new(),
+        bitmaps: HashMap::new(),
+        sounds: HashMap::new(),
+        resources: Vec::new(),
+        resource_bytes_total: 0,
         language: publish.language,
         include_hidden_layers: publish.include_hidden_layers,
         text_warning: false,
@@ -56,6 +61,8 @@ pub(crate) fn convert(
             "playOptionsPlayLoop",
             "playOptionsPlayPages",
             "playOptionsPlayFrameActions",
+            "autoSaveHasPrompted",
+            "autoSaveEnabled",
         ],
         &[
             "timelines",
@@ -105,16 +112,17 @@ pub(crate) fn convert(
         }
         parser.report.warning("editor_metadata", "DOMDocument.xml/publishHistory", "Previous Flash publish timestamps and output sizes are not retained; authored content is unchanged.");
     }
-    for tag in ["media", "fonts"] {
-        if let Some(assets) = child(root, tag) {
-            parser.audit(assets, "DOMDocument.xml", &[], &[]);
-            if elements(assets).next().is_some() {
-                parser.report.error(
-                    "unsupported_assets",
-                    format!("DOMDocument.xml/{tag}"),
-                    "Media/font library assets are not imported yet.",
-                );
-            }
+    if let Some(media) = child(root, "media") {
+        parser.parse_media(media, binary_files);
+    }
+    if let Some(assets) = child(root, "fonts") {
+        parser.audit(assets, "DOMDocument.xml", &[], &[]);
+        if elements(assets).next().is_some() {
+            parser.report.error(
+                "unsupported_assets",
+                "DOMDocument.xml/fonts",
+                "Media/font library assets are not imported yet.",
+            );
         }
     }
     let mut declared_folders = Vec::new();
@@ -232,10 +240,15 @@ pub(crate) fn convert(
                 continue;
             }
             let name = symbol.attribute("name").unwrap_or("");
+            let pre_kind = match symbol.attribute("symbolType").unwrap_or("movie clip") {
+                "graphic" => SymbolKind::Graphic,
+                "button" => SymbolKind::Button,
+                _ => SymbolKind::MovieClip,
+            };
             if name.is_empty()
                 || parser
                     .symbols
-                    .insert(name.into(), new_id("symbol"))
+                    .insert(name.into(), (new_id("symbol"), pre_kind))
                     .is_some()
             {
                 parser.report.error(
@@ -316,9 +329,34 @@ pub(crate) fn convert(
                 "sourceFlashFilepath",
                 "sourceLibraryItemHRef",
                 "sourceAutoUpdate",
+                "scaleGridLeft",
+                "scaleGridRight",
+                "scaleGridTop",
+                "scaleGridBottom",
+                "itemIcon",
+                "lastUniqueIdentifier",
             ],
             &["timeline"],
         );
+        let mut has_scale_grid = false;
+        for attr in [
+            "scaleGridLeft",
+            "scaleGridRight",
+            "scaleGridTop",
+            "scaleGridBottom",
+        ] {
+            if node.attribute(attr).is_some() {
+                parser.number(node, attr, 0.0, path);
+                has_scale_grid = true;
+            }
+        }
+        if has_scale_grid {
+            parser.report.warning(
+                "editor_metadata",
+                path,
+                "9-slice scaleGrid guides on DOMSymbolItem are not retained yet.",
+            );
+        }
         if node.attribute("sourceAutoUpdate") == Some("true") {
             parser.report.error(
                 "external_symbol",
@@ -359,6 +397,7 @@ pub(crate) fn convert(
         let kind = match node.attribute("symbolType").unwrap_or("movie clip") {
             "graphic" => SymbolKind::Graphic,
             "movie clip" => SymbolKind::MovieClip,
+            "button" => SymbolKind::Button,
             other => {
                 parser.report.error(
                     "symbol_type",
@@ -394,12 +433,16 @@ pub(crate) fn convert(
         let id = parser
             .symbols
             .get(name)
-            .cloned()
+            .map(|(id, _)| id.clone())
             .unwrap_or_else(|| new_id("symbol"));
         let mut symbol = parser.symbol(timeline, id, kind, path);
         symbol.folder = symbol_folder;
         symbol.name = display_name;
         p.symbols.push(symbol);
+    }
+    p.resources = parser.resources;
+    if !p.resources.is_empty() {
+        p.format_version = p.format_version.max(3);
     }
     if !p.library_folders.is_empty()
         || p.symbols.iter().any(|s| {
@@ -596,9 +639,27 @@ fn immediate_text(node: Node<'_, '_>) -> String {
         .collect()
 }
 
+#[derive(Clone, Debug)]
+struct XflBitmapAsset {
+    resource_id: Id,
+    width: u32,
+    height: u32,
+    smoothing: bool,
+}
+
+#[derive(Clone, Debug)]
+struct XflSoundAsset {
+    resource_id: Id,
+    duration_44: u64,
+}
+
 struct Parser<'a> {
     report: &'a mut ImportReport,
-    symbols: HashMap<String, Id>,
+    symbols: HashMap<String, (Id, SymbolKind)>,
+    bitmaps: HashMap<String, XflBitmapAsset>,
+    sounds: HashMap<String, XflSoundAsset>,
+    resources: Vec<ResourceUnit>,
+    resource_bytes_total: usize,
     language: Option<ScriptLanguage>,
     include_hidden_layers: bool,
     text_warning: bool,
@@ -672,10 +733,13 @@ impl Parser<'_> {
                 *tag,
                 "Include"
                     | "DOMFolderItem"
+                    | "DOMBitmapItem"
+                    | "DOMSoundItem"
                     | "DOMLayer"
                     | "DOMFrame"
                     | "DOMTimeline"
                     | "DOMSymbolInstance"
+                    | "DOMBitmapInstance"
                     | "DOMStaticText"
                     | "DOMRectangleObject"
                     | "DOMOvalObject"
@@ -684,6 +748,8 @@ impl Parser<'_> {
                     | "Edge"
                     | "FillStyle"
                     | "StrokeStyle"
+                    | "GradientEntry"
+                    | "SoundEnvelopePoint"
                     | "PublishItem"
                     | "CustomEase"
                     | "Point"
@@ -935,11 +1001,25 @@ impl Parser<'_> {
                             "shapeTweenBlend",
                             "hasCustomEase",
                             "useSingleEaseCurve",
+                            "soundName",
+                            "soundSync",
+                            "soundEffect",
+                            "soundLoopMode",
+                            "soundLoop",
+                            "inPoint44",
+                            "outPoint44",
+                            "soundZoomLevel",
                         ],
                         if has_motion_xml {
-                            &["elements", "Actionscript", "tweens", "MotionObjectXML"]
+                            &[
+                                "elements",
+                                "Actionscript",
+                                "tweens",
+                                "SoundEnvelope",
+                                "MotionObjectXML",
+                            ]
                         } else {
-                            &["elements", "Actionscript", "tweens"]
+                            &["elements", "Actionscript", "tweens", "SoundEnvelope"]
                         },
                     );
                     if has_motion_xml {
@@ -952,6 +1032,7 @@ impl Parser<'_> {
                     let frame_loc = self.location(frame_node, file);
                     let (tween, tween_kind, orient_to_path) =
                         self.frame_tween(frame_node, has_motion_xml, file);
+                    let sound = self.frame_sound(frame_node, file);
                     if frame_node
                         .attribute("labelType")
                         .is_some_and(|t| t != "name")
@@ -990,11 +1071,12 @@ impl Parser<'_> {
                         .attribute("name")
                         .is_some_and(|name| !name.is_empty())
                         || tween.is_some()
+                        || sound.is_some()
                     {
                         self.report.error(
                             "folder_layer_elements",
                             &frame_loc,
-                            "Folder layers cannot own labels or tweens.",
+                            "Folder layers cannot own labels, tweens or sounds.",
                         );
                     }
                     let mut key = Keyframe {
@@ -1003,6 +1085,7 @@ impl Parser<'_> {
                         tween,
                         tween_kind,
                         orient_to_path,
+                        sound,
                         label: frame_node.attribute("name").unwrap_or("").into(),
                         ..Default::default()
                     };
@@ -1014,6 +1097,7 @@ impl Parser<'_> {
                             &[],
                             &[
                                 "DOMSymbolInstance",
+                                "DOMBitmapInstance",
                                 "DOMStaticText",
                                 "DOMRectangleObject",
                                 "DOMOvalObject",
@@ -1035,7 +1119,7 @@ impl Parser<'_> {
                             if element_node.has_tag_name("DOMSymbolInstance") && frame != 0 {
                                 identity.push_str(&format!("-placement-{frame}"));
                             }
-                            if let Some(element) = self.element(element_node, identity, file) {
+                            for element in self.element(element_node, identity, file) {
                                 elem_locs
                                     .push((element.id.clone(), self.location(element_node, file)));
                                 key.elements.push(element);
@@ -1278,14 +1362,14 @@ impl Parser<'_> {
         }
     }
 
-    fn element(&mut self, node: Node<'_, '_>, id: Id, file: &str) -> Option<Element> {
+    fn element(&mut self, node: Node<'_, '_>, id: Id, file: &str) -> Vec<Element> {
         let tag = node.tag_name().name();
         if tag == "DOMShape" {
-            return self.shape(node, id, file);
+            return self.shape(node, id, file).unwrap_or_default();
         }
         let location = self.location(node, file);
         let mut transform = self.transform(node, file);
-        let name = node.attribute("name").unwrap_or(tag).into();
+        let mut name: String = node.attribute("name").unwrap_or(tag).into();
         let kind = match tag {
             "DOMSymbolInstance" => {
                 self.audit(
@@ -1297,8 +1381,11 @@ impl Parser<'_> {
                         "symbolType",
                         "firstFrame",
                         "loop",
+                        "trackAsMenu",
                         "selected",
+                        "locked",
                         "referenceID",
+                        "uniqueIdentifier",
                         "centerPoint3DX",
                         "centerPoint3DY",
                     ],
@@ -1312,17 +1399,60 @@ impl Parser<'_> {
                     self.report.warning("transform_pivot", &location, "Placement matrix retained; Flash's 2D authoring centerPoint3DX/Y pivot is not retained. Actual 3D transforms remain unsupported.");
                 }
                 let target = node.attribute("libraryItemName").unwrap_or("");
-                let Some(symbol_id) = self.symbols.get(target).cloned() else {
+                let Some((symbol_id, target_kind)) = self.symbols.get(target).cloned() else {
                     self.report.error(
                         "missing_symbol",
                         &location,
                         format!("Unknown symbol {target}"),
                     );
-                    return None;
+                    return vec![];
                 };
                 let first = self.integer(node, "firstFrame", 0, file);
-                let playback = match node.attribute("symbolType").unwrap_or("movie clip") {
+                let track_as_menu = self.boolean(node, "trackAsMenu", false, file);
+                let default_type = match target_kind {
+                    SymbolKind::Button => "button",
+                    _ => "movie clip",
+                };
+                let playback = match node.attribute("symbolType").unwrap_or(default_type) {
+                    "button" => {
+                        if target_kind != SymbolKind::Button {
+                            self.report.error(
+                                "symbol_type_mismatch",
+                                &location,
+                                "Button instance behavior requires a symbolType=\"button\" library symbol.",
+                            );
+                        }
+                        if track_as_menu {
+                            self.report.warning(
+                                "xfl_button_track_as_menu",
+                                &location,
+                                "Button trackAsMenu behavior is approximated with standard button pointer tracking.",
+                            );
+                        }
+                        if first != 0 || node.attribute("loop").is_some() {
+                            self.report.error(
+                                "clip_start_frame",
+                                &location,
+                                "Button instances do not support graphic loop or firstFrame overrides.",
+                            );
+                        }
+                        InstancePlayback::Independent
+                    }
                     "movie clip" => {
+                        if target_kind == SymbolKind::Button {
+                            self.report.error(
+                                "symbol_type_mismatch",
+                                &location,
+                                "A button symbol cannot be placed with movie clip instance behavior.",
+                            );
+                        }
+                        if track_as_menu {
+                            self.report.error(
+                                "symbol_type_mismatch",
+                                &location,
+                                "trackAsMenu is only valid on button instances.",
+                            );
+                        }
                         if first != 0 {
                             self.report.error(
                                 "clip_start_frame",
@@ -1332,31 +1462,47 @@ impl Parser<'_> {
                         }
                         InstancePlayback::Independent
                     }
-                    "graphic" => match node.attribute("loop").unwrap_or("loop") {
-                        "single frame" => InstancePlayback::SingleFrame(first),
-                        "loop" => {
-                            if first == 0 {
-                                InstancePlayback::Loop
-                            } else {
-                                InstancePlayback::LoopFrom(first)
-                            }
-                        }
-                        "play once" => {
-                            if first == 0 {
-                                InstancePlayback::PlayOnce
-                            } else {
-                                InstancePlayback::PlayOnceFrom(first)
-                            }
-                        }
-                        other => {
+                    "graphic" => {
+                        if target_kind == SymbolKind::Button {
                             self.report.error(
-                                "graphic_loop",
+                                "symbol_type_mismatch",
                                 &location,
-                                format!("Unsupported playback mode {other}"),
+                                "A button symbol cannot be placed with graphic instance behavior.",
                             );
-                            InstancePlayback::Loop
                         }
-                    },
+                        if track_as_menu {
+                            self.report.error(
+                                "symbol_type_mismatch",
+                                &location,
+                                "trackAsMenu is only valid on button instances.",
+                            );
+                        }
+                        match node.attribute("loop").unwrap_or("loop") {
+                            "single frame" => InstancePlayback::SingleFrame(first),
+                            "loop" => {
+                                if first == 0 {
+                                    InstancePlayback::Loop
+                                } else {
+                                    InstancePlayback::LoopFrom(first)
+                                }
+                            }
+                            "play once" => {
+                                if first == 0 {
+                                    InstancePlayback::PlayOnce
+                                } else {
+                                    InstancePlayback::PlayOnceFrom(first)
+                                }
+                            }
+                            other => {
+                                self.report.error(
+                                    "graphic_loop",
+                                    &location,
+                                    format!("Unsupported playback mode {other}"),
+                                );
+                                InstancePlayback::Loop
+                            }
+                        }
+                    }
                     other => {
                         self.report.error(
                             "instance_type",
@@ -1369,6 +1515,61 @@ impl Parser<'_> {
                 ElementKind::Instance {
                     symbol_id,
                     playback,
+                }
+            }
+            "DOMBitmapInstance" => {
+                self.audit(
+                    node,
+                    file,
+                    &[
+                        "libraryItemName",
+                        "name",
+                        "selected",
+                        "locked",
+                        "referenceID",
+                        "uniqueIdentifier",
+                        "centerPoint3DX",
+                        "centerPoint3DY",
+                        "frameLeft",
+                        "frameRight",
+                        "frameTop",
+                        "frameBottom",
+                    ],
+                    &["matrix", "transformationPoint"],
+                );
+                if node.attribute("centerPoint3DX").is_some()
+                    || node.attribute("centerPoint3DY").is_some()
+                {
+                    self.number(node, "centerPoint3DX", 0., file);
+                    self.number(node, "centerPoint3DY", 0., file);
+                    self.report.warning(
+                        "transform_pivot",
+                        &location,
+                        "Placement matrix retained; Flash's 2D authoring centerPoint3DX/Y pivot is not retained. Actual 3D transforms remain unsupported.",
+                    );
+                }
+                if node.attribute("name").is_some_and(|n| !n.is_empty()) {
+                    self.report.warning(
+                        "xfl_bitmap_instance_name",
+                        &location,
+                        "DOMBitmapInstance name is not addressable as a scriptable display object; wrap in a MovieClip symbol if script access is needed.",
+                    );
+                }
+                let target = node.attribute("libraryItemName").unwrap_or("");
+                let Some(asset) = self.bitmaps.get(target).cloned() else {
+                    self.report.error(
+                        "missing_bitmap",
+                        &location,
+                        format!("Unknown bitmap library item {target:?}."),
+                    );
+                    return vec![];
+                };
+                name = String::new();
+                ElementKind::Bitmap {
+                    resource_id: asset.resource_id,
+                    width: asset.width,
+                    height: asset.height,
+                    smoothing: asset.smoothing,
                 }
             }
             "DOMStaticText" => {
@@ -1396,7 +1597,7 @@ impl Parser<'_> {
                         &location,
                         "Static text has no textRuns.",
                     );
-                    return None;
+                    return vec![];
                 };
                 self.audit(runs, file, &[], &["DOMTextRun"]);
                 let runs: Vec<_> = elements(runs).collect();
@@ -1406,7 +1607,7 @@ impl Parser<'_> {
                         &location,
                         "Only a single plain static text run is supported.",
                     );
-                    return None;
+                    return vec![];
                 }
                 self.audit(runs[0], file, &[], &["characters", "textAttrs"]);
                 let Some(characters) = child(runs[0], "characters") else {
@@ -1415,7 +1616,7 @@ impl Parser<'_> {
                         &location,
                         "Text run has no characters node.",
                     );
-                    return None;
+                    return vec![];
                 };
                 self.audit(characters, file, &[], &[]);
                 let text = immediate_text(characters);
@@ -1432,13 +1633,13 @@ impl Parser<'_> {
                         &location,
                         "Text run has no textAttrs.",
                     );
-                    return None;
+                    return vec![];
                 };
                 self.audit(attrs_wrapper, file, &[], &["DOMTextAttrs"]);
                 let Some(attrs) = child(attrs_wrapper, "DOMTextAttrs") else {
                     self.report
                         .error("missing_text_style", &location, "No DOMTextAttrs.");
-                    return None;
+                    return vec![];
                 };
                 self.audit(
                     attrs,
@@ -1587,16 +1788,16 @@ impl Parser<'_> {
                     }
                 }
             }
-            _ => return None,
+            _ => return vec![],
         };
-        Some(Element {
+        vec![Element {
             id,
             accessibility: None,
             name,
             transform,
             kind,
             scripts: vec![],
-        })
+        }]
     }
 
     fn frame_tween(
@@ -1828,6 +2029,918 @@ impl Parser<'_> {
         }
         t
     }
+
+    fn u64_attr(&mut self, node: Node<'_, '_>, attr: &str, default: u64, file: &str) -> u64 {
+        let Some(raw) = node.attribute(attr) else {
+            return default;
+        };
+        match raw.parse::<u64>() {
+            Ok(v) => v,
+            Err(_) => {
+                self.report.error(
+                    "invalid_number",
+                    self.location(node, file),
+                    format!("{attr} must be an unsigned integer."),
+                );
+                default
+            }
+        }
+    }
+
+    fn u32_attr(&mut self, node: Node<'_, '_>, attr: &str, default: u32, file: &str) -> u32 {
+        let Some(raw) = node.attribute(attr) else {
+            return default;
+        };
+        match raw.parse::<u32>() {
+            Ok(v) => v,
+            Err(_) => {
+                self.report.error(
+                    "invalid_number",
+                    self.location(node, file),
+                    format!("{attr} must be a 32-bit unsigned integer."),
+                );
+                default
+            }
+        }
+    }
+
+    fn parse_media(&mut self, media: Node<'_, '_>, binary_files: &BTreeMap<String, Vec<u8>>) {
+        self.audit(
+            media,
+            "DOMDocument.xml",
+            &[],
+            &["DOMBitmapItem", "DOMSoundItem"],
+        );
+        for item in elements(media) {
+            match item.tag_name().name() {
+                "DOMBitmapItem" => self.parse_bitmap_item(item, binary_files),
+                "DOMSoundItem" => self.parse_sound_item(item, binary_files),
+                _ => {
+                    self.report.error(
+                        "unsupported_assets",
+                        self.location(item, "DOMDocument.xml"),
+                        "Unsupported media library asset is not imported yet.",
+                    );
+                }
+            }
+        }
+    }
+
+    fn register_resource(
+        &mut self,
+        resource_id: &str,
+        path: String,
+        item_name: &str,
+        media_type: &str,
+        bytes: &[u8],
+        location: &str,
+    ) -> Option<ResourceUnit> {
+        if self.resources.len() >= MAX_RESOURCES {
+            self.report.error(
+                "xfl_media_invalid",
+                location,
+                "Project exceeds the 1024-resource limit.",
+            );
+            return None;
+        }
+        let Some(next_total) = self
+            .resource_bytes_total
+            .checked_add(bytes.len())
+            .filter(|&n| n <= MAX_RESOURCE_TOTAL_BYTES)
+        else {
+            self.report.error(
+                "xfl_media_invalid",
+                location,
+                "Decoded media resources exceed the 64 MiB project budget.",
+            );
+            return None;
+        };
+        let unit = match ResourceUnit::from_bytes(resource_id, path, media_type, bytes) {
+            Ok(unit) => unit,
+            Err(err) => {
+                self.report.error(
+                    "xfl_media_invalid",
+                    location,
+                    format!("Invalid media resource {item_name:?}: {err}"),
+                );
+                return None;
+            }
+        };
+        self.resource_bytes_total = next_total;
+        self.resources.push(unit.clone());
+        Some(unit)
+    }
+
+    fn parse_bitmap_item(&mut self, item: Node<'_, '_>, binary_files: &BTreeMap<String, Vec<u8>>) {
+        let loc = self.location(item, "DOMDocument.xml");
+        self.audit(
+            item,
+            "DOMDocument.xml",
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "sourceExternalFilepath",
+                "sourceLastImported",
+                "sourcePlatform",
+                "externalFileSize",
+                "externalFileCRC32",
+                "useImportedJPEGData",
+                "compressionType",
+                "originalCompressionType",
+                "quality",
+                "href",
+                "bitmapDataHRef",
+                "frameLeft",
+                "frameTop",
+                "frameRight",
+                "frameBottom",
+                "allowSmoothing",
+                "useDeblocking",
+                "isJPEG",
+                "lastModified",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageImportForRS",
+            ],
+            &[],
+        );
+        let smoothing = self.boolean(item, "allowSmoothing", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "useImportedJPEGData", true, "DOMDocument.xml");
+        let _ = self.boolean(item, "useDeblocking", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "isJPEG", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageExportInFirstFrame", true, "DOMDocument.xml");
+        let export_as = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
+        let import_rs = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
+        if export_as
+            || import_rs
+            || item
+                .attribute("linkageClassName")
+                .is_some_and(|s| !s.is_empty())
+            || item
+                .attribute("linkageIdentifier")
+                .is_some_and(|s| !s.is_empty())
+        {
+            self.report.error(
+                "xfl_bitmap_linkage_unsupported",
+                &loc,
+                "ActionScript BitmapData linkage on XFL bitmap items is not supported yet.",
+            );
+        }
+
+        let name = item.attribute("name").unwrap_or("");
+        if name.is_empty() || self.bitmaps.contains_key(name) {
+            self.report.error(
+                "xfl_media_invalid",
+                &loc,
+                "DOMBitmapItem name must be nonempty and unique.",
+            );
+            return;
+        }
+
+        let mut external_bytes: Option<&[u8]> = None;
+        if let Some(href) = item.attribute("href").filter(|s| !s.is_empty()) {
+            if let Err(err) = source::safe_name(href) {
+                self.report.error("unsafe_reference", &loc, err.to_string());
+                return;
+            }
+            external_bytes = binary_files
+                .get(&format!("LIBRARY/{href}"))
+                .or_else(|| binary_files.get(href))
+                .map(Vec::as_slice);
+        }
+        if external_bytes.is_none() && source::safe_name(name).is_ok() {
+            external_bytes = binary_files
+                .get(&format!("LIBRARY/{name}"))
+                .or_else(|| binary_files.get(name))
+                .map(Vec::as_slice);
+        }
+
+        let idx = self.bitmaps.len() + 1;
+        let resource_id = format!("xfl-bitmap-{idx}");
+
+        if let Some(raw) = external_bytes {
+            let Some((media_type, ext)) = detect_raster_format(raw) else {
+                self.report.error(
+                    "xfl_media_invalid",
+                    &loc,
+                    format!("Bitmap file for {name:?} is neither PNG nor JPEG."),
+                );
+                return;
+            };
+            let Some(unit) = self.register_resource(
+                &resource_id,
+                build_xfl_resource_path("assets/bitmaps", idx, name, ext),
+                name,
+                media_type,
+                raw,
+                &loc,
+            ) else {
+                return;
+            };
+            match unit.decode_image() {
+                Ok(decoded) => {
+                    self.bitmaps.insert(
+                        name.to_owned(),
+                        XflBitmapAsset {
+                            resource_id,
+                            width: decoded.width,
+                            height: decoded.height,
+                            smoothing,
+                        },
+                    );
+                }
+                Err(err) => {
+                    self.resources.pop();
+                    self.report.error(
+                        "xfl_media_invalid",
+                        &loc,
+                        format!("Cannot decode bitmap image {name:?}: {err}"),
+                    );
+                }
+            }
+            return;
+        }
+
+        if let Some(dat_href) = item.attribute("bitmapDataHRef").filter(|s| !s.is_empty()) {
+            if let Err(err) = source::safe_name(dat_href) {
+                self.report.error("unsafe_reference", &loc, err.to_string());
+                return;
+            }
+            if let Some(raw) = binary_files
+                .get(&format!("bin/{dat_href}"))
+                .or_else(|| binary_files.get(dat_href))
+            {
+                let png_bytes = if raw.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    raw.clone()
+                } else {
+                    match crate::legacy::media::decode_binary_bitmap(raw, 0)
+                        .and_then(|decoded| decoded.png_bytes())
+                    {
+                        Ok(png) => png,
+                        Err(err) => {
+                            self.report.error(
+                                "xfl_media_invalid",
+                                &loc,
+                                format!("Cannot decode binary bitmap cache {dat_href:?}: {err}"),
+                            );
+                            return;
+                        }
+                    }
+                };
+                let Some(unit) = self.register_resource(
+                    &resource_id,
+                    build_xfl_resource_path("assets/bitmaps", idx, name, "png"),
+                    name,
+                    "image/png",
+                    &png_bytes,
+                    &loc,
+                ) else {
+                    return;
+                };
+                match unit.decode_image() {
+                    Ok(decoded) => {
+                        self.bitmaps.insert(
+                            name.to_owned(),
+                            XflBitmapAsset {
+                                resource_id,
+                                width: decoded.width,
+                                height: decoded.height,
+                                smoothing,
+                            },
+                        );
+                    }
+                    Err(err) => {
+                        self.resources.pop();
+                        self.report.error(
+                            "xfl_media_invalid",
+                            &loc,
+                            format!("Cannot decode converted PNG for {name:?}: {err}"),
+                        );
+                    }
+                }
+                return;
+            }
+        }
+
+        self.report.error(
+            "xfl_media_invalid",
+            &loc,
+            format!("Referenced bitmap file for {name:?} is missing."),
+        );
+    }
+
+    fn parse_sound_item(&mut self, item: Node<'_, '_>, binary_files: &BTreeMap<String, Vec<u8>>) {
+        let loc = self.location(item, "DOMDocument.xml");
+        self.audit(
+            item,
+            "DOMDocument.xml",
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "sourceExternalFilepath",
+                "sourceLastImported",
+                "sourcePlatform",
+                "externalFileSize",
+                "externalFileCRC32",
+                "href",
+                "soundDataHRef",
+                "format",
+                "sampleCount",
+                "dataLength",
+                "exportFormat",
+                "exportBits",
+                "sampleRate",
+                "bits",
+                "channels",
+                "cacheFormat",
+                "cachedSampleCount",
+                "exportNative",
+                "use8kSampleRate",
+                "deviceSoundHRef",
+                "isangan",
+                "lastModified",
+                "compressionType",
+                "quality",
+                "bitRate",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageImportForRS",
+            ],
+            &[],
+        );
+        let _ = self.boolean(item, "exportNative", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "use8kSampleRate", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageExportInFirstFrame", true, "DOMDocument.xml");
+        let export_as = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
+        let import_rs = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
+        if export_as
+            || import_rs
+            || item
+                .attribute("linkageClassName")
+                .is_some_and(|s| !s.is_empty())
+            || item
+                .attribute("linkageIdentifier")
+                .is_some_and(|s| !s.is_empty())
+        {
+            self.report.error(
+                "xfl_sound_linkage_unsupported",
+                &loc,
+                "ActionScript Sound linkage on XFL sound items is not supported yet.",
+            );
+        }
+
+        let sample_count = self.u32_attr(item, "sampleCount", 0, "DOMDocument.xml");
+        let data_length = item
+            .attribute("dataLength")
+            .map(|_| self.u32_attr(item, "dataLength", 0, "DOMDocument.xml"));
+
+        let name = item.attribute("name").unwrap_or("");
+        if name.is_empty() || self.sounds.contains_key(name) {
+            self.report.error(
+                "xfl_media_invalid",
+                &loc,
+                "DOMSoundItem name must be nonempty and unique.",
+            );
+            return;
+        }
+
+        let format_str = item.attribute("format").unwrap_or("44kHz 16bit Stereo");
+        let (base_flags, fmt_sample_rate) = parse_xfl_sound_format_flags(format_str);
+
+        let mut external_bytes: Option<&[u8]> = None;
+        if let Some(href) = item.attribute("href").filter(|s| !s.is_empty()) {
+            if let Err(err) = source::safe_name(href) {
+                self.report.error("unsafe_reference", &loc, err.to_string());
+                return;
+            }
+            external_bytes = binary_files
+                .get(&format!("LIBRARY/{href}"))
+                .or_else(|| binary_files.get(href))
+                .map(Vec::as_slice);
+        }
+        if external_bytes.is_none() && source::safe_name(name).is_ok() {
+            external_bytes = binary_files
+                .get(&format!("LIBRARY/{name}"))
+                .or_else(|| binary_files.get(name))
+                .map(Vec::as_slice);
+        }
+
+        let idx = self.sounds.len() + 1;
+        let resource_id = format!("xfl-sound-{idx}");
+
+        if let Some(raw) = external_bytes {
+            if raw.len() >= 12 && &raw[0..4] == b"RIFF" && &raw[8..12] == b"WAVE" {
+                let Some(duration_44) = parse_wav_duration_44(raw) else {
+                    self.report.error(
+                        "xfl_media_invalid",
+                        &loc,
+                        format!("Malformed WAV audio file for {name:?}."),
+                    );
+                    return;
+                };
+                if self
+                    .register_resource(
+                        &resource_id,
+                        build_xfl_resource_path("assets/sounds", idx, name, "wav"),
+                        name,
+                        "audio/wav",
+                        raw,
+                        &loc,
+                    )
+                    .is_some()
+                {
+                    self.sounds.insert(
+                        name.to_owned(),
+                        XflSoundAsset {
+                            resource_id,
+                            duration_44,
+                        },
+                    );
+                }
+                return;
+            }
+            if looks_like_xfl_mp3(raw) {
+                let duration_44 = if sample_count > 0 {
+                    (u64::from(sample_count) * 44_100) / u64::from(fmt_sample_rate)
+                } else {
+                    0
+                };
+                if self
+                    .register_resource(
+                        &resource_id,
+                        build_xfl_resource_path("assets/sounds", idx, name, "mp3"),
+                        name,
+                        "audio/mpeg",
+                        raw,
+                        &loc,
+                    )
+                    .is_some()
+                {
+                    self.sounds.insert(
+                        name.to_owned(),
+                        XflSoundAsset {
+                            resource_id,
+                            duration_44,
+                        },
+                    );
+                }
+                return;
+            }
+            self.report.error(
+                "xfl_media_invalid",
+                &loc,
+                format!("Audio file for {name:?} is neither valid WAV nor MP3."),
+            );
+            return;
+        }
+
+        if let Some(dat_href) = item.attribute("soundDataHRef").filter(|s| !s.is_empty()) {
+            if let Err(err) = source::safe_name(dat_href) {
+                self.report.error("unsafe_reference", &loc, err.to_string());
+                return;
+            }
+            if let Some(raw_vec) = binary_files
+                .get(&format!("bin/{dat_href}"))
+                .or_else(|| binary_files.get(dat_href))
+            {
+                let mut raw = raw_vec.as_slice();
+                let mut flags = base_flags;
+                let href_lower = item.attribute("href").unwrap_or(name).to_ascii_lowercase();
+                let fmt_lower = format_str.to_ascii_lowercase();
+                let is_mp3 = (data_length.is_some_and(|d| d > 0) || href_lower.ends_with(".mp3"))
+                    && looks_like_xfl_mp3(raw);
+                let mut effective_samples = sample_count;
+                let encoded_byte_count = if is_mp3 {
+                    flags |= 0x20;
+                    let dl = data_length.filter(|&d| d > 0).unwrap_or(raw.len() as u32);
+                    raw = &raw[..(dl as usize).min(raw.len())];
+                    Some(dl)
+                } else if fmt_lower.contains("adpcm") {
+                    flags |= 0x10;
+                    data_length
+                } else {
+                    let block_align = usize::from(1 + u16::from((flags & 2) != 0))
+                        * usize::from(1 + u16::from((flags & 1) != 0));
+                    if effective_samples == 0 && raw.len() >= block_align {
+                        effective_samples = (raw.len() / block_align) as u32;
+                    } else if effective_samples > 0 {
+                        let expected = (effective_samples as usize).saturating_mul(block_align);
+                        if expected > 0 && raw.len() > expected && raw.len() % block_align == 0 {
+                            raw = &raw[..expected];
+                        }
+                    }
+                    None
+                };
+
+                let settings = crate::legacy::contents::ContentsSoundSettings {
+                    format_flags: flags,
+                    sample_count: effective_samples,
+                    encoded_byte_count,
+                    secondary_format_flags: None,
+                    secondary_sample_count: None,
+                    ..Default::default()
+                };
+                match crate::legacy::media::decode_binary_sound(raw, 8, &settings) {
+                    Ok(decoded) => {
+                        if decoded.short_read {
+                            self.report.warning(
+                                "xfl_sound_short_read",
+                                &loc,
+                                "Binary sound cache ended before declared sample count; available audio frames were imported.",
+                            );
+                        }
+                        if self
+                            .register_resource(
+                                &resource_id,
+                                build_xfl_resource_path(
+                                    "assets/sounds",
+                                    idx,
+                                    name,
+                                    decoded.extension,
+                                ),
+                                name,
+                                decoded.media_type,
+                                &decoded.bytes,
+                                &loc,
+                            )
+                            .is_some()
+                        {
+                            self.sounds.insert(
+                                name.to_owned(),
+                                XflSoundAsset {
+                                    resource_id,
+                                    duration_44: u64::from(decoded.duration_44),
+                                },
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        self.report.error(
+                            "xfl_media_invalid",
+                            &loc,
+                            format!("Cannot decode binary sound cache {dat_href:?}: {err}"),
+                        );
+                    }
+                }
+                return;
+            }
+        }
+
+        self.report.error(
+            "xfl_media_invalid",
+            &loc,
+            format!("Referenced audio file for {name:?} is missing."),
+        );
+    }
+
+    fn frame_sound(&mut self, frame_node: Node<'_, '_>, file: &str) -> Option<FrameSound> {
+        let loc = self.location(frame_node, file);
+        let mut raw_env_points: Vec<(u64, u32, u32)> = Vec::new();
+        let has_env_node = if let Some(env_node) = child(frame_node, "SoundEnvelope") {
+            self.audit(env_node, file, &[], &["SoundEnvelopePoint"]);
+            for pt in elements(env_node).filter(|n| n.has_tag_name("SoundEnvelopePoint")) {
+                self.audit(pt, file, &["mark44", "level0", "level1"], &[]);
+                let mark44 = self.u64_attr(pt, "mark44", 0, file);
+                let level0 = self.u32_attr(pt, "level0", 32_768, file);
+                let level1 = self.u32_attr(pt, "level1", 32_768, file);
+                raw_env_points.push((mark44, level0, level1));
+            }
+            if raw_env_points.is_empty() || raw_env_points.windows(2).any(|w| w[1].0 < w[0].0) {
+                self.report.error(
+                    "invalid_sound_envelope",
+                    &loc,
+                    "SoundEnvelope must contain at least one SoundEnvelopePoint sorted by mark44.",
+                );
+            }
+            true
+        } else {
+            false
+        };
+        let raw_loops = self.u64_attr(frame_node, "soundLoop", 1, file);
+        let in_point = self.u64_attr(frame_node, "inPoint44", 0, file);
+        let out_point = self.u64_attr(frame_node, "outPoint44", 0, file);
+        let _ = self.u64_attr(frame_node, "soundZoomLevel", 0, file);
+
+        let Some(sound_name) = frame_node.attribute("soundName").filter(|s| !s.is_empty()) else {
+            if has_env_node {
+                self.report.error(
+                    "invalid_sound_envelope",
+                    &loc,
+                    "SoundEnvelope requires a nonempty soundName on DOMFrame.",
+                );
+            }
+            return None;
+        };
+        let Some(asset) = self.sounds.get(sound_name).cloned() else {
+            self.report.error(
+                "missing_sound",
+                &loc,
+                format!("Unknown sound library item {sound_name:?}."),
+            );
+            return None;
+        };
+
+        let sync = match frame_node.attribute("soundSync").unwrap_or("event") {
+            "event" => SoundSync::Event,
+            "start" => SoundSync::Start,
+            "stop" => SoundSync::Stop,
+            "stream" => SoundSync::Stream,
+            other => {
+                self.report.error(
+                    "invalid_sound_sync",
+                    &loc,
+                    format!("Unsupported soundSync value {other:?}."),
+                );
+                SoundSync::Event
+            }
+        };
+
+        let (loops, loop_forever) = match frame_node.attribute("soundLoopMode") {
+            Some("loop") => (1, true),
+            None | Some("repeat") => {
+                if raw_loops > u64::from(FrameSound::MAX_LOOPS) {
+                    self.report.warning(
+                        "xfl_frame_sound",
+                        &loc,
+                        format!(
+                            "Frame-sound repeat count {raw_loops} clamped to {}.",
+                            FrameSound::MAX_LOOPS
+                        ),
+                    );
+                    (FrameSound::MAX_LOOPS, false)
+                } else {
+                    ((raw_loops as u32).max(1), false)
+                }
+            }
+            Some(other) => {
+                self.report.error(
+                    "invalid_sound_loop_mode",
+                    &loc,
+                    format!("Unsupported soundLoopMode value {other:?}."),
+                );
+                (1, false)
+            }
+        };
+
+        if in_point > 0
+            || (out_point > 0
+                && out_point < 0x3fff_ffff
+                && asset.duration_44 > 0
+                && out_point + 8 < asset.duration_44)
+        {
+            self.report.warning(
+                "xfl_frame_sound",
+                &loc,
+                "Frame-sound in/out trim points are not applied yet; the full sound resource plays.",
+            );
+        }
+
+        let (effect, envelope) = match frame_node.attribute("soundEffect") {
+            Some("none") => (SoundEffect::None, None),
+            Some("left channel") => (SoundEffect::LeftChannel, None),
+            Some("right channel") => (SoundEffect::RightChannel, None),
+            Some("fade left to right") => (SoundEffect::FadeLeftToRight, None),
+            Some("fade right to left") => (SoundEffect::FadeRightToLeft, None),
+            Some("fade in") => (SoundEffect::FadeIn, None),
+            Some("fade out") => (SoundEffect::FadeOut, None),
+            Some("custom") => {
+                if raw_env_points.is_empty() {
+                    (SoundEffect::None, None)
+                } else {
+                    let points = build_xfl_sound_envelope(
+                        raw_env_points,
+                        asset.duration_44,
+                        &loc,
+                        self.report,
+                    );
+                    (SoundEffect::Custom, Some(points))
+                }
+            }
+            None => {
+                let is_unity = raw_env_points.is_empty()
+                    || raw_env_points
+                        .iter()
+                        .all(|&(_, l0, l1)| l0 == 32_768 && l1 == 32_768);
+                if is_unity {
+                    (SoundEffect::None, None)
+                } else {
+                    let points = build_xfl_sound_envelope(
+                        raw_env_points,
+                        asset.duration_44,
+                        &loc,
+                        self.report,
+                    );
+                    (SoundEffect::Custom, Some(points))
+                }
+            }
+            Some(other) => {
+                self.report.error(
+                    "invalid_sound_effect",
+                    &loc,
+                    format!("Unsupported soundEffect value {other:?}."),
+                );
+                (SoundEffect::None, None)
+            }
+        };
+
+        Some(FrameSound {
+            resource: asset.resource_id,
+            sync,
+            loops,
+            loop_forever,
+            effect,
+            envelope,
+        })
+    }
+}
+
+fn build_xfl_sound_envelope(
+    mut raw_points: Vec<(u64, u32, u32)>,
+    asset_duration_44: u64,
+    loc: &str,
+    report: &mut ImportReport,
+) -> Vec<[f64; 3]> {
+    raw_points.sort_by_key(|p| p.0);
+    if raw_points.len() > FrameSound::MAX_ENVELOPE_POINTS {
+        raw_points.truncate(FrameSound::MAX_ENVELOPE_POINTS);
+        report.warning(
+            "xfl_frame_sound",
+            loc,
+            format!(
+                "Custom sound envelope truncated to {} control points.",
+                FrameSound::MAX_ENVELOPE_POINTS
+            ),
+        );
+    }
+    if raw_points
+        .iter()
+        .any(|&(_, l0, l1)| l0 > 32_768 || l1 > 32_768)
+    {
+        report.warning(
+            "xfl_frame_sound",
+            loc,
+            "Sound envelope gain above unity (>32768) is clamped to 1.0.",
+        );
+    }
+    let max_mark = raw_points.iter().map(|p| p.0).max().unwrap_or(0);
+    let denom = asset_duration_44.max(max_mark);
+    let mut prev_pos = 0.0_f64;
+    let mut points = Vec::with_capacity(raw_points.len());
+    for (mark44, level0, level1) in raw_points {
+        let pos = if denom == 0 {
+            0.0
+        } else {
+            (mark44 as f64 / denom as f64).clamp(0.0, 1.0)
+        }
+        .max(prev_pos);
+        prev_pos = pos;
+        let left = (f64::from(level0) / 32_768.0).clamp(0.0, 1.0);
+        let right = (f64::from(level1) / 32_768.0).clamp(0.0, 1.0);
+        points.push([pos, left, right]);
+    }
+    points
+}
+
+fn build_xfl_resource_path(prefix: &str, idx: usize, item_name: &str, ext: &str) -> String {
+    let base = item_name.rsplit_once('/').map_or(item_name, |(_, b)| b);
+    let dot_ext = format!(".{ext}");
+    let stem = if base.len() > dot_ext.len()
+        && base[base.len() - dot_ext.len()..].eq_ignore_ascii_case(&dot_ext)
+    {
+        &base[..base.len() - dot_ext.len()]
+    } else {
+        base
+    };
+    let mut sanitized = String::with_capacity(stem.len().min(64));
+    for ch in stem.chars().take(64) {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    let trimmed = sanitized.trim_matches('_');
+    let final_stem = if trimmed.is_empty() { "asset" } else { trimmed };
+    format!("{prefix}/{idx}-{final_stem}.{ext}")
+}
+
+fn detect_raster_format(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(("image/png", "png"))
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some(("image/jpeg", "jpg"))
+    } else {
+        None
+    }
+}
+
+fn parse_xfl_sound_format_flags(format_str: &str) -> (u16, u32) {
+    let lower = format_str.to_ascii_lowercase();
+    let mut flags = 0u16;
+    if lower.contains("stereo") {
+        flags |= 0x01;
+    }
+    if lower.contains("16bit") || lower.contains("16 bit") {
+        flags |= 0x02;
+    }
+    let sample_rate = if lower.contains("44khz") || lower.contains("44.1khz") {
+        flags |= 0x0c;
+        44_100
+    } else if lower.contains("22khz") || lower.contains("22.05khz") {
+        flags |= 0x08;
+        22_050
+    } else if lower.contains("11khz") || lower.contains("11.025khz") {
+        flags |= 0x04;
+        11_025
+    } else if lower.contains("5.5khz") || lower.contains("5khz") || lower.contains("8khz") {
+        5_512
+    } else {
+        flags |= 0x0c;
+        44_100
+    };
+    (flags, sample_rate)
+}
+
+fn parse_wav_duration_44(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut pos = 12usize;
+    let mut fmt_info: Option<(u32, usize)> = None;
+    let mut data_len: Option<usize> = None;
+    while pos + 8 <= bytes.len() {
+        let tag = &bytes[pos..pos + 4];
+        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start.checked_add(chunk_len)?;
+        if payload_end > bytes.len() {
+            return None;
+        }
+        let payload = &bytes[payload_start..payload_end];
+        if tag == b"fmt " {
+            if payload.len() < 16 {
+                return None;
+            }
+            let channels = u16::from_le_bytes(payload[2..4].try_into().unwrap());
+            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+            let block_align = u16::from_le_bytes(payload[12..14].try_into().unwrap());
+            let bits = u16::from_le_bytes(payload[14..16].try_into().unwrap());
+            if channels == 0 || sample_rate == 0 {
+                return None;
+            }
+            let derived_align = usize::from(channels) * usize::from(bits.max(8)).div_ceil(8);
+            let frame_bytes = usize::from(block_align).max(derived_align).max(1);
+            fmt_info = Some((sample_rate, frame_bytes));
+        } else if tag == b"data" {
+            data_len = Some(payload.len());
+        }
+        pos = payload_end.saturating_add(chunk_len & 1);
+    }
+    let (sample_rate, frame_bytes) = fmt_info?;
+    let data_bytes = data_len?;
+    if data_bytes < frame_bytes {
+        return None;
+    }
+    let sample_frames = (data_bytes / frame_bytes) as u64;
+    Some((sample_frames * 44_100) / u64::from(sample_rate))
+}
+
+fn looks_like_xfl_mp3(bytes: &[u8]) -> bool {
+    let mut start = 0usize;
+    if bytes.len() >= 10
+        && &bytes[..3] == b"ID3"
+        && (bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80 == 0
+    {
+        let tag_len = ((bytes[6] as usize) << 21)
+            | ((bytes[7] as usize) << 14)
+            | ((bytes[8] as usize) << 7)
+            | (bytes[9] as usize);
+        let footer = if (bytes[5] & 0x10) != 0 { 10 } else { 0 };
+        start = (10 + tag_len + footer).min(bytes.len());
+    }
+    let end = bytes
+        .len()
+        .saturating_sub(3)
+        .min(start.saturating_add(4096));
+    (start..end).any(|i| {
+        let h = &bytes[i..i + 4];
+        h[0] == 0xff
+            && (h[1] & 0xe0) == 0xe0
+            && ((h[1] >> 3) & 3) != 1
+            && ((h[1] >> 1) & 3) != 0
+            && ((h[2] >> 4) & 0xf) != 0xf
+            && ((h[2] >> 2) & 3) != 3
+    })
 }
 
 fn classic_tween_matches(a: &Element, b: &Element) -> bool {
@@ -1837,9 +2950,14 @@ fn classic_tween_matches(a: &Element, b: &Element) -> bool {
                 ElementKind::Instance { symbol_id: a, .. },
                 ElementKind::Instance { symbol_id: b, .. },
             ) => a == b,
+            (
+                ElementKind::Bitmap { resource_id: a, .. },
+                ElementKind::Bitmap { resource_id: b, .. },
+            ) => a == b,
             (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
             | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
             | (ElementKind::Path { .. }, ElementKind::Path { .. })
+            | (ElementKind::PaintedPath { .. }, ElementKind::PaintedPath { .. })
             | (ElementKind::Text { .. }, ElementKind::Text { .. }) => true,
             _ => false,
         }
