@@ -1327,3 +1327,323 @@ impl WebPlayer {
             .map_or(-1, |frame| frame as i32))
     }
 }
+
+#[wasm_bindgen]
+pub struct AirKernel {
+    inner: neoflash_core::as3_air::AirRuntime,
+}
+
+fn air_js_err(err: neoflash_core::as3_air::AirError) -> JsValue {
+    JsValue::from_str(&err.to_string())
+}
+
+fn air_sql_js_err(err: neoflash_core::as3_air::AirSqlError) -> JsValue {
+    JsValue::from_str(&err.to_json())
+}
+
+#[wasm_bindgen]
+impl AirKernel {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        project_name: &str,
+        width: u32,
+        height: u32,
+        resources_json: &str,
+        now_ms: f64,
+    ) -> Result<AirKernel, JsValue> {
+        let resources: Vec<neoflash_core::as3_air::AirResourceInit> =
+            if resources_json.trim().is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str(resources_json)
+                    .map_err(|e| JsValue::from_str(&format!("Invalid AIR resources JSON: {e}")))?
+            };
+        let inner = neoflash_core::as3_air::AirRuntime::new(
+            project_name,
+            width,
+            height,
+            &resources,
+            now_ms,
+        )
+        .map_err(air_js_err)?;
+        Ok(Self { inner })
+    }
+
+    pub fn app_id(&self) -> String {
+        self.inner.app_id.clone()
+    }
+
+    pub fn descriptor_xml(&self) -> String {
+        self.inner.descriptor_xml.clone()
+    }
+
+    pub fn normalize_path(&self, input: &str) -> Result<String, JsValue> {
+        neoflash_core::as3_air::normalize_air_path(input).map_err(air_js_err)
+    }
+
+    pub fn resolve_path(&self, base_path: &str, relative: &str) -> Result<String, JsValue> {
+        neoflash_core::as3_air::resolve_air_path(base_path, relative).map_err(air_js_err)
+    }
+
+    pub fn relative_path(
+        &self,
+        from_path: &str,
+        to_path: &str,
+        use_dot_dot: bool,
+    ) -> Result<Option<String>, JsValue> {
+        neoflash_core::as3_air::relative_air_path(from_path, to_path, use_dot_dot)
+            .map_err(air_js_err)
+    }
+
+    pub fn canonicalize_path(&self, path: &str) -> Result<String, JsValue> {
+        self.inner.fs.canonicalize(path).map_err(air_js_err)
+    }
+
+    pub fn path_info_json(&self, path: &str) -> Result<String, JsValue> {
+        let info = self.inner.fs.info(path).map_err(air_js_err)?;
+        serde_json::to_string(&info).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn fs_create_directory(&mut self, path: &str, now_ms: f64) -> Result<(), JsValue> {
+        self.inner
+            .fs
+            .create_directory(path, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_create_temp(&mut self, is_directory: bool, now_ms: f64) -> Result<String, JsValue> {
+        self.inner
+            .fs
+            .create_temp(is_directory, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_list_directory_json(&self, path: &str) -> Result<String, JsValue> {
+        let items = self.inner.fs.list_directory(path).map_err(air_js_err)?;
+        serde_json::to_string(&items).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn fs_delete_file(&mut self, path: &str) -> Result<(), JsValue> {
+        self.inner.fs.delete_file(path).map_err(air_js_err)
+    }
+
+    pub fn fs_delete_directory(
+        &mut self,
+        path: &str,
+        delete_contents: bool,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .fs
+            .delete_directory(path, delete_contents)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_copy(
+        &mut self,
+        src: &str,
+        dst: &str,
+        overwrite: bool,
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .fs
+            .copy_to(src, dst, overwrite, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_move(
+        &mut self,
+        src: &str,
+        dst: &str,
+        overwrite: bool,
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .fs
+            .move_to(src, dst, overwrite, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_open_stream(
+        &mut self,
+        path: &str,
+        mode: &str,
+        now_ms: f64,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .fs
+            .open_stream(path, mode, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn fs_write_bytes(&mut self, path: &str, data: &[u8], now_ms: f64) -> Result<(), JsValue> {
+        self.inner
+            .fs
+            .write_bytes(path, data, now_ms)
+            .map_err(air_js_err)
+    }
+
+    pub fn els_set(&mut self, name: &str, bytes: &[u8]) -> Result<(), JsValue> {
+        self.inner.els.set_item(name, bytes).map_err(air_js_err)
+    }
+
+    pub fn els_get(&self, name: &str) -> Result<Option<Vec<u8>>, JsValue> {
+        self.inner.els.get_item(name).map_err(air_js_err)
+    }
+
+    pub fn els_remove(&mut self, name: &str) -> Result<(), JsValue> {
+        self.inner.els.remove_item(name).map_err(air_js_err)
+    }
+
+    pub fn els_reset(&mut self) {
+        self.inner.els.reset();
+    }
+
+    pub fn sql_open(
+        &mut self,
+        reference_path: Option<String>,
+        open_mode: &str,
+        auto_compact: bool,
+        page_size: u32,
+        now_ms: f64,
+    ) -> Result<u32, JsValue> {
+        self.inner
+            .sql_open(
+                reference_path.as_deref(),
+                open_mode,
+                auto_compact,
+                page_size,
+                now_ms,
+            )
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_close(&mut self, conn_id: u32) -> Result<(), JsValue> {
+        self.inner.sql_close(conn_id).map_err(air_sql_js_err)
+    }
+
+    pub fn sql_attach(
+        &mut self,
+        conn_id: u32,
+        name: &str,
+        reference_path: Option<String>,
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .sql_attach(conn_id, name, reference_path.as_deref(), now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_detach(&mut self, conn_id: u32, name: &str) -> Result<(), JsValue> {
+        self.inner.sql_detach(conn_id, name).map_err(air_sql_js_err)
+    }
+
+    pub fn sql_begin(&mut self, conn_id: u32, option: Option<String>) -> Result<(), JsValue> {
+        self.inner
+            .sql_begin(conn_id, option.as_deref())
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_commit(&mut self, conn_id: u32, now_ms: f64) -> Result<(), JsValue> {
+        self.inner
+            .sql_commit(conn_id, now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_rollback(&mut self, conn_id: u32) -> Result<(), JsValue> {
+        self.inner.sql_rollback(conn_id).map_err(air_sql_js_err)
+    }
+
+    pub fn sql_set_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<String>,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .sql_set_savepoint(conn_id, name.as_deref())
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_release_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<String>,
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .sql_release_savepoint(conn_id, name.as_deref(), now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_rollback_to_savepoint(
+        &mut self,
+        conn_id: u32,
+        name: Option<String>,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .sql_rollback_to_savepoint(conn_id, name.as_deref())
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_compact(&mut self, conn_id: u32, now_ms: f64) -> Result<(), JsValue> {
+        self.inner
+            .sql_compact(conn_id, now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_analyze(&self, conn_id: u32, resource_name: Option<String>) -> Result<(), JsValue> {
+        self.inner
+            .sql_analyze(conn_id, resource_name.as_deref())
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_deanalyze(&self, conn_id: u32) -> Result<(), JsValue> {
+        self.inner.sql_deanalyze(conn_id).map_err(air_sql_js_err)
+    }
+
+    pub fn sql_state_json(&self, conn_id: u32) -> Result<String, JsValue> {
+        self.inner.sql_state_json(conn_id).map_err(air_sql_js_err)
+    }
+
+    pub fn sql_set_config(
+        &mut self,
+        conn_id: u32,
+        cache_size: Option<u32>,
+        column_name_style: Option<String>,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .sql_set_config(conn_id, cache_size, column_name_style.as_deref())
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_load_schema_json(
+        &self,
+        conn_id: u32,
+        schema_type: Option<String>,
+        name: Option<String>,
+        database: &str,
+        include_columns: bool,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .sql_load_schema_json(
+                conn_id,
+                schema_type.as_deref(),
+                name.as_deref(),
+                database,
+                include_columns,
+            )
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_execute_json(
+        &mut self,
+        conn_id: u32,
+        sql_text: &str,
+        params_json: &str,
+        now_ms: f64,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .sql_execute_json(conn_id, sql_text, params_json, now_ms)
+            .map_err(air_sql_js_err)
+    }
+}
