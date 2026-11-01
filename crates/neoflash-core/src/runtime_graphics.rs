@@ -1,5 +1,8 @@
 //! Bounded runtime drawing state. Paint batches are owned by one display object.
-use crate::{Color, ElementKind, FillRule, PathCommand, RuntimeDrawKind, validate_path_commands};
+use crate::{
+    Color, ColorTransform, ElementKind, FillRule, PathCommand, PixelRef, RuntimeDrawKind,
+    validate_path_commands,
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_GRAPHICS_COMMANDS: usize = 100_000;
@@ -190,6 +193,55 @@ impl GradientSpec {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BitmapFillSpec {
+    pub pixel_ref: PixelRef,
+    pub matrix: [f64; 6],
+    pub repeat: bool,
+    pub smoothing: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BitmapPaint {
+    pub pixel_ref: PixelRef,
+    pub width: u32,
+    pub height: u32,
+    pub revision: String,
+    pub matrix: [f64; 6],
+    pub repeat: bool,
+    pub smoothing: bool,
+    pub color_transform: ColorTransform,
+}
+
+fn validate_paint_matrix(matrix: &[f64; 6], err: &'static str) -> Result<(), &'static str> {
+    let [a, b, c, d, _, _] = *matrix;
+    let det = a * d - b * c;
+    if matrix
+        .iter()
+        .enumerate()
+        .any(|(i, v)| !v.is_finite() || v.abs() > if i < 4 { 1e4 } else { 1e9 })
+        || det == 0.
+        || !det.is_finite()
+        || [a / det, b / det, c / det, d / det]
+            .iter()
+            .any(|v| !v.is_finite())
+    {
+        return Err(err);
+    }
+    Ok(())
+}
+
+impl BitmapFillSpec {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        validate_paint_matrix(
+            &self.matrix,
+            "Bitmap fill matrix must be finite, invertible, with linear values within ±10000 and translation within ±1e9",
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum GraphicsOp {
@@ -197,6 +249,9 @@ pub enum GraphicsOp {
     BeginFill {
         color: u32,
         alpha: f64,
+    },
+    BeginBitmapFill {
+        bitmap: BitmapFillSpec,
     },
     BeginGradientFill {
         gradient: GradientSpec,
@@ -272,16 +327,19 @@ pub enum GraphicsOp {
 enum Paint {
     Solid(Color),
     Gradient(GradientPaint),
+    Bitmap(BitmapFillSpec),
 }
 impl Paint {
     fn cost(&self) -> usize {
         match self {
             Self::Solid(_) => 0,
             Self::Gradient(p) => p.stops.len(),
+            Self::Bitmap(_) => 1,
         }
     }
     fn draw(
         &self,
+        pixels: &crate::pixels::PixelArena,
         commands: Vec<PathCommand>,
         fill_rule: FillRule,
         width: f64,
@@ -319,6 +377,36 @@ impl Paint {
                         None
                     },
                     stroke_gradient: if width > 0. { Some(gradient) } else { None },
+                    fill_bitmap: None,
+                    stroke_width: width,
+                }
+            }
+            Self::Bitmap(spec) => {
+                let fill_bitmap = if width == 0.
+                    && let Ok(info) = pixels.info(&spec.pixel_ref)
+                    && !info.disposed
+                {
+                    Some(BitmapPaint {
+                        pixel_ref: spec.pixel_ref.clone(),
+                        width: info.width,
+                        height: info.height,
+                        revision: info.revision,
+                        matrix: spec.matrix,
+                        repeat: spec.repeat,
+                        smoothing: spec.smoothing,
+                        color_transform: transform,
+                    })
+                } else {
+                    None
+                };
+                RuntimeDrawKind::GradientPath {
+                    commands,
+                    fill_rule,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    fill_gradient: None,
+                    stroke_gradient: None,
+                    fill_bitmap,
                     stroke_width: width,
                 }
             }
@@ -371,6 +459,10 @@ impl GraphicsOp {
         use GraphicsOp::*;
         let coordinates: Vec<f64> = match self {
             Clear | EndFill => vec![],
+            BeginBitmapFill { bitmap } => {
+                bitmap.validate()?;
+                vec![]
+            }
             BeginGradientFill { gradient } | LineGradientStyle { gradient } => {
                 gradient.validate()?;
                 vec![]
@@ -501,6 +593,7 @@ impl GraphicsOp {
             Self::Clear | Self::MoveTo { .. } | Self::LineStyle { .. } => 0,
             Self::LineGradientStyle { gradient } => gradient.colors.len(),
             Self::BeginFill { .. } | Self::EndFill => 1,
+            Self::BeginBitmapFill { .. } => 2,
             Self::BeginGradientFill { gradient } => 1 + gradient.colors.len(),
             Self::DrawEllipse { .. } => 32,
             Self::DrawRect { .. } => 30,
@@ -585,6 +678,7 @@ impl GraphicsState {
                 color: value,
                 alpha,
             } => self.new_group(Some(Paint::Solid(color(value, alpha)))),
+            BeginBitmapFill { ref bitmap } => self.new_group(Some(Paint::Bitmap(bitmap.clone()))),
             BeginGradientFill { ref gradient } => {
                 self.new_group(Some(Paint::Gradient(gradient.paint())))
             }
@@ -807,20 +901,32 @@ impl GraphicsState {
             .filter(|group| group.fill.is_some() && group.commands.len() > 1)
             .map(|group| (group.commands.as_slice(), group.fill_rule))
     }
-    pub(crate) fn paints(&self) -> Vec<RuntimeDrawKind> {
-        self.paints_with_color(crate::ColorTransform::default())
+    pub(crate) fn paints(&self, pixels: &crate::pixels::PixelArena) -> Vec<RuntimeDrawKind> {
+        self.paints_with_color(pixels, crate::ColorTransform::default())
     }
-    pub(crate) fn paints_with_color(&self, color: crate::ColorTransform) -> Vec<RuntimeDrawKind> {
+    pub(crate) fn paints_with_color(
+        &self,
+        pixels: &crate::pixels::PixelArena,
+        color: crate::ColorTransform,
+    ) -> Vec<RuntimeDrawKind> {
         let mut paints = vec![];
         for group in &self.groups {
             if let Some(fill) = &group.fill
                 && group.commands.len() > 1
+                && !matches!(
+                    fill,
+                    Paint::Bitmap(spec)
+                        if !pixels
+                            .info(&spec.pixel_ref)
+                            .is_ok_and(|info| !info.disposed)
+                )
             {
-                paints.push(fill.draw(group.commands.clone(), group.fill_rule, 0., color));
+                paints.push(fill.draw(pixels, group.commands.clone(), group.fill_rule, 0., color));
             }
             for run in &group.strokes {
                 if run.commands.len() > 1 {
                     paints.push(run.style.paint.draw(
+                        pixels,
                         run.commands.clone(),
                         group.fill_rule,
                         run.style.width,

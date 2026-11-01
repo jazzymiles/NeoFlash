@@ -230,7 +230,7 @@
     class LegacySound {
       constructor(...args){
         open();if(args.length)fail('AS2 Sound target/MovieClip hierarchy');
-        const sound=new Sound(),record={receiver:this,generation,sound,volume:100,pan:0,matrix:null,id3:undefined,channel:null,owned:new Set()};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
+        const sound=new Sound(),record={receiver:this,generation,sound,volume:100,pan:0,matrix:null,id3:undefined,channel:null,owned:new Set(),checkPolicyFile:false};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
         sound.addEventListener('complete',()=>legacyCallback(record,'onLoad',[true]));sound.addEventListener('ioError',()=>legacyCallback(record,'onLoad',[false]));
       }
       loadSound(url,isStreaming=false){const record=state(this,legacy);if(isStreaming!==false)fail('AS2 streaming Sound');record.sound.load(new net.URLRequest(url));}
@@ -257,7 +257,7 @@
       getTransform(){const record=state(this,legacy),value=(record.matrix||legacyMatrix(record)).state;return {ll:value.ll,lr:value.lr,rl:value.rl,rr:value.rr};}
       setTransform(value){const record=state(this,legacy);if(value===null||typeof value!=='object')throw new TypeError('AS2 Sound.setTransform requires an object.');const patch={};for(const key of ['ll','lr','rl','rr'])if(Object.prototype.hasOwnProperty.call(value,key)){patch[key]=value[key];if(typeof patch[key]!=='number'||!Number.isFinite(patch[key]))throw new TypeError('AS2 Sound transform coefficients must be finite numbers.');}applyLegacyMatrix(record,legacyMatrix(record,{patch}));}
       get id3(){return state(this,legacy).id3;}
-      get checkPolicyFile(){state(this,legacy);return false;}set checkPolicyFile(value){state(this,legacy);if(value!==false)fail('AS2 crossdomain.xml sound policies; publish with ordinary browser CORS');}
+      get checkPolicyFile(){return state(this,legacy).checkPolicyFile;}set checkPolicyFile(value){const record=state(this,legacy);if(typeof value!=='boolean')throw new TypeError('AS2 Sound.checkPolicyFile requires a Boolean.');record.checkPolicyFile=value;}
     }
     for(const[Ctor,name,table]of [[Sound,'Sound',sounds],[SoundChannel,'SoundChannel',channels],[SoundTransform,'SoundTransform',transforms],[LegacySound,'AS2 Sound',legacy]]){
       Ctor.__nfIs=value=>table.has(value);Ctor.__nfInitialize=()=>fail(name+' native subclassing');Object.defineProperty(Ctor,Symbol.hasInstance,{value:Ctor.__nfIs});

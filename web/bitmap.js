@@ -285,6 +285,7 @@
     function consume(kind,operation){const record=upload(kind);try{return operation(record);}finally{if(!record.retained)release(record);}}
     const cache=Object.freeze({
       transform:snapped,
+      paint(kind,operation){return consume(kind,operation);},
       beginFrame(){active();used=new Set();},
       draw(context,kind){
         consume(kind,record=>{context.save();

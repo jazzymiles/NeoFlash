@@ -174,13 +174,13 @@
       if(createRecord){cancel(record);record.legacy=owner;}return record;
     }
     class MovieClipLoader {
-      constructor(...args){open();if(args.length)throw new TypeError('MovieClipLoader construction takes no arguments.');legacy.set(this,{generation,listeners:new Set([this])});}
+      constructor(...args){open();if(args.length)throw new TypeError('MovieClipLoader construction takes no arguments.');legacy.set(this,{generation,listeners:new Set([this]),checkPolicyFile:false});}
       addListener(listener){const record=legacyState(this);if(!listener||!['object','function'].includes(typeof listener))return false;if(record.listeners.has(listener))return false;if(record.listeners.size>=1024)throw new RangeError('MovieClipLoader supports at most 1024 listeners.');record.listeners.add(listener);return true;}
       removeListener(listener){return legacyState(this).listeners.delete(listener);}
       loadClip(url,target){if(typeof url!=='string')throw new TypeError('MovieClipLoader.loadClip URL requires a string.');const record=targetRecord(this,target,true);load(record,new net.URLRequest(url));return true;}
       unloadClip(target){const record=targetRecord(this,target,false);if(!record)return false;unload(record);return true;}
       getProgress(target){const record=targetRecord(this,target,false);return {bytesLoaded:record?.bytesLoaded||0,bytesTotal:record?.bytesTotal||0};}
-      get checkPolicyFile(){legacyState(this);return false;}set checkPolicyFile(value){legacyState(this);if(value!==false)unsupported('MovieClipLoader.checkPolicyFile');}
+      get checkPolicyFile(){return legacyState(this).checkPolicyFile;}set checkPolicyFile(value){const record=legacyState(this);if(typeof value!=='boolean')throw new TypeError('MovieClipLoader.checkPolicyFile requires a Boolean.');record.checkPolicyFile=value;}
     }
     Object.defineProperties(MovieClipLoader,{__nfIs:{value:value=>legacy.has(value)},__nfInitialize:{value:()=>unsupported('MovieClipLoader native subclassing')}});
     let simpleReceiver=null;

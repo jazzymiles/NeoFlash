@@ -62,6 +62,7 @@
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
+    let accProps = new WeakMap();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
     const nodeKey=node=>graph?refKey(node.object_ref):JSON.stringify(node.path);
@@ -247,6 +248,14 @@
       const methods={
         clear:()=>apply({op:'clear'}),
         beginFill:(color,alpha=1)=>apply({op:'begin_fill',color:rgb(color),alpha:opacity(alpha)}),
+        beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>{
+          const bitmapHost=getBitmap();if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
+          const pixelRef=bitmapHost.refOf(bitmap);
+          if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('Graphics.beginBitmapFill matrix requires flash.geom.Matrix or null.');
+          if(typeof repeat!=='boolean'||typeof smoothing!=='boolean')throw new TypeError('Graphics.beginBitmapFill repeat and smoothing require Booleans.');
+          const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+          apply({op:'begin_bitmap_fill',bitmap:{pixel_ref:pixelRef,matrix:components,repeat,smoothing}});
+        },
         beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
         lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
         endFill:()=>apply({op:'end_fill'}),
@@ -355,6 +364,7 @@
           set(target,'mask',mask==null?null:mask);return true;
         },
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
+        beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>drawing.beginBitmapFill(bitmap,matrix??null,Boolean(repeat),Boolean(smoothing)),
         beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.beginGradientFill(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
@@ -460,6 +470,7 @@
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
+      if(name==='_accProps'&&['movie_clip','button','text'].includes(descriptor(target).owner))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
       if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
       if(name==='getSWFVersion'&&descriptor(target).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>()=>{descriptor(target);return 8;},set:()=>{throw new TypeError('MovieClip.getSWFVersion is read-only.');}};
       if(['_quality','_highquality','_soundbuftime'].includes(name)&&['movie_clip','button','text'].includes(descriptor(target).owner))return as2GlobalPropRef(name,()=>descriptor(target));
@@ -875,7 +886,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

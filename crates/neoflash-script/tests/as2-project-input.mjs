@@ -4,9 +4,63 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
+
+const require = createRequire(import.meta.url);
+
+class DomElement {
+  constructor(doc, tag) {
+    this.ownerDocument = doc;
+    this.tagName = tag;
+    this.children = [];
+    this.style = {};
+    this.attrs = {};
+    this.events = {};
+    this.parentNode = null;
+    this.disabled = false;
+    this.textContent = '';
+  }
+  setAttribute(k, v) { this.attrs[k] = v; }
+  getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  appendChild(el) { this.insertBefore(el, null); return el; }
+  insertBefore(el, before) {
+    el.remove();
+    const i = before ? this.children.indexOf(before) : this.children.length;
+    this.children.splice(i, 0, el);
+    el.parentNode = this;
+  }
+  remove() {
+    if (this.parentNode) {
+      const p = this.parentNode;
+      p.children.splice(p.children.indexOf(this), 1);
+      this.parentNode = null;
+      if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = null;
+    }
+  }
+  addEventListener(k, fn) { this.events[k] = fn; }
+  focus() { this.ownerDocument.activeElement = this; this.events.focus?.(); }
+  scrollIntoView() {}
+  get firstElementChild() { return this.children[0] || null; }
+  get nextElementSibling() {
+    if (!this.parentNode) return null;
+    return this.parentNode.children[this.parentNode.children.indexOf(this) + 1] || null;
+  }
+}
+
+function createSemanticDom() {
+  const doc = { activeElement: null, createElement(tag) { return new DomElement(doc, tag); } };
+  return new DomElement(doc, 'div');
+}
+
+async function until(predicate, label) {
+  const deadline = Date.now() + 4000;
+  while (!predicate() && Date.now() < deadline) await new Promise(done => setTimeout(done, 5));
+  assert.ok(predicate(), label);
+}
 
 class Surface extends EventTarget {
   style = { cursor: 'default' };
@@ -124,13 +178,46 @@ export async function verifyAs2ProjectInput(root, cargo) {
 
 async function verifyAs2FoundationSurface(root, cargo, directory) {
   const project = JSON.parse(readFileSync(resolve(root, 'examples/as2-project-input.nflash'), 'utf8'));
+  const pngResource = JSON.parse(readFileSync(resolve(root, 'examples/bitmap-pixels.nflash'), 'utf8')).resources[0];
+  project.format_version = 3;
+  project.resources = [pngResource];
   project.document_class = 'app.FoundationMain';
-  project.symbols[0].timeline.layers[0].keyframes[0].elements.push({
-    id: 'actionBtn',
-    name: 'actionBtn',
-    transform: { x: 400, y: 200, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
-    kind: { type: 'instance', symbol_id: 'btn_sym', playback: 'independent' },
-    scripts: [],
+  project.symbols[0].timeline.frame_count = 2;
+  project.symbols[0].timeline.layers[0].keyframes[0].elements.push(
+    {
+      id: 'actionBtn',
+      name: 'actionBtn',
+      transform: { x: 400, y: 200, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+      kind: { type: 'instance', symbol_id: 'btn_sym', playback: 'independent' },
+      scripts: [],
+    },
+    {
+      id: 'stageVideo',
+      name: 'stageVideo',
+      transform: { x: 520, y: 200, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+      kind: { type: 'video', width: 160, height: 90 },
+      scripts: [],
+    },
+    {
+      id: 'stageComp',
+      name: 'stageComp',
+      transform: { x: 400, y: 260, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+      kind: { type: 'instance', symbol_id: 'init_sym_a', playback: 'independent' },
+      scripts: [],
+    },
+  );
+  project.symbols[0].timeline.layers[0].keyframes.push({
+    frame: 1,
+    elements: JSON.parse(JSON.stringify(project.symbols[0].timeline.layers[0].keyframes[0].elements)),
+    tween: null,
+    label: 'ready',
+  });
+  project.symbols[0].timeline.scripts.push({
+    frame: 1,
+    script: {
+      language: 'action_script2',
+      source: 'rootCalled = (rootCalled ? rootCalled : 0) + 1;',
+    },
   });
   project.symbols.push(
     {
@@ -178,15 +265,56 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
       },
     },
     {
-      id: 'sub_sym',
-      name: 'SubSymbol',
+      id: 'init_sym_a',
+      name: 'StageComponentSymbol',
       kind: 'movie_clip',
-      linkage_id: 'SubClip',
+      linkage_id: 'StageComp',
       timeline: {
         frame_count: 1,
         layers: [{
-          id: 'sub-layer',
-          name: 'sub-layer',
+          id: 'init-a-layer',
+          name: 'init-a-layer',
+          visible: true,
+          locked: false,
+          keyframes: [{
+            frame: 0,
+            elements: [{
+              id: 'init-a-rect',
+              name: '',
+              transform: { x: 0, y: 0, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+              kind: { type: 'rectangle', width: 60, height: 24, fill: [90, 170, 95, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+              scripts: [],
+            }],
+            tween: null,
+            label: '',
+          }],
+        }],
+        scripts: [{
+          frame: 0,
+          script: {
+            language: 'action_script2',
+            source: [
+              'import app.RegisteredCard;',
+              '#initclip 10',
+              '_global.initOrder.push("order10");',
+              'Object.registerClass("StageComp", RegisteredCard);',
+              '#endinitclip',
+              'frameVisits = (frameVisits ? frameVisits : 0) + 1;',
+            ].join('\n'),
+          },
+        }],
+      },
+    },
+    {
+      id: 'init_sym_b',
+      name: 'BootstrapSymbol',
+      kind: 'movie_clip',
+      linkage_id: 'BootstrapClip',
+      timeline: {
+        frame_count: 1,
+        layers: [{
+          id: 'init-b-layer',
+          name: 'init-b-layer',
           visible: true,
           locked: false,
           keyframes: [{ frame: 0, elements: [], tween: null, label: '' }],
@@ -195,13 +323,80 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
           frame: 0,
           script: {
             language: 'action_script2',
-            source: 'function frameProbe():Object { return arguments.caller; } seenRootName = _root._name; seenEvalRootName = eval("_root")._name; seenFrameCallerIsNull = (frameProbe() === null);',
+            source: [
+              'import ext.HostWidget;',
+              '#initclip 3',
+              '_global.initOrder.push("order3");',
+              '#endinitclip',
+              '#initclip',
+              '_global.initOrder = ["unordered:" + (this === _level0)];',
+              'var ctor:Function = function(seed:String):Void { this.label = seed; };',
+              'ctor.prototype.render = function():String { return "widget:" + this.label; };',
+              'ctor.make = function(seed:String):HostWidget { return new HostWidget(seed); };',
+              '_global.ext = {HostWidget: ctor};',
+              '#endinitclip',
+            ].join('\n'),
           },
         }],
       },
     },
+    {
+      id: 'sub_sym',
+      name: 'SubSymbol',
+      kind: 'movie_clip',
+      linkage_id: 'SubClip',
+      timeline: {
+        frame_count: 2,
+        layers: [{
+          id: 'sub-layer',
+          name: 'sub-layer',
+          visible: true,
+          locked: false,
+          keyframes: [
+            { frame: 0, elements: [], tween: null, label: '' },
+            { frame: 1, elements: [], tween: null, label: 'active' },
+          ],
+        }],
+        scripts: [
+          {
+            frame: 0,
+            script: {
+              language: 'action_script2',
+              source: 'function frameProbe():Object { return arguments.caller; } seenRootName = _root._name; seenEvalRootName = eval("_root")._name; seenLevel0IsMain = (_level0 === _root._parent && _level0 !== _root && eval("_level0") === _level0); seenLevel1 = _level1; seenEvalLevel1 = eval("_level1"); seenFrameCallerIsNull = (frameProbe() === null);',
+            },
+          },
+          {
+            frame: 1,
+            script: {
+              language: 'action_script2',
+              source: 'calledCount = (calledCount ? calledCount : 0) + 10; calledOn = _name;',
+            },
+          },
+        ],
+      },
+    },
   );
   project.sources.push(
+    {
+      id: 'as2-source-intrinsic-iwidget',
+      path: 'ext/IHostWidget.as',
+      language: 'action_script2',
+      source: 'intrinsic interface ext.IHostWidget { function render():String; }',
+    },
+    {
+      id: 'as2-source-intrinsic-widget',
+      path: 'ext/HostWidget.as',
+      language: 'action_script2',
+      source: [
+        'import ext.IHostWidget;',
+        'intrinsic class ext.HostWidget implements IHostWidget {',
+        '  public var label:String;',
+        '  public function HostWidget(seed:String);',
+        '  public function render():String;',
+        '  public static function make(seed:String):HostWidget;',
+        '}',
+      ].join('\n'),
+    },
     {
       id: 'as2-source-registered-card',
       path: 'app/RegisteredCard.as',
@@ -239,12 +434,22 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         'import app.RegisteredCard;',
         'import app.Inspector;',
         'import app.SubInspector;',
+        'import ext.HostWidget;',
+        'import flash.display.BitmapData;',
+        'import flash.geom.Matrix;',
         'import flash.geom.Rectangle;',
         'import flash.text.TextRenderer;',
         'class app.FoundationMain extends MovieClip {',
         '  public var foundationReport:Object;',
         '  public var holderRef:MovieClip;',
         '  public var subRef:MovieClip;',
+        '  public var artRef:MovieClip;',
+        '  public var loaderRef:MovieClipLoader;',
+        '  public var soundRef:Sound;',
+        '  public var streamRef:NetStream;',
+        '  public var storyText:String;',
+        '  public var rootCalled:Number;',
+        '  public var rootTellMarker:Boolean;',
         '  public function FoundationMain() {',
         '    super();',
         '    stop();',
@@ -362,6 +567,110 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    r.unregOk = Object.registerClass("CardClip", null);',
         '    var card2:MovieClip = this.attachMovie("CardClip", "card2", 31);',
         '    r.card2Checks = [card2 instanceof RegisteredCard, card2.badge === undefined];',
+        '    r.initOrder = _global.initOrder.slice();',
+        '    r.stageCompChecks = [stageComp instanceof RegisteredCard, stageComp.badge];',
+        '    var hw1:HostWidget = new HostWidget("alpha");',
+        '    var hw2:HostWidget = HostWidget.make("beta");',
+        '    r.intrinsicChecks = [hw1 instanceof HostWidget, hw1.render(), hw2 instanceof HostWidget, hw2.label];',
+        '    var tile:BitmapData = new BitmapData(4, 4, false, 0xff2288dd);',
+        '    var art:MovieClip = this.createEmptyMovieClip("art", 40);',
+        '    var mat:Matrix = new Matrix();',
+        '    mat.translate(2, 3);',
+        '    art.beginBitmapFill(tile, mat, false, true);',
+        '    art.moveTo(0, 0); art.lineTo(20, 0); art.lineTo(20, 16); art.lineTo(0, 16); art.lineTo(0, 0);',
+        '    art.endFill();',
+        '    art.beginBitmapFill(tile);',
+        '    art.moveTo(30, 0); art.lineTo(46, 0); art.lineTo(46, 16); art.lineTo(30, 16); art.lineTo(30, 0);',
+        '    art.endFill();',
+        '    artRef = art;',
+        '    tellTarget("holder/sub") {',
+        '      slashMarker = "targeted";',
+        '      gotoAndStop(2);',
+        '    }',
+        '    tellTarget("holder") {',
+        '      tellTarget("sub") {',
+        '        nestedTell = _name + ":" + _currentframe;',
+        '      }',
+        '      tellTarget("") {',
+        '        rootTellMarker = (_target == "/");',
+        '      }',
+        '    }',
+        '    r.tellTargetChecks = [sub.slashMarker, sub._currentframe, sub.nestedTell, rootTellMarker];',
+        '    sub.gotoAndStop(1);',
+        '    var loadedHits:Array = [];',
+        '    ifFrameLoaded(1) { loadedHits.push("f1"); }',
+        '    ifFrameLoaded(2) { loadedHits.push("f2"); }',
+        '    ifFrameLoaded(99) { loadedHits.push("f99"); }',
+        '    ifFrameLoaded("ready") { loadedHits.push("ready"); }',
+        '    ifFrameLoaded("missing") { loadedHits.push("missing"); }',
+        '    r.ifFrameLoadedChecks = loadedHits;',
+        '    rootCalled = 0;',
+        '    call(2);',
+        '    call("ready");',
+        '    call("missing");',
+        '    var beforeSubCount:Number = sub.calledCount ? sub.calledCount : 0;',
+        '    call("holder/sub:2");',
+        '    call("holder/sub:active");',
+        '    r.callChecks = [rootCalled, _currentframe, sub.calledCount - beforeSubCount, sub.calledOn, sub._currentframe];',
+        '    r.levelChecks = [_level0 === this, _level1 === undefined, eval("_level1") === undefined, _level2 === undefined];',
+        '    var logTf:TextField = this.createTextField("logTf", 25, 10, 60, 120, 24);',
+        '    logTf.multiline = true;',
+        '    logTf.wordWrap = true;',
+        '    logTf.variable = "storyText";',
+        '    storyText = "line1\\nline2\\nline3\\nline4\\nline5";',
+        '    var initVarScroll:Number = storyText.scroll;',
+        '    var maxVarScroll:Number = storyText.maxscroll;',
+        '    storyText.scroll = 2;',
+        '    r.varScrollChecks = [initVarScroll, maxVarScroll >= 3, storyText.scroll, logTf.scroll, eval("storyText.scroll")];',
+        '    r.accActive = Accessibility.isActive();',
+        '    actionBtn._visible = true;',
+        '    actionBtn._accProps = {name: "Launch Action", description: "Starts mission"};',
+        '    stageComp._accProps = {name: "Stage Card", forceSimple: true};',
+        '    holder._accProps = {silent: true, name: "Muted"};',
+        '    Accessibility.updateProperties();',
+        '    var vid:Video = stageVideo;',
+        '    var initDeblock:Number = vid.deblocking;',
+        '    vid.deblocking = 4;',
+        '    r.videoChecks = [vid instanceof Video, initDeblock, vid.deblocking];',
+        '    var mcl:MovieClipLoader = new MovieClipLoader();',
+        '    var mclPolicy0:Boolean = mcl.checkPolicyFile;',
+        '    mcl.checkPolicyFile = true;',
+        '    var keepEvents:Array = [];',
+        '    var removedEvents:Array = [];',
+        '    var keepL:Object = {',
+        '      onLoadStart: function(t:MovieClip):Void { keepEvents.push("start:" + t._name); },',
+        '      onLoadProgress: function(t:MovieClip, l:Number, tot:Number):Void { keepEvents.push("prog:" + t._name + ":" + (l == tot && tot > 0)); },',
+        '      onLoadComplete: function(t:MovieClip, st:Number):Void { keepEvents.push("comp:" + t._name); },',
+        '      onLoadInit: function(t:MovieClip):Void { keepEvents.push("init:" + t._name); },',
+        '      onLoadError: function(t:MovieClip, err:String, st:Number):Void { keepEvents.push("err:" + t._name + ":" + (err.length > 0)); }',
+        '    };',
+        '    var dropL:Object = {',
+        '      onLoadStart: function(t:MovieClip):Void { removedEvents.push("start"); },',
+        '      onLoadError: function(t:MovieClip):Void { removedEvents.push("err"); }',
+        '    };',
+        '    mcl.addListener(keepL);',
+        '    mcl.addListener(dropL);',
+        '    var rem1:Boolean = mcl.removeListener(dropL);',
+        '    var rem2:Boolean = mcl.removeListener(dropL);',
+        '    var slotOk:MovieClip = this.createEmptyMovieClip("slotOk", 50);',
+        '    var slotErr:MovieClip = this.createEmptyMovieClip("slotErr", 51);',
+        '    mcl.loadClip("images/pixel-creature.png", slotOk);',
+        '    mcl.loadClip("images/missing-asset.png", slotErr);',
+        '    loaderRef = mcl;',
+        '    r.mclSetup = [mclPolicy0, mcl.checkPolicyFile, rem1, rem2];',
+        '    r.keepEvents = keepEvents;',
+        '    r.removedEvents = removedEvents;',
+        '    var snd:Sound = new Sound();',
+        '    var sndPolicy0:Boolean = snd.checkPolicyFile;',
+        '    snd.checkPolicyFile = true;',
+        '    soundRef = snd;',
+        '    var nc:NetConnection = new NetConnection();',
+        '    nc.connect(null);',
+        '    var ns:NetStream = new NetStream(nc);',
+        '    var nsPolicy0:Boolean = ns.checkPolicyFile;',
+        '    ns.checkPolicyFile = true;',
+        '    streamRef = ns;',
+        '    r.policyChecks = [sndPolicy0, snd.checkPolicyFile, nsPolicy0, ns.checkPolicyFile];',
         '    foundationReport = r;',
         '  }',
         '}',
@@ -382,13 +691,17 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
   sandbox.wasmBytes = Buffer.from(bundle.wasm, 'base64');
   const wasm = await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)', sandbox);
   const fPlayer = new wasm.WebPlayer(JSON.stringify(bundle.project));
+  const { SemanticLayer } = require(resolve(root, 'web/accessibility.js'));
+  const semanticDom = createSemanticDom();
+  const semanticLayer = new SemanticLayer(semanticDom, () => {});
   let fHost;
   try {
     ({ host: fHost } = createRuntimeHost(root, fPlayer, Array.from(bundle.scripts, item => ({
       script: { language: item.language, source: item.source }, code: item.code, location: item.location,
-    })), { bundle, context: { measureText: line => ({ width: line.length * 8 }) } }));
+    })), { bundle, semanticLayer, context: { measureText: line => ({ width: line.length * 8 }) } }));
     fHost.dispatchScripts();
     const scene = fHost.proxyFor([]), r = scene.foundationReport;
+    await until(() => Array.from(r.keepEvents).length === 5, 'MovieClipLoader bundled success + missing error events settle');
     assert.equal(r.initQuality, 'HIGH');
     assert.equal(r.initHighQuality, 1);
     assert.equal(r.initFocusRect, true);
@@ -411,6 +724,9 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     assert.equal(r.subRootMatchesHolder, true);
     assert.equal(scene.subRef.seenRootName, 'holder');
     assert.equal(scene.subRef.seenEvalRootName, 'holder');
+    assert.equal(scene.subRef.seenLevel0IsMain, true);
+    assert.equal(scene.subRef.seenLevel1, undefined);
+    assert.equal(scene.subRef.seenEvalLevel1, undefined);
     assert.equal(scene.subRef.seenFrameCallerIsNull, true);
     assert.equal(r.unsetClipGrid, undefined);
     assert.equal(r.clipGridWidth, 40);
@@ -449,11 +765,55 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     assert.equal(r.unregOk, true);
     assert.deepEqual(Array.from(r.card2Checks), [false, true]);
 
+    // Batch 2 assertions: #initclip/#endinitclip, intrinsic, beginBitmapFill, tellTarget,
+    // ifFrameLoaded, call, _level, scroll/maxscroll, Accessibility/_accProps, Video, MCL/Sound/NetStream.
+    assert.deepEqual(Array.from(r.initOrder), ['unordered:true', 'order3', 'order10']);
+    assert.deepEqual(Array.from(r.stageCompChecks), [true, 'registered:stageComp:8']);
+    assert.equal(scene.stageComp.frameVisits, 1);
+    assert.equal(fHost.legacy()._global.initOrder.length, 3, '#initclip runs once per session, not again on symbol frame 1');
+    assert.deepEqual(Array.from(r.intrinsicChecks), [true, 'widget:alpha', true, 'beta']);
+    const artGraphics = fHost.display().descriptor(scene.artRef).graphics;
+    assert.equal(artGraphics.length, 2);
+    assert.equal(artGraphics[0].type, 'gradient_path');
+    assert.deepEqual(artGraphics[0].fill_bitmap.matrix, [1, 0, 0, 1, 2, 3]);
+    assert.equal(artGraphics[0].fill_bitmap.repeat, false);
+    assert.equal(artGraphics[0].fill_bitmap.smoothing, true);
+    assert.deepEqual(artGraphics[1].fill_bitmap.matrix, [1, 0, 0, 1, 0, 0]);
+    assert.equal(artGraphics[1].fill_bitmap.repeat, true);
+    assert.equal(artGraphics[1].fill_bitmap.smoothing, false);
+    assert.deepEqual(Array.from(r.tellTargetChecks), ['targeted', 2, 'sub:2', true]);
+    assert.deepEqual(Array.from(r.ifFrameLoadedChecks), ['f1', 'f2', 'ready']);
+    assert.deepEqual(Array.from(r.callChecks), [2, 1, 20, 'sub', 1]);
+    assert.deepEqual(Array.from(r.levelChecks), [true, true, true, true]);
+    assert.deepEqual(Array.from(r.varScrollChecks), [1, true, 2, 2, 2]);
+    assert.equal(r.accActive, true);
+    const ariaLabels = semanticDom.children.map(el => el.getAttribute('aria-label'));
+    assert.ok(ariaLabels.includes('Launch Action'));
+    assert.ok(ariaLabels.includes('Stage Card'));
+    assert.ok(!ariaLabels.includes('Muted'));
+    const launchNode = semanticDom.children.find(el => el.getAttribute('aria-label') === 'Launch Action');
+    assert.equal(launchNode.children[0].textContent, 'Starts mission');
+    assert.deepEqual(Array.from(r.videoChecks), [true, 0, 4]);
+    assert.throws(() => { scene.stageVideo.deblocking = 6; }, /0 through 5/);
+    assert.deepEqual(Array.from(r.mclSetup), [false, true, true, false]);
+    assert.deepEqual(Array.from(r.removedEvents), []);
+    const evs = Array.from(r.keepEvents);
+    assert.ok(evs.includes('start:slotOk'));
+    assert.ok(evs.includes('prog:slotOk:true'));
+    assert.ok(evs.includes('comp:slotOk'));
+    assert.ok(evs.includes('init:slotOk'));
+    assert.ok(evs.includes('err:slotErr:true'));
+    assert.deepEqual(Array.from(r.policyChecks), [false, true, false, true]);
+    assert.throws(() => { scene.loaderRef.checkPolicyFile = 'yes'; }, /Boolean/);
+    assert.throws(() => { scene.soundRef.checkPolicyFile = 1; }, /Boolean/);
+    assert.throws(() => { scene.streamRef.checkPolicyFile = null; }, /Boolean/);
+
     fHost.resetProject();
     const resetReport = fHost.proxyFor([]).foundationReport;
     assert.equal(resetReport.initQuality, 'HIGH');
     assert.equal(resetReport.initSoundBuf, 5);
     assert.deepEqual(Array.from(resetReport.rendererDefaults), ['default', 4]);
+    assert.deepEqual(Array.from(resetReport.initOrder), ['unordered:true', 'order3', 'order10']);
   } finally {
     fHost?.disposeFamily();
     fPlayer.free();

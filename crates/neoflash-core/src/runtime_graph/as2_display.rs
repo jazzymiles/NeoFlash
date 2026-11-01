@@ -429,6 +429,15 @@ impl Player {
                 break;
             }
         }
+        if let Some(rest) = path.strip_prefix("_level") {
+            let digits_len = rest.bytes().take_while(u8::is_ascii_digit).count();
+            if digits_len > 0 && &rest[..digits_len] != "0" {
+                let after = &rest[digits_len..];
+                if after.is_empty() || after.starts_with(['.', '/']) {
+                    return Ok(None);
+                }
+            }
+        }
         if let Some(rest) = tail.strip_prefix('/') {
             current = locked_root;
             tail = rest;
@@ -466,4 +475,119 @@ impl Player {
         }
         Ok(Some(current))
     }
+
+    pub fn as2_call_frame_scripts(
+        &self,
+        project: &Project,
+        relative: &ObjectRef,
+        spec: &crate::GotoFrame,
+    ) -> Result<Option<(ObjectRef, Vec<Script>)>, DisplayError> {
+        if !self.graph.alive(relative) {
+            return Err(error("AS2 call() relative target is stale"));
+        }
+        let (target, frame_spec) = match spec {
+            crate::GotoFrame::Label(text) => {
+                if text.len() > 4096 {
+                    return Err(error("AS2 call() target specifier exceeds 4096 bytes"));
+                }
+                if let Some((target_path, frame_part)) = text.rsplit_once(':') {
+                    let resolved = if target_path.is_empty() {
+                        Some(relative.clone())
+                    } else {
+                        self.as2_resolve_target(project, relative, target_path)?
+                    };
+                    let Some(clip) = resolved else {
+                        return Ok(None);
+                    };
+                    (clip, crate::GotoFrame::Label(frame_part.to_string()))
+                } else {
+                    (relative.clone(), crate::GotoFrame::Label(text.clone()))
+                }
+            }
+            crate::GotoFrame::Number(num) => (relative.clone(), crate::GotoFrame::Number(*num)),
+        };
+        let request = crate::GotoRequest {
+            frame: frame_spec,
+            scene: None,
+            as2: true,
+        };
+        let Ok(Some(frame)) = self.object_resolve_goto(project, &target, &request) else {
+            return Ok(None);
+        };
+        Ok(Some((
+            target.clone(),
+            self.object_frame_scripts(project, &target, frame),
+        )))
+    }
+
+    pub fn as2_is_frame_loaded(
+        &self,
+        project: &Project,
+        relative: &ObjectRef,
+        request: &crate::GotoRequest,
+    ) -> Result<bool, DisplayError> {
+        if !self.graph.alive(relative) {
+            return Err(error("AS2 ifFrameLoaded target is stale"));
+        }
+        if self.object_frame(relative).is_none() {
+            return Err(error("ifFrameLoaded requires a timeline MovieClip"));
+        }
+        let mut req = request.clone();
+        req.as2 = true;
+        Ok(matches!(
+            self.object_resolve_goto(project, relative, &req),
+            Ok(Some(_))
+        ))
+    }
+
+    pub fn as2_accessibility_update(
+        &mut self,
+        entries: Vec<As2AccUpdateEntry>,
+    ) -> Result<(), DisplayError> {
+        if entries.len() > MAX_DYNAMIC_OBJECTS {
+            return Err(error("AS2 accessibility update exceeds object budget"));
+        }
+        let mut next = BTreeMap::new();
+        for entry in entries {
+            if !self.graph.alive(&entry.object_ref) {
+                continue;
+            }
+            if entry.props.name.as_ref().is_some_and(|s| s.len() > 4096)
+                || entry
+                    .props
+                    .description
+                    .as_ref()
+                    .is_some_and(|s| s.len() > 4096)
+            {
+                return Err(error(
+                    "AS2 _accProps name/description must be at most 4096 UTF-8 bytes",
+                ));
+            }
+            next.insert(entry.object_ref, entry.props);
+        }
+        self.graph.as2_accessibility = next;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct As2AccProps {
+    #[serde(default)]
+    pub silent: bool,
+    #[serde(default)]
+    pub force_simple: bool,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub interactive: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct As2AccUpdateEntry {
+    pub object_ref: ObjectRef,
+    pub props: As2AccProps,
 }
