@@ -75,6 +75,7 @@
     for(const stop of paint.stops)gradient.addColorStop(stop.ratio/255,rgba(stop.color));return gradient;
   }
   function paintVisible(kind,channel) {
+    if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0;
     const paint=kind[channel+'_gradient'];return paint?validateGradient(paint).stops.some(s=>s.color[3]>0):(kind[channel]?.[3]||0)>0;
   }
   function gradientParameter(paint,x,y) {
@@ -86,6 +87,7 @@
     return denominator>0?n/denominator:null; // Endpoint focal cones do not paint their exterior.
   }
   function paintAlpha(kind,channel,x,y) {
+    if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0?1:0;
     const paint=kind[channel+'_gradient'];if(!paint)return(kind[channel]?.[3]||0)/255;validateGradient(paint);
     const t=gradientParameter(paint,x,y);if(t===null)return 0;const ratio=t*255,stops=paint.stops;
     if(ratio<stops[0].ratio)return stops[0].color[3]/255;
@@ -141,6 +143,36 @@
     context.transform(...paint.matrix);const inverseBrush=inverse(matrixOf(context)),area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverseBrush,...p)));
     if(!area)throw new Error('Gradient brush bounds exceed finite rendering limits.');context.fillStyle=gradientFor(context,paint);context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);
   }
+  function bitmapBrush(context,paint,bitmaps,width,height) {
+    if(!bitmaps)throw new Error('Bitmap fill rendering requires the bitmap cache.');
+    bitmaps.paint(paint,record=>{
+      const m=paint.matrix,det=m[0]*m[3]-m[1]*m[2];
+      if(!Number.isFinite(det)||det===0){
+        const base=matrixOf(context),baseDet=base[0]*base[3]-base[1]*base[2];if(!Number.isFinite(baseDet)||baseDet===0)return;
+        const area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverse(base),...p)));if(!area)return;
+        context.fillStyle=rgba(record.bytes.slice(0,4));context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);return;
+      }
+      context.transform(...m);const total=matrixOf(context),totalDet=total[0]*total[3]-total[1]*total[2];if(!Number.isFinite(totalDet)||totalDet===0)return;
+      const area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverse(total),...p)));if(!area)return;
+      context.imageSmoothingEnabled=Boolean(paint.smoothing);
+      if(paint.repeat){
+        const pattern=context.createPattern(record.canvas,'repeat');
+        if(pattern){context.fillStyle=pattern;context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);}
+        return;
+      }
+      const w=record.width,h=record.height,x0=Math.floor(area.left)-1,y0=Math.floor(area.top)-1,x1=Math.ceil(area.right)+1,y1=Math.ceil(area.bottom)+1;
+      const corner=(cx,cy)=>rgba(record.bytes.slice((cy*w+cx)*4,(cy*w+cx)*4+4));
+      context.drawImage(record.canvas,0,0,w,h);
+      if(y0<0)context.drawImage(record.canvas,0,0,w,1,0,y0,w,-y0);
+      if(y1>h)context.drawImage(record.canvas,0,h-1,w,1,0,h,w,y1-h);
+      if(x0<0)context.drawImage(record.canvas,0,0,1,h,x0,0,-x0,h);
+      if(x1>w)context.drawImage(record.canvas,w-1,0,1,h,w,0,x1-w,h);
+      if(x0<0&&y0<0){context.fillStyle=corner(0,0);context.fillRect(x0,y0,-x0,-y0);}
+      if(x1>w&&y0<0){context.fillStyle=corner(w-1,0);context.fillRect(w,y0,x1-w,-y0);}
+      if(x0<0&&y1>h){context.fillStyle=corner(0,h-1);context.fillRect(x0,h,-x0,y1-h);}
+      if(x1>w&&y1>h){context.fillStyle=corner(w-1,h-1);context.fillRect(w,h,x1-w,y1-h);}
+    });
+  }
   function controlBounds(commands,matrix,padding) {
     let bounds=null;for(const c of commands){const points=[];if(c.op!=='close')points.push([c.x,c.y]);if(c.op==='quadratic_to')points.push([c.cx,c.cy]);if(c.op==='cubic_to')points.push([c.cx1,c.cy1],[c.cx2,c.cy2]);if(points.length)bounds=union(bounds,box(points.map(p=>point(matrix,...p))));}
     if(bounds){const dx=padding*Math.hypot(matrix[0],matrix[2])+1,dy=padding*Math.hypot(matrix[1],matrix[3])+1;bounds={left:bounds.left-dx,top:bounds.top-dy,right:bounds.right+dx,bottom:bounds.bottom+dy};}return bounds;
@@ -151,14 +183,15 @@
       this.createCanvas=createCanvas||(()=>typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
     }
     clear(){if(this.surface){this.surface.width=1;this.surface.height=1;this.surface=null;}}
-    draw(context,kind,path) {
-      if(kind.fill_gradient||kind.stroke_gradient){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
+    draw(context,kind,path,bitmaps=null) {
+      if(kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
       for(const channel of ['fill','stroke']){
         if(!paintVisible(kind,channel)||channel==='stroke'&&!(kind.stroke_width>0))continue;
-        const paint=kind[channel+'_gradient'];context.save();
+        const paint=kind[channel+'_gradient'],bitmap=channel==='fill'?kind.fill_bitmap:null;context.save();
         try{
           if(channel==='stroke'){context.lineWidth=kind.stroke_width;context.lineCap='round';context.lineJoin='round';}
-          if(!paint){context[channel+'Style']=rgba(kind[channel]);if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');else context.stroke(path);}
+          if(bitmap){context.clip(path,kind.fill_rule||'nonzero');bitmapBrush(context,bitmap,bitmaps,context.canvas.width,context.canvas.height);}
+          else if(!paint){context[channel+'Style']=rgba(kind[channel]);if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');else context.stroke(path);}
           else if(channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');brush(context,paint,context.canvas.width,context.canvas.height);}
           else this.stroke(context,kind,path,paint);
         }finally{context.restore();}

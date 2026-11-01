@@ -335,3 +335,369 @@ fn as2_publication_settings_lockroot_and_scale9_grid_roundtrip_and_reset() {
     assert_eq!(after_reset["focus_rect"], true);
     assert_eq!(after_reset["redraw_regions"], false);
 }
+
+#[test]
+fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 3;
+    project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![
+        Element {
+            id: "hero_shape".into(),
+            name: "hero".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 20.0,
+                fill: [30, 120, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            scripts: vec![],
+            accessibility: None,
+        },
+        Element {
+            id: "child_inst".into(),
+            name: "child".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: "sub_mc".into(),
+                playback: InstancePlayback::Independent,
+            },
+            scripts: vec![],
+            accessibility: None,
+        },
+    ];
+    let frame0_elements = project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .clone();
+    project.symbols[0].timeline.layers[0]
+        .keyframes
+        .push(Keyframe {
+            frame: 1,
+            elements: frame0_elements,
+            tween: None,
+            tween_kind: TweenKind::default(),
+            keyed_properties: None,
+            orient_to_path: false,
+            sound: None,
+            label: "ready".into(),
+        });
+    project.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace('f1');".into(),
+            },
+        },
+        FrameScript {
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace('f2');".into(),
+            },
+        },
+    ];
+    project.symbols.push(Symbol {
+        id: "sub_mc".into(),
+        name: "SubMc".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        linkage_id: Some("SubMc".into()),
+        class_name: None,
+        timeline: Timeline {
+            frame_count: 2,
+            layers: vec![Layer {
+                id: "sub_layer".into(),
+                name: "sub".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "sub_rect".into(),
+                            name: "".into(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 24.0,
+                                height: 24.0,
+                                fill: [200, 60, 40, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            scripts: vec![],
+                            accessibility: None,
+                        }],
+                        tween: None,
+                        tween_kind: TweenKind::default(),
+                        keyed_properties: None,
+                        orient_to_path: false,
+                        sound: None,
+                        label: "".into(),
+                    },
+                    Keyframe {
+                        frame: 1,
+                        elements: vec![],
+                        tween: None,
+                        tween_kind: TweenKind::default(),
+                        keyed_properties: None,
+                        orient_to_path: false,
+                        sound: None,
+                        label: "helper".into(),
+                    },
+                ],
+            }],
+            scripts: vec![FrameScript {
+                frame: 1,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "calledSub = 1;".into(),
+                },
+            }],
+            guides: vec![],
+        },
+    });
+
+    let mut player = Player::new(&project);
+    let root = player.object_ref(&[]).unwrap();
+    let sub = player.object_ref(&["child_inst".to_string()]).unwrap();
+
+    // _level0 resolves to root; _levelN (N >= 1) resolves cleanly to None.
+    assert_eq!(
+        player
+            .as2_resolve_target(&project, &sub, "_level0")
+            .unwrap(),
+        Some(root.clone())
+    );
+    assert_eq!(
+        player
+            .as2_resolve_target(&project, &sub, "_level1")
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        player
+            .as2_resolve_target(&project, &sub, "_level2.nested")
+            .unwrap(),
+        None
+    );
+
+    // ifFrameLoaded checks authored frames and labels without side effects.
+    assert!(
+        player
+            .as2_is_frame_loaded(
+                &project,
+                &root,
+                &GotoRequest {
+                    frame: GotoFrame::Number(1.0),
+                    scene: None,
+                    as2: true,
+                },
+            )
+            .unwrap()
+    );
+    assert!(
+        player
+            .as2_is_frame_loaded(
+                &project,
+                &root,
+                &GotoRequest {
+                    frame: GotoFrame::Number(3.0),
+                    scene: None,
+                    as2: true,
+                },
+            )
+            .unwrap()
+    );
+    assert!(
+        !player
+            .as2_is_frame_loaded(
+                &project,
+                &root,
+                &GotoRequest {
+                    frame: GotoFrame::Number(4.0),
+                    scene: None,
+                    as2: true,
+                },
+            )
+            .unwrap()
+    );
+    assert!(
+        player
+            .as2_is_frame_loaded(
+                &project,
+                &root,
+                &GotoRequest {
+                    frame: GotoFrame::Label("ready".into()),
+                    scene: None,
+                    as2: true,
+                },
+            )
+            .unwrap()
+    );
+    assert!(
+        !player
+            .as2_is_frame_loaded(
+                &project,
+                &root,
+                &GotoRequest {
+                    frame: GotoFrame::Label("missing".into()),
+                    scene: None,
+                    as2: true,
+                },
+            )
+            .unwrap()
+    );
+
+    // call() resolves frame scripts by number, label, and target:frame without advancing playhead.
+    let (called_target, scripts) = player
+        .as2_call_frame_scripts(&project, &root, &GotoFrame::Label("ready".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(called_target, root);
+    assert_eq!(scripts.len(), 1);
+    assert_eq!(scripts[0].source, "trace('f2');");
+    assert_eq!(player.object_frame(&root), Some(0));
+
+    let (sub_target, sub_scripts) = player
+        .as2_call_frame_scripts(&project, &root, &GotoFrame::Label("child:helper".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(sub_target, sub);
+    assert_eq!(sub_scripts.len(), 1);
+    assert_eq!(sub_scripts[0].source, "calledSub = 1;");
+    assert_eq!(player.object_frame(&sub), Some(0));
+    assert!(
+        player
+            .as2_call_frame_scripts(&project, &root, &GotoFrame::Number(99.0))
+            .unwrap()
+            .is_none()
+    );
+
+    // BeginBitmapFill produces a GradientPath with fill_bitmap and drops disposed PixelRefs.
+    let pixel = player.bitmap_create(4, 4, true, 0xff22aa88).unwrap();
+    let canvas = player.create_display(DynamicKind::MovieClip).unwrap();
+    player
+        .as2_place_depth(&project, &root, &canvas, 10)
+        .unwrap();
+    player
+        .graphics_apply(
+            &canvas,
+            &[
+                GraphicsOp::BeginBitmapFill {
+                    bitmap: BitmapFillSpec {
+                        pixel_ref: pixel.clone(),
+                        matrix: [1.0, 0.0, 0.0, 1.0, 4.0, 6.0],
+                        repeat: false,
+                        smoothing: true,
+                    },
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 16.0,
+                    height: 12.0,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    let snap = player.runtime_snapshot(&project);
+    let draw = snap
+        .draws
+        .iter()
+        .find(|item| item.owner_ref == canvas)
+        .expect("bitmap fill draw");
+    match &draw.item.kind {
+        RuntimeDrawKind::GradientPath {
+            fill_bitmap: Some(paint),
+            ..
+        } => {
+            assert_eq!(paint.pixel_ref, pixel);
+            assert_eq!(paint.width, 4);
+            assert_eq!(paint.height, 4);
+            assert!(!paint.repeat);
+            assert!(paint.smoothing);
+            assert_eq!(paint.matrix, [1.0, 0.0, 0.0, 1.0, 4.0, 6.0]);
+        }
+        other => panic!("expected GradientPath with fill_bitmap, got {other:?}"),
+    }
+    player.bitmap_dispose(&pixel).unwrap();
+    assert!(
+        !player
+            .runtime_snapshot(&project)
+            .draws
+            .iter()
+            .any(|item| item.owner_ref == canvas),
+        "disposing bitmap fill pixels omits the fill draw cleanly"
+    );
+    assert!(
+        player
+            .graphics_apply(
+                &canvas,
+                &[GraphicsOp::BeginBitmapFill {
+                    bitmap: BitmapFillSpec {
+                        pixel_ref: pixel,
+                        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                        repeat: true,
+                        smoothing: false,
+                    },
+                }],
+            )
+            .is_err(),
+        "BeginBitmapFill rejects disposed PixelRefs"
+    );
+
+    // AS2 _accProps updates runtime_snapshot().semantics, respects silent and enabled=false.
+    command(
+        &mut player,
+        &project,
+        &sub,
+        json!({"op":"set","name":"enabled","value":false}),
+    );
+    player
+        .as2_accessibility_update(vec![As2AccUpdateEntry {
+            object_ref: sub.clone(),
+            props: As2AccProps {
+                silent: false,
+                force_simple: true,
+                name: Some("Play Clip".into()),
+                description: Some("Starts clip".into()),
+                interactive: true,
+            },
+        }])
+        .unwrap();
+    let sem_snap = player.runtime_snapshot(&project);
+    let node = sem_snap
+        .semantics
+        .iter()
+        .find(|n| n.owner_ref == sub)
+        .expect("semantic node for AS2 _accProps");
+    assert_eq!(node.node.accessibility.name, "Play Clip");
+    assert_eq!(node.node.accessibility.description, "Starts clip");
+    assert_eq!(node.node.accessibility.role, AccessibleRole::Button);
+    assert!(node.node.accessibility.disabled);
+
+    player
+        .as2_accessibility_update(vec![As2AccUpdateEntry {
+            object_ref: sub.clone(),
+            props: As2AccProps {
+                silent: true,
+                force_simple: false,
+                name: Some("Hidden".into()),
+                description: None,
+                interactive: true,
+            },
+        }])
+        .unwrap();
+    assert!(
+        !player
+            .runtime_snapshot(&project)
+            .semantics
+            .iter()
+            .any(|n| n.owner_ref == sub),
+        "silent _accProps suppresses semantic output"
+    );
+}

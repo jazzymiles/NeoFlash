@@ -92,14 +92,15 @@ pub use runtime::{
     TimelineMetadata,
 };
 pub use runtime_graph::{
-    ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayInputState, DisplayMutation,
-    DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef,
-    RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup,
-    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, VideoState,
+    As2AccProps, As2AccUpdateEntry, ClipComponent, ColorTransform, DisplayError, DisplayEvent,
+    DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS,
+    MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem,
+    RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
+    ScrollRect, VideoState,
 };
 pub use runtime_graphics::{
-    GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
-    MAX_GRAPHICS_OPS,
+    BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientStop,
+    GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
 };
 pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,

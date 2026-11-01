@@ -160,3 +160,27 @@ function __nfWithMethod(ref){
     }
     const method=ref.get();return __nfAs2Value(method,ref.receiver);
 }
+function __nfTellTarget(frame,value,baseFrame){
+    if(value===''||value===null||value===undefined)return baseFrame||frame;
+    if(typeof value==='string'){
+        if(typeof __nfLegacy?.resolveTarget!=='function')throw new __nfTypeError('AS2 tellTarget string paths require the publication display host.');
+        const resolved=__nfLegacy.resolveTarget(value,frame);
+        if(!resolved)throw new __nfTypeError(`AS2 tellTarget target '${value}' was not found.`);
+        return resolved;
+    }
+    if(typeof value==='object'||typeof value==='function')return value;
+    throw new __nfTypeError('AS2 tellTarget requires a MovieClip path string or live object reference.');
+}
+function __nfRunInitClip(key,root,fn){
+    if(typeof __nfLegacy?.runInitClip==='function')return __nfLegacy.runInitClip(key,root,fn);
+    if(!__nfRunInitClip.seen)__nfRunInitClip.seen=new Set();
+    if(__nfRunInitClip.seen.has(key))return;
+    __nfRunInitClip.seen.add(key);
+    fn(root);
+}
+function __nfVarScrollRef(value,owner,varName,prop,caller){
+    if(value!==null&&(typeof value==='object'||typeof value==='function'))return __nfContainerRef(value,prop,false,caller);
+    const bound=__nfLegacy?.objects?.variableScrollRef?.(owner,varName,prop);
+    if(bound)return bound;
+    return __nfContainerRef(value,prop,false,caller);
+}

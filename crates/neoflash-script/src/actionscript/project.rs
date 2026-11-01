@@ -297,6 +297,7 @@ fn is_display_method(name: &str) -> bool {
             | "getNextHighestDepth"
             | "attachBitmap"
             | "beginFill"
+            | "beginBitmapFill"
             | "beginGradientFill"
             | "lineGradientStyle"
             | "endFill"
@@ -358,6 +359,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "start"
                 | "reset"
                 | "updateAfterEvent"
+                | "isActive"
+                | "updateProperties"
                 | "toggleHighQuality"
                 | "showRedrawRegions"
                 | "load"
@@ -472,6 +475,7 @@ struct Header {
     public: bool,
     dynamic: bool,
     final_: bool,
+    intrinsic: bool,
 }
 struct Field {
     name: String,
@@ -530,6 +534,8 @@ fn visible_names(
                                 || !AS2_BUILTINS.contains(&name.as_str())))
                         || *name == "flash.display.BitmapData"
                         || *name == "flash.external.ExternalInterface"
+                        || (language == ScriptLanguage::ActionScript2
+                            && *name == "flash.media.Video")
                 },
                 |owner| {
                     *owner == language
@@ -567,6 +573,7 @@ fn frontend(script: &Script, tokens: TokenCursor, context: CompileContext) -> Fr
         context,
         no_in: false,
         with_depth: 0,
+        in_initclip: false,
     }
 }
 fn qualified(p: &mut Frontend<'_>) -> Result<String, Diagnostic> {
@@ -639,6 +646,7 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     let mut access_seen = false;
     let mut dynamic = false;
     let mut final_ = false;
+    let mut intrinsic = false;
     loop {
         if p.is("public") || p.is("internal") {
             let value = p.eat("public");
@@ -662,6 +670,13 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
                 );
             }
             final_ = true;
+        } else if p.eat("intrinsic") {
+            if !as2 || intrinsic {
+                return Err(p.error(
+                    "The intrinsic declaration modifier requires AS2 and cannot be repeated.",
+                ));
+            }
+            intrinsic = true;
         } else {
             break;
         }
@@ -743,6 +758,7 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         public,
         dynamic,
         final_,
+        intrinsic,
     })
 }
 fn context(
@@ -775,6 +791,7 @@ fn context(
             .insert("TextField".into(), "flash.text.TextField".into());
         c.types
             .insert("TextFormat".into(), "flash.text.TextFormat".into());
+        c.types.insert("Video".into(), "flash.media.Video".into());
     }
     for name in ["Object", "Array"] {
         c.types.insert(name.into(), name.into());
@@ -1216,6 +1233,11 @@ fn parse_class(
                 {
                     return Err(p.error(format!("Duplicate class member '{name}'.")));
                 }
+                if header.intrinsic && value.is_some() {
+                    return Err(p.error(
+                        "AS2 intrinsic class declarations cannot include field initializers.",
+                    ));
+                }
                 if constant && value.is_none() {
                     return Err(
                         p.error("Class const fields require an initializer in this profile.")
@@ -1238,7 +1260,12 @@ fn parse_class(
                 });
             }
         } else if p.is("function") {
-            let (mut f, accessor) = p.project_function(true, true, header.is_interface)?;
+            let (mut f, accessor) = p.project_function(
+                true,
+                true,
+                header.is_interface || header.intrinsic,
+                header.intrinsic && !header.is_interface,
+            )?;
             let kind = match accessor.as_deref() {
                 Some("get") => MethodKind::Get,
                 Some("set") => MethodKind::Set,
@@ -1849,7 +1876,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         .filter_map(|m| m.function.name.as_deref()),
                 )
             {
-                if native_member(base, member) {
+                if !c.header.intrinsic && native_member(base, member) {
                     errors.push(Diagnostic::at(&c.header.script, 0, format!("{}: redeclaring native member '{member}' is not supported by this class profile", c.header.path)));
                 }
             }
@@ -2076,6 +2103,127 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             });
         }
     }
+    let includes: BTreeMap<_, _> = project
+        .resources
+        .iter()
+        .filter(|r| r.path.ends_with(".as"))
+        .map(|r| (r.path.clone(), r.clone()))
+        .collect();
+    let mut init_clips = Vec::new();
+    for (symbol_idx, symbol) in project.symbols.iter().enumerate() {
+        if symbol.kind != neoflash_core::SymbolKind::MovieClip {
+            continue;
+        }
+        for (script_idx, entry) in symbol.timeline.scripts.iter().enumerate() {
+            if entry.frame != 0
+                || entry.script.language != ScriptLanguage::ActionScript2
+                || !entry.script.source.contains("#initclip")
+            {
+                continue;
+            }
+            let expanded = if entry.script.source.contains("#include") {
+                match super::includes::expand(&entry.script, &includes) {
+                    Ok(exp) => Some(exp),
+                    Err(e) => {
+                        errors.push(e);
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let source_script = expanded.as_ref().map_or(&entry.script, |exp| &exp.script);
+            let map_err = |err: Diagnostic| {
+                expanded
+                    .as_ref()
+                    .map_or(err.clone(), |exp| exp.diagnostic(err))
+            };
+            let mut p = frontend(
+                source_script,
+                TokenCursor::default(),
+                CompileContext::default(),
+            );
+            let imported = match imports(&mut p) {
+                Ok(v) => v,
+                Err(e) => {
+                    errors.push(map_err(e));
+                    continue;
+                }
+            };
+            let mut c = match context(
+                &visible_names(
+                    &names,
+                    &languages,
+                    ScriptLanguage::ActionScript2,
+                    &public_types,
+                    "",
+                ),
+                "",
+                &imported,
+                ScriptLanguage::ActionScript2,
+                &interfaces,
+            ) {
+                Ok(c) => c,
+                Err(m) => {
+                    errors.push(map_err(Diagnostic::at(source_script, 0, m)));
+                    continue;
+                }
+            };
+            c.as2_private = as2_private.clone();
+            let end = p.token().offset;
+            let mut replaced = source_script.clone();
+            replaced.source = source_script.source[..end]
+                .chars()
+                .map(|ch| if ch == '\n' || ch == '\r' { ch } else { ' ' })
+                .collect::<String>()
+                + &source_script.source[end..];
+            let mut body_parser = frontend(&replaced, TokenCursor::default(), c.clone());
+            let statements = match body_parser.statements(false) {
+                Ok(s) => s,
+                Err(e) => {
+                    errors.push(map_err(e));
+                    continue;
+                }
+            };
+            let analysis = match scope::Analysis::with_context(&replaced, &statements, c) {
+                Ok(a) => a,
+                Err(e) => {
+                    errors.push(map_err(e));
+                    continue;
+                }
+            };
+            for (stmt_idx, stmt) in statements.iter().enumerate() {
+                if let Stmt::InitClip(order_num, body, id) = stmt {
+                    let key = format!("{:016x}:{id}", super::fnv1a64(&replaced.source));
+                    let body_code = Emitter {
+                        as3: false,
+                        analysis: &analysis,
+                        scope: 0,
+                        with_targets: Vec::new(),
+                        tell_target: None,
+                    }
+                    .body(body);
+                    init_clips.push((
+                        (
+                            order_num.is_some(),
+                            order_num.unwrap_or(0),
+                            symbol_idx,
+                            script_idx,
+                            stmt_idx,
+                        ),
+                        key,
+                        body_code,
+                    ));
+                }
+            }
+        }
+    }
+    init_clips.sort_by_key(|a| a.0);
+    for (_, key, body_code) in init_clips {
+        registrations.push_str(&format!(
+            "__nfProgram.registerInitClip({key:?}, function(__nfInitRoot){{ const _root=__nfInitRoot, _parent=null, trace=__nfTrace, play=__nfInitRoot.play, stop=__nfInitRoot.stop, gotoAndPlay=__nfInitRoot.gotoAndPlay, gotoAndStop=__nfInitRoot.gotoAndStop, nextFrame=__nfInitRoot.nextFrame, prevFrame=__nfInitRoot.prevFrame, __nfFrame=__nfInitRoot;\n(function(){{\n{body_code}\n}}).call(__nfInitRoot);\n}});\n"
+        ));
+    }
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -2090,16 +2238,16 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy,__nfXML=__nfBuiltins.__nfXML;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
     Ok(ProjectProgram {
-        includes: project
-            .resources
-            .iter()
-            .filter(|r| r.path.ends_with(".as"))
-            .map(|r| (r.path.clone(), r.clone()))
-            .collect(),
+        includes,
         code,
         class_names: order
             .into_iter()
-            .filter(|name| !interfaces.contains(name))
+            .filter(|name| {
+                !interfaces.contains(name)
+                    && !classes
+                        .get(name)
+                        .is_some_and(|class| class.header.intrinsic)
+            })
             .collect(),
         names,
         languages,
@@ -2196,6 +2344,12 @@ fn reflection_metadata(c: &Class) -> serde_json::Value {
 }
 
 fn emit_class(c: &Class) -> Result<String, Diagnostic> {
+    if c.header.intrinsic {
+        return Ok(format!(
+            "__nfProgram.declareIntrinsic({:?});\n",
+            c.header.name
+        ));
+    }
     let as3 = c.header.script.language == ScriptLanguage::ActionScript3;
     let mut fields = vec![];
     let mut methods = vec![];
@@ -2215,6 +2369,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         analysis: &field_analysis,
         scope: 0,
         with_targets: Vec::new(),
+        tell_target: None,
     };
     for f in &c.fields {
         let coerce = emitter.coerce_type(f.ty.as_deref(), "value".into());
@@ -2281,6 +2436,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             analysis: &analysis,
             scope: 0,
             with_targets: Vec::new(),
+            tell_target: None,
         };
         let function = emitter.function(&f);
         if is_ctor {

@@ -30,7 +30,7 @@ pub(super) struct Scope {
 }
 pub(super) struct Analysis<'a> {
     pub scopes: HashMap<usize, Scope>,
-    script: &'a Script,
+    pub(super) script: &'a Script,
     as2_catch_names: HashMap<String, usize>,
     pub context: CompileContext,
 }
@@ -161,8 +161,14 @@ impl<'a> Analysis<'a> {
                     self.declarations(scope, no, false)?;
                 }
             }
-            Stmt::While(_, body) | Stmt::With(_, body, _) => {
-                self.declarations(scope, body, false)?
+            Stmt::While(_, body)
+            | Stmt::With(_, body, _)
+            | Stmt::TellTarget(_, body, _)
+            | Stmt::IfFrameLoaded(_, body) => self.declarations(scope, body, false)?,
+            Stmt::InitClip(_, body, _) => {
+                for stmt in body {
+                    self.declarations(scope, stmt, direct)?;
+                }
             }
             Stmt::For(init, _, _, body) | Stmt::ForIn(init, _, _, body) => {
                 self.declarations(scope, init, false)?;
@@ -504,6 +510,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, args, offset) if name == "NetStream" && args.len()!=1 => return Err(self.error(*offset,"AS2 NetStream requires one local NetConnection; remote streaming constructor options are unsupported.")),
             Expr::NewClass(name, args, offset) if name == "flash.net.NetConnection" && !args.is_empty() => return Err(self.error(*offset,"NetConnection construction takes no arguments; call connect(null) for local file playback.")),
             Expr::NewClass(name, args, offset) if name == "flash.net.NetStream" && args.len()!=1 => return Err(self.error(*offset,"NetStream requires one local NetConnection; remote streaming constructor options are unsupported.")),
+            Expr::NewClass(name, _, offset) if name == "flash.media.Video" && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset,"AS2 Video must be an authored Video placement; new Video() is not available. Attach a NetStream to the placed target with attachVideo().")),
             Expr::NewClass(name, args, offset) if name == "flash.media.Video" && args.len()>2 => return Err(self.error(*offset,"Video construction accepts optional width and height only.")),
             Expr::NewClass(name, _, offset) if name == "fl.motion.MatrixTransformer" => return Err(self.error(*offset,"MatrixTransformer supplies static matrix methods and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if name == "flash.external.ExternalInterface" => return Err(self.error(*offset,"ExternalInterface supplies static methods and cannot be constructed. Use addCallback and call.")),
@@ -565,9 +572,9 @@ impl<'a> Analysis<'a> {
                     Expr::Member(_, _) => true,
                     _ => false,
                 };
-                let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"));
-                if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval takes one path/object argument; set takes a path and value."));}}
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"watch"|"unwatch"|"addProperty"|"isPropertyEnumerable"|"registerClass"|"getSWFVersion"|"getFontList"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
+                let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"|"call"));
+                if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval/call take one argument; set takes a path and value."));}}
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"watch"|"unwatch"|"addProperty"|"isPropertyEnumerable"|"registerClass"|"getSWFVersion"|"getFontList"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"|"beginBitmapFill"|"isActive"|"updateProperties"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && !self.context.types.contains_key(name));
                 let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
@@ -587,7 +594,7 @@ impl<'a> Analysis<'a> {
             Expr::Assign(_,left,_) | Expr::Update(_,left,_) => {
                 if matches!(left.as_ref(),Expr::Name(name) if name=="arguments") {return Err(self.error(self.scopes[&scope].offset,"Replacing the implicit arguments binding is unsupported; its indexed elements remain mutable."));}
                 if let Expr::Name(name)=left.as_ref() && self.resolve(scope,name).is_some_and(|(_,b)|b.kind==BindingKind::SelfName) { return Err(self.error(self.scopes[&scope].offset,"A named function expression's self binding cannot be assigned.")); }
-                if let Expr::Name(name)=left.as_ref() && (is_global(name) || (name=="Object" && self.context.core_type(name)) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) || self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
+                if let Expr::Name(name)=left.as_ref() && (is_global(name) || (self.script.language==ScriptLanguage::ActionScript2 && super::parse_as2_level(name).is_some()) || (name=="Object" && self.context.core_type(name)) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) || self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }
             _=>{}
         }
@@ -674,7 +681,10 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt {
         Stmt::Expr(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
-        Stmt::If(e, _, _) | Stmt::While(e, _) | Stmt::With(e, _, _) => vec![e],
+        Stmt::If(e, _, _) | Stmt::While(e, _) | Stmt::With(e, _, _) | Stmt::TellTarget(e, _, _) => {
+            vec![e]
+        }
+        Stmt::IfFrameLoaded(args, _) => args.iter().collect(),
         Stmt::For(_, c, u, _) => c.iter().chain(u.iter()).collect(),
         Stmt::ForIn(_, collection, _, _) => vec![collection],
         Stmt::Return(e, _) => e.iter().collect(),
@@ -687,11 +697,14 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
 }
 fn statements(stmt: &Stmt) -> Vec<&Stmt> {
     match stmt {
-        Stmt::Block(b) => b.iter().collect(),
+        Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
         Stmt::If(_, y, n) => std::iter::once(y.as_ref())
             .chain(n.iter().map(Box::as_ref))
             .collect(),
-        Stmt::While(_, b) | Stmt::With(_, b, _) => vec![b],
+        Stmt::While(_, b)
+        | Stmt::With(_, b, _)
+        | Stmt::TellTarget(_, b, _)
+        | Stmt::IfFrameLoaded(_, b) => vec![b],
         Stmt::For(i, _, _, b) | Stmt::ForIn(i, _, _, b) => vec![i, b],
         Stmt::DoWhile(b, _) | Stmt::Label(_, b) => vec![b],
         Stmt::Switch(_, cases) => cases.iter().flat_map(|c| &c.body).collect(),

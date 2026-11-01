@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod as2_display;
+pub use as2_display::{As2AccProps, As2AccUpdateEntry};
 mod as2_input;
 mod as2_render;
 mod as2_snapshot;
@@ -134,6 +135,8 @@ pub enum RuntimeDrawKind {
         stroke: Color,
         fill_gradient: Option<GradientPaint>,
         stroke_gradient: Option<GradientPaint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill_bitmap: Option<crate::BitmapPaint>,
         stroke_width: f64,
     },
     TextField {
@@ -257,6 +260,7 @@ pub(crate) struct RuntimeGraph {
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
     as2_settings: as2_input::As2Settings,
     as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
+    as2_accessibility: BTreeMap<ObjectRef, as2_display::As2AccProps>,
     as2_render_states: HashMap<ObjectRef, as2_render::As2Render>,
     as2_snapshot_next: u64,
     as2_snapshots: BTreeMap<String, as2_snapshot::TextSnapshot>,
@@ -302,6 +306,7 @@ impl RuntimeGraph {
         self.as2_depths.clear();
         self.as2_settings = as2_input::As2Settings::default();
         self.as2_input_states.clear();
+        self.as2_accessibility.clear();
         self.as2_render_states.clear();
         self.as2_snapshots.clear();
         self.as2_snapshot_selection.clear();
@@ -663,6 +668,7 @@ impl Player {
                     false,
                     false,
                     false,
+                    false,
                 )
             })
             .collect();
@@ -674,6 +680,7 @@ impl Player {
             parent_attached,
             parent_disabled,
             parent_singular,
+            parent_silent,
         )) = pending.pop()
         {
             let (mut display, authored_path, namespace_ref, source_path, graphics) =
@@ -713,6 +720,7 @@ impl Player {
                             name: node.name.clone(),
                             owner: linked
                                 .map_or_else(|| owner.into(), |source| source.owner.clone()),
+                            symbol_id: linked.and_then(|source| source.symbol_id.clone()),
                             class_name: linked.and_then(|source| source.class_name.clone()),
                             transform: node.transform,
                             world: [0.; 6],
@@ -728,7 +736,7 @@ impl Player {
                         None,
                         linked.map(|_| reference.clone()),
                         linked.map(|_| vec![]),
-                        node.graphics.paints(),
+                        node.graphics.paints(&self.graph.pixels),
                     )
                 } else {
                     continue;
@@ -736,6 +744,7 @@ impl Player {
             if self.graph.loaded_as2(&reference) {
                 display.frame = 0;
                 display.total_frames = 1;
+                display.symbol_id = None;
                 display.kind = None;
             }
             let text = self.graph.text_state(&reference, display.kind.as_ref());
@@ -783,18 +792,60 @@ impl Player {
                 capture_root.is_some() || parent_attached || root.as_ref() == Some(&reference);
             let singular = parent_singular
                 || local_matrix[0] * local_matrix[3] - local_matrix[1] * local_matrix[2] == 0.;
-            let own_accessibility = metadata.get(&reference);
+            let acc_override = self.graph.as2_accessibility.get(&reference);
+            let silent = parent_silent || acc_override.is_some_and(|a| a.silent);
+            let as2_disabled = self
+                .graph
+                .as2_input_states
+                .get(&reference)
+                .is_some_and(|state| state.enabled == Some(false));
+            let own_accessibility = if silent {
+                None
+            } else if let Some(base) = metadata.get(&reference) {
+                let mut acc = base.clone();
+                if let Some(ov) = acc_override {
+                    if let Some(name) = &ov.name {
+                        acc.name = name.clone();
+                    }
+                    if let Some(description) = &ov.description {
+                        acc.description = description.clone();
+                    }
+                }
+                if as2_disabled {
+                    acc.disabled = true;
+                }
+                Some(acc)
+            } else if root.as_ref() != Some(&reference)
+                && let Some(ov) = acc_override
+                && ov.name.as_deref().is_some_and(|name| !name.is_empty())
+            {
+                Some(Accessibility {
+                    name: ov.name.clone().unwrap_or_default(),
+                    description: ov.description.clone().unwrap_or_default(),
+                    role: if display.owner == "button" || ov.interactive {
+                        AccessibleRole::Button
+                    } else {
+                        AccessibleRole::Image
+                    },
+                    tab_order: 0,
+                    disabled: as2_disabled,
+                })
+            } else {
+                None
+            };
             let disabled = parent_disabled
+                || as2_disabled
                 || own_accessibility
+                    .as_ref()
                     .is_some_and(|a| a.role == AccessibleRole::Button && a.disabled);
+            let children_silent = silent || acc_override.is_some_and(|a| a.force_simple);
             if on_stage
                 && display.effective_visible
                 && !singular
                 && (display.world[0] * display.world[3] - display.world[1] * display.world[2]).abs()
                     >= 1e-12
-                && let Some(accessibility) = own_accessibility
+                && let Some(mut accessibility) = own_accessibility
             {
-                let mut accessibility = accessibility.clone();
                 if parent_disabled {
                     accessibility.disabled = true;
                 }
@@ -951,7 +1002,7 @@ impl Player {
                     .get(&reference)
                     .map(|node| {
                         node.graphics
-                            .paints_with_color(concatenated_color_transform)
+                            .paints_with_color(&self.graph.pixels, concatenated_color_transform)
                     })
                     .unwrap_or_default();
                 for (index, kind) in colored_graphics.into_iter().enumerate() {
@@ -981,6 +1032,7 @@ impl Player {
                     on_stage,
                     disabled,
                     singular,
+                    children_silent,
                 ));
             }
             result.objects.push(RuntimeObject {
@@ -1068,10 +1120,22 @@ impl Player {
                     stroke,
                     fill_gradient,
                     stroke_gradient,
+                    fill_bitmap,
                     stroke_width,
                     ..
+                } => {
+                    fill_bitmap
+                        .as_ref()
+                        .is_some_and(|b| b.color_transform.can_be_visible())
+                        || fill_gradient
+                            .as_ref()
+                            .map_or(fill[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0))
+                        || (*stroke_width > 0.
+                            && stroke_gradient
+                                .as_ref()
+                                .map_or(stroke[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0)))
                 }
-                | RuntimeDrawKind::Element(ElementKind::PaintedPath {
+                RuntimeDrawKind::Element(ElementKind::PaintedPath {
                     fill,
                     stroke,
                     fill_gradient,
@@ -1473,6 +1537,18 @@ impl Player {
             match op {
                 GraphicsOp::Clear => has_stroke = false,
                 GraphicsOp::LineStyle { width, .. } => has_stroke = width.is_some(),
+                GraphicsOp::BeginBitmapFill { bitmap } => {
+                    let info = self
+                        .graph
+                        .pixels
+                        .info(&bitmap.pixel_ref)
+                        .map_err(|e| error(&e.to_string()))?;
+                    if info.disposed {
+                        return Err(error(
+                            "beginBitmapFill requires a live non-disposed BitmapData",
+                        ));
+                    }
+                }
                 GraphicsOp::LineGradientStyle { .. } if !has_stroke => {
                     return Err(error(
                         "lineGradientStyle requires an active positive-width lineStyle",
@@ -1928,5 +2004,29 @@ impl Player {
         }
         let path = self.graph.paths.get(reference)?;
         self.resolve_scene_step(project, path, step)
+    }
+
+    pub fn object_frame_scripts(
+        &self,
+        project: &Project,
+        reference: &ObjectRef,
+        frame: u32,
+    ) -> Vec<Script> {
+        if self.graph.loaded_as2(reference) {
+            return Vec::new();
+        }
+        if let Some(address) = self.graph.source_address(reference) {
+            return self
+                .graph
+                .namespaces
+                .get(&address.namespace)
+                .map_or_else(Vec::new, |ns| {
+                    ns.player.frame_scripts(project, &address.path, frame)
+                });
+        }
+        self.graph
+            .paths
+            .get(reference)
+            .map_or_else(Vec::new, |path| self.frame_scripts(project, path, frame))
     }
 }

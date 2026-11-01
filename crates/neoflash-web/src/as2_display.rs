@@ -128,4 +128,45 @@ impl WebPlayer {
         )
         .map_err(display_error)
     }
+    pub fn as2_call_frame_scripts(&self, relative: &str, spec: &str) -> Result<String, JsValue> {
+        if spec.len() > 4096 {
+            return Err(JsValue::from_str("AS2 call() specifier exceeds 4096 bytes"));
+        }
+        let parsed: neoflash_core::GotoFrame = serde_json::from_str(spec).map_err(display_error)?;
+        #[derive(serde::Serialize)]
+        struct CallFramePacket {
+            target_ref: ObjectRef,
+            scripts: Vec<neoflash_core::Script>,
+        }
+        let result = self
+            .player
+            .as2_call_frame_scripts(&self.project, &object_ref(relative)?, &parsed)
+            .map_err(display_error)?
+            .map(|(target_ref, scripts)| CallFramePacket {
+                target_ref,
+                scripts,
+            });
+        serde_json::to_string(&result).map_err(display_error)
+    }
+    pub fn as2_is_frame_loaded(&self, relative: &str, request: &str) -> Result<bool, JsValue> {
+        if request.len() > 4096 {
+            return Err(JsValue::from_str(
+                "AS2 ifFrameLoaded request exceeds 4096 bytes",
+            ));
+        }
+        let parsed: neoflash_core::GotoRequest =
+            serde_json::from_str(request).map_err(display_error)?;
+        self.player
+            .as2_is_frame_loaded(&self.project, &object_ref(relative)?, &parsed)
+            .map_err(display_error)
+    }
+    pub fn as2_accessibility_update(&mut self, entries: &str) -> Result<(), JsValue> {
+        if entries.len() > 1024 * 1024 {
+            return Err(JsValue::from_str("AS2 accessibility update exceeds 1 MiB"));
+        }
+        let parsed = serde_json::from_str(entries).map_err(display_error)?;
+        self.player
+            .as2_accessibility_update(parsed)
+            .map_err(display_error)
+    }
 }

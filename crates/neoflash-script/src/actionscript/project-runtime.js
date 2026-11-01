@@ -5,13 +5,24 @@ const __nfProgram = (() => {
     const elementDescriptors = new Map();
     const initialized = new WeakMap(), superMethods = new WeakMap(), failed = new WeakMap();
     const reflectionInterfaces = new Map();
+    const intrinsics = new Set();
+    const initClips = [];
     const prototypeOwners = new WeakMap();
     const objectDefaults = {toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString};
     const classDefaultString = Function.prototype.toString;
     let nativeTypeNames = [];
     const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
+    function resolveIntrinsic(name) {
+        let cur = __nfLegacy?._global;
+        for (const part of name.split('.')) {
+            if (cur == null) { cur = undefined; break; }
+            cur = cur[part];
+        }
+        return cur !== undefined ? cur : __nfLegacy?.[name];
+    }
     function type(name) {
-        const value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
+        let value = definitions.get(name)?.facade ?? interfaces.get(name) ?? builtins[name];
+        if (value === undefined && intrinsics.has(name)) value = resolveIntrinsic(name);
         if (value === undefined) throw new Error(`Project type ${name} has no runtime implementation.`);
         return value;
     }
@@ -287,6 +298,13 @@ const __nfProgram = (() => {
         if (!definitions.has(name)) {
             const ctor = type(name);
             if (typeof ctor !== 'function') throw new TypeError(`${name} is not constructible.`);
+            if (intrinsics.has(name) && __nfFunctionRecord(ctor)) {
+                if (!ctor.prototype) ctor.prototype = Object.create(Object.prototype);
+                const receiver = Object.create(ctor.prototype);
+                Object.defineProperty(receiver, '__constructor__', { configurable: true, writable: true, enumerable: false, value: ctor });
+                ctor.apply(receiver, args);
+                return receiver;
+            }
             return Reflect.construct(ctor, args);
         }
         const parents = chain(name), nativeBase = parents[0].base;
@@ -458,7 +476,12 @@ const __nfProgram = (() => {
         return result;
     }
     for(const name of ['getQualifiedClassName','getQualifiedSuperclassName','getDefinitionByName','describeType'])builtins['flash.utils.'+name]=(...args)=>reflect(name,args);
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
+    function declareIntrinsic(name) { intrinsics.add(name); }
+    function registerInitClip(key, fn) { initClips.push({ key, fn }); }
+    function runInitClips(root) {
+        for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
+    }
+    return Object.freeze({ type, is, cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });
 })();

@@ -87,6 +87,8 @@ impl RuntimeGraph {
     pub(super) fn retire_input(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.input_states
             .retain(|reference, _| !retired.contains(reference));
+        self.as2_accessibility
+            .retain(|reference, _| !retired.contains(reference));
         for reference in retired {
             self.movieclip_pointer.release(reference);
         }
