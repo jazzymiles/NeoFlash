@@ -465,8 +465,8 @@
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
-        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
-        legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:audioHost.stopAllLegacySounds});
+        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
+        legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:stopAllSounds});
       }
       if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection});}
       if(global.NeoFlashAS2Print&&bitmapHost){as2PrintHost=global.NeoFlashAS2Print.create(wasm,{
@@ -615,7 +615,7 @@
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
       if(videoHost){builtins['flash.media.Video']=videoHost.Video;builtins['flash.events.NetStatusEvent']=videoHost.NetStatusEvent;for(const name of ['NetConnection','NetStream'])builtins['flash.net.'+name]=videoHost[name];}
-      if(audioHost)for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];
+      if(audioHost){for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];builtins['flash.media.SoundMixer']=SoundMixer;}
       if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
       if(externalHost)builtins['flash.external.ExternalInterface']=externalHost.ExternalInterface;
       if(netHost){
@@ -635,6 +635,7 @@
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
+      soundsPreloaded=false;
       player.reset();
       initializeProgram();
       dispatchScripts();
@@ -987,7 +988,22 @@
       }
       if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
       as2ObjectHost?.syncTextVariables();
+      drainSounds();
     }
+    // Timeline sounds: the Rust Player queues SoundCommands as frames are entered; the audio
+    // service schedules them. Resources are decoded once per session before their keyframe.
+    let soundsPreloaded=false;
+    function drainSounds(){
+      if(typeof player.sound_commands_json!=='function')return;
+      const commands=JSON.parse(player.sound_commands_json());
+      if(!audioHost)return;
+      if(!soundsPreloaded){soundsPreloaded=true;const ids=JSON.parse(player.timeline_sound_resources_json());if(ids.length)audioHost.preloadTimeline(ids);}
+      if(commands.length)audioHost.timeline(commands);
+    }
+    // AS2 stopAllSounds() and AS3 SoundMixer.stopAll() stop scripted and timeline sounds.
+    function stopTimelineSounds(){if(typeof player.stop_all_sounds==='function'){player.stop_all_sounds();drainSounds();}}
+    function stopAllSounds(){audioHost?.stopAllLegacySounds();stopTimelineSounds();}
+    const SoundMixer=Object.freeze({stopAll(){audioHost?.stopAllChannels();stopTimelineSounds();}});
     function resize() { preview.resize(); }
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
     function bitmapMatrix(item){
@@ -1065,6 +1081,7 @@
     canvas.addEventListener('pointerleave', () => { pointerOverContent=false;updateCursor(); });
     toggle.addEventListener('click', () => {
       player.set_playing(!player.is_playing());
+      try { drainSounds(); } catch (error) { fail(error); }
       lastTime = null;
       accumulated = 0;
       render();
@@ -1119,7 +1136,7 @@
       global.requestAnimationFrame(animate);
     }
     global.requestAnimationFrame(animate);
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, pause: () => player.set_playing(false), resume: () => player.set_playing(true), restart: () => document.getElementById('restart').click() });
+    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, pause: () => { player.set_playing(false); drainSounds(); }, resume: () => player.set_playing(true), restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);
 })(globalThis);

@@ -126,6 +126,7 @@ const BUILTINS: &[&str] = &[
     "flash.media.Sound",
     "flash.media.SoundChannel",
     "flash.media.SoundTransform",
+    "flash.media.SoundMixer",
     "flash.filters.BitmapFilter",
     "flash.filters.BitmapFilterQuality",
     "flash.filters.BlurFilter",

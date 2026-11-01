@@ -47,6 +47,13 @@ impl ResourceUnit {
         Ok(result)
     }
 
+    /// Audio resources (`audio/*`) can be attached to keyframes as timeline sounds.
+    pub fn is_audio(&self) -> bool {
+        self.media_type
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("audio/"))
+    }
+
     /// O(1) decoded length for canonical data in a validated document. This is
     /// not a validator; use decoded_bytes() when handling untrusted resource data.
     pub fn byte_len(&self) -> usize {

@@ -72,7 +72,8 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_6() && project.format_version < 6 {
         add(
             "format_version".into(),
-            "scenes, shape/motion tweens and motion guides require document version 6".into(),
+            "scenes, shape/motion tweens, motion guides and frame sounds require document version 6"
+                .into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -477,6 +478,25 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         add(
                             format!("{kp}.tween"),
                             "Flash easing requires format version 5".into(),
+                        );
+                    }
+                }
+                if let Some(sound) = &key.sound {
+                    match project.resources.iter().find(|r| r.id == sound.resource) {
+                        Some(resource) if resource.is_audio() => {}
+                        Some(_) => add(
+                            format!("{kp}.sound.resource"),
+                            format!("resource '{}' is not audio (audio/*)", sound.resource),
+                        ),
+                        None => add(
+                            format!("{kp}.sound.resource"),
+                            format!("sound resource '{}' does not exist", sound.resource),
+                        ),
+                    }
+                    if !(1..=FrameSound::MAX_LOOPS).contains(&sound.loops) {
+                        add(
+                            format!("{kp}.sound.loops"),
+                            format!("repeat count must be in 1..={}", FrameSound::MAX_LOOPS),
                         );
                     }
                 }

@@ -5,10 +5,11 @@
 //! · zoom − slider +.
 //!
 //! Controls whose feature the engine lacks are shown disabled with "not available yet" in their name
-//! and tooltip, never as working-looking fakes; ease and sound open their planned previews (Ease
-//! panel, Properties — Sound). Tweens, motion guides, scenes, loop and edit multiple frames run the
-//! commands in `timeline_commands.rs`. When the bar is narrower than its content the left
-//! part scrolls horizontally while the onion group and frame view menu stay pinned and visible.
+//! and tooltip, never as working-looking fakes; ease opens its planned preview (Ease panel). Sound
+//! attaches a library sound to the current keyframe (`timeline_sound.rs`). Tweens, motion guides,
+//! scenes, loop and edit multiple frames run the commands in `timeline_commands.rs`. When the bar is
+//! narrower than its content the left part scrolls horizontally while the onion group and frame view
+//! menu stay pinned and visible.
 use super::menu::NOT_AVAILABLE;
 use crate::app::*;
 use crate::workspace::{DockDestination, DockEdge, PanelId, PanelPlacement};
@@ -371,8 +372,38 @@ impl Editor {
         if ui.add(IconButton::new(i16::EASE, "Ease")).clicked() {
             Self::open_planned(ui.ctx(), "Timeline controls ▸ Ease");
         }
-        if ui.add(IconButton::new(i16::SOUND, "Sound")).clicked() {
-            Self::open_planned(ui.ctx(), "Timeline controls ▸ Sound");
+        self.timeline_sound_button(ui);
+    }
+
+    /// Sound (TL-07): library sounds and "Import sound…" for the current keyframe.
+    fn timeline_sound_button(&mut self, ui: &mut egui::Ui) {
+        let button = ui.add(IconButton::new(i16::SOUND, "Sound"));
+        let current = self.frame_sound().map(|(_, sound)| sound.resource);
+        let editable = self.layer_editable();
+        let sounds = self.audio_resources();
+        let mut chosen = None;
+        let mut import = false;
+        nf::popup_below(&button, 220., |ui| {
+            for (id, path) in &sounds {
+                let item = MenuItem::new(path).checked(current.as_ref() == Some(id));
+                if ui.add_enabled(editable, item).clicked() {
+                    chosen = Some(id.clone());
+                }
+            }
+            if !sounds.is_empty() {
+                nf::menu_separator(ui);
+            }
+            if ui
+                .add_enabled(editable, MenuItem::new("Import sound…"))
+                .clicked()
+            {
+                import = true;
+            }
+        });
+        if let Some(id) = chosen {
+            self.set_frame_sound(Some(id));
+        } else if import {
+            self.import_frame_sound_dialog();
         }
     }
 

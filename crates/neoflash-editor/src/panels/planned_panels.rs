@@ -1,11 +1,9 @@
 //! Planned previews of small panels: Debugger, Project, Code snippets (`scripting-panels.png`), Compiler errors,
-//! Info (`panels-more-2.png`), Scene, History, Swatches (`panels-more.png`, `swatches-popover.png`),
-//! Properties — Sound (`panel-properties-sound.png`) and movie clip Display & Filters
-//! (`panel-properties-movie-clip.png`). All values are fixed samples from the reference.
+//! Info (`panels-more-2.png`), Scene, History, Swatches (`panels-more.png`, `swatches-popover.png`)
+//! and movie clip Display & Filters (`panel-properties-movie-clip.png`). All values are fixed samples from the reference.
 use super::planned::{caption, check, mono, num, select, switch, type_header};
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
-use neoflash_ui::components::timeline as tl;
 use neoflash_ui::icons::{self, i16};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
@@ -406,49 +404,6 @@ pub(super) fn info(ui: &mut Ui) {
             mono(ui, value);
         });
     }
-}
-
-/// Panel / Properties — Sound (frame with a sound).
-pub(super) fn properties_sound(ui: &mut Ui) {
-    type_header(ui, i16::FRAME, "Frame 1", "Layer \"music.mp3\" · keyframe");
-    let w = ui.available_width();
-    c::SectionHeader::new("Label")
-        .id_salt("planned-sound-label")
-        .default_open(false)
-        .show(ui, |_| {});
-    c::SectionHeader::new("Sound")
-        .id_salt("planned-sound")
-        .show(ui, |ui| {
-            select(ui, "music.mp3", w);
-            ui.horizontal(|ui| {
-                select(ui, "Effect: Fade in", 168.0);
-                let _ = ui.add(
-                    c::Button::new("Envelope…")
-                        .icon(i16::WAVEFORM)
-                        .width(w - 168.0 - space::S2),
-                );
-            });
-            ui.horizontal(|ui| {
-                select(ui, "Sync: Stream", 144.0);
-                select(ui, "Repeat", 92.0);
-                num(
-                    ui,
-                    1.0,
-                    "Repeat count",
-                    "",
-                    "",
-                    0,
-                    w - 236.0 - 2.0 * space::S2,
-                );
-            });
-            let (span, _) = ui.allocate_exact_size(egui::vec2(w, 27.0), egui::Sense::hover());
-            tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
-            caption(ui, "44 kHz · Stereo · 16 bit · 32.4 s · 518.6 kB");
-            ui.horizontal(|ui| {
-                let _ = ui.add(c::Button::ghost("Play").icon(i16::PLAY));
-                let _ = ui.add(c::Button::ghost("Sound properties…").icon(i16::SOUND_FILE));
-            });
-        });
 }
 
 /// Panel / Properties — Movie clip, planned sections only (Display, Filters). Position, size and colour

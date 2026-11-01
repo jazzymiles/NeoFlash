@@ -346,6 +346,19 @@ impl WebPlayer {
     pub fn script_overflowed(&self) -> bool {
         self.player.script_overflowed()
     }
+    /// Timeline sound commands (`SoundCommand`, tagged by `op`) since the last call.
+    pub fn sound_commands_json(&mut self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.drain_sound_commands()).map_err(display_error)
+    }
+    /// Audio resource IDs used by timeline sounds (decoded ahead of their keyframes).
+    pub fn timeline_sound_resources_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&neoflash_core::timeline_sound_resources(&self.project))
+            .map_err(display_error)
+    }
+    /// AS2 `stopAllSounds()` / AS3 `SoundMixer.stopAll()`; drain `sound_commands_json` next.
+    pub fn stop_all_sounds(&mut self) {
+        self.player.stop_all_sounds();
+    }
 
     pub fn control(&mut self, target: &str, command: &str, frame: u32) -> Result<bool, JsValue> {
         let target = path(target)?;

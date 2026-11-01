@@ -111,5 +111,57 @@ export async function verifySoundPlayback(root,cargo) {
   } finally {
     host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
   }
-  console.log('Sound playback: original MP3 transport, AS3/AS2 owners, silent gesture gating, channel transforms, completion/stop/close and Restart passed with an injected audio scheduler.');
+  await verifyTimelineSound(root,cargo);
+  console.log('Sound playback: original MP3 transport, AS3/AS2 owners, silent gesture gating, channel transforms, completion/stop/close and Restart passed with an injected audio scheduler; timeline Event/Stream sounds and stopAllSounds ran through the shipped host.');
+}
+
+// Timeline (frame) sounds of examples/timeline-sound.nflash through the exported bundle and
+// the shipped host: Rust SoundCommands reach Web Audio sources on the (silent) shared bus.
+async function verifyTimelineSound(root,cargo) {
+  const directory=mkdtempSync(resolve(root,'target/timeline-sound-'));
+  const sources=[];let player,host,now=0;
+  const node=kind=>({kind,gain:{value:1,setValueAtTime(){},linearRampToValueAtTime(){}},connect(){},disconnect(){}});
+  const context={state:'suspended',sampleRate:8000,get currentTime(){return now;},destination:{kind:'silent-destination'},
+    resume(){this.state='running';return Promise.resolve();},close(){return Promise.resolve();},
+    decodeAudioData(buffer){return Promise.resolve({numberOfChannels:1,sampleRate:8000,length:buffer.byteLength/2,duration:(buffer.byteLength-44)/16000});},
+    createGain:()=>node('gain'),createStereoPanner:()=>({...node('pan'),pan:{value:0}}),
+    createChannelSplitter:()=>node('splitter'),createChannelMerger:()=>node('merger'),
+    createBufferSource(){const source={...node('source'),start(when,offset){this.started=[when,offset];},stop(when){this.stopped=when??now;}};sources.push(source);return source;}};
+  try {
+    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/timeline-sound.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+    vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
+    vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);
+    const bundle=vm.runInContext('NeoFlashBundle',sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+    const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+    player=new wasm.WebPlayer(JSON.stringify(bundle.project));
+    ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle,audio:{createContext:()=>context,isUserGesture:()=>true,now:()=>now}}));
+    host.dispatchScripts();
+    await until(()=>host.audio().status().state==='awaiting_gesture','frame 1 sounds wait for Enable audio');
+    assert.equal(sources.length,0);
+    now=0.2;await host.audio().resumeFromGesture();
+    await until(()=>sources.length===1,'the stream resumes once audio is enabled');
+    assert.ok(Math.abs(sources[0].started[1]-0.2)<1e-9,'at its timeline position');
+    for(let frame=1;frame<=24;frame++){player.tick();host.dispatchScripts();}
+    assert.equal(sources.length,2,'the Event beep of frame 25 plays');
+    assert.equal(sources[1].started[1],0);
+    host.legacy().stopAllSounds();
+    assert.ok(sources.every(source=>source.stopped!==undefined),'stopAllSounds stops timeline sounds');
+    player.tick();host.dispatchScripts();
+    assert.equal(sources.length,3,'the stream resumes at its offset on the next frame');
+    assert.ok(Math.abs(sources[2].started[1]-25/24)<1e-9);
+    for(let frame=26;frame<=36;frame++){player.tick();host.dispatchScripts();}
+    assert.notEqual(sources[2].stopped,undefined,'the stream stops where its span ends');
+    // AS3 SoundMixer.stopAll() from an object click script.
+    for(let frame=37;frame<=48;frame++){player.tick();host.dispatchScripts();}
+    assert.equal(sources.length,5,'the loop restarts the stream and the frame 1 beep');
+    const scripted=new (host.audio().Sound)();let loaded=false;scripted.addEventListener('complete',()=>{loaded=true;});
+    scripted.load(new (host.net().URLRequest)('audio/beep.wav'));await until(()=>loaded,'an AS3 Sound loads the embedded WAV');
+    scripted.play();assert.equal(sources.length,6);
+    player.click(JSON.stringify(['stop-button']));host.dispatchScripts(['stop-button']);
+    assert.ok(sources.every(source=>source.stopped!==undefined),'SoundMixer.stopAll stops timeline sounds and AS3 channels');
+  } finally {
+    host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
+  }
 }

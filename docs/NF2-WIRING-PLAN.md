@@ -356,7 +356,7 @@ View ▸ Snapping and ⌘-suspend remain (R-003). Original plan:
   rasterisation; export into runtime display graph (runtime already applies filters/blend for scripts).
 - Registry: `editor-paint-effects`.
 
-**W2.6 · Timeline sound (TL-07, PR-08/PP-13, TL-13 Sound layer, Control ▸ Mute sounds)** — E-18
+**W2.6 · Timeline sound (TL-07, PR-08/PP-13, TL-13 Sound layer, Control ▸ Mute sounds)** — E-18 — ◐ done except envelopes, Sound properties and decoded waveforms (see §7, decision 0037)
 - UI: Sound button, Properties — Sound from `planned_panels::properties_sound`, waveform spans.
 - Engine: keyframe sound reference + sync/effect/loop; editor audio preview; Web Audio scheduling in export.
 - Registry: `animation-media-sync`, `web-media-assets`.
@@ -458,7 +458,7 @@ Each card is one delivery. Do not change visuals (§1); file a request when the 
 | T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path drawing waits for R-005. |
 | T4 · Orient to path / Snap | PR-10, TL-01 | `Keyframe.orient_to_path: bool` (format 6, serde default); in `sample_layer_in` set rotation from the path tangent. | Properties classic-tween section already exists. |
 | T5 · Edit multiple frames, rest | TL-08 | Selection of objects that exist only on other keyframes; scale/rotate across frames. | `move_on_other_keyframes` is the pattern. |
-| T6 · Timeline sound | TL-07, W2.6 | Largest remaining item; needs E-18 audio sync. | |
+| T6 · Timeline sound | TL-07, W2.6 | Done: `Keyframe.sound` (format 6), `Player` `SoundCommand`s, Web Audio + rodio hosts, Sound button, Properties ▸ Sound, Mute sounds. Remaining: Edit envelope (DL-09), Sound properties (DL-08), decoded waveform peaks in spans. | Decision 0037; tests `crates/neoflash-core/tests/timeline_sound.rs`, `crates/neoflash-editor/src/timeline_sound_tests.rs`. |
 | T7 · Preview thumbnails | TL-10 | Offscreen render cache per keyframe revision. | Large rows request may be needed. |
 | T8 · Synchronise symbols, Copy/Paste motion | MN-02 | Frame menu rows still disabled. | |
 | T9 · XFL/FLA import | — | Map `tweenType="shape"/"motion"`, guide layers (`layerType="guide"` + `parentLayerIndex`) and multiple `DOMTimeline`s to the new model. | `crates/neoflash-import/src/xfl.rs`. |

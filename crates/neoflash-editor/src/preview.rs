@@ -1,11 +1,14 @@
 //! Ephemeral transport state. The serialized document stays authored and pure.
 use crate::app::Editor;
-use neoflash_core::{AuthoredPlayback, AuthoredScene, Id, Project, evaluate_scene};
+use neoflash_core::{AuthoredPlayback, AuthoredScene, Id, Project, SoundCommand, evaluate_scene};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) struct AuthoringPreview {
     project: Project,
     symbol: Id,
     playback: AuthoredPlayback,
+    /// Distinguishes playback sessions; a new session silences the previous one's sounds.
+    epoch: u64,
 }
 
 impl Editor {
@@ -30,10 +33,12 @@ impl Editor {
         }
         if self.playing && self.authored_preview.is_none() {
             let symbol = self.symbol_id().to_owned();
+            static EPOCH: AtomicU64 = AtomicU64::new(1);
             self.authored_preview = Some(AuthoringPreview {
                 playback: AuthoredPlayback::new(&self.project, &symbol, self.frame),
                 project: self.project.clone(),
                 symbol,
+                epoch: EPOCH.fetch_add(1, Ordering::Relaxed),
             });
         }
     }
@@ -46,6 +51,22 @@ impl Editor {
         if let Some(preview) = &mut self.authored_preview {
             preview.playback.tick(&self.project);
             self.frame = preview.playback.frame();
+        }
+    }
+
+    /// The playing preview session, if any.
+    pub(crate) fn preview_epoch(&self) -> Option<u64> {
+        self.authored_preview
+            .as_ref()
+            .filter(|_| self.playing)
+            .map(|preview| preview.epoch)
+    }
+
+    /// Timeline sound commands of the playing preview since the last call.
+    pub(crate) fn drain_preview_sounds(&mut self) -> Vec<SoundCommand> {
+        match &mut self.authored_preview {
+            Some(preview) if self.playing => preview.playback.drain_sound_commands(),
+            _ => vec![],
         }
     }
 

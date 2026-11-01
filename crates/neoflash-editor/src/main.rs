@@ -34,6 +34,7 @@ mod theme;
 mod timeline_commands;
 mod timeline_edit;
 mod timeline_paint;
+mod timeline_sound;
 mod transform_geometry;
 mod ui_icons;
 mod vector;
@@ -53,6 +54,8 @@ mod stage_view_tests;
 mod tests;
 #[cfg(test)]
 mod timeline_commands_tests;
+#[cfg(test)]
+mod timeline_sound_tests;
 #[cfg(test)]
 mod transform_gesture_tests;
 #[cfg(test)]

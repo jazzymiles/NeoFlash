@@ -114,3 +114,50 @@ test('WASM exposes independent authored targets and validates activation lifetim
  const disabled=nodes.find(n=>n.accessibility.disabled);assert.equal(player.activate_accessible(JSON.stringify(disabled.instance_path),disabled.lifetime_id),false);
  player.free();
 });
+test('WASM timeline sounds reach the Web Audio host as play/stream/stop commands',async()=>{
+  await ready;
+  const data=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const player=new wasm.WebPlayer(JSON.stringify(data));
+  assert.deepEqual(JSON.parse(player.timeline_sound_resources_json()),['beep','melody']);
+  const ops=()=>JSON.parse(player.sound_commands_json()).map(c=>c.op==='stream_start'?`${c.op} ${c.resource} ${c.offset.toFixed(3)}`:c.resource?`${c.op} ${c.resource}`:c.op);
+  assert.deepEqual(ops(),['play beep','stream_start melody 0.000']);
+  for(let frame=1;frame<24;frame++){player.tick();assert.deepEqual(ops(),[],`frame ${frame}`);}
+  player.tick();assert.deepEqual(ops(),['play beep']);
+  player.control('[]','goto_and_play',30);assert.deepEqual(ops(),['stream_stop','stream_start melody 1.250']);
+  for(let frame=31;frame<36;frame++){player.tick();assert.deepEqual(ops(),[]);}
+  player.tick();assert.deepEqual(ops(),['stream_stop'],'the stream ends with its span at frame 37');
+  player.control('[]','goto_and_play',10);assert.deepEqual(ops(),['stream_start melody 0.417']);
+  player.set_playing(false);assert.deepEqual(ops(),['stream_stop']);
+  player.set_playing(true);player.stop_all_sounds();player.tick();assert.deepEqual(ops(),['stop_all','stream_start melody 0.458']);
+  // The browser adapter decodes each embedded resource once and schedules silent sources.
+  const sources=[],decoded=[];let time=0;
+  const param=()=>({value:1,events:[],setValueAtTime(v,t){this.events.push(['set',v,t]);},linearRampToValueAtTime(v,t){this.events.push(['ramp',v,t]);}});
+  const node=kind=>({kind,gain:param(),connect(){},disconnect(){}});
+  const context={state:'suspended',sampleRate:8000,get currentTime(){return time;},destination:node('destination'),
+    resume(){this.state='running';return Promise.resolve();},close(){return Promise.resolve();},
+    decodeAudioData(buffer){decoded.push(buffer.byteLength);return Promise.resolve({duration:buffer.byteLength>5000?1.5:0.15,length:1,numberOfChannels:1});},
+    createGain(){return node('gain');},createStereoPanner(){return {...node('pan'),pan:param()};},
+    createChannelSplitter(){return node('splitter');},createChannelMerger(){return node('merger');},
+    createBufferSource(){const source={...node('source'),loop:false,start(when,offset){this.started=[when,offset];},stop(when){this.stopped=when??time;}};sources.push(source);return source;}};
+  const resources=new Map(data.resources.map(r=>[r.path,Buffer.from(r.data_base64,'base64')]));
+  const audio=require('../audio.js').create({events:require('../events.js'),net:{URLLoader:class{},mediaSource:p=>({bytes:new Uint8Array(resources.get(p))})},binary:{toBytes:x=>x},
+    resources:data.resources,createContext:()=>context,isUserGesture:()=>true,now:()=>time,onError:error=>{throw error;}});
+  audio.preloadTimeline(['beep','melody']);await new Promise(done=>setTimeout(done,0));
+  assert.equal(decoded.length,2,'both resources decode once ahead of their keyframes');
+  audio.timeline([{op:'play',resource:'beep',sync:'event',loops:1,loop_forever:false,envelope:[[0,1,1]]}]);
+  assert.equal(sources.length,0,'Event sounds before Enable audio are skipped');
+  assert.equal(audio.status().state,'awaiting_gesture');
+  audio.timeline([{op:'stream_start',channel:'music',resource:'melody',offset:0.25,loops:1,loop_forever:false,envelope:[[0,1,0],[1,0,1]]}]);
+  time=0.5;await audio.resumeFromGesture();
+  assert.equal(sources.length,1);assert.deepEqual(sources[0].started,[0.5,0.75],'a waiting stream resumes at its timeline position');
+  audio.timeline([{op:'play',resource:'beep',sync:'start',loops:2,loop_forever:false,envelope:[[0,0,0],[1,1,1]]}]);
+  audio.timeline([{op:'play',resource:'beep',sync:'start',loops:1,loop_forever:false,envelope:[[0,1,1]]}]);
+  assert.equal(sources.length,2,'Start sync does not overlap a playing instance');
+  assert.equal(sources[1].loop,true);assert.ok(Math.abs(sources[1].stopped-0.8)<1e-9,'two plays of 0.15 s');
+  audio.timeline([{op:'stop',resource:'beep'},{op:'stream_stop',channel:'music'}]);
+  assert.ok(sources.every(source=>source.stopped!==undefined));assert.equal(audio.status().active,0);
+  audio.timeline([{op:'play',resource:'beep',sync:'event',loops:1,loop_forever:false,envelope:[[0,1,1]]},{op:'play',resource:'beep',sync:'event',loops:1,loop_forever:false,envelope:[[0,1,1]]}]);
+  assert.equal(audio.status().active,2,'Event sounds overlap');
+  audio.timeline([{op:'stop_all'}]);assert.equal(audio.status().active,0);
+  audio.dispose();player.free();
+});

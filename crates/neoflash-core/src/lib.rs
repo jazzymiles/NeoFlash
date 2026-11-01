@@ -51,6 +51,7 @@ mod scenes;
 mod shape_tween;
 mod text;
 mod timeline_edit;
+mod timeline_sound;
 mod validation;
 mod xml;
 
@@ -113,6 +114,7 @@ pub use text::{
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
 };
+pub use timeline_sound::{SoundCommand, envelope_gains, sound_span_end, timeline_sound_resources};
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{
     MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,

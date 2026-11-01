@@ -256,6 +256,7 @@ impl Editor {
                         });
                         if ui.add(nf::Button::new("Frame script…").shortcut("F9")).clicked() { self.open_frame_actions(); }
                     });
+                    self.frame_sound_section(ui);
                 } else {
                     let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                     inspector_section(ui, "Playback", |ui| {
