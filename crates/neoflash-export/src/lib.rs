@@ -59,6 +59,7 @@ const XML: &str = include_str!("../../../web/xml.js");
 const LOADER: &str = include_str!("../../../web/loader.js");
 const AMF: &str = include_str!("../../../web/amf.js");
 const STORAGE: &str = include_str!("../../../web/storage.js");
+const AIR: &str = include_str!("../../../web/air.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -354,6 +355,7 @@ pub fn export_project(
         ("loader.js", LOADER),
         ("amf.js", AMF),
         ("storage.js", STORAGE),
+        ("air.js", AIR),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -468,6 +470,7 @@ fn html_document(title: &str) -> String {
   <script defer src="loader.js"></script>
   <script defer src="amf.js"></script>
   <script defer src="storage.js"></script>
+  <script defer src="air.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -551,6 +554,12 @@ mod tests {
         assert!(html.find("src=\"amf.js\"").unwrap() < html.find("src=\"storage.js\"").unwrap());
         assert!(
             html.find("src=\"storage.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap()
+        );
+        assert!(html.find("src=\"air.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap());
+        assert!(
+            fs::read_to_string(output.join("air.js"))
+                .unwrap()
+                .contains("NeoFlashAIR")
         );
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));

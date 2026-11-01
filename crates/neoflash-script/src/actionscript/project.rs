@@ -294,6 +294,108 @@ const BUILTINS: &[&str] = &[
     "flash.events.SoftKeyboardTrigger",
     "flash.events.EventPhase",
     "flash.external.ExternalInterface",
+    // AIR errors
+    "flash.errors.SQLErrorOperation",
+    "flash.errors.SQLError",
+    "flash.errors.PermissionError",
+    "flash.errors.DRMManagerError",
+    // AIR events
+    "flash.events.TouchEventIntent",
+    "flash.events.InvokeEvent",
+    "flash.events.BrowserInvokeEvent",
+    "flash.events.FileListEvent",
+    "flash.events.OutputProgressEvent",
+    "flash.events.NativeWindowBoundsEvent",
+    "flash.events.NativeWindowDisplayStateEvent",
+    "flash.events.NativeDragEvent",
+    "flash.events.ScreenMouseEvent",
+    "flash.events.SQLEvent",
+    "flash.events.SQLErrorEvent",
+    "flash.events.SQLUpdateEvent",
+    "flash.events.StorageVolumeChangeEvent",
+    "flash.events.NativeProcessExitEvent",
+    "flash.events.LocationChangeEvent",
+    "flash.events.HTMLUncaughtScriptExceptionEvent",
+    "flash.events.MediaEvent",
+    "flash.events.DatagramSocketDataEvent",
+    "flash.events.ServerSocketConnectEvent",
+    "flash.events.DNSResolverEvent",
+    "flash.events.DRMAuthenticateEvent",
+    "flash.events.DeviceRotationEvent",
+    "flash.events.PermissionEvent",
+    "flash.events.RemoteNotificationEvent",
+    "flash.events.GameInputEvent",
+    "flash.events.VsyncStateChangeAvailabilityEvent",
+    // AIR filesystem
+    "flash.filesystem.FileMode",
+    "flash.filesystem.File",
+    "flash.filesystem.FileStream",
+    "flash.filesystem.StorageVolume",
+    "flash.filesystem.StorageVolumeInfo",
+    // AIR desktop
+    "flash.desktop.ClipboardFormats",
+    "flash.desktop.ClipboardTransferMode",
+    "flash.desktop.Clipboard",
+    "flash.desktop.IFilePromise",
+    "flash.desktop.NativeDragActions",
+    "flash.desktop.NativeDragOptions",
+    "flash.desktop.NativeDragManager",
+    "flash.desktop.InvokeEventReason",
+    "flash.desktop.NotificationType",
+    "flash.desktop.SystemIdleMode",
+    "flash.desktop.Icon",
+    "flash.desktop.InteractiveIcon",
+    "flash.desktop.DockIcon",
+    "flash.desktop.SystemTrayIcon",
+    "flash.desktop.NativeApplication",
+    "flash.desktop.NativeProcessStartupInfo",
+    "flash.desktop.NativeProcess",
+    "flash.desktop.Updater",
+    // AIR display
+    "flash.display.FocusDirection",
+    "flash.display.StageAspectRatio",
+    "flash.display.StageOrientation",
+    "flash.display.ScreenMode",
+    "flash.display.Screen",
+    "flash.display.NativeMenuItem",
+    "flash.display.NativeMenu",
+    "flash.display.NativeWindowType",
+    "flash.display.NativeWindowSystemChrome",
+    "flash.display.NativeWindowDisplayState",
+    "flash.display.NativeWindowResize",
+    "flash.display.NativeWindowRenderMode",
+    "flash.display.NativeWindowInitOptions",
+    "flash.display.NativeWindow",
+    // AIR data
+    "flash.data.EncryptedLocalStore",
+    "flash.data.SQLMode",
+    "flash.data.SQLTransactionLockType",
+    "flash.data.SQLCollationType",
+    "flash.data.SQLColumnNameStyle",
+    "flash.data.SQLResult",
+    "flash.data.SQLColumnSchema",
+    "flash.data.SQLSchema",
+    "flash.data.SQLTableSchema",
+    "flash.data.SQLViewSchema",
+    "flash.data.SQLIndexSchema",
+    "flash.data.SQLTriggerSchema",
+    "flash.data.SQLSchemaResult",
+    "flash.data.SQLConnection",
+    "flash.data.SQLStatement",
+    // AIR permissions, dns, notifications, sensors
+    "flash.permissions.PermissionStatus",
+    "flash.net.dns.ResourceRecord",
+    "flash.net.dns.ARecord",
+    "flash.net.dns.AAAARecord",
+    "flash.net.dns.MXRecord",
+    "flash.net.dns.PTRRecord",
+    "flash.net.dns.SRVRecord",
+    "flash.net.dns.DNSResolver",
+    "flash.notifications.NotificationStyle",
+    "flash.notifications.RemoteNotifierSubscribeOptions",
+    "flash.notifications.RemoteNotifier",
+    "flash.sensors.DeviceRotation",
+    "flash.sensors.Geolocation",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -626,6 +728,113 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "setSelectColor"
                 | "setSelected"
                 | "getStackTrace"
+                // AIR host methods
+                | "open"
+                | "openAsync"
+                | "truncate"
+                | "resolvePath"
+                | "getRelativePath"
+                | "canonicalize"
+                | "createDirectory"
+                | "createTempFile"
+                | "createTempDirectory"
+                | "getDirectoryListing"
+                | "getDirectoryListingAsync"
+                | "copyTo"
+                | "copyToAsync"
+                | "moveTo"
+                | "moveToAsync"
+                | "deleteFile"
+                | "deleteFileAsync"
+                | "deleteDirectory"
+                | "deleteDirectoryAsync"
+                | "moveToTrash"
+                | "moveToTrashAsync"
+                | "openWithDefaultApplication"
+                | "browseForOpen"
+                | "browseForOpenMultiple"
+                | "browseForSave"
+                | "browseForDirectory"
+                | "requestPermission"
+                | "getRootDirectories"
+                | "getStorageVolumes"
+                | "save"
+                | "browse"
+                | "cancel"
+                | "clearData"
+                | "getData"
+                | "setData"
+                | "setDataHandler"
+                | "hasFormat"
+                | "reportError"
+                | "acceptDragDrop"
+                | "doDrag"
+                | "bounce"
+                | "activate"
+                | "exit"
+                | "copy"
+                | "cut"
+                | "paste"
+                | "selectAll"
+                | "isSetAsDefaultApplication"
+                | "setAsDefaultApplication"
+                | "removeAsDefaultApplication"
+                | "getDefaultApplication"
+                | "closeInput"
+                | "isValidExecutable"
+                | "update"
+                | "getScreensForRectangle"
+                | "addItem"
+                | "addItemAt"
+                | "addSubmenu"
+                | "addSubmenuAt"
+                | "containsItem"
+                | "getItemAt"
+                | "getItemByName"
+                | "getItemIndex"
+                | "removeItem"
+                | "removeItemAt"
+                | "removeAllItems"
+                | "setItemIndex"
+                | "display"
+                | "globalToScreen"
+                | "listOwnedWindows"
+                | "maximize"
+                | "minimize"
+                | "restore"
+                | "notifyUser"
+                | "orderToFront"
+                | "orderToBack"
+                | "orderInFrontOf"
+                | "orderInBackOf"
+                | "startMove"
+                | "startResize"
+                | "setAspectRatio"
+                | "setOrientation"
+                | "getItem"
+                | "setItem"
+                | "attach"
+                | "detach"
+                | "begin"
+                | "commit"
+                | "rollback"
+                | "setSavepoint"
+                | "releaseSavepoint"
+                | "rollbackToSavepoint"
+                | "compact"
+                | "analyze"
+                | "deanalyze"
+                | "reencrypt"
+                | "loadSchema"
+                | "getSchemaResult"
+                | "clearParameters"
+                | "execute"
+                | "getResult"
+                | "next"
+                | "lookup"
+                | "subscribe"
+                | "unsubscribe"
+                | "setRequestedUpdateInterval"
         )
 }
 
@@ -1413,12 +1622,70 @@ fn parse_class(
                 | "flash.events.SoftKeyboardEvent"
                 | "flash.events.ThrottleType"
                 | "flash.events.SoftKeyboardTrigger"
+                | "flash.events.TouchEventIntent"
+                | "flash.events.InvokeEvent"
+                | "flash.events.BrowserInvokeEvent"
+                | "flash.events.FileListEvent"
+                | "flash.events.OutputProgressEvent"
+                | "flash.events.NativeWindowBoundsEvent"
+                | "flash.events.NativeWindowDisplayStateEvent"
+                | "flash.events.NativeDragEvent"
+                | "flash.events.ScreenMouseEvent"
+                | "flash.events.SQLEvent"
+                | "flash.events.SQLErrorEvent"
+                | "flash.events.SQLUpdateEvent"
+                | "flash.events.StorageVolumeChangeEvent"
+                | "flash.events.NativeProcessExitEvent"
+                | "flash.events.LocationChangeEvent"
+                | "flash.events.HTMLUncaughtScriptExceptionEvent"
+                | "flash.events.MediaEvent"
+                | "flash.events.DatagramSocketDataEvent"
+                | "flash.events.ServerSocketConnectEvent"
+                | "flash.events.DNSResolverEvent"
+                | "flash.events.DRMAuthenticateEvent"
+                | "flash.events.DeviceRotationEvent"
+                | "flash.events.PermissionEvent"
+                | "flash.events.RemoteNotificationEvent"
+                | "flash.events.GameInputEvent"
+                | "flash.events.VsyncStateChangeAvailabilityEvent"
         )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
             "This native event family does not support subclass initialization; construct its event facade and use typed listeners through composition. GesturePhase supplies constants only.",
+        ));
+    }
+    if base.as_ref().is_some_and(|base| {
+        base.starts_with("flash.filesystem.")
+            || (base.starts_with("flash.desktop.") && base != "flash.desktop.IFilePromise")
+            || base.starts_with("flash.data.")
+            || base.starts_with("flash.errors.")
+            || base.starts_with("flash.permissions.")
+            || base.starts_with("flash.notifications.")
+            || base.starts_with("flash.sensors.")
+            || matches!(
+                base.as_str(),
+                "flash.display.FocusDirection"
+                    | "flash.display.StageAspectRatio"
+                    | "flash.display.StageOrientation"
+                    | "flash.display.ScreenMode"
+                    | "flash.display.Screen"
+                    | "flash.display.NativeMenuItem"
+                    | "flash.display.NativeMenu"
+                    | "flash.display.NativeWindowType"
+                    | "flash.display.NativeWindowSystemChrome"
+                    | "flash.display.NativeWindowDisplayState"
+                    | "flash.display.NativeWindowResize"
+                    | "flash.display.NativeWindowRenderMode"
+                    | "flash.display.NativeWindowInitOptions"
+                    | "flash.display.NativeWindow"
+            )
+    }) {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "AIR native runtime, window, filesystem, SQL, sensor and constant classes do not support native subclass initialization in this profile; construct or obtain the native facade and use composition.",
         ));
     }
     let as2 = header.script.language == ScriptLanguage::ActionScript2;
@@ -1919,6 +2186,7 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
     let ev = "flash.events.IEventDispatcher";
     let di = "flash.utils.IDataInput";
     let do_ = "flash.utils.IDataOutput";
+    let fp = "flash.desktop.IFilePromise";
     BTreeMap::from([
         (
             ev.to_owned(),
@@ -2126,6 +2394,28 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
         ("flash.display.IGraphicsFill".to_owned(), BTreeMap::new()),
         ("flash.display.IGraphicsPath".to_owned(), BTreeMap::new()),
         ("flash.display.IGraphicsStroke".to_owned(), BTreeMap::new()),
+        (
+            fp.to_owned(),
+            BTreeMap::from([
+                entry(fp, "relativePath", MethodKind::Get, &[], "String"),
+                entry(fp, "isAsync", MethodKind::Get, &[], "Boolean"),
+                entry(
+                    fp,
+                    "open",
+                    MethodKind::Method,
+                    &[],
+                    "flash.utils.IDataInput",
+                ),
+                entry(fp, "close", MethodKind::Method, &[], "void"),
+                entry(
+                    fp,
+                    "reportError",
+                    MethodKind::Method,
+                    &[("flash.events.ErrorEvent", false)],
+                    "void",
+                ),
+            ]),
+        ),
     ])
 }
 
@@ -2778,7 +3068,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

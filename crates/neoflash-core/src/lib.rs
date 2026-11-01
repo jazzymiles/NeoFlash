@@ -19,6 +19,7 @@ pub mod as2_transitions;
 pub mod as2_variables;
 pub mod as2_xml;
 pub mod as2d_geom;
+pub mod as3_air;
 pub mod as3_collections;
 pub mod as3_geom;
 pub mod as3_object;
