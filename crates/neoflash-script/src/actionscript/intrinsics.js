@@ -198,6 +198,18 @@ function __nfObjectClass(as3) {
         };
         Object.defineProperty(facade, 'prototype', { value: Object.prototype, writable: false });
         Object.defineProperty(facade, '__nfIs', { value: value => value != null });
+        if (!as3) {
+            Object.defineProperty(facade, 'registerClass', {
+                value: function(id, ctor) {
+                    const legacy = typeof __nfLegacy !== 'undefined' ? __nfLegacy : null;
+                    if (!legacy || typeof legacy.registerClass !== 'function') {
+                        throw new __nfTypeError('Object.registerClass requires an initialized AS2 publication host.');
+                    }
+                    return legacy.registerClass(id, ctor);
+                },
+                writable: false,
+            });
+        }
         __nfObjectClasses.set(as3, Object.freeze(facade));
     }
     return __nfObjectClasses.get(as3);

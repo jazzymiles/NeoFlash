@@ -106,7 +106,7 @@ impl StageState {
         })
     }
     fn state(&self) -> Value {
-        json!({"align":self.align,"scaleMode":self.mode,"showMenu":self.menu,"fullScreenSourceRect":self.source})
+        json!({"align":self.align,"scaleMode":self.mode,"showMenu":self.menu,"fullScreenSourceRect":self.source,"wmodeGPU":false})
     }
     pub fn command(&mut self, input: &str) -> Result<Value, String> {
         if input.len() > 65536 {
@@ -195,6 +195,7 @@ impl StageState {
                             Some(r)
                         };
                     }
+                    "wmodeGPU" => return Err("Stage.wmodeGPU is read-only".into()),
                     _ => return Err("Unknown AS2 Stage property".into()),
                 }
                 if next.mode == "noScale" && next.align != "TL" {
@@ -319,6 +320,11 @@ mod tests {
         assert_eq!(rows[2]["action"], "play");
         assert!(
             s.command(r#"{"op":"menu_builtin","name":"quality","value":true}"#)
+                .is_err()
+        );
+        assert_eq!(s.command(r#"{"op":"get"}"#).unwrap()["wmodeGPU"], false);
+        assert!(
+            s.command(r#"{"op":"set","name":"wmodeGPU","value":true}"#)
                 .is_err()
         );
     }

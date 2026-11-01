@@ -3,7 +3,7 @@
  * graph references and URLLoader/browser callbacks. */
 (function(global){
   'use strict';
-  function create({wasm,player,text,broadcaster=global.NeoFlashBroadcaster,getNet=()=>null,targetForRef=null,afterCallback=()=>{}}){
+  function create({wasm,player,text,broadcaster=global.NeoFlashBroadcaster,getNet=()=>null,targetForRef=null,afterCallback=()=>{},project=null,document=global.document}){
     if(!wasm||typeof wasm.as2_text_json!=='function')throw new Error('AS2 text Rust kernel is missing; re-export this publication.');
     if(typeof broadcaster?.create!=='function')throw new Error('AS2 text requires the shared broadcaster host.');
     const execute=request=>JSON.parse(wasm.as2_text_json(JSON.stringify(request)));
@@ -12,7 +12,9 @@
     text.bindAs2Layout(reflow);
     text.bindAs2Wheel(wheel);
     const broadcasters=broadcaster.create(wasm);
-    const sheets=new WeakMap(),fields=new Map(),loads=new Set();let generation=0,disposed=false;
+    const defaultRender=()=>({embedFonts:false,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0});
+    const defaultRenderer=()=>({displayMode:'default',maxLevel:4,tables:{}});
+    const sheets=new WeakMap(),fields=new Map(),loads=new Set();let generation=0,disposed=false,rendererState=defaultRenderer();
     function active(){if(disposed)throw new Error('AS2 text service was disposed.');}
     function record(sheet){active();const found=sheets.get(sheet);if(!found)throw new TypeError('Expected an AS2 TextField.StyleSheet from this publication.');return found;}
     function styleRecord(value){
@@ -23,7 +25,7 @@
       for(const [name,item]of entries){if(!item.enumerable)continue;if(!Object.hasOwn(item,'value')||(!['string','number','boolean'].includes(typeof item.value)&&item.value!==null))throw new TypeError('StyleSheet styles require primitive own data properties.');result[name]=item.value;}
       return result;
     }
-    function stateFor(ref){active();text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:false,condense:false,style:null,source:null,revision:null};fields.set(ref,state);}return state;}
+    function stateFor(ref){active();text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:false,condense:false,style:null,source:null,revision:null,render:defaultRender()};fields.set(ref,state);}return state;}
     function render(ref,state,source){
       const field=text.info(ref),styles=state.style?record(state.style).state:{styles:{}};
       const parsed=execute({op:'html',source,format:field.default_format,styles,condense_white:state.condense});
@@ -51,11 +53,13 @@
       }
     }
     StyleSheet.__nfIs=value=>sheets.has(value);StyleSheet.__nfInitialize=()=>{throw new TypeError('AS2 StyleSheet subclassing is not supported.');};Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
-    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','getNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled']);
+    const renderProps=new Set(['embedFonts','antiAliasType','gridFitType','sharpness','thickness']);
+    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','getNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled',...renderProps]);
     function as2Ref(ref,name){
       if(!names.has(name))return null;
       return {has:()=>true,delete:()=>false,get:()=>{
         const state=stateFor(ref),field=text.info(ref);
+        if(renderProps.has(name))return state.render[name];
         if(['background','backgroundColor','border','borderColor'].includes(name))return field.as2_viewport[name];
         if(['scroll','hscroll','maxscroll','maxhscroll','bottomScroll'].includes(name)){const viewport=text.layout(field).viewport;return viewport[name==='bottomScroll'?'bottom_scroll':name];}
         if(name==='autoSize')return field.as2_viewport.auto_size;
@@ -71,6 +75,7 @@
         return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format}).result;
       },set:value=>{
         const state=stateFor(ref);
+        if(renderProps.has(name)){state.render=execute({op:'field_render_set',state:state.render,name,value}).state;return value;}
         if(name==='autoSize'||name==='mouseWheelEnabled'){const field=text.info(ref);if(name==='autoSize'){if(value===true)value='left';if(value===false)value='none';if(!['none','left','center','right'].includes(value))throw new TypeError('autoSize requires none/left/center/right or Boolean.');}else if(typeof value!=='boolean')throw new TypeError('mouseWheelEnabled requires Boolean.');text.update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name==='autoSize'?'auto_size':'mouse_wheel_enabled']:value}});return value;}
         if(name==='onScroller'){if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError('onScroller requires a function or null.');state.onScroller=value;return value;}
         if(['background','backgroundColor','border','borderColor','scroll','hscroll'].includes(name)){
@@ -118,10 +123,43 @@
       const net=getNet();if(!net)throw new Error('Text hyperlinks require the publication URL navigation service.');
       net.navigateToURL(new net.URLRequest(result.url),result.target||null);return true;
     }
+    function getFontList(){
+      active();
+      const candidates=['sans-serif','serif','monospace','Arial','Helvetica','Times New Roman','Courier New','Verdana','Georgia','Trebuchet MS'];
+      if(document?.fonts&&typeof document.fonts[Symbol.iterator]==='function'){
+        for(const face of document.fonts){if(typeof face?.family==='string')candidates.push(face.family);if(candidates.length>=4096)break;}
+      }
+      if(Array.isArray(project?.symbols)){
+        for(const symbol of project.symbols)for(const layer of symbol?.timeline?.layers||[])for(const keyframe of layer?.keyframes||[])for(const element of keyframe?.elements||[]){
+          const family=element?.kind?.font_family||element?.kind?.field?.format?.font;
+          if(typeof family==='string'&&candidates.length<4096)candidates.push(family);
+        }
+      }
+      return execute({op:'font_list',candidates}).result;
+    }
+    class TextRenderer {
+      constructor(){throw new TypeError('TextRenderer supplies static properties and methods and cannot be constructed.');}
+      static setAdvancedAntialiasingTable(fontName,fontStyle,colorType,table){
+        active();
+        if(typeof fontName!=='string'||typeof fontStyle!=='string'||typeof colorType!=='string'||!Array.isArray(table)){
+          throw new TypeError('TextRenderer.setAdvancedAntialiasingTable requires (fontName:String, fontStyle:String, colorType:String, table:Array).');
+        }
+        const entries=table.map(item=>{
+          if(!item||typeof item!=='object')throw new TypeError('TextRenderer antialiasing entries require objects with fontSize, insideCutoff and outsideCutoff.');
+          return {fontSize:Number(item.fontSize),insideCutoff:Number(item.insideCutoff),outsideCutoff:Number(item.outsideCutoff)};
+        });
+        rendererState=execute({op:'renderer_table',state:rendererState,font_name:fontName,font_style:fontStyle,color_type:colorType,table:entries}).state;
+      }
+    }
+    for(const name of ['displayMode','maxLevel']){
+      Object.defineProperty(TextRenderer,name,{enumerable:true,get(){active();return rendererState[name];},set(value){active();rendererState=execute({op:'renderer_set',state:rendererState,name,value}).state;}});
+    }
+    Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}}});
+    Object.freeze(TextRenderer);
     function textEvent(ref,name,args){if(name==='onChanged'&&reflow(ref))text.notifyLayout(ref);if(!['onChanged','onScroller'].includes(name))return;const state=fields.get(ref);if(state?.broadcaster&&player.object_alive(ref))state.broadcaster.broadcastMessage(name,...args);}
-    function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();broadcasters.reset();}
+    function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();rendererState=defaultRenderer();broadcasters.reset();}
     function dispose(){if(disposed)return;reset();broadcasters.dispose();disposed=true;}
-    return Object.freeze({StyleSheet,TextSnapshot,snapshotFor,as2Ref,textEvent,wheel,link,execute,reset,dispose});
+    return Object.freeze({StyleSheet,TextSnapshot,TextRenderer,getFontList,snapshotFor,as2Ref,textEvent,wheel,link,execute,reset,dispose});
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Text=api;
 })(globalThis);

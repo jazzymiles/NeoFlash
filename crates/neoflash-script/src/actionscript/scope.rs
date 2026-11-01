@@ -353,8 +353,9 @@ impl<'a> Analysis<'a> {
         }
     }
     fn known_member(&self, mut scope: usize, expr: &Expr) -> bool {
-        if matches!(expr,Expr::Member(base,name) if name=="callee" && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
-            || matches!(expr,Expr::Index(base,index) if literal_property_name(index).as_deref()==Some("callee") && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
+        let allow_caller = self.script.language == ScriptLanguage::ActionScript2;
+        if matches!(expr,Expr::Member(base,name) if (name=="callee" || (allow_caller && name=="caller")) && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
+            || matches!(expr,Expr::Index(base,index) if matches!(literal_property_name(index).as_deref(),Some(name) if name=="callee" || (allow_caller && name=="caller")) && matches!(base.as_ref(),Expr::Name(name) if name=="arguments"))
         {
             return self.resolve(scope, "arguments").is_some();
         }
@@ -566,7 +567,7 @@ impl<'a> Analysis<'a> {
                 };
                 let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"));
                 if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval takes one path/object argument; set takes a path and value."));}}
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"watch"|"unwatch"|"addProperty"|"isPropertyEnumerable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"watch"|"unwatch"|"addProperty"|"isPropertyEnumerable"|"registerClass"|"getSWFVersion"|"getFontList"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"play"|"pause"|"seek"|"close"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && !self.context.types.contains_key(name));
                 let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a

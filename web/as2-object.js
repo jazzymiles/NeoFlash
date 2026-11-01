@@ -3,7 +3,7 @@
  * No global JavaScript prototype is modified. */
 (function(global){
   'use strict';
-  function create(wasm,{isNative=()=>false,isProject=()=>false,globals=()=>({}),nativeRef=()=>null,textVariable=null}={}){
+  function create(wasm,{isNative=()=>false,isProject=()=>false,globals=()=>({}),globalProp=()=>null,nativeRef=()=>null,textVariable=null}={}){
     let kernel=new wasm.ScriptAS2Object(),ids=new WeakMap(),generation=1,syncingText=false;const callbacks=new Map(),textFields=new Map();
     const object=value=>value!==null&&(typeof value==='object'||typeof value==='function');
     function eligible(value){if(!object(value)||isNative(value)||Array.isArray(value))return false;const p=Object.getPrototypeOf(value);return p===null||p===Object.prototype||typeof value==='function'||isProject(value);}
@@ -54,7 +54,7 @@
     }
     function textOwner(record){
       const frame=textVariable.parentOf(record.field);if(!frame)return{owner:null,name:record.parts.at(-1)};
-      const first=record.parts[0],environment=globals();const root=first==='this'?{get:()=>frame}:Object.hasOwn(environment,first)?{get:()=>environment[first]}:null;
+      const first=record.parts[0],environment=globals(frame);const root=first==='this'?{get:()=>frame}:Object.hasOwn(environment,first)?{get:()=>environment[first]}:null;
       const ref=namedOwner(frame,record.parts,root);
       if(ref.owner!=null&&!textVariable.isMovieClip(ref.owner))throw new TypeError('TextField.variable must resolve to a MovieClip variable in this profile.');
       return ref;
@@ -93,8 +93,8 @@
       if(!writing&&object(path))return path;
       if(typeof path!=='string')throw new TypeError('AS2 eval/set requires a variable path string or an object reference for eval.');
       const parts=JSON.parse(wasm.as2_reference_path_json(path));if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
-      const first=parts.shift(),known=lexical?.(first),environment=globals();
-      const root=first==='this'?{get:()=>frame}:known??(Object.hasOwn(environment,first)?{get:()=>environment[first]}:null);
+      const first=parts.shift(),known=lexical?.(first),environment=globals(frame);
+      const root=first==='this'?{get:()=>frame}:known??globalProp(first)??(Object.hasOwn(environment,first)?{get:()=>environment[first]}:null);
       let owner=frame,name=first;
       if(parts.length){const found=namedOwner(frame,[first,...parts],root);owner=found.owner;name=found.name;if(owner==null){if(writing)throw new TypeError('AS2 set target does not exist.');return undefined;}}
       if(writing){

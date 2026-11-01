@@ -413,23 +413,24 @@ impl Player {
         let root = self
             .object_ref(&[])
             .ok_or_else(|| error("Publication root is unavailable"))?;
+        let locked_root = self.as2_root(relative)?;
         let mut current = relative.clone();
         let mut tail = path;
-        for prefix in ["_root", "_level0"] {
+        for (prefix, base) in [("_root", &locked_root), ("_level0", &root)] {
             if path == prefix {
-                return Ok(Some(root));
+                return Ok(Some(base.clone()));
             }
             if let Some(rest) = path
                 .strip_prefix(prefix)
                 .filter(|rest| rest.starts_with(['.', '/']))
             {
-                current = root.clone();
+                current = base.clone();
                 tail = &rest[1..];
                 break;
             }
         }
         if let Some(rest) = tail.strip_prefix('/') {
-            current = root;
+            current = locked_root;
             tail = rest;
         }
         let snapshot = self.runtime_snapshot(project);

@@ -255,6 +255,7 @@ pub(crate) struct RuntimeGraph {
     child_order: HashMap<ObjectRef, Vec<ObjectRef>>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
+    as2_settings: as2_input::As2Settings,
     as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
     as2_render_states: HashMap<ObjectRef, as2_render::As2Render>,
     as2_snapshot_next: u64,
@@ -299,6 +300,7 @@ impl RuntimeGraph {
         self.child_order.clear();
         self.dynamic.clear();
         self.as2_depths.clear();
+        self.as2_settings = as2_input::As2Settings::default();
         self.as2_input_states.clear();
         self.as2_render_states.clear();
         self.as2_snapshots.clear();

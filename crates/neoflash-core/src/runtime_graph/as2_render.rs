@@ -8,6 +8,7 @@ pub(super) struct As2Render {
     pub blend_mode: String,
     pub cache_as_bitmap: bool,
     pub opaque_background: Option<u32>,
+    pub scale9_grid: Option<[f64; 4]>,
 }
 impl As2Render {
     pub(super) fn blend(&self) -> &str {
@@ -119,6 +120,28 @@ impl Player {
                         )
                     }
                 }
+                "scale9Grid" => {
+                    state.scale9_grid = if value.is_null() {
+                        None
+                    } else {
+                        let parse = |key: &str| {
+                            value[key]
+                                .as_f64()
+                                .filter(|v| v.is_finite() && v.abs() <= 1e9)
+                                .ok_or_else(|| {
+                                    error("scale9Grid requires a finite Rectangle within +/-1e9")
+                                })
+                        };
+                        let (x, y, width, height) =
+                            (parse("x")?, parse("y")?, parse("width")?, parse("height")?);
+                        if width <= 0.0 || height <= 0.0 {
+                            return Err(error(
+                                "scale9Grid requires positive interior Rectangle width and height",
+                            ));
+                        }
+                        Some([x, y, width, height])
+                    };
+                }
                 _ => return Err(error("Unknown AS2 render property")),
             }
             let existing: BTreeSet<_> = self
@@ -132,7 +155,7 @@ impl Player {
                 return Err(error("AS2 raster/filter groups exceed128 objects"));
             }
             if request["op"] == "set" {
-                if state.isolated() {
+                if state.isolated() || state.scale9_grid.is_some() {
                     self.graph
                         .as2_render_states
                         .insert(target.clone(), state.clone());
@@ -144,7 +167,7 @@ impl Player {
             return Err(error("Unknown AS2 render operation"));
         }
         Ok(
-            json!({"blendMode":state.blend(),"cacheAsBitmap":state.cache_as_bitmap||!node.filters.is_empty(),"opaqueBackground":state.opaque_background,"isolated":state.isolated()||!node.filters.is_empty()}),
+            json!({"blendMode":state.blend(),"cacheAsBitmap":state.cache_as_bitmap||!node.filters.is_empty(),"opaqueBackground":state.opaque_background,"scale9Grid":state.scale9_grid,"isolated":state.isolated()||!node.filters.is_empty()}),
         )
     }
 }

@@ -34,6 +34,7 @@ const AS2_BUILTINS: &[&str] = &[
     "mx.lang.Locale",
     "TextSnapshot",
     "TextField.StyleSheet",
+    "flash.text.TextRenderer",
     "flash.filters.DisplacementMapFilter",
     "mx.utils.Collection",
     "mx.utils.CollectionImpl",
@@ -77,6 +78,7 @@ const BUILTINS: &[&str] = &[
     "mx.lang.Locale",
     "TextSnapshot",
     "TextField.StyleSheet",
+    "flash.text.TextRenderer",
     "flash.filters.DisplacementMapFilter",
     "mx.utils.Collection",
     "mx.utils.CollectionImpl",
@@ -356,6 +358,8 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "start"
                 | "reset"
                 | "updateAfterEvent"
+                | "toggleHighQuality"
+                | "showRedrawRegions"
                 | "load"
                 | "loadBytes"
                 | "connect"
