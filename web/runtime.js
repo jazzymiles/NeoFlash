@@ -669,7 +669,9 @@
         const LegacyTextField=function(){throw new TypeError('Create an AS2 TextField with MovieClip.createTextField.');};
         LegacyTextField.StyleSheet=as2TextHost.StyleSheet;
         LegacyTextField.getFontList=as2TextHost.getFontList;
-        legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,nativeRef:(receiver,name)=>{
+        const isTextField=display.builtins['flash.text.TextField'].__nfIs;
+        Object.defineProperties(LegacyTextField,{__nfIs:{value:isTextField},[Symbol.hasInstance]:{value:isTextField}});
+        legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,TextSnapshot:as2TextHost.TextSnapshot,nativeRef:(receiver,name)=>{
           if(name==='getFontList'&&(receiver===LegacyTextField||receiver===display.builtins['flash.text.TextField']))return {has:()=>true,delete:()=>false,get:()=>as2TextHost.getFontList,set:()=>{throw new TypeError('TextField.getFontList is read-only.');}};
           const menu=as2StageHost?.menuRef(receiver,name);if(menu)return menu;
           const geometry=geometryHost.as2Ref?.(receiver,name);if(geometry)return geometry;

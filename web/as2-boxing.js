@@ -17,7 +17,14 @@ function create({execute,strings}){
   throw new TypeError('AS2 boxed construction accepts primitives or these primitive boxes; arbitrary object coercion is outside this profile.');
  }
  function valueOf(){return record(this).value;}
- function toString(radix){const r=record(this);if(r.primitive.kind==='Number'&&arguments.length&&radix!==10)throw new TypeError('AS2 boxed Number.toString currently supports decimal radix 10.');return r.text;}
+ function toString(radix){
+  const r=record(this);
+  if(r.primitive.kind==='Number'&&arguments.length&&radix!==undefined){
+   const n=Number(radix),base=Number.isFinite(n)?Math.trunc(n):10;
+   if(base>=2&&base<=36&&base!==10&&Number.isFinite(r.value)&&r.value!==0)return Number.prototype.toString.call(r.value,base);
+  }
+  return r.text;
+ }
  for(const name of ['Number','Boolean','String']){const p=Object.create(Object.prototype);Object.defineProperties(p,{valueOf:{value:valueOf},toString:{value:toString}});prototypes[name]=p;}
  for(const name of ['charAt','charCodeAt','concat','indexOf','lastIndexOf','slice','substr','substring','split','toLowerCase','toUpperCase'])Object.defineProperty(prototypes.String,name,{value:function(...args){const r=record(this);if(r.primitive.kind!=='String')throw new TypeError('AS2 String method requires a String box.');return strings.invoke(name,r.value,args);}});
  for(const p of Object.values(prototypes))Object.freeze(p);

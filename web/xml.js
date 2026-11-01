@@ -534,10 +534,11 @@
         if(legacyNode(target).kind!=='document')throw new TypeError('XML.sendAndLoad requires an XML document target.');
         const request=legacyRequest(this,url,method);load(target,url,request);
       }
-      send(url,target='_self',method='POST'){
+      send(url,target,method='POST'){
         legacyRecord(this);if(arguments.length===0)return false;
         const request=legacyRequest(this,url,method);
-        if(request.method.toUpperCase()!=='GET')unsupported('send POST browser navigation; use sendAndLoad for XML POST responses or send with GET');
+        if(target===undefined||target===null){net.sendToURL(request);return true;}
+        if(request.method.toUpperCase()!=='GET')unsupported('send POST browser navigation; omit target for background XML POST or use send with GET');
         net.navigateToURL(request,target);return true;
       }
       getBytesLoaded(){return legacyRecord(this).bytesLoaded;}getBytesTotal(){return legacyRecord(this).bytesTotal;}

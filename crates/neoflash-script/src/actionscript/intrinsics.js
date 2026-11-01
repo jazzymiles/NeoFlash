@@ -276,9 +276,14 @@ const __nfObjectClasses = new Map();
 function __nfObjectCreate(as3, args, isNew = false) {
     const value = args[0];
     // AVM2 Object construction/calls preserve non-null values, including
-    // primitives. AVM1 needs boxed primitive identity; diagnose that boundary.
+    // primitives. AVM1 boxes primitives through the shared Rust boxing bridge.
     if (value == null) return !as3 && !isNew ? Object.create(null) : {};
     if (as3 || typeof value === 'object' || typeof value === 'function') return value;
+    if (!as3) {
+        if (typeof value === 'number') return __nfBoxCreate('Number', [value]);
+        if (typeof value === 'string') return __nfBoxCreate('String', [value]);
+        if (typeof value === 'boolean') return __nfBoxCreate('Boolean', [value]);
+    }
     throw new __nfTypeError('AS2 Object primitive boxing is not implemented; use an object literal or pass an existing object.');
 }
 function __nfObjectClass(as3) {

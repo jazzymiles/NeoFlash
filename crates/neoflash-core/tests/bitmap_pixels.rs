@@ -482,3 +482,66 @@ fn bulk_image_pipeline_and_detached_capture() {
         .is_err()
     );
 }
+
+#[test]
+fn as2_bitmap_load_resolves_resource_id_linkage_symbol_and_asset_paths() {
+    let rgba = [
+        0x11, 0x22, 0x33, 0xff, 0x44, 0x56, 0x66, 0x80, 0x77, 0x88, 0x99, 0xff, 0xaa, 0xbb, 0xcc,
+        0xff,
+    ];
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(&rgba, 2, 2, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    let resource =
+        ResourceUnit::from_bytes("img_res_1", "art/hero_sprite.png", "image/png", &png).unwrap();
+    let mut project = Project::blank();
+    project.format_version = 3;
+    project.resources.push(resource);
+    let mut sym = project.symbols[0].clone();
+    sym.id = "sym_bmp".into();
+    sym.name = "HeroLibraryBitmap".into();
+    sym.kind = SymbolKind::MovieClip;
+    sym.linkage_id = Some("HeroBitmap".into());
+    sym.class_name = Some("game.HeroArt".into());
+    sym.timeline.layers[0].id = "bmp-layer".into();
+    sym.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "bmp-el".into(),
+        name: String::new(),
+        transform: Transform::default(),
+        scripts: vec![],
+        accessibility: None,
+        kind: ElementKind::Bitmap {
+            resource_id: "img_res_1".into(),
+            width: 2,
+            height: 2,
+            smoothing: false,
+        },
+    }];
+    project.symbols.push(sym);
+    let mut player = Player::new(&project);
+    for identifier in [
+        "img_res_1",
+        "HeroBitmap",
+        "game.HeroArt",
+        "art/hero_sprite.png",
+        "hero_sprite.png",
+        "art/hero_sprite",
+        "hero_sprite",
+        "HeroLibraryBitmap",
+    ] {
+        let loaded = player
+            .as2_bitmap_load(&project, identifier)
+            .expect("valid identifier")
+            .unwrap_or_else(|| panic!("expected bitmap for {identifier}"));
+        let info = player.bitmap_info(&loaded).unwrap();
+        assert_eq!((info.width, info.height, info.transparent), (2, 2, true));
+        assert_eq!(player.bitmap_pixels(&loaded).unwrap(), rgba);
+        player.bitmap_dispose(&loaded).unwrap();
+    }
+    assert_eq!(
+        player.as2_bitmap_load(&project, "missing_bitmap").unwrap(),
+        None
+    );
+    assert!(player.as2_bitmap_load(&project, "").is_err());
+}

@@ -121,6 +121,7 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
     if(key==='toExponential'||key==='toPrecision')return __nfNumberFormatMethod(receiver,key,as3);
     if(as3&&typeof receiver==='number'&&(key==='toString'||key==='valueOf'))return __nfNumericMethod(receiver,key);
+    if(!as3&&typeof receiver==='number'&&key==='toString')return (...args)=>{if(!args.length||args[0]===undefined)return String(receiver);const n=Number(args[0]),base=Number.isFinite(n)?Math.trunc(n):10;return base>=2&&base<=36&&base!==10&&Number.isFinite(receiver)&&receiver!==0?__nfApply(__nfNativeNumberString,receiver,[base]):String(receiver);};
     const method=__nfContainerRef(receiver,key,as3,caller,legacyCase).get();
     if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);
