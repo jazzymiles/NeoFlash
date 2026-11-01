@@ -301,3 +301,40 @@ fn timeline_example_document_is_valid() {
     // Authoring evaluation draws the title, the morph, the star, the guided dot and the guide.
     assert_eq!(evaluate(&project, &project.root, 15).len(), 5);
 }
+
+#[test]
+fn imported_fla_corpus_plays_through_the_timeline_engine() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus/imported");
+    let mut files = 0;
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "nflash") {
+            continue;
+        }
+        files += 1;
+        let project = Project::from_json(&std::fs::read_to_string(&path).unwrap())
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let frames = project.symbol(&project.root).unwrap().timeline.frame_count;
+        for frame in 0..frames {
+            evaluate(&project, &project.root, frame);
+        }
+        let mut player = neoflash_core::Player::new(&project);
+        for _ in 0..frames {
+            player.tick(&project);
+        }
+    }
+    assert!(files >= 8);
+    // The imported MX shape tween morphs: its middle frame matches neither keyframe.
+    let json = include_str!("../../../examples/fla-corpus/imported/ruffle-mx-shape-tween.nflash");
+    let project = Project::from_json(json).unwrap();
+    let paths = |frame| {
+        evaluate(&project, &project.root, frame)
+            .into_iter()
+            .map(|item| format!("{:?}", item.kind))
+            .collect::<Vec<_>>()
+    };
+    let (first, middle, last) = (paths(0), paths(15), paths(29));
+    assert_eq!(middle.len(), first.len());
+    assert_ne!(middle, first);
+    assert_ne!(middle, last);
+}
