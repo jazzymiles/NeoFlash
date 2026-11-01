@@ -19,6 +19,59 @@
   };
   function argumentError(message) { const error = new RangeError(message); error.name = 'ArgumentError'; return error; }
   function securityError(message) { const error = new Error(message); error.name = 'SecurityError'; return error; }
+  function illegalOperationError(message = 'Error #2071: The Stage class does not implement this property or method.') {
+    const error = new Error(message); error.name = 'IllegalOperationError'; error.errorID = 2071; return error;
+  }
+  let cursorVectorFactory = values => Array.isArray(values) ? values.slice() : Array.from(values || []);
+  let cursorPointFactory = (x = 0, y = 0) => ({ x, y });
+  let isBitmapData = value => Boolean(value && typeof value === 'object' && typeof value.width === 'number' && typeof value.height === 'number');
+  let isPoint = value => Boolean(value && typeof value === 'object' && Number.isFinite(value.x) && Number.isFinite(value.y));
+  let isRectangle = value => Boolean(value && typeof value === 'object' && ['x', 'y', 'width', 'height'].every(k => Number.isFinite(value[k])));
+  let makeRectangle = (x, y, width, height) => ({ x, y, width, height });
+  function setStageAdapters(adapters = {}) {
+    if (typeof adapters.cursorVector === 'function') cursorVectorFactory = adapters.cursorVector;
+    if (typeof adapters.makePoint === 'function') cursorPointFactory = adapters.makePoint;
+    if (typeof adapters.isBitmapData === 'function') isBitmapData = adapters.isBitmapData;
+    if (typeof adapters.isPoint === 'function') isPoint = adapters.isPoint;
+    if (typeof adapters.isRectangle === 'function') isRectangle = adapters.isRectangle;
+    if (typeof adapters.makeRectangle === 'function') makeRectangle = adapters.makeRectangle;
+  }
+  const mouseCursorRecords = new WeakMap();
+  class MouseCursorData {
+    constructor() {
+      if (new.target !== MouseCursorData) throw new TypeError('MouseCursorData is final and cannot be subclassed.');
+      mouseCursorRecords.set(this, { data: null, hotSpot: cursorPointFactory(0, 0), frameRate: 0 });
+      return Object.seal(this);
+    }
+    get data() { return mouseCursorRecords.get(this).data; }
+    set data(value) {
+      const rec = mouseCursorRecords.get(this);
+      if (value === null) { rec.data = null; return; }
+      if (!value || typeof value[Symbol.iterator] !== 'function') throw new TypeError('MouseCursorData.data requires a Vector.<BitmapData> or null.');
+      const items = Array.from(value);
+      for (const item of items) if (!isBitmapData(item)) throw new TypeError('MouseCursorData.data elements must be BitmapData instances.');
+      rec.data = cursorVectorFactory(items);
+    }
+    get hotSpot() {
+      const rec = mouseCursorRecords.get(this);
+      return cursorPointFactory(rec.hotSpot.x, rec.hotSpot.y);
+    }
+    set hotSpot(value) {
+      if (!isPoint(value)) throw new TypeError('MouseCursorData.hotSpot requires a Point.');
+      mouseCursorRecords.get(this).hotSpot = cursorPointFactory(Number(value.x), Number(value.y));
+    }
+    get frameRate() { return mouseCursorRecords.get(this).frameRate; }
+    set frameRate(value) {
+      const next = Number(value);
+      if (!Number.isFinite(next) || next < 0) throw new RangeError('MouseCursorData.frameRate must be a finite nonnegative Number.');
+      mouseCursorRecords.get(this).frameRate = next;
+    }
+  }
+  MouseCursorData.__nfIs = value => mouseCursorRecords.has(value);
+  MouseCursorData.__nfInitialize = receiver => {
+    if (!mouseCursorRecords.has(receiver)) throw new TypeError('MouseCursorData is final and cannot be subclassed.');
+  };
+  Object.defineProperty(MouseCursorData, Symbol.hasInstance, { value: MouseCursorData.__nfIs });
   class StageScaleMode { constructor() { throw new TypeError('StageScaleMode supplies EXACT_FIT, NO_BORDER, NO_SCALE and SHOW_ALL constants.'); } }
   Object.assign(StageScaleMode, { EXACT_FIT: 'exactFit', NO_BORDER: 'noBorder', NO_SCALE: 'noScale', SHOW_ALL: 'showAll' }); Object.freeze(StageScaleMode);
   class StageAlign { constructor() { throw new TypeError('StageAlign supplies stage alignment constants.'); } }
@@ -98,21 +151,37 @@
     return Object.freeze(Keyboard);
   }
   const VALID_CURSORS = new Set(['auto', 'arrow', 'button', 'hand', 'ibeam']);
+  const COLOR_CORRECTIONS = new Set(['default', 'on', 'off']);
+  const FOCUS_DIRECTIONS = new Set(['none', 'top', 'bottom']);
+  const resetMouseToken = Symbol('resetMouseCursors');
   function createMouse(state = { cursor: 'auto', visible: true, supportsCursor: true }, onChange = null) {
+    const customCursors = new Map();
     class Mouse { constructor() { throw new TypeError('Mouse supplies static cursor methods and properties.'); } }
     Object.defineProperties(Mouse, {
       cursor: { enumerable: true, get: () => state.cursor,
         set(value) {
           const next = String(value);
-          if (!VALID_CURSORS.has(next)) throw argumentError(`Mouse.cursor must be one of auto, arrow, button, hand or ibeam; got '${next}'.`);
+          if (!VALID_CURSORS.has(next) && !customCursors.has(next)) throw argumentError(`Mouse.cursor must be a registered cursor or one of auto, arrow, button, hand or ibeam; got '${next}'.`);
           if (state.cursor !== next) { state.cursor = next; onChange?.(); }
         } },
       supportsCursor: { enumerable: true, get: () => Boolean(state.supportsCursor) },
       supportsNativeCursor: { enumerable: true, get: () => false },
       hide: { enumerable: true, value() { if (state.visible) { state.visible = false; onChange?.(); } } },
       show: { enumerable: true, value() { if (!state.visible) { state.visible = true; onChange?.(); } } },
-      registerCursor: { enumerable: true, value() { throw new Error('flash.ui.Mouse.registerCursor is not supported in this HTML5 cursor profile.'); } },
-      unregisterCursor: { enumerable: true, value() { throw new Error('flash.ui.Mouse.unregisterCursor is not supported in this HTML5 cursor profile.'); } },
+      registerCursor: { enumerable: true, value(name, cursor) {
+        if (name == null || cursor == null) throw new TypeError('Error #2007: Parameter name and cursor must be non-null.');
+        if (!MouseCursorData.__nfIs(cursor)) throw new TypeError('Mouse.registerCursor requires a MouseCursorData instance.');
+        const frames = cursor.data;
+        if (!frames || frames.length === 0) throw argumentError('MouseCursorData.data must contain at least one BitmapData frame.');
+        customCursors.set(String(name), cursor);
+      } },
+      unregisterCursor: { enumerable: true, value(name) {
+        if (name == null) throw new TypeError('Error #2007: Parameter name must be non-null.');
+        const key = String(name);
+        customCursors.delete(key);
+        if (state.cursor === key) { state.cursor = 'auto'; onChange?.(); }
+      } },
+      [resetMouseToken]: { value() { customCursors.clear(); } },
     });
     return Object.freeze(Mouse);
   }
@@ -138,10 +207,12 @@
     const alive = options.alive || (() => true);
     let width = size(options.width, 'stageWidth'), height = size(options.height, 'stageHeight');
     let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null;
-    let scaleMode = 'showAll', align = '', quality = 'HIGH', displayState = 'normal';
+    let scaleMode = 'showAll', align = '', quality = 'HIGH', displayState = 'normal', colorCorrection = 'default';
+    let fullScreenSourceRect = null, mouseLock = false;
     let stageColor = stageRgbValue(options.color ?? 0xffffff), colorAssigned = false;
     let mouseChildren = true, tabChildren = true, doubleClickEnabled = false, showDefaultContextMenu = true, stageFocusRect = true, invalidated = false;
     const initial = { width, height, frameRate, color: stageColor };
+    const fallbackChildren = Array.isArray(options.initialChildren) ? options.initialChildren.slice() : [];
     const keyboardState = { capsLock: Boolean(options.capsLock), numLock: Boolean(options.numLock),
       hasVirtualKeyboard: Boolean(options.hasVirtualKeyboard), physicalKeyboardType: options.physicalKeyboardType || KeyboardType.ALPHANUMERIC,
       accessible: Boolean(options.keyboardAccessible) };
@@ -154,6 +225,89 @@
     const cleanups = [];
     const stage = new Stage(stageToken);
     const doc = () => options.document || global.document || null;
+    function emitFullScreen(fullScreen, interactive) {
+      const FS = options.FullScreenEvent;
+      const evt = FS ? new FS('fullScreen', false, false, Boolean(fullScreen), Boolean(interactive))
+        : Object.assign(new Event(Event.FULLSCREEN || 'fullScreen', false, false), { fullScreen: Boolean(fullScreen), interactive: Boolean(interactive) });
+      hub.dispatch(stage, evt);
+    }
+    const defaultStageContainer = {
+      addChild(child) {
+        if (!child || typeof child !== 'object') throw new TypeError('Stage.addChild requires a DisplayObject.');
+        if (child === stage) throw argumentError('Stage cannot be added as a child of itself.');
+        const existing = fallbackChildren.indexOf(child);
+        if (existing >= 0) fallbackChildren.splice(existing, 1);
+        fallbackChildren.push(child);
+        return child;
+      },
+      addChildAt(child, index) {
+        if (!child || typeof child !== 'object') throw new TypeError('Stage.addChildAt requires a DisplayObject.');
+        if (child === stage) throw argumentError('Stage cannot be added as a child of itself.');
+        const idx = Number(index);
+        const max = fallbackChildren.includes(child) ? fallbackChildren.length - 1 : fallbackChildren.length;
+        if (!Number.isInteger(idx) || idx < 0 || idx > max) throw new RangeError('Stage child index is out of bounds.');
+        const existing = fallbackChildren.indexOf(child);
+        if (existing >= 0) fallbackChildren.splice(existing, 1);
+        fallbackChildren.splice(idx, 0, child);
+        return child;
+      },
+      removeChild(child) {
+        const idx = fallbackChildren.indexOf(child);
+        if (idx < 0) throw argumentError('DisplayObject is not a child of Stage.');
+        fallbackChildren.splice(idx, 1);
+        return child;
+      },
+      removeChildAt(index) {
+        const idx = Number(index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= fallbackChildren.length) throw new RangeError('Stage child index is out of bounds.');
+        return fallbackChildren.splice(idx, 1)[0];
+      },
+      getChildAt(index) {
+        const idx = Number(index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= fallbackChildren.length) throw new RangeError('Stage child index is out of bounds.');
+        return fallbackChildren[idx];
+      },
+      getChildByName(name) {
+        const wanted = String(name);
+        return fallbackChildren.find(item => item?.name === wanted) || null;
+      },
+      getChildIndex(child) {
+        const idx = fallbackChildren.indexOf(child);
+        if (idx < 0) throw argumentError('DisplayObject is not a child of Stage.');
+        return idx;
+      },
+      setChildIndex(child, index) {
+        const current = fallbackChildren.indexOf(child);
+        if (current < 0) throw argumentError('DisplayObject is not a child of Stage.');
+        const idx = Number(index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= fallbackChildren.length) throw new RangeError('Stage child index is out of bounds.');
+        fallbackChildren.splice(current, 1);
+        fallbackChildren.splice(idx, 0, child);
+      },
+      swapChildren(a, b) {
+        const ia = fallbackChildren.indexOf(a), ib = fallbackChildren.indexOf(b);
+        if (ia < 0 || ib < 0) throw argumentError('DisplayObject is not a child of Stage.');
+        fallbackChildren[ia] = b; fallbackChildren[ib] = a;
+      },
+      swapChildrenAt(ia, ib) {
+        const a = Number(ia), b = Number(ib);
+        if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= fallbackChildren.length || b >= fallbackChildren.length) {
+          throw new RangeError('Stage child index is out of bounds.');
+        }
+        const tmp = fallbackChildren[a]; fallbackChildren[a] = fallbackChildren[b]; fallbackChildren[b] = tmp;
+      },
+      contains(child) {
+        if (!child || typeof child !== 'object') throw new TypeError('Stage.contains requires a DisplayObject.');
+        if (child === stage) return true;
+        let cur = child;
+        for (let depth = 0; cur && depth < 65; depth++) {
+          if (cur === stage || fallbackChildren.includes(cur)) return true;
+          cur = options.parentOf ? options.parentOf(cur) : cur.parent;
+        }
+        return false;
+      },
+    };
+    const container = () => options.stageContainer || defaultStageContainer;
     function allowsFs(interactive) {
       const explicit = interactive ? (options.allowsFullScreenInteractive ?? options.allowsFullScreen) : options.allowsFullScreen;
       if (explicit !== undefined) return Boolean(explicit);
@@ -162,6 +316,10 @@
     }
     Object.defineProperties(stage, {
       stageWidth: { enumerable: true, get: () => width }, stageHeight: { enumerable: true, get: () => height },
+      width: { enumerable: true, get: () => options.getStageContentSize ? Number(options.getStageContentSize().width) || 0 : 0,
+        set() { throw illegalOperationError(); } },
+      height: { enumerable: true, get: () => options.getStageContentSize ? Number(options.getStageContentSize().height) || 0 : 0,
+        set() { throw illegalOperationError(); } },
       frameRate: { enumerable: true, get: () => options.getFrameRate ? options.getFrameRate() : frameRate,
         set(value) { const next = rate(value); if (options.setFrameRate) options.setFrameRate(next); frameRate = next; } },
       scaleMode: { enumerable: true, get: () => scaleMode,
@@ -190,9 +348,11 @@
           if (!DISPLAY_STATES.has(next)) throw argumentError(`Stage.displayState must be normal, fullScreen or fullScreenInteractive; got '${next}'.`);
           if (next === 'normal') {
             if (displayState !== 'normal') {
-              displayState = 'normal';
+              const wasInteractive = displayState === 'fullScreenInteractive';
+              displayState = 'normal'; mouseLock = false;
               if (options.exitFullscreen) options.exitFullscreen();
               else if (doc()?.fullscreenElement) doc().exitFullscreen?.();
+              emitFullScreen(false, wasInteractive);
             }
             return;
           }
@@ -204,12 +364,40 @@
           } else {
             const activation = global.navigator?.userActivation;
             if (activation && !activation.isActive) throw securityError('Stage.displayState fullscreen requires an active user gesture.');
-            options.viewport.requestFullscreen();
+            options.viewport?.requestFullscreen?.();
           }
+          const changed = displayState !== next;
           displayState = next;
+          if (changed) emitFullScreen(true, next === 'fullScreenInteractive');
         } },
       color: { enumerable: true, get: () => stageColor,
         set(value) { const next = stageRgbValue(value); stageColor = next; colorAssigned = true; options.onColorChanged?.(next); } },
+      colorCorrection: { enumerable: true, get: () => colorCorrection,
+        set(value) {
+          const next = String(value);
+          if (!COLOR_CORRECTIONS.has(next)) throw argumentError(`Stage.colorCorrection must be 'default', 'on' or 'off'; got '${next}'.`);
+          colorCorrection = next;
+        } },
+      colorCorrectionSupport: { enumerable: true, get: () => 'unsupported' },
+      fullScreenSourceRect: { enumerable: true,
+        get: () => fullScreenSourceRect ? makeRectangle(fullScreenSourceRect.x, fullScreenSourceRect.y, fullScreenSourceRect.width, fullScreenSourceRect.height) : null,
+        set(value) {
+          if (value === null) { fullScreenSourceRect = null; return; }
+          if (!isRectangle(value)) throw new TypeError('Stage.fullScreenSourceRect requires a Rectangle or null.');
+          fullScreenSourceRect = { x: Number(value.x), y: Number(value.y), width: Number(value.width), height: Number(value.height) };
+        } },
+      mouseLock: { enumerable: true, get: () => mouseLock,
+        set(value) {
+          if (typeof value !== 'boolean') throw new TypeError('Stage.mouseLock requires a Boolean.');
+          if (value && displayState !== 'fullScreenInteractive') throw illegalOperationError('Stage.mouseLock requires StageDisplayState.FULL_SCREEN_INTERACTIVE.');
+          mouseLock = value;
+        } },
+      wmodeGPU: { enumerable: true, get: () => false },
+      browserZoomFactor: { enumerable: true, get: () => {
+        const zoom = Number(options.browserZoomFactor ?? global.devicePixelRatio ?? 1);
+        return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+      } },
+      textSnapshot: { enumerable: true, get() { throw illegalOperationError(); }, set() { throw illegalOperationError(); } },
       fullScreenWidth: { enumerable: true, get: () => screenMetric(options.screen || global.screen, 'width', width) },
       fullScreenHeight: { enumerable: true, get: () => screenMetric(options.screen || global.screen, 'height', height) },
       allowsFullScreen: { enumerable: true, get: () => allowsFs(false) },
@@ -218,7 +406,7 @@
         const dpr = Number(options.contentsScaleFactor ?? options.devicePixelRatio ?? global.devicePixelRatio ?? 1);
         return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
       } },
-      numChildren: { enumerable: true, get: () => options.numChildren ? Math.max(0, Number(options.numChildren()) | 0) : 1 },
+      numChildren: { enumerable: true, get: () => options.numChildren ? Math.max(0, Number(options.numChildren()) | 0) : (fallbackChildren.length || 1) },
       mouseChildren: { enumerable: true, get: () => mouseChildren,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.mouseChildren requires a Boolean.'); mouseChildren = value; } },
       tabChildren: { enumerable: true, get: () => tabChildren,
@@ -226,17 +414,17 @@
       doubleClickEnabled: { enumerable: true, get: () => doubleClickEnabled,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.doubleClickEnabled requires a Boolean.'); doubleClickEnabled = value; } },
       mouseEnabled: { enumerable: true, get: () => true,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       tabEnabled: { enumerable: true, get: () => false,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       tabIndex: { enumerable: true, get: () => -1,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       focusRect: { enumerable: true, get: () => null,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       contextMenu: { enumerable: true, get: () => null,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       accessibilityImplementation: { enumerable: true, get: () => null,
-        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+        set() { throw illegalOperationError(); } },
       showDefaultContextMenu: { enumerable: true, get: () => showDefaultContextMenu,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.showDefaultContextMenu requires a Boolean.'); showDefaultContextMenu = value; } },
       stageFocusRect: { enumerable: true, get: () => stageFocusRect,
@@ -246,6 +434,23 @@
         set(value) {changeFocus(value);} },
       stage: { enumerable: true, get: () => stage }, parent: { enumerable: true, get: () => null },
       root: { enumerable: true, get: () => stage },
+      assignFocus: { value(objectToFocus, direction) {
+        const dir = String(direction);
+        if (!FOCUS_DIRECTIONS.has(dir)) throw argumentError(`Stage.assignFocus direction must be 'none', 'top' or 'bottom'; got '${dir}'.`);
+        changeFocus(objectToFocus, 'programmatic', {}, dir);
+      } },
+      isFocusInaccessible: { value: () => false },
+      addChild: { value: child => container().addChild(child) },
+      addChildAt: { value: (child, index) => container().addChildAt(child, index) },
+      removeChild: { value: child => container().removeChild(child) },
+      removeChildAt: { value: index => container().removeChildAt(index) },
+      getChildAt: { value: index => container().getChildAt(index) },
+      getChildByName: { value: name => container().getChildByName(name) },
+      getChildIndex: { value: child => container().getChildIndex(child) },
+      setChildIndex: { value: (child, index) => container().setChildIndex(child, index) },
+      swapChildren: { value: (a, b) => container().swapChildren(a, b) },
+      swapChildrenAt: { value: (a, b) => container().swapChildrenAt(a, b) },
+      contains: { value: child => container().contains(child) },
       invalidate: { value() { if (!invalidated) { invalidated = true; options.onInvalidate?.(); } } },
       toString: { value: () => '[NeoFlash Stage]' },
     });
@@ -253,7 +458,7 @@
     // Stage is a sealed native surface; unsupported scale/fullscreen properties must
     // not appear to work merely because JavaScript accepts arbitrary new fields.
     Object.freeze(stage);
-    function changeFocus(value,reason='programmatic',domEvent={}) {
+    function changeFocus(value,reason='programmatic',domEvent={},direction='none') {
       if(value!==null&&(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('Stage.focus requires a display object or null.');
       if(value!==null&&!alive(value))throw new Error('Stage.focus requires an active display object or null.');
       if(value!==null&&options.canFocus&&!options.canFocus(value)){
@@ -277,7 +482,7 @@
         if(version!==focusVersion)return true;
         nativeFocus=handled;
         if(value&&!handled)options.canvas?.focus?.({preventScroll:true});
-        if(value&&alive(value))hub.dispatch(value,new FocusEvent(FocusEvent.FOCUS_IN,true,false,previous));
+        if(value&&alive(value))hub.dispatch(value,new FocusEvent(FocusEvent.FOCUS_IN,true,false,previous,false,0,direction));
         return true;
       }finally{focusDepth--;}
     }
@@ -332,6 +537,13 @@
       if(['pointercancel','lostpointercapture','cancel'].includes(type)){if((type!=='lostpointercapture'||captured!==null)&&cancelPointer())options.afterInput?.();return true;}
       if(!enabled()||domEvent.pointerType==='touch')return true;
       if(domEvent.isPrimary===false&&/^(?:pointerdown|pointerup|pointermove)$/.test(type))return true;
+      if (type === 'mouseLeave') {
+        hover(stage, domEvent);
+        hub.dispatch(stage, new Event(Event.MOUSE_LEAVE || 'mouseLeave', false, false));
+        options.afterInput?.();
+        return true;
+      }
+      const isPointerLeave = type === 'pointerleave';
       if((type==='pointerdown'||type==='mousedown')&&domEvent.button===1)type='middleMouseDown';
       else if((type==='pointerdown'||type==='mousedown')&&domEvent.button===2)type='rightMouseDown';
       else if((type==='pointerup'||type==='mouseup')&&domEvent.button===1)type='middleMouseUp';
@@ -345,7 +557,7 @@
       // pointer listener. One physical Event must enter the host only once.
       if(domEvent&&typeof domEvent==='object'&&typeof domEvent.type==='string'){let seen=deliveredPointers.get(domEvent);if(seen?.has(type))return true;if(!seen){seen=new Set();deliveredPointers.set(domEvent,seen);}seen.add(type);}
       updatePoint(domEvent);options.beforePointer?.(type,domEvent);
-      const target=targetAt(domEvent,explicitTarget),primary=domEvent.button===undefined||domEvent.button===0;
+      const target=isPointerLeave?stage:targetAt(domEvent,explicitTarget),primary=domEvent.button===undefined||domEvent.button===0;
       if(type==='doubleClick'&&target?.doubleClickEnabled===false)return true;
       if(type==='click'&&(!explicitTarget||physicalPick)&&hadPress&&clickTarget!==target)return false;
       if(type===MouseEvent.MOUSE_DOWN&&primary){
@@ -364,6 +576,7 @@
         }
       }
       const result=deliver(target,mouse(type,target,domEvent),domEvent);
+      if (isPointerLeave) hub.dispatch(stage, new Event(Event.MOUSE_LEAVE || 'mouseLeave', false, false));
       if(target===stage||alive(target))options.onLegacyInput?.(type,target,domEvent);
       options.onPointerTarget?.(target,type);options.afterInput?.();return result;
     }
@@ -427,7 +640,13 @@
       listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
       listen(options.canvas, 'contextmenu', event => { if (!showDefaultContextMenu) event.preventDefault?.(); });
-      if (doc()) listen(doc(), 'fullscreenchange', () => { if (!doc()?.fullscreenElement) displayState = 'normal'; });
+      if (doc()) listen(doc(), 'fullscreenchange', () => {
+        if (!doc()?.fullscreenElement && displayState !== 'normal') {
+          const wasInteractive = displayState === 'fullScreenInteractive';
+          displayState = 'normal'; mouseLock = false;
+          emitFullScreen(false, wasInteractive);
+        }
+      });
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));
       for (const type of ['keydown', 'keyup']) listen(options.keyboardTarget || options.canvas, type, event => handleKey(type, event));
@@ -442,11 +661,14 @@
       return true;
     }
     function resetState() {
-      scaleMode = 'showAll'; align = ''; quality = 'HIGH'; displayState = 'normal';
+      scaleMode = 'showAll'; align = ''; quality = 'HIGH'; displayState = 'normal'; colorCorrection = 'default';
+      fullScreenSourceRect = null; mouseLock = false;
       stageColor = initial.color; colorAssigned = false;
       mouseChildren = true; tabChildren = true; doubleClickEnabled = false; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
       keyboardState.capsLock = Boolean(options.capsLock); keyboardState.numLock = Boolean(options.numLock);
+      Mouse[resetMouseToken]?.();
       mouseStateRecord.cursor = 'auto'; mouseStateRecord.visible = true;
+      fallbackChildren.splice(0, fallbackChildren.length, ...(Array.isArray(options.initialChildren) ? options.initialChildren : []));
       options.onMouseChanged?.();
     }
     function dispose() { cancelPointer();for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; nativeFocus=false; over = null; resetState(); }
@@ -461,11 +683,19 @@
     }
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
       colorAssigned: () => colorAssigned, flushRender, handlePointer, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
-      tick(targets = []) { hub.broadcast(Event.ENTER_FRAME, [stage, ...targets]); flushRender(targets); },
+      tick(targets = [], onConstructed = null) {
+        const list = [stage, ...targets];
+        hub.broadcast(Event.ENTER_FRAME || 'enterFrame', list);
+        hub.broadcast(Event.FRAME_CONSTRUCTED || 'frameConstructed', list);
+        onConstructed?.();
+        hub.broadcast(Event.EXIT_FRAME || 'exitFrame', list);
+        flushRender(targets);
+      },
     });
   }
   const api = Object.freeze({ create, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
-    Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, createKeyboard, createMouse });
+    Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
+    createKeyboard, createMouse, setStageAdapters });
   global.NeoFlashStage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

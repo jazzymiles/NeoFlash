@@ -56,3 +56,66 @@ function __nfMakeError(type, as3, args) {
     }
     return error;
 }
+const __nfFlashErrors = (() => {
+    function init(error, shortName, args) {
+        __nfDefineProperty(error, __nfErrorKind, { value: shortName, configurable: true });
+        error.name = shortName;
+        error.message = args.length && args[0] !== undefined ? __nfString(args[0]) : '';
+        __nfDefineProperty(error, 'errorID', { value: args.length > 1 ? (__nfNumber(args[1]) | 0) : 0, configurable: true });
+        error.toString = function() {
+            const value = this.message !== '' ? this.name + ': ' + this.message : this.name;
+            return value == null ? null : __nfString(value);
+        };
+        error.getStackTrace = function() {
+            const head = this.toString();
+            if (typeof this.stack === 'string' && this.stack.length > 0) {
+                return __nfString(this.stack.startsWith(head) ? this.stack : head + '\n' + this.stack);
+            }
+            return head;
+        };
+    }
+    function makeClass(shortName, Base) {
+        class FlashError extends Base {
+            constructor() {
+                super();
+                init(this, shortName, arguments);
+            }
+        }
+        function Ctor() {
+            return new FlashError(...arguments);
+        }
+        Ctor.prototype = FlashError.prototype;
+        __nfDefineProperty(Ctor.prototype, 'constructor', { value: Ctor, writable: true, configurable: true });
+        __nfDefineProperty(Ctor, '__nfIs', {
+            value(value) {
+                if (!(value instanceof __nfErrorTypes.Error)) return false;
+                const kind = __nfDescriptor(value, __nfErrorKind);
+                const tag = (kind && kind.value) || value.name;
+                if (shortName === 'IOError') return value instanceof FlashError || tag === 'IOError' || tag === 'EOFError';
+                return value instanceof FlashError || tag === shortName;
+            }
+        });
+        __nfDefineProperty(Ctor, '__nfInitialize', {
+            value(receiver, args) {
+                init(receiver, shortName, args);
+            }
+        });
+        return [Ctor, FlashError];
+    }
+    const [IOError, IOErrorClass] = makeClass('IOError', __nfErrorTypes.Error);
+    const [EOFError] = makeClass('EOFError', IOErrorClass);
+    const [IllegalOperationError] = makeClass('IllegalOperationError', __nfErrorTypes.Error);
+    const [InvalidSWFError] = makeClass('InvalidSWFError', __nfErrorTypes.Error);
+    const [MemoryError] = makeClass('MemoryError', __nfErrorTypes.Error);
+    const [ScriptTimeoutError] = makeClass('ScriptTimeoutError', __nfErrorTypes.Error);
+    const [StackOverflowError] = makeClass('StackOverflowError', __nfErrorTypes.Error);
+    return {
+        'flash.errors.IOError': IOError,
+        'flash.errors.EOFError': EOFError,
+        'flash.errors.IllegalOperationError': IllegalOperationError,
+        'flash.errors.InvalidSWFError': InvalidSWFError,
+        'flash.errors.MemoryError': MemoryError,
+        'flash.errors.ScriptTimeoutError': ScriptTimeoutError,
+        'flash.errors.StackOverflowError': StackOverflowError,
+    };
+})();

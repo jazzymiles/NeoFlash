@@ -115,9 +115,19 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,onUpdate=()=>{}}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,onUpdate=()=>{},onScroll=null}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
     let as2Execute=null,as2Layout=null,as2Wheel=null;
+    const fieldStates=new Map();
+    function stateFor(ref){
+      let state=fieldStates.get(ref);
+      if(!state){state={style:null,source:null,revision:null,useRichTextClipboard:false};fieldStates.set(ref,state);}
+      return state;
+    }
+    function clearHtmlSource(ref){const st=fieldStates.get(ref);if(st){st.source=null;st.revision=null;}}
+    function illegalTextOp(message='Error #2009: This method cannot be used on a text field with a style sheet.'){
+      const err=new Error(message);err.name='IllegalOperationError';err.errorID=2009;return err;
+    }
     class As2TextFormat extends TextFormat {
       constructor(...args){
         super();if(args.length>fields.length)throw new TypeError('AS2 TextFormat accepts at most thirteen arguments.');
@@ -161,11 +171,23 @@
       throw new RangeError('TextField currently supports whole-field formatting only; mixed character-format ranges are pending.');
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
+    function renderHtml(ref,state,source){
+      const field=info(ref),styles=state.style?requireStyleSheet(state.style).state:{styles:{}};
+      const parsed=textKernel({op:'html',source,format:field.default_format,styles,condense_white:Boolean(field.condense_white)});
+      update(ref,{text:parsed.text,format:parsed.format});
+      state.source=source;state.revision=info(ref).revision;
+    }
     function get(ref,name){
-      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
+      const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
       if(name==='textInteractionMode')return TextInteractionMode.NORMAL;
+      if(name==='useRichTextClipboard')return Boolean(fieldStates.get(ref)?.useRichTextClipboard);
+      if(name==='styleSheet')return fieldStates.get(ref)?.style??null;
+      if(name==='htmlText'){
+        const st=fieldStates.get(ref);
+        return st?.source!==null&&st?.source!==undefined&&st.revision===field.revision?st.source:textKernel({op:'serialize_html',text:field.text,format:field.format}).result;
+      }
       const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret',antiAliasType:'anti_alias_type',gridFitType:'grid_fit_type',sharpness:'sharpness',thickness:'thickness',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'};
       if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0,embedFonts:false,condenseWhite:false,alwaysShowSelection:false}[name]);
       if(name==='autoSize')return field.as2_viewport?.auto_size??'none';
@@ -188,11 +210,25 @@
       return name==='numLines'?result.lines.length:name==='textWidth'?result.text_width:result.text_height;
     }
     function set(ref,name,value){
+      if(name==='useRichTextClipboard'){if(typeof value!=='boolean')throw new TypeError('TextField.useRichTextClipboard requires a Boolean.');info(ref);stateFor(ref).useRichTextClipboard=value;return true;}
+      if(name==='styleSheet'){
+        info(ref);if(value!==null)requireStyleSheet(value);
+        const st=stateFor(ref),prev=st.style;st.style=value;
+        try{if(st.source!==null)renderHtml(ref,st,st.source);}catch(err){st.style=prev;throw err;}
+        return true;
+      }
+      if(name==='htmlText'){
+        if(typeof value!=='string')throw new TypeError('TextField.htmlText requires a String.');
+        const st=stateFor(ref);renderHtml(ref,st,value);return true;
+      }
       if(name==='type'){if(!['input','dynamic'].includes(value))throw new TypeError('TextField.type requires input or dynamic.');update(ref,{field_type:value});return true;}
       if(['selectable','displayAsPassword','password','embedFonts','condenseWhite','alwaysShowSelection'].includes(name)){
         if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);
         const patchKey={selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'}[name];
-        update(ref,{[patchKey]:value});return true;
+        update(ref,{[patchKey]:value});
+        const st=fieldStates.get(ref);
+        if(name==='condenseWhite'&&st?.source!==null&&st?.source!==undefined)renderHtml(ref,st,st.source);
+        return true;
       }
       if(name==='antiAliasType'){if(!['normal','advanced'].includes(value))throw new TypeError('TextField.antiAliasType requires normal or advanced.');update(ref,{anti_alias_type:value});return true;}
       if(name==='gridFitType'){if(!['none','pixel','subpixel'].includes(value))throw new TypeError('TextField.gridFitType requires none, pixel or subpixel.');update(ref,{grid_fit_type:value});return true;}
@@ -202,18 +238,20 @@
       if(name==='backgroundColor'||name==='borderColor'){if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError(`TextField.${name} requires a 24-bit RGB integer.`);const field=info(ref);update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name]:value}});return true;}
       if(name==='scrollV'||name==='scrollH'){
         if(!Number.isInteger(value))throw new TypeError(`TextField.${name} requires an integer.`);
-        const field=info(ref),vp=layout(field).viewport;
+        const field=info(ref),vp=layout(field).viewport,prevScroll=vp.scroll,prevHScroll=vp.hscroll;
         if(name==='scrollV')update(ref,{as2_viewport:{...field.as2_viewport,active:true,scroll:Math.max(1,Math.min(vp.maxscroll,value))}});
         else update(ref,{as2_viewport:{...field.as2_viewport,active:true,hscroll:Math.max(0,Math.min(vp.maxhscroll,value))}});
+        const nextVp=layout(info(ref)).viewport;
+        if(nextVp.scroll!==prevScroll||nextVp.hscroll!==prevHScroll)onScroll?.(ref);
         return true;
       }
       if(name==='maxChars'){if(!Number.isInteger(value)||value<0||value>1048576)throw new RangeError('TextField.maxChars requires an integer from 0 through 1048576.');update(ref,{max_chars:value});return true;}
       if(name==='restrict'){if(value!==null&&typeof value!=='string')throw new TypeError('TextField.restrict requires String or null.');update(ref,{restrict:{value}});return true;}
       if(['selectionBeginIndex','selectionEndIndex','caretIndex'].includes(name))throw new TypeError(`TextField.${name} is read-only; use setSelection.`);
-      if(name==='text'){update(ref,{text:string(value)});return true;}
-      if(name==='textColor'){if(value===null||value===undefined)throw new TypeError('TextField.textColor requires an RGB integer.');update(ref,{format:{color:formatValue('color',value)}});return true;}
+      if(name==='text'){if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{text:string(value)});clearHtmlSource(ref);return true;}
+      if(name==='textColor'){if(value===null||value===undefined)throw new TypeError('TextField.textColor requires an RGB integer.');update(ref,{format:{color:formatValue('color',value)}});clearHtmlSource(ref);return true;}
       if(name==='multiline'||name==='wordWrap'){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='wordWrap'?'word_wrap':name]:value});return true;}
-      if(name==='defaultTextFormat'){update(ref,{default_format:formatPatch(value)});return true;}
+      if(name==='defaultTextFormat'){if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{default_format:formatPatch(value)});return true;}
       if(name==='width'||name==='height'||name==='_width'||name==='_height'){
         if(name[0]==='_')value=Number(value);
         if(typeof value!=='number'||!Number.isFinite(value)||value<0)throw new RangeError('TextField box dimensions must be finite and nonnegative.');
@@ -226,19 +264,21 @@
     }
     function methods(ref){return {
       setSelection:(begin,end)=>{if(!Number.isSafeInteger(begin)||!Number.isSafeInteger(end))throw new TypeError('setSelection requires integer UTF-16 indices.');update(ref,{selection:{begin,end}});},
-      replaceSelectedText:value=>update(ref,{replace_selected:string(value)}),
-      appendText:value=>update(ref,{append:string(value)}),
+      replaceSelectedText:value=>{if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{replace_selected:string(value)});clearHtmlSource(ref);},
+      appendText:value=>{if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{append:string(value)});clearHtmlSource(ref);},
       replaceText:(begin,end,value)=>{
+        if(fieldStates.get(ref)?.style)throw illegalTextOp();
         const field=info(ref);if(!Number.isInteger(begin)||!Number.isInteger(end)||begin<0||end<begin||end>field.text.length)throw new RangeError('replaceText requires an ordered UTF-16 range within the current text.');
-        string(field.text.slice(0,begin));string(field.text.slice(end));update(ref,{replace:{begin,end,text:string(value)}});
+        string(field.text.slice(0,begin));string(field.text.slice(end));update(ref,{replace:{begin,end,text:string(value)}});clearHtmlSource(ref);
       },
       setTextFormat:(...args)=>{
+        if(fieldStates.get(ref)?.style)throw illegalTextOp();
         let format,begin=-1,end=-1;
         if(formats.has(args[0]))[format,begin=-1,end=-1]=args;
         else if(args.length===3)[begin,end,format]=args;
         else throw new TypeError('setTextFormat requires a TextFormat and an optional whole-field range.');
         if(args.length>3)throw new TypeError('setTextFormat accepts at most three arguments.');
-        const field=info(ref);wholeRange(field,begin,end);update(ref,{format:formatPatch(format)});
+        const field=info(ref);wholeRange(field,begin,end);update(ref,{format:formatPatch(format)});clearHtmlSource(ref);
       },
       getTextFormat:(begin=-1,end=-1)=>{const field=info(ref);wholeRange(field,begin,end);return formatCopy(field.format);},
       setNewTextFormat:format=>update(ref,{default_format:formatPatch(format)}),
@@ -401,6 +441,13 @@
     const styleSheetRecords=new WeakMap();
     const EventDispatcherBase=events?.EventDispatcher||class{};
     function requireStyleSheet(target){active();const found=styleSheetRecords.get(target);if(!found)throw new TypeError('Expected flash.text.StyleSheet.');return found;}
+    function reflowStyleSheet(sheet){
+      for(const [ref,st]of fieldStates){
+        if(st.style!==sheet||st.source===null)continue;
+        if(typeof player.object_alive==='function'&&!player.object_alive(ref)){fieldStates.delete(ref);continue;}
+        try{renderHtml(ref,st,st.source);}catch(_){}
+      }
+    }
     class StyleSheet extends EventDispatcherBase {
       constructor(...args){
         active();
@@ -409,7 +456,7 @@
         styleSheetRecords.set(this,{state:{styles:{}}});
       }
       get styleNames(){return textKernel({op:'names',state:requireStyleSheet(this).state}).result;}
-      clear(){requireStyleSheet(this).state=textKernel({op:'clear'}).state;}
+      clear(){requireStyleSheet(this).state=textKernel({op:'clear'}).state;reflowStyleSheet(this);}
       getStyle(styleName){
         if(typeof styleName!=='string')throw new TypeError('StyleSheet.getStyle requires a String.');
         return textKernel({op:'get_style',state:requireStyleSheet(this).state,selector:styleName}).result;
@@ -418,12 +465,13 @@
         if(typeof styleName!=='string')throw new TypeError('StyleSheet.setStyle requires a String.');
         const current=requireStyleSheet(this);
         current.state=textKernel({op:'set_style',state:current.state,selector:styleName,style:styleObjectRecord(styleObject)}).state;
+        reflowStyleSheet(this);
       }
       parseCSS(cssText){
         if(typeof cssText!=='string')throw new TypeError('StyleSheet.parseCSS requires a String.');
         const current=requireStyleSheet(this);
         const packet=textKernel({op:'parse_css',state:current.state,source:cssText});
-        if(packet.result)current.state=packet.state;
+        if(packet.result){current.state=packet.state;reflowStyleSheet(this);}
       }
       transform(formatObject){
         requireStyleSheet(this);
@@ -436,9 +484,77 @@
     StyleSheet.__nfInitialize=()=>{throw new TypeError('Native StyleSheet subclassing is not supported.');};
     Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
 
-    function reset(){active();cache.clear();cacheBytes=0;rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
+    const snapshots=new WeakMap();
+    function snapshotRecord(receiver){active();const state=snapshots.get(receiver);if(!state)throw new TypeError('Expected TextSnapshot from this publication.');return state;}
+    function snapshotCall(receiver,request){return JSON.parse(player.as2_snapshot_command(snapshotRecord(receiver),JSON.stringify(request)));}
+    function snapshotIndex(value){if(!Number.isSafeInteger(value))throw new TypeError('TextSnapshot indices require safe integers.');return value;}
+    const decodeUnits=value=>String.fromCharCode(...value.units);
+    class TextSnapshot {
+      constructor(){
+        const err=new RangeError('Error #2012: TextSnapshot$ class cannot be instantiated.');
+        err.name='ArgumentError';err.errorID=2012;throw err;
+      }
+      get charCount(){return snapshotCall(this,{op:'count'});}
+      getText(beginIndex,endIndex,includeLineEndings=false){
+        return decodeUnits(snapshotCall(this,{op:'get_text',start:snapshotIndex(beginIndex),end:endIndex===undefined?null:snapshotIndex(endIndex),include_line_endings:Boolean(includeLineEndings)}));
+      }
+      findText(beginIndex,textToFind,caseSensitive){
+        if(typeof textToFind!=='string')throw new TypeError('TextSnapshot.findText requires a String.');
+        const query=[];for(let i=0;i<textToFind.length;i++)query.push(textToFind.charCodeAt(i));
+        return snapshotCall(this,{op:'find',start:snapshotIndex(beginIndex),query,case_sensitive:Boolean(caseSensitive)});
+      }
+      setSelected(beginIndex,endIndex,select){
+        snapshotCall(this,{op:'set_selected',start:snapshotIndex(beginIndex),end:snapshotIndex(endIndex),selected:Boolean(select)});
+      }
+      getSelected(beginIndex,endIndex){
+        return snapshotCall(this,{op:'get_selected',start:snapshotIndex(beginIndex),end:endIndex===undefined?null:snapshotIndex(endIndex)});
+      }
+      getSelectedText(includeLineEndings=false){
+        return decodeUnits(snapshotCall(this,{op:'selected_text',include_line_endings:Boolean(includeLineEndings)}));
+      }
+      setSelectColor(hexColor=0xffff00){
+        if(!Number.isInteger(hexColor)||hexColor<0||hexColor>0xffffff)throw new RangeError('TextSnapshot color requires a 24-bit RGB integer.');
+        snapshotCall(this,{op:'select_color',color:hexColor});
+      }
+      getTextRunInfo(beginIndex,endIndex){
+        return snapshotCall(this,{op:'run_info',start:snapshotIndex(beginIndex),end:snapshotIndex(endIndex)});
+      }
+      hitTestTextNearPos(x,y,maxDistance=0){
+        if(![x,y,maxDistance].every(Number.isFinite))throw new TypeError('TextSnapshot hit test requires finite numbers.');
+        return snapshotCall(this,{op:'hit_test',x,y,distance:maxDistance});
+      }
+    }
+    TextSnapshot.__nfIs=value=>snapshots.has(value);
+    TextSnapshot.__nfInitialize=()=>{throw new TypeError('TextSnapshot cannot be subclassed.');};
+    Object.defineProperty(TextSnapshot,Symbol.hasInstance,{value:TextSnapshot.__nfIs});
+    function snapshotFor(ref){
+      active();
+      const handle=player.as2_snapshot_create(ref,(strings,format)=>JSON.stringify(JSON.parse(strings).map(value=>measureText(value,JSON.parse(format)))));
+      const result=Object.create(TextSnapshot.prototype);
+      snapshots.set(result,handle);
+      return Object.seal(result);
+    }
+    function linkAt(ref,point){
+      active();
+      const field=info(ref);
+      if(!field.format.url)return null;
+      return textKernel({op:'hit_link',field,layout:layout(field),x:point.x,y:point.y});
+    }
+    function isFontCompatible(fontName,fontStyle){
+      active();
+      if(fontName==null||fontStyle==null)throw new TypeError('Error #2007: Parameter fontName and fontStyle must be non-null.');
+      const style=String(fontStyle);
+      if(!['regular','bold','italic','boldItalic'].includes(style)){
+        const err=new RangeError('Error #2008: Parameter fontStyle must be one of the accepted values.');
+        err.name='ArgumentError';err.errorID=2008;throw err;
+      }
+      const wanted=String(fontName);
+      return Font.enumerateFonts(true).some(f=>f.fontName===wanted&&(f.fontType===FontType.DEVICE||f.fontStyle===style));
+    }
+
+    function reset(){active();cache.clear();cacheBytes=0;fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
   const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;

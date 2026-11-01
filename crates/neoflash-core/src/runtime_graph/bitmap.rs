@@ -206,6 +206,13 @@ impl Player {
     pub fn bitmap_pixels(&self, reference: &PixelRef) -> Result<Vec<u8>, BitmapError> {
         self.graph.pixels.pixels(reference)
     }
+    pub fn bitmap_histogram(
+        &self,
+        reference: &PixelRef,
+        rect: Option<crate::BitmapRect>,
+    ) -> Result<Vec<Vec<u32>>, BitmapError> {
+        self.graph.pixels.histogram(reference, rect)
+    }
     pub fn bitmap_get_pixels(
         &self,
         reference: &PixelRef,

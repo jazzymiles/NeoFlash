@@ -259,6 +259,9 @@ pub enum GraphicsOp {
     LineGradientStyle {
         gradient: GradientSpec,
     },
+    LineBitmapStyle {
+        bitmap: BitmapFillSpec,
+    },
     EndFill,
     LineStyle {
         width: Option<f64>,
@@ -378,12 +381,12 @@ impl Paint {
                     },
                     stroke_gradient: if width > 0. { Some(gradient) } else { None },
                     fill_bitmap: None,
+                    stroke_bitmap: None,
                     stroke_width: width,
                 }
             }
             Self::Bitmap(spec) => {
-                let fill_bitmap = if width == 0.
-                    && let Ok(info) = pixels.info(&spec.pixel_ref)
+                let paint = if let Ok(info) = pixels.info(&spec.pixel_ref)
                     && !info.disposed
                 {
                     Some(BitmapPaint {
@@ -406,7 +409,12 @@ impl Paint {
                     stroke: [0; 4],
                     fill_gradient: None,
                     stroke_gradient: None,
-                    fill_bitmap,
+                    fill_bitmap: if width == 0. { paint.clone() } else { None },
+                    stroke_bitmap: if width > 0. {
+                        paint.map(Box::new)
+                    } else {
+                        None
+                    },
                     stroke_width: width,
                 }
             }
@@ -459,7 +467,7 @@ impl GraphicsOp {
         use GraphicsOp::*;
         let coordinates: Vec<f64> = match self {
             Clear | EndFill => vec![],
-            BeginBitmapFill { bitmap } => {
+            BeginBitmapFill { bitmap } | LineBitmapStyle { bitmap } => {
                 bitmap.validate()?;
                 vec![]
             }
@@ -592,6 +600,7 @@ impl GraphicsOp {
         match self {
             Self::Clear | Self::MoveTo { .. } | Self::LineStyle { .. } => 0,
             Self::LineGradientStyle { gradient } => gradient.colors.len(),
+            Self::LineBitmapStyle { .. } => 2,
             Self::BeginFill { .. } | Self::EndFill => 1,
             Self::BeginBitmapFill { .. } => 2,
             Self::BeginGradientFill { gradient } => 1 + gradient.colors.len(),
@@ -685,6 +694,16 @@ impl GraphicsState {
             LineGradientStyle { ref gradient } => {
                 if let Some(stroke) = &mut self.stroke {
                     stroke.paint = Paint::Gradient(gradient.paint());
+                }
+                if let Some(group) = self.groups.last_mut()
+                    && let Some(run) = group.strokes.last_mut()
+                {
+                    run.open = false;
+                }
+            }
+            LineBitmapStyle { ref bitmap } => {
+                if let Some(stroke) = &mut self.stroke {
+                    stroke.paint = Paint::Bitmap(bitmap.clone());
                 }
                 if let Some(group) = self.groups.last_mut()
                     && let Some(run) = group.strokes.last_mut()
@@ -924,7 +943,15 @@ impl GraphicsState {
                 paints.push(fill.draw(pixels, group.commands.clone(), group.fill_rule, 0., color));
             }
             for run in &group.strokes {
-                if run.commands.len() > 1 {
+                if run.commands.len() > 1
+                    && !matches!(
+                        &run.style.paint,
+                        Paint::Bitmap(spec)
+                            if !pixels
+                                .info(&spec.pixel_ref)
+                                .is_ok_and(|info| !info.disposed)
+                    )
+                {
                     paints.push(run.style.paint.draw(
                         pixels,
                         run.commands.clone(),

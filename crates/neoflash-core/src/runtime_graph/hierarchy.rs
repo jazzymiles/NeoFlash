@@ -17,6 +17,7 @@ impl RuntimeGraph {
     }
 
     pub(super) fn detach_child(&mut self, child: &ObjectRef) {
+        self.stage_order.retain(|id| id != child);
         if let Some(parent) = self.parent(child) {
             let mut children = self.children(&parent);
             children.retain(|id| id != child);
@@ -54,6 +55,7 @@ impl RuntimeGraph {
     /// Clear dead source identities without allowing an effective parent to
     /// accidentally reconnect to a new placement at the same authored path.
     pub(super) fn forget_hierarchy(&mut self, retired: &BTreeSet<ObjectRef>) {
+        self.stage_order.retain(|id| !retired.contains(id));
         self.parent_overrides.retain(|id, _| !retired.contains(id));
         for parent in self.parent_overrides.values_mut() {
             if parent.as_ref().is_some_and(|id| retired.contains(id)) {

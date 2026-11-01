@@ -35,20 +35,45 @@ fn amf_graph_wire_and_bounded_cursor_workflow() {
     assert_eq!(
         sealed.graph.nodes[1],
         AmfNode::Object {
+            class_name: None,
             entries: vec![("a".into(), V::Number("7".into()))]
         }
     );
     assert_eq!(
         sealed.graph.nodes[2],
         AmfNode::Object {
+            class_name: None,
             entries: vec![("a".into(), V::Number("8".into()))]
         }
     );
+
+    let typed = AmfGraph {
+        root: V::Ref(0),
+        nodes: vec![
+            AmfNode::Object {
+                class_name: Some("nf.SaveEntry".into()),
+                entries: vec![
+                    ("score".into(), V::Number("42".into())),
+                    ("peer".into(), V::Ref(1)),
+                ],
+            },
+            AmfNode::Object {
+                class_name: Some("nf.SaveEntry".into()),
+                entries: vec![("score".into(), V::Number("99".into()))],
+            },
+        ],
+    };
+    for format in [0, 3] {
+        let encoded = amf_encode(format, &typed).unwrap();
+        assert_eq!(encoded[0], if format == 0 { 16 } else { 10 });
+        assert_eq!(amf_decode(format, &encoded).unwrap().graph, typed);
+    }
 
     let graph = AmfGraph {
         root: V::Ref(0),
         nodes: vec![
             AmfNode::Object {
+                class_name: None,
                 entries: vec![
                     ("self".into(), V::Ref(0)),
                     ("array".into(), V::Ref(1)),
@@ -78,6 +103,7 @@ fn amf_graph_wire_and_bounded_cursor_workflow() {
                 entries: vec![("label".into(), V::String("same".into()))],
             },
             AmfNode::Object {
+                class_name: None,
                 entries: vec![
                     ("owner".into(), V::Ref(0)),
                     ("word".into(), V::String("same".into())),
@@ -106,7 +132,7 @@ fn amf_graph_wire_and_bounded_cursor_workflow() {
             V::String("tail".into())
         );
         assert_eq!(amf_encode(format, &decoded.graph).unwrap(), bytes);
-        let AmfNode::Object { entries } = &decoded.graph.nodes[0] else {
+        let AmfNode::Object { entries, .. } = &decoded.graph.nodes[0] else {
             panic!("root record")
         };
         assert_eq!(entries[0], ("self".into(), V::Ref(0)));

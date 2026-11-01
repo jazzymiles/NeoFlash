@@ -118,7 +118,29 @@ export async function verifyTextLayout(root,cargo) {
     assert.deepEqual([fresh.primaryCard.width,fresh.primaryCard.scaleX,fresh.phase],[340,1,0]);
     assert.equal(fresh.primaryCard.getTextFormat().align,'left');assert.equal(fresh.fixedCard.getTextFormat().italic,true);
     assert.equal(fresh.legacyCard.text,legacyBefore);
-    assert.throws(()=>{fresh.primaryCard.htmlText='<b>unsupported</b>';},/not implemented|unsupported|pending/i);
+    let scrollCount=0;
+    fresh.primaryCard.text='1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12';
+    fresh.primaryCard.addEventListener('scroll',()=>{scrollCount++;});
+    fresh.primaryCard.scrollV=2;
+    assert.equal(scrollCount,1,'changing scrollV dispatches Event.SCROLL');
+    assert.equal(fresh.primaryCard.useRichTextClipboard,false);
+    fresh.primaryCard.useRichTextClipboard=true;
+    assert.equal(fresh.primaryCard.useRichTextClipboard,true);
+    const StyleSheet=host.program().type('flash.text.StyleSheet');
+    const TextField=host.program().type('flash.text.TextField');
+    assert.equal(typeof TextField.isFontCompatible('Arial','regular'),'boolean');
+    assert.throws(()=>TextField.isFontCompatible('Arial','oblique'),err=>err.name==='ArgumentError');
+    const sheet=new StyleSheet();
+    sheet.parseCSS('.accent { color: #ff3366; font-weight: bold; }');
+    fresh.primaryCard.styleSheet=sheet;
+    assert.equal(fresh.primaryCard.styleSheet,sheet);
+    fresh.primaryCard.htmlText='<a href="event:go"><span class="accent">Styled Link</span></a>';
+    assert.equal(fresh.primaryCard.text,'Styled Link');
+    assert.equal(fresh.primaryCard.getTextFormat().color,0xff3366);
+    assert.equal(fresh.primaryCard.getTextFormat().bold,true);
+    assert.ok(fresh.primaryCard.htmlText.includes('Styled Link'));
+    fresh.primaryCard.styleSheet=null;
+    assert.equal(fresh.primaryCard.styleSheet,null);
   } finally {
     host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
   }

@@ -68,7 +68,15 @@
         n.children=p.children.map(build).filter(Boolean);for(const child of n.children)child.parent=n;return n;
       }
       const roots=ir.roots.map(build).filter(Boolean);
-      return {roots,declaration:ir.declaration,doctype:ir.doctype??null,idMap:Object.fromEntries(Object.entries(ir.id_map||{}).map(([key,index])=>[key,map.get(index)]))};
+      let idMap;
+      if(ir.id_map){
+        idMap=Object.fromEntries(Object.entries(ir.id_map).map(([key,index])=>[key,map.get(index)]).filter(([,v])=>v));
+      }else{
+        idMap={};
+        const visitIds=list=>{for(const item of list){if(item.kind==='element'){const idAttr=item.attributes.find(a=>a.name.qualified==='id');if(idAttr)idMap[idAttr.value]=item;visitIds(item.children);}}};
+        visitIds(roots);
+      }
+      return {roots,declaration:ir.declaration,doctype:ir.doctype??null,idMap};
     }
     function clone(n,deep=true){
       const copy=node(n.kind,n.name?{...n.name}:null,n.value);copy.declarations=n.declarations.map(d=>({...d}));copy.declaration=n.declaration;copy.doctype=n.doctype;
@@ -452,7 +460,8 @@
     function legacyNode(value){return legacyRecord(value).nodes[0];}
     function legacyWrap(n,document=false){
       if(legacyWrappers.has(n))return legacyWrappers.get(n);
-      const value=Object.create(document?LegacyXML.prototype:XMLNode.prototype);
+      const proto=document===true?LegacyXML.prototype:(document||XMLNode.prototype);
+      const value=Object.create(proto);
       records.set(value,{kind:'legacy',nodes:[n],generation,ignoreWhite:false,status:0,loaded:undefined,operation:null,bytesLoaded:undefined,bytesTotal:undefined,contentType:'application/x-www-form-urlencoded',headers:[],idMap:Object.create(null)});legacyWrappers.set(n,value);return value;
     }
     function attributes(value){
@@ -469,6 +478,9 @@
         defineProperty(){unsupported('custom attribute descriptors');},setPrototypeOf(){unsupported('attribute prototype mutation');},preventExtensions(){unsupported('attribute sealing');},
       });attributeWrappers.set(n,proxy);return proxy;
     }
+    function XMLNodeType(){throw new TypeError('XMLNodeType supplies constants and cannot be constructed.');}
+    Object.defineProperties(XMLNodeType,{ELEMENT_NODE:{value:1,enumerable:true},TEXT_NODE:{value:3,enumerable:true},__nfIs:{value:()=>false},__nfInitialize:{value:()=>unsupported('native subclassing')}});
+    Object.freeze(XMLNodeType);
     const documentConstruction=Symbol('XML document construction');
     class XMLNode {
       constructor(type,value){active();if(type===documentConstruction)return;let n;if(type===1)n=node('element',name(value));else if(type===3)n=node('text',null,text(value));else unsupported('XMLNode constructor nodeType; supported values are 1 and 3');commit([n]);return legacyWrap(n);}
@@ -478,7 +490,18 @@
       get nodeValue(){const n=legacyNode(this);return n.kind==='text'||n.kind==='comment'||n.kind==='pi'?n.value:null;}
       set nodeValue(value){const n=legacyNode(this);if(n.kind!=='text')unsupported('nodeValue writes except text nodes');change(n,'value',text(value));}
       get localName(){return legacyNode(this).name?.local??null;}get prefix(){return legacyNode(this).name?.prefix??null;}get namespaceURI(){return legacyNode(this).name?.uri??null;}
-      get attributes(){return attributes(this);}set attributes(value){unsupported('replacing the attributes map; assign individual attributes');}
+      get attributes(){return attributes(this);}
+      set attributes(value){
+        const n=legacyNode(this);
+        if(n.kind!=='element')throw new TypeError('Attributes require an XML element.');
+        if(value==null||typeof value!=='object')throw new TypeError('XMLNode.attributes requires an Object.');
+        const entries=Object.entries(value);
+        if(entries.length+n.declarations.length>256)throw new RangeError('XML element exceeds 256 attributes/declarations.');
+        const next=entries.map(([k,v])=>{const a=node('attribute',name(k),text(v));a.parent=n;return a;});
+        commit(next);
+        for(const old of n.attributes)old.parent=null;
+        n.attributes=next;
+      }
       get childNodes(){return legacyNode(this).children.map(n=>legacyWrap(n));}
       get firstChild(){const n=legacyNode(this).children[0];return n?legacyWrap(n):null;}get lastChild(){const n=legacyNode(this).children.at(-1);return n?legacyWrap(n):null;}
       get parentNode(){const p=legacyNode(this).parent;return p?legacyWrap(p,p.kind==='document'):null;}
@@ -490,13 +513,23 @@
       appendChild(child){legacyInsert(this,child,null);}
       insertBefore(child,before){legacyInsert(this,child,before);}
       removeNode(){detach(legacyNode(this));}
-      cloneNode(deep=false){const n=clone(legacyNode(this),Boolean(deep));commit([n]);return legacyWrap(n,n.kind==='document');}
+      cloneNode(deep=false){const n=clone(legacyNode(this),Boolean(deep));commit([n]);return legacyWrap(n,n.kind==='document'?Object.getPrototypeOf(this):XMLNode.prototype);}
       toString(){const n=legacyNode(this);return serialize(n.kind==='document'?n.children:[n],false,n.kind==='document'?(n.declaration||'')+(n.doctype||''):null);}
     }
     function legacyNamespace(value,query,reverse){
-      if(typeof namespaceLookup!=='function')unsupported('namespace lookup without Rust AS2 service; re-export this project');
-      const ancestry=[];for(let p=legacyNode(value);p;p=p.parent)ancestry.push(p.declarations);
-      return namespaceLookup(ancestry,text(query),reverse);
+      const q=text(query),ancestry=[];for(let p=legacyNode(value);p;p=p.parent)ancestry.push(p.declarations);
+      if(typeof namespaceLookup==='function')return namespaceLookup(ancestry,q,reverse);
+      if(!reverse){
+        if(q==='xml')return 'http://www.w3.org/XML/1998/namespace';
+        for(const decls of ancestry){const hit=decls.find(d=>d.prefix===q);if(hit)return hit.uri||null;}
+        return null;
+      }
+      if(q==='http://www.w3.org/XML/1998/namespace')return 'xml';
+      const shadowed=new Set();
+      for(const decls of ancestry){
+        for(const d of decls){if(!shadowed.has(d.prefix)){if(d.uri===q)return d.prefix;shadowed.add(d.prefix);}}
+      }
+      return null;
     }
     function legacyInsert(value,input,before){
       const parent=legacyNode(value),child=legacyNode(input);if(!['element','document'].includes(parent.kind)||child.kind==='document')throw new TypeError('XML DOM insertion requires an element/document parent and a non-document child.');
@@ -551,6 +584,55 @@
       }
       onLoad(success){}
     }
+    class XMLDocument extends XMLNode {
+      constructor(source=null){
+        super(documentConstruction);
+        const n=node('document');
+        commit([n]);
+        const value=legacyWrap(n,XMLDocument.prototype);
+        legacyRecord(value).idMap={};
+        if(source!==null&&source!==undefined&&source!=='')value.parseXML(source);
+        return value;
+      }
+      get ignoreWhite(){return legacyRecord(this).ignoreWhite;}
+      set ignoreWhite(value){legacyRecord(this).ignoreWhite=Boolean(value);}
+      get xmlDecl(){return legacyNode(this).declaration??null;}
+      set xmlDecl(value){change(legacyNode(this),'declaration',value==null?null:text(String(value)));}
+      get docTypeDecl(){return legacyNode(this).doctype??null;}
+      set docTypeDecl(value){change(legacyNode(this),'doctype',value==null?null:text(String(value)));}
+      get idMap(){return legacyRecord(this).idMap;}
+      set idMap(value){legacyRecord(this).idMap=value==null?null:Object(value);}
+      createElement(value){return new XMLNode(1,value);}
+      createTextNode(value){return new XMLNode(3,value);}
+      parseXML(source){
+        const r=legacyRecord(this),n=r.nodes[0];
+        if(source===null||source===undefined||source===''){
+          for(const old of n.children)old.parent=null;
+          n.children=[];
+          const previousBytes=bytes(n);
+          n.declaration=null;n.doctype=null;
+          stringBytes+=bytes(n)-previousBytes;
+          r.idMap={};
+          return;
+        }
+        let result;
+        try{
+          result=parsed(source,{ignoreComments:true,ignoreProcessingInstructions:true,ignoreWhitespace:r.ignoreWhite,trim:false,legacy:true});
+          commit(result.roots,encoder.encode((result.declaration||'')+(result.doctype||'')).length-encoder.encode((n.declaration||'')+(n.doctype||'')).length);
+        }catch(error){
+          if(error.xmlCategory&&['syntax','namespace','character','doctype','entity'].includes(error.xmlCategory))throw new TypeError(error.message);
+          throw error;
+        }
+        for(const old of n.children)old.parent=null;
+        n.children=result.roots;
+        for(const child of n.children)child.parent=n;
+        const previousBytes=bytes(n);
+        n.declaration=result.declaration??null;
+        n.doctype=result.doctype??null;
+        stringBytes+=bytes(n)-previousBytes;
+        r.idMap=Object.fromEntries(Object.entries(result.idMap).map(([key,item])=>[key,legacyWrap(item)]));
+      }
+    }
     function cancel(r){if(!r.operation)return;const op=r.operation;r.operation=null;loads.delete(op);try{op.loader.close();}catch(_){};}
     function legacyRequest(receiver,url,method){
       const r=legacyRecord(receiver);if(!net)unsupported('sending without network service');
@@ -567,7 +649,7 @@
       loader.addEventListener('complete',()=>done(true));loader.addEventListener('ioError',()=>done(false));
       try{loader.load(request||new net.URLRequest(url));}catch(error){cancel(r);throw error;}return true;
     }
-    for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
+    for(const[Type,predicate]of [[XML,v=>records.get(v)?.kind==='xml'],[XMLList,v=>records.get(v)?.kind==='list'],[LegacyXML,v=>v instanceof LegacyXML&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLDocument,v=>v instanceof XMLDocument&&records.get(v)?.kind==='legacy'&&records.get(v).nodes[0].kind==='document'],[XMLNode,v=>records.get(v)?.kind==='legacy']])Object.defineProperties(Type,{__nfIs:{value:predicate},__nfInitialize:{value:()=>unsupported('native subclassing')},[Symbol.hasInstance]:{value:predicate}});
     function ref(value,key,as3){
       const r=state(value);if(r.kind==='legacy')return {get:()=>value[key],set:next=>{value[key]=next;return next;},delete:()=>Reflect.deleteProperty(value,key),has:()=>key in value};
       if(!as3)unsupported('AS3 XML access from the AS2 DOM interface');
@@ -577,7 +659,7 @@
     function method(value,key,as3){const r=state(value);if(r.kind==='legacy'){const fn=value[key];return(...args)=>Reflect.apply(fn,value,args);}if(!as3)unsupported('AS3 XML methods from AS2');if(typeof key!=='string'||!Object.hasOwn(xmlMethods,key))unsupported('method '+String(key));return(...args)=>xmlMethods[key](value,...args);}
     function reset(){active();for(const op of [...loads])cancel(op.record);generation++;nodes.clear();nodeCount=0;stringBytes=0;listRefs=0;settings={...defaults};}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({XML,XMLList,LegacyXML,XMLNode,Namespace,QName,selector,select,literal,is,kind,ref,enumerate,method,reset,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
+    return Object.freeze({XML,XMLList,LegacyXML,XMLDocument,XMLNode,XMLNodeType,Namespace,QName,selector,select,literal,is,kind,ref,enumerate,method,reset,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashXML=api;
 })(globalThis);

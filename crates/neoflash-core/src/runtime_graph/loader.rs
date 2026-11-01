@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Clone, Debug)]
 pub(super) struct LoaderState {
-    content: Option<ObjectRef>,
+    pub(super) content: Option<ObjectRef>,
     as2: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

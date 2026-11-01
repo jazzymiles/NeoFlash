@@ -98,7 +98,12 @@
     }
     function readEnd(record,offset,count){
       size(offset,'offset');size(count,'length');
-      if(offset>record.length||count>record.length-offset)throw new RangeError('ByteArray read exceeds available data.');
+      if(offset>record.length||count>record.length-offset){
+        const error=new RangeError('ByteArray read exceeds available data.');
+        error.name='EOFError';
+        error.errorID=2030;
+        throw error;
+      }
       return offset+count;
     }
     function writeEnd(offset,count){

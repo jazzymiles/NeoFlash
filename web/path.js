@@ -76,6 +76,7 @@
   }
   function paintVisible(kind,channel) {
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0;
+    if(channel==='stroke'&&kind.stroke_bitmap)return kind.stroke_bitmap.width>0&&kind.stroke_bitmap.height>0;
     const paint=kind[channel+'_gradient'];return paint?validateGradient(paint).stops.some(s=>s.color[3]>0):(kind[channel]?.[3]||0)>0;
   }
   function gradientParameter(paint,x,y) {
@@ -88,6 +89,7 @@
   }
   function paintAlpha(kind,channel,x,y) {
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0?1:0;
+    if(channel==='stroke'&&kind.stroke_bitmap)return kind.stroke_bitmap.width>0&&kind.stroke_bitmap.height>0?1:0;
     const paint=kind[channel+'_gradient'];if(!paint)return(kind[channel]?.[3]||0)/255;validateGradient(paint);
     const t=gradientParameter(paint,x,y);if(t===null)return 0;const ratio=t*255,stops=paint.stops;
     if(ratio<stops[0].ratio)return stops[0].color[3]/255;
@@ -184,20 +186,21 @@
     }
     clear(){if(this.surface){this.surface.width=1;this.surface.height=1;this.surface=null;}}
     draw(context,kind,path,bitmaps=null) {
-      if(kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
+      if(kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap||kind.stroke_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
       for(const channel of ['fill','stroke']){
         if(!paintVisible(kind,channel)||channel==='stroke'&&!(kind.stroke_width>0))continue;
-        const paint=kind[channel+'_gradient'],bitmap=channel==='fill'?kind.fill_bitmap:null;context.save();
+        const paint=kind[channel+'_gradient'],bitmap=channel==='fill'?kind.fill_bitmap:kind.stroke_bitmap;context.save();
         try{
           if(channel==='stroke'){context.lineWidth=kind.stroke_width;context.lineCap='round';context.lineJoin='round';}
-          if(bitmap){context.clip(path,kind.fill_rule||'nonzero');bitmapBrush(context,bitmap,bitmaps,context.canvas.width,context.canvas.height);}
+          if(bitmap&&channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');bitmapBrush(context,bitmap,bitmaps,context.canvas.width,context.canvas.height);}
+          else if(bitmap)this.stroke(context,kind,path,bitmap,bitmaps);
           else if(!paint){context[channel+'Style']=rgba(kind[channel]);if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');else context.stroke(path);}
           else if(channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');brush(context,paint,context.canvas.width,context.canvas.height);}
           else this.stroke(context,kind,path,paint);
         }finally{context.restore();}
       }
     }
-    stroke(context,kind,path,paint) {
+    stroke(context,kind,path,paint,bitmaps=null) {
       const matrix=matrixOf(context),raw=controlBounds(kind.commands,matrix,kind.stroke_width/2),bounds=intersect(raw,{left:0,top:0,right:context.canvas.width,bottom:context.canvas.height});if(!bounds)return;
       const left=Math.floor(bounds.left),top=Math.floor(bounds.top),width=Math.ceil(bounds.right)-left,height=Math.ceil(bounds.bottom)-top;
       if(width*height>this.maxMaskPixels)throw new RangeError('Gradient stroke mask exceeds 16777216 pixels; reduce publication dimensions or stroke coverage.');
@@ -205,7 +208,9 @@
       const mask=canvas.getContext('2d');if(!mask)throw new Error('Canvas 2D gradient stroke mask is unavailable.');
       mask.setTransform(1,0,0,1,0,0);mask.globalAlpha=1;mask.globalCompositeOperation='source-over';mask.clearRect(0,0,width,height);
       mask.setTransform(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4]-left,matrix[5]-top);mask.strokeStyle='#fff';mask.lineWidth=kind.stroke_width;mask.lineCap='round';mask.lineJoin='round';mask.stroke(path);
-      mask.globalCompositeOperation='source-in';brush(mask,paint,width,height);mask.globalCompositeOperation='source-over';
+      mask.globalCompositeOperation='source-in';
+      if(bitmaps)bitmapBrush(mask,paint,bitmaps,width,height);else brush(mask,paint,width,height);
+      mask.globalCompositeOperation='source-over';
       context.setTransform(1,0,0,1,0,0);context.drawImage(canvas,left,top);
     }
   }
