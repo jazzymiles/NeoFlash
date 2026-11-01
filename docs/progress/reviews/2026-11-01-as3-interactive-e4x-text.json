@@ -1,0 +1,2185 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "d682cc70f851dba28ceafb0676447b3b5d42b69bf580707837f7fa6efe0bfb85",
+  "reviews": [
+    {
+      "id": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+      "date": "2026-11-01",
+      "commit": "3022f84e9aaa88d92e4eea3b2bc2bf2b995a0898",
+      "title": "AS3 E4X/Vector/global re-audit, binary/event interfaces, InteractiveObject, JPEG and text",
+      "summary": "Re-audits all 98 AS3 needs_review entries with compiled behavioral probes and implements IDataInput, IDataOutput, CompressionAlgorithm, ObjectEncoding, IEventDispatcher, aggregated EventDispatcher, InteractiveObject, SimpleButton, MouseEvent/Event constants, Graphics.beginBitmapFill, JPEGEncoderOptions, DisplacementMapFilter and Area 6 text classes.",
+      "tests": [
+        "crates/neoflash-script/tests/core-surface.mjs",
+        "crates/neoflash-script/tests/core-surface.json",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/tests/xml-catalog.mjs",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "crates/neoflash-script/tests/binary-data.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "web/tests/events.test.cjs",
+        "web/tests/stage.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:constant:package.html#-Infinity",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:package.html#Infinity",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:package.html#NaN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:package.html#undefined",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:package.html#Vector()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:package:package-detail.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:DefinitionError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:DefinitionError.html#DefinitionError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:SecurityError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:SecurityError.html#SecurityError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:VerifyError.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:VerifyError.html#VerifyError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:Error.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Error.html#Error()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Error.html#errorID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Error.html#message",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Error.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Error.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Error.html#getStackTrace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:Vector.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Vector.html#Vector()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Vector.html#fixed",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Vector.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#indexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#lastIndexOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#insertAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#removeAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#every()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#filter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#forEach()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#join()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#map()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#pop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#push()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#reverse()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#shift()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#slice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#some()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#splice()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toLocaleString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#unshift()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:Namespace.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Namespace.html#Namespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:Namespace.html#Namespace():variant:b74c3ffc7e9e",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Namespace.html#prefix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:Namespace.html#uri",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Namespace.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:Namespace.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:QName.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:QName.html#QName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:QName.html#QName():variant:ed6d67a1b434",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:QName.html#localName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:QName.html#uri",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:QName.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:QName.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:XML.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:XML.html#XML()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#addNamespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#appendChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#attribute()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#attributes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#child()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#childIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#children()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#comments()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#contains()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#copy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#defaultSettings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#descendants()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#elements()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#hasComplexContent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#hasOwnProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#hasSimpleContent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#inScopeNamespaces()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#insertChildAfter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#insertChildBefore()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#length()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#localName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#name()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#namespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#namespaceDeclarations()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#nodeKind()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#normalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#parent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#prependChild()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#processingInstructions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#propertyIsEnumerable()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#removeNamespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#replace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#setChildren()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#setLocalName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#setName()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#setNamespace()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#setSettings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#settings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#text()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#toJSON()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#toXMLString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XML.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:XML.html#ignoreComments",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:XML.html#ignoreProcessingInstructions",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:XML.html#ignoreWhitespace",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:XML.html#prettyIndent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:XML.html#prettyPrinting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:XMLList.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:XMLList.html#XMLList()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#attribute()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#attributes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#child()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#children()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#comments()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#contains()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#copy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#descendants()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#elements()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#hasComplexContent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#hasOwnProperty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#hasSimpleContent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#length()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#normalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#parent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#processingInstructions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#propertyIsEnumerable()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#text()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#toXMLString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:XMLList.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Video.html#smoothing",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "note": "Reads and writes NetStream SoundTransform volume in [0, 1]; nonzero stereo pan is rejected on HTML5 media elements."
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/CompressionAlgorithm.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#DEFLATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#LZMA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#ZLIB",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/ObjectEncoding.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF0",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ObjectEncoding.html#dynamicPropertyWriter",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/utils/IDataInput.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/IDataInput.html#bytesAvailable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/IDataInput.html#endian",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/IDataInput.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/utils/IDataOutput.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/IDataOutput.html#endian",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/IDataOutput.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/utils/ByteArray.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/utils/ByteArray.html#ByteArray()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapIntAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapLength()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#deflate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#inflate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#toJSON()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#bytesAvailable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#endian",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#position",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/utils/ByteArray.html#shareable",
+          "status": "partial",
+          "note": "Defaults to false and validates Boolean writes; shareable=true is rejected because Flash Worker shared memory is outside the HTML5 profile."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/InteractiveObject.html#",
+          "status": "partial",
+          "note": "Interactive hierarchy checks, abstract construction guard, mouse/tab/focus/menu/accessibility properties and core pointer/keyboard/focus/text events work; softKeyboard and nativeDrag/touch/clipboard members remain unimplemented."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/InteractiveObject.html#InteractiveObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#mouseEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#doubleClickEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#tabEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#tabIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#focusRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#contextMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#accessibilityImplementation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#tabChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabEnabledChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabIndexChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabChildrenChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:click",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:doubleClick",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseMove",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseWheel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rollOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rollOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleClick",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleMouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleMouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightClick",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightMouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightMouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:releaseOutside",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusIn",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyFocusChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseFocusChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:textInput",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/events/IEventDispatcher.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/IEventDispatcher.html#addEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/IEventDispatcher.html#dispatchEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/IEventDispatcher.html#hasEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/IEventDispatcher.html#removeEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/IEventDispatcher.html#willTrigger()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#dispatchEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#hasEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#removeEventListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/events/EventDispatcher.html#event:activate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/events/EventDispatcher.html#event:deactivate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#trackAsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#useHandCursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/MouseEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#CLICK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#CONTEXT_MENU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_CLICK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#RELEASE_OUTSIDE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_CLICK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#clickCount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#commandKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#controlKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#isRelatedObjectInaccessible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#movementX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#movementY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/Event.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/Event.html#Event()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#DISPLAYING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#HTML_BOUNDS_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#HTML_DOM_INITIALIZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#HTML_RENDER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#LOCATION_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#NETWORK_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#PREPARING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_ERROR_CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_INPUT_CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_OUTPUT_CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#USER_IDLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#USER_PRESENT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#BROWSER_ZOOM_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CANCEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CHANNEL_MESSAGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CHANNEL_STATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CLEAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CLOSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CLOSING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#COMPLETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CONNECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CONTEXT3D_CREATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#COPY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#CUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ENTER_FRAME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#EXITING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#FRAME_LABEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#FULLSCREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#ID3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#INIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#MOUSE_LEAVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#PASTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#SCROLL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#SELECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#SELECT_ALL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#SOUND_COMPLETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#SUSPEND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#TAB_CHILDREN_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#TAB_ENABLED_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#TAB_INDEX_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#TEXTURE_READY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#TEXT_INTERACTION_MODE_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#UNLOAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#VIDEO_FRAME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#WORKER_STATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#formatToString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#isDefaultPrevented()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#preventDefault()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/Event.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#bubbles",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#cancelable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#eventPhase",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#target",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/Event.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#beginBitmapFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGEncoderOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGEncoderOptions.html#JPEGEncoderOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGEncoderOptions.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/DisplacementMapFilterMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#CLAMP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#COLOR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#IGNORE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#WRAP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/DisplacementMapFilter.html#",
+          "status": "partial",
+          "note": "Supports BitmapData.applyFilter across all four DisplacementMapFilterMode modes; DisplayObject.filters map snapshots are not implemented yet."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/DisplacementMapFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#componentX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#componentY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mapBitmap",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mapPoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#scaleX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#scaleY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BitmapFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/BitmapFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BitmapFilterQuality.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#LOW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#MEDIUM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#HIGH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BitmapFilterType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#FULL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#INNER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#OUTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/BlurFilter.html#BlurFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/BlurFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/ColorMatrixFilter.html#ColorMatrixFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ColorMatrixFilter.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/ConvolutionFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/ConvolutionFilter.html#ConvolutionFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/ConvolutionFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#bias",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#clamp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#divisor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrixX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrixY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#preserveAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/GlowFilter.html#GlowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/DropShadowFilter.html#DropShadowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/BevelFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/BevelFilter.html#BevelFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/BevelFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#highlightAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#highlightColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#shadowAlpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#shadowColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/BevelFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/GradientBevelFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/GradientBevelFilter.html#GradientBevelFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/GradientBevelFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#alphas",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#colors",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#ratios",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/GradientGlowFilter.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/GradientGlowFilter.html#GradientGlowFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filters/GradientGlowFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#alphas",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#angle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#blurX",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#blurY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#colors",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#distance",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#knockout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#ratios",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#strength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/FontStyle.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontStyle.html#BOLD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontStyle.html#BOLD_ITALIC",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontStyle.html#ITALIC",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontStyle.html#REGULAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/FontType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontType.html#DEVICE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontType.html#EMBEDDED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/FontType.html#EMBEDDED_CFF",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextColorType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextColorType.html#DARK_COLOR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextColorType.html#LIGHT_COLOR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/Font.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#registerFont()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#enumerateFonts()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/Font.html#fontName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/Font.html#fontStyle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/Font.html#fontType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/StyleSheet.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/StyleSheet.html#StyleSheet()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StyleSheet.html#parseCSS()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StyleSheet.html#styleNames",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StyleSheet.html#getStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StyleSheet.html#setStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StyleSheet.html#transform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StyleSheet.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#AS3",
+          "status": "missing",
+          "note": "Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#flash_proxy",
+          "status": "missing",
+          "note": "Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#object_proxy",
+          "status": "missing",
+          "note": "Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic."
+        }
+      ]
+    }
+  ]
+}

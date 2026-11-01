@@ -328,14 +328,13 @@ impl Editor {
                             done = true;
                         }
                     }
-                    RailEntry::Fit => {
+                    RailEntry::Fit
                         if ui
                             .add(nf::MenuItem::new("Fit stage").icon(Icon::Fit.nf2(false)))
-                            .clicked()
-                        {
-                            self.fit_stage_from_tools();
-                            done = true;
-                        }
+                            .clicked() =>
+                    {
+                        self.fit_stage_from_tools();
+                        done = true;
                     }
                     _ => {}
                 }

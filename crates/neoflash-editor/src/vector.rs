@@ -1299,7 +1299,7 @@ pub(crate) fn delete_anchors_from_path(
             let remove_seam = remove_indices.contains(&start) || remove_indices.contains(&last);
             let kept_interior: Vec<PathCommand> = ((start + 1)..last)
                 .filter(|idx| !remove_indices.contains(idx))
-                .map(|idx| commands[idx].clone())
+                .map(|idx| commands[idx])
                 .collect();
             if remove_seam {
                 if kept_interior.len() < 2 {
@@ -1314,15 +1314,15 @@ pub(crate) fn delete_anchors_from_path(
                 if kept_interior.is_empty() {
                     continue;
                 }
-                out.push(commands[start].clone());
+                out.push(commands[start]);
                 out.extend(kept_interior);
-                out.push(commands[last].clone());
+                out.push(commands[last]);
                 out.push(PathCommand::Close);
             }
         } else {
             let kept: Vec<PathCommand> = (start..body_end)
                 .filter(|idx| !remove_indices.contains(idx))
-                .map(|idx| commands[idx].clone())
+                .map(|idx| commands[idx])
                 .collect();
             if kept.len() < 2 {
                 continue;

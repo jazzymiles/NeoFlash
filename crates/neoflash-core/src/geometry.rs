@@ -643,6 +643,7 @@ enum ArcStart {
     Line,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_elliptic_arc(
     commands: &mut Vec<PathCommand>,
     cx: f64,

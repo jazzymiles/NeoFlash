@@ -972,52 +972,50 @@ impl Editor {
                         );
                     }
                 }
-                Tool::PolyStar => {
-                    if g.points.len() >= 2 {
-                        let center = [g.points[0].x as f64, g.points[0].y as f64];
-                        let outer = [g.points[1].x as f64, g.points[1].y as f64];
-                        let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
-                        let radius = dx.hypot(dy);
-                        if radius > 0.5 {
-                            let (commands, origin_xy) = polystar_path_commands(
-                                center,
-                                radius,
-                                dy.atan2(dx),
-                                self.authoring_tools.polystar_sides,
-                                self.authoring_tools.polystar_star,
-                                self.authoring_tools.polystar_point_size,
-                            );
-                            let pts: Vec<Pos2> = commands
-                                .iter()
-                                .filter_map(|cmd| match *cmd {
-                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
-                                        Some(screen(Pos2::new(
-                                            (origin_xy[0] + x) as f32,
-                                            (origin_xy[1] + y) as f32,
-                                        )))
-                                    }
-                                    _ => None,
-                                })
-                                .collect();
-                            if pts.len() >= 3 {
-                                let stroke_color = if self.stroke[3] > 0 {
-                                    Color32::from_rgba_unmultiplied(
-                                        self.stroke[0],
-                                        self.stroke[1],
-                                        self.stroke[2],
-                                        self.stroke[3],
-                                    )
-                                } else {
-                                    palette.overlay
-                                };
-                                p.add(Shape::closed_line(
-                                    pts,
-                                    Stroke::new(
-                                        (self.stroke_width as f32 * g.zoom).max(1.5),
-                                        stroke_color,
-                                    ),
-                                ));
-                            }
+                Tool::PolyStar if g.points.len() >= 2 => {
+                    let center = [g.points[0].x as f64, g.points[0].y as f64];
+                    let outer = [g.points[1].x as f64, g.points[1].y as f64];
+                    let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
+                    let radius = dx.hypot(dy);
+                    if radius > 0.5 {
+                        let (commands, origin_xy) = polystar_path_commands(
+                            center,
+                            radius,
+                            dy.atan2(dx),
+                            self.authoring_tools.polystar_sides,
+                            self.authoring_tools.polystar_star,
+                            self.authoring_tools.polystar_point_size,
+                        );
+                        let pts: Vec<Pos2> = commands
+                            .iter()
+                            .filter_map(|cmd| match *cmd {
+                                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                                    Some(screen(Pos2::new(
+                                        (origin_xy[0] + x) as f32,
+                                        (origin_xy[1] + y) as f32,
+                                    )))
+                                }
+                                _ => None,
+                            })
+                            .collect();
+                        if pts.len() >= 3 {
+                            let stroke_color = if self.stroke[3] > 0 {
+                                Color32::from_rgba_unmultiplied(
+                                    self.stroke[0],
+                                    self.stroke[1],
+                                    self.stroke[2],
+                                    self.stroke[3],
+                                )
+                            } else {
+                                palette.overlay
+                            };
+                            p.add(Shape::closed_line(
+                                pts,
+                                Stroke::new(
+                                    (self.stroke_width as f32 * g.zoom).max(1.5),
+                                    stroke_color,
+                                ),
+                            ));
                         }
                     }
                 }

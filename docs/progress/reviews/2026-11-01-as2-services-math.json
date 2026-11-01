@@ -1,0 +1,861 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "4969e774c1fe3c3e3b10ea3351906f67c53405641ecf927c5f328ee54eee02f3",
+  "reviews": [
+    {
+      "id": "AS2-SERVICES-MATH-20261101",
+      "date": "2026-11-01",
+      "commit": "3dc88eb703cc5e3e969b2cc0cdc1748ae48b924b",
+      "title": "AS2 global functions, device/network/system services, XMLSocket, and math-geometry promotions",
+      "summary": "Closes all 12 needs_review AS2 global functions and 58 missing Areas 7-8 declarations (Camera/Microphone encoder prefs, System/IME/security, LocalConnection allowDomain, FileReference dates, NetConnection.protocol, NetStream play2/getInfo/publish/send, remote SharedObject, XMLSocket) and promotes 124 verified Area 1 math/geometry entries to working.",
+      "tests": [
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-core/src/as2_capture.rs",
+        "crates/neoflash-core/src/as2_connections.rs",
+        "crates/neoflash-core/src/as2_media.rs",
+        "crates/neoflash-core/src/as2_platform.rs",
+        "crates/neoflash-core/src/as_math.rs",
+        "crates/neoflash-core/src/as2d_geom.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks bandwidth byte-rate preferences (default 16384); browser MediaStream preview does not run Flash Sorenson/VP6 upstream bitrate throttling."
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks keyframe interval preferences (1..=300, default 15); browser MediaStream preview has no Flash RTMP video encoder."
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks boolean loopback preferences (default false); local HTML5 video preview does not simulate Flash software compression artifacts."
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks compression quality preferences (0..=100, default 0); browser MediaStream preview uses native camera tracks without Flash software frame encoding."
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates and stores keyframe intervals (1..=300); browser MediaStream preview does not run Flash RTMP keyframe encoding."
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates and stores boolean loopback flags; browser camera preview renders native video frames without simulated Flash encoder compression."
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates and stores bandwidth (>= 0) and quality (0..=100); browser MediaStream preview does not run Flash RTMP video encoding."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:allowDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:allowInsecureDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture normalizes and reports NellyMoser/Speex codec names (default NellyMoser); Web Audio capture streams PCM locally without Flash RTMP audio encoding."
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks Speex encodeQuality (0..=10, default 6); Web Audio capture does not run Flash Speex upstream encoding."
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture tracks Speex framesPerPacket (1..=16, default 2); Web Audio capture does not packetize RTMP audio frames."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates case-insensitive NellyMoser and Speex codec names; Web Audio capture streams local PCM without Flash RTMP codec encoding."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates and stores encodeQuality integers (0..=10); Web Audio capture does not run Flash Speex upstream encoding."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Capture validates and stores framesPerPacket integers (1..=16); Web Audio capture does not packetize RTMP audio frames."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#protocol",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "partial",
+          "note": "Validates Microphone, false, or null sources and records stream attachment; HTML5 NetStream has no RTMP upstream audio publishing server."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "partial",
+          "note": "Validates Camera, false, or null sources and optional snapshotMilliseconds and records stream attachment; HTML5 NetStream has no RTMP upstream video publishing server."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onCuePoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onTextData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onXMPData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "note": "Returns an AS2 NetStream info snapshot with live bufferLength and loaded byte metrics; RTMP round-trip srtt and server bitrate counters report 0 in progressive HTTP playback."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "partial",
+          "note": "Returns 0 for progressive HTTP/resource video streams; live RTMP server latency measurement is unavailable in HTML5."
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "partial",
+          "note": "Rust ScriptAS2Stream validates and stores maxPauseBufferTime (0..=3600s, default 30); browser HTMLVideoElement manages HTTP progressive pause buffering natively."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "partial",
+          "note": "Validates stream transition options (streamName and optional start offset) and switches progressive media playback; RTMP dynamic bitrate server switching is unavailable."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "partial",
+          "note": "Validates stream name and live/record/append mode (or false to unpublish) and asynchronously emits NetStream.Publish.BadName because HTML5 has no RTMP media server."
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "partial",
+          "note": "Validates handler names and asynchronously dispatches data messages to stream callbacks (onCuePoint, onTextData, onXMPData, or custom handlers); RTMP upstream recording is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "partial",
+          "note": "Disconnects a remote SharedObject peer session or flushes a local SharedObject; remote RTMP server channel teardown is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "partial",
+          "note": "Connects a remote SharedObject to an AS2 NetConnection and asynchronously dispatches initial onSync ([{code:'clear'}]); Flash Media Server RTMP sync is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onStatus",
+          "status": "partial",
+          "note": "Supports assigning and invoking onStatus callback handlers on AS2 SharedObject instances; remote FMS server error codes are not emitted locally."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "partial",
+          "note": "Dispatches initial onSync change lists when a remote SharedObject connects; multi-client RTMP server delta synchronization is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "partial",
+          "note": "Creates origin-scoped in-session remote SharedObject instances with validated name and remotePath; multi-client Flash Media Server RTMP persistence is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "partial",
+          "note": "Validates handler names and asynchronously broadcasts messages across connected in-session remote SharedObject peers; multi-client RTMP server broadcast is unavailable."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "partial",
+          "note": "Validates finite non-negative update rates on remote SharedObjects; Flash Media Server RTMP polling intervals are not used in browser memory."
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "partial",
+          "note": "Stores and resets the System.onStatus callback handler; browser services deliver status events to target listeners without Flash NetConnection/SharedObject global fallback bubbling."
+        },
+        {
+          "catalogId": "as2:System.html#setClipboard()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates settings tab IDs (0..=3) and notifies the host UI hook; browser site permission UI replaces Flash Player's embedded settings dialog."
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform dispatches pending composition text to System.IME onIMEComposition listeners when enabled; browsers do not expose forced OS IME candidate conversion."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform reports the active IME conversion mode constant; browsers do not expose native OS IME mode inspection."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform reports the tracked IME enabled state initialized from browser CompositionEvent support; OS-level IME state cannot be queried directly."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates and stores UTF-8 composition strings (up to 4 KiB) when enabled; browsers do not allow scripts to overwrite active OS IME preedit buffers."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates Flash IME mode constants and updates tracked state when enabled; browsers do not permit scripts to switch OS input method modes."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates boolean state and toggles tracked IME availability; browsers do not permit scripts to enable or disable the user's OS IME."
+        },
+        {
+          "catalogId": "as2:System/security.html#allowDomain()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates and records allowed domains; browser cross-origin access remains governed by standard CORS and origin isolation."
+        },
+        {
+          "catalogId": "as2:System/security.html#allowInsecureDomain()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates and records allowed HTTP domains; browser mixed-content and CORS policies remain enforced by the user agent."
+        },
+        {
+          "catalogId": "as2:System/security.html#loadPolicyFile()",
+          "status": "partial",
+          "note": "Rust ScriptAS2Platform validates and records HTTP(S) policy file URLs; browser networking uses standard CORS headers rather than Flash crossdomain.xml files."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#XMLSocket()",
+          "status": "partial",
+          "note": "Constructs an AS2 XMLSocket backed by Rust ScriptAS2Connections session state; raw TCP socket transport requires a WebSocket bridge in browsers."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#class",
+          "status": "partial",
+          "note": "Provides AS2 XMLSocket with Rust NUL-frame assembly, port >= 1024 validation, timeout, and XML/raw callbacks over WebSocket or injected transport; raw browser TCP sockets are unavailable."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#close()",
+          "status": "partial",
+          "note": "Closes active WebSocket/host transport and clears Rust XMLSocket receive buffers; raw TCP half-close semantics are unavailable."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#connect()",
+          "status": "partial",
+          "note": "Validates host (empty/null resolving to publication domain) and port (1024..=65535) in Rust and initiates WebSocket/host transport with connection timeout; port 843 TCP policy sockets are unavailable."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onClose",
+          "status": "partial",
+          "note": "Invokes onClose() when an open remote WebSocket connection closes unexpectedly."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onConnect",
+          "status": "partial",
+          "note": "Invokes onConnect(true|false) upon WebSocket handshake completion, error, or timeout; TCP crossdomain policy handshakes are not used."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onData",
+          "status": "partial",
+          "note": "Invokes onData(src) for each NUL-delimited UTF-8 frame reassembled in Rust and parses LegacyXML into onXML unless overridden."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onXML",
+          "status": "partial",
+          "note": "Invokes onXML(doc) with a parsed AS2 XML document from the default XMLSocket.prototype.onData handler."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#send()",
+          "status": "partial",
+          "note": "Validates NUL-free UTF-8 payloads up to 256 KiB in Rust and transmits NUL-terminated frames over open WebSocket/host transport; raw unframed TCP sockets are unavailable."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#timeout",
+          "status": "partial",
+          "note": "Rust ScriptAS2Connections validates and stores non-negative integer connection timeouts in milliseconds (default 20000) enforced on pending WebSocket handshakes."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "partial",
+          "note": "Returns a Date from browser File metadata (created timestamp or lastModified fallback) once a file is selected; Web File APIs do not expose distinct filesystem birth times."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "partial",
+          "note": "Returns undefined on Web File selections because browser File objects do not expose classic macOS HFS four-character creator codes."
+        },
+        {
+          "catalogId": "as2:global_functions.html#MMExecute()",
+          "status": "partial",
+          "note": "Validates the JSFL command String and returns an empty string at runtime, matching standalone Flash Player behavior outside the Flash IDE authoring panel."
+        },
+        {
+          "catalogId": "as2:global_functions.html#asfunction()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#fscommand()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#getURL()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovie()",
+          "status": "partial",
+          "note": "Resolves MovieClip instances or AS2 target paths and loads raster image resources via the shared Loader pipeline; external SWF binary loading and root replacement are unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "partial",
+          "note": "Validates non-negative integer levels and reports an explicit HTML5 boundary diagnostic because multi-SWF _level1+ stacks and _level0 root replacement are unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "partial",
+          "note": "Validates target MovieClip and bmovie/bmax/bframe bounding mode and renders bitmap print pages via PrintJob browser preview; multi-frame #p vector spooling is unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "partial",
+          "note": "Validates target MovieClip and bmovie/bmax/bframe bounding mode and renders bitmap print pages via PrintJob browser preview; multi-frame #p frame selection is unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "partial",
+          "note": "Validates level 0 and bmovie/bmax/bframe bounding mode and renders stage bitmap pages via PrintJob browser preview; multi-SWF levels above 0 are unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "partial",
+          "note": "Validates level 0 and bmovie/bmax/bframe bounding mode and renders stage print pages via PrintJob browser preview; levels above 0 and vector spooling are unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovie()",
+          "status": "partial",
+          "note": "Resolves MovieClip instances or AS2 target paths and unloads loaded image content via the shared Loader pipeline; external SWF binary unloading and root replacement are unavailable."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "partial",
+          "note": "Validates non-negative integer levels and reports an explicit HTML5 boundary diagnostic because multi-SWF _level1+ stacks and _level0 root replacement are unavailable."
+        },
+        {
+          "catalogId": "as2:Math.html#E",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#LN10",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#LN2",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#LOG10E",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#LOG2E",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#PI",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#SQRT1_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#SQRT2",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#abs()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#acos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#asin()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#atan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#atan2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#ceil()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#cos()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#exp()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#floor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#log()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#max()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#min()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#pow()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#random()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#round()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#sin()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#sqrt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Math.html#tan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#MAX_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#MIN_VALUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#NEGATIVE_INFINITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#NaN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#POSITIVE_INFINITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Number.html#valueOf()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#-Infinity",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#Infinity",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:constants.html#NaN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#ColorTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#alphaMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#alphaOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#blueMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#blueOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#greenMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#greenOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#redMultiplier",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#redOffset",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#rgb",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/ColorTransform.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#Matrix()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#a",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#b",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#c",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#concat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#createBox()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#createGradientBox()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#d",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#deltaTransformPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#identity()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#invert()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#rotate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#scale()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#transformPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#translate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#tx",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Matrix.html#ty",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#Point()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#add()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#distance()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#equals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#interpolate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#length",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#normalize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#offset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#polar()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#subtract()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Point.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#Rectangle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#bottom",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#bottomRight",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#contains()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#containsPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#containsRectangle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#equals()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#inflate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#inflatePoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#intersection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#intersects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#isEmpty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#left",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#offset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#offsetPoint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#right",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#setEmpty()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#size",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#top",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#topLeft",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#union()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Rectangle.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#Transform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#colorTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#concatenatedColorTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#concatenatedMatrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#matrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/geom/Transform.html#pixelBounds",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#int()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#isFinite()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#isNaN()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#parseFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#random()",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

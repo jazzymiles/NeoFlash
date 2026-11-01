@@ -12,16 +12,16 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
-| 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
-| 3. MovieClip and timeline | 37 | 10 | 22 | 5 | 0 | 27.0% | 86.5% |
-| 4. Display, events and basic input | 678 | 361 | 196 | 121 | 0 | 53.2% | 82.2% |
-| 5. Graphics, bitmaps and filters | 313 | 102 | 114 | 97 | 0 | 32.6% | 69.0% |
-| 6. Text and fonts | 174 | 84 | 26 | 64 | 0 | 48.3% | 63.2% |
-| 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
-| 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 573 | 871 | 400 | 95 | 29.6% | 74.5% |
-| **All Flash Player areas** | 4,164 | 574 | 1,266 | 2,227 | 97 | 13.8% | 44.2% |
+| 1. Mathematics and 2D geometry | 155 | 2 | 152 | 1 | 0 | 1.3% | 99.4% |
+| 2. Objects, language and collections | 582 | 224 | 285 | 73 | 0 | 38.5% | 87.5% |
+| 3. MovieClip and timeline | 37 | 12 | 20 | 5 | 0 | 32.4% | 86.5% |
+| 4. Display, events and basic input | 678 | 477 | 135 | 66 | 0 | 70.4% | 90.3% |
+| 5. Graphics, bitmaps and filters | 313 | 222 | 21 | 70 | 0 | 70.9% | 77.6% |
+| 6. Text and fonts | 174 | 128 | 26 | 20 | 0 | 73.6% | 88.5% |
+| 7. File audio and video playback | 91 | 5 | 34 | 52 | 0 | 5.5% | 42.9% |
+| 8. Services and advanced Player APIs | 2,134 | 7 | 355 | 1,772 | 0 | 0.3% | 17.0% |
+| **Now: areas 1–6** | 1,939 | 1,065 | 639 | 235 | 0 | 54.9% | 87.9% |
+| **All Flash Player areas** | 4,164 | 1,077 | 1,028 | 2,059 | 0 | 25.9% | 50.6% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -29,16 +29,16 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
+| 1. Mathematics and 2D geometry | 128 | 124 | 4 | 0 | 0 | 96.9% | 100.0% |
 | 2. Objects, language and collections | 281 | 26 | 255 | 0 | 0 | 9.3% | 100.0% |
 | 3. MovieClip and timeline | 123 | 7 | 116 | 0 | 0 | 5.7% | 100.0% |
 | 4. Display, events and basic input | 130 | 5 | 125 | 0 | 0 | 3.8% | 100.0% |
 | 5. Graphics, bitmaps and filters | 145 | 3 | 142 | 0 | 0 | 2.1% | 100.0% |
 | 6. Text and fonts | 118 | 4 | 114 | 0 | 0 | 3.4% | 100.0% |
-| 7. File audio and video playback | 83 | 2 | 69 | 12 | 0 | 2.4% | 85.5% |
-| 8. Services and advanced Player APIs | 230 | 8 | 164 | 46 | 12 | 3.5% | 74.8% |
-| **Now: areas 1–6** | 925 | 45 | 880 | 0 | 0 | 4.9% | 100.0% |
-| **All Flash Player areas** | 1,238 | 55 | 1,113 | 58 | 12 | 4.4% | 94.3% |
+| 7. File audio and video playback | 83 | 6 | 77 | 0 | 0 | 7.2% | 100.0% |
+| 8. Services and advanced Player APIs | 230 | 14 | 216 | 0 | 0 | 6.1% | 100.0% |
+| **Now: areas 1–6** | 925 | 169 | 756 | 0 | 0 | 18.3% | 100.0% |
+| **All Flash Player areas** | 1,238 | 189 | 1,049 | 0 | 0 | 15.3% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -49,17 +49,17 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | Language | Scope | Entries | Working | Partial | Missing | Needs review |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
-| AS2 | core | 145 | 9 | 136 | 0 | 0 |
+| AS2 | core | 145 | 42 | 103 | 0 | 0 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 27 | 146 | 0 | 12 |
+| AS2 | language | 185 | 38 | 147 | 0 | 0 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 19 | 831 | 58 | 0 |
+| AS2 | runtime | 908 | 109 | 799 | 0 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
-| AS3 | core | 376 | 2 | 277 | 4 | 93 |
+| AS3 | core | 376 | 133 | 239 | 4 | 0 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
-| AS3 | language | 124 | 14 | 94 | 13 | 3 |
+| AS3 | language | 124 | 14 | 94 | 16 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 562 | 928 | 3,758 | 2 |
+| AS3 | runtime | 5,250 | 962 | 725 | 3,563 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-INTERACTIVE-E4X-TEXT-20261101` | 2026-11-01 | `3022f84e9aaa` | 3 → missing, 4 → partial, 531 → working |
+| `AS2-SERVICES-MATH-20261101` | 2026-11-01 | `3dc88eb703cc` | 60 → partial, 134 → working |
 | `AS3-TEXT-DISPLAY-BITMAP-20261101` | 2026-11-01 | `6230c1484361` | 9 → partial, 159 → working |
 | `AS2-FOUNDATION-COMPLETE-20261101` | 2026-11-01 | `6230c1484361` | 6 → partial, 17 → working |
 | `AS3-STAGE-UI-TEXT-20261101` | 2026-11-01 | `1db72af7575f` | 14 → partial, 362 → working |
@@ -1170,12 +1172,6 @@ Vector catalogue IDs are generic declarations; scopes here cover Item/InventoryC
 - `AS3:method:JSON.html#stringify()` — **partial**: Actual Vector.<Item> serialization with indentation produces an array preserving each public sku/label/quantity and stockLabel getter. All five saved JSON reports match expected order and quantities through 0/1/2/0/1, including intact original content after caught Vector diagnostics. No Dictionary serialization or other Vector specialization claim.
 
 Evidence: [crates/neoflash-core/Cargo.toml](../../crates/neoflash-core/Cargo.toml), [crates/neoflash-core/src/clipboard.rs](../../crates/neoflash-core/src/clipboard.rs), [crates/neoflash-core/src/demo.rs](../../crates/neoflash-core/src/demo.rs), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/src/geometry.rs](../../crates/neoflash-core/src/geometry.rs), [crates/neoflash-core/src/history.rs](../../crates/neoflash-core/src/history.rs), [crates/neoflash-core/src/lib.rs](../../crates/neoflash-core/src/lib.rs), [crates/neoflash-core/src/model.rs](../../crates/neoflash-core/src/model.rs), [crates/neoflash-core/src/pixels.rs](../../crates/neoflash-core/src/pixels.rs), [crates/neoflash-core/src/resource_image.rs](../../crates/neoflash-core/src/resource_image.rs), [crates/neoflash-core/src/resources.rs](../../crates/neoflash-core/src/resources.rs), [crates/neoflash-core/src/runtime.rs](../../crates/neoflash-core/src/runtime.rs), [crates/neoflash-core/src/runtime_graph.rs](../../crates/neoflash-core/src/runtime_graph.rs), [crates/neoflash-core/src/runtime_graph/bitmap.rs](../../crates/neoflash-core/src/runtime_graph/bitmap.rs), [crates/neoflash-core/src/runtime_graph/linked.rs](../../crates/neoflash-core/src/runtime_graph/linked.rs), [crates/neoflash-core/src/runtime_graph/text.rs](../../crates/neoflash-core/src/runtime_graph/text.rs), [crates/neoflash-core/src/runtime_graph/transform.rs](../../crates/neoflash-core/src/runtime_graph/transform.rs), [crates/neoflash-core/src/runtime_graphics.rs](../../crates/neoflash-core/src/runtime_graphics.rs), [crates/neoflash-core/src/text.rs](../../crates/neoflash-core/src/text.rs), [crates/neoflash-core/src/validation.rs](../../crates/neoflash-core/src/validation.rs), [crates/neoflash-editor/Cargo.toml](../../crates/neoflash-editor/Cargo.toml), [crates/neoflash-editor/src/accessibility.rs](../../crates/neoflash-editor/src/accessibility.rs), [crates/neoflash-editor/src/app.rs](../../crates/neoflash-editor/src/app.rs), [crates/neoflash-editor/src/bitmaps.rs](../../crates/neoflash-editor/src/bitmaps.rs), [crates/neoflash-editor/src/clipboard.rs](../../crates/neoflash-editor/src/clipboard.rs), [crates/neoflash-editor/src/clipboard_tests.rs](../../crates/neoflash-editor/src/clipboard_tests.rs), [crates/neoflash-editor/src/detached.rs](../../crates/neoflash-editor/src/detached.rs), [crates/neoflash-editor/src/detached_tests.rs](../../crates/neoflash-editor/src/detached_tests.rs), [crates/neoflash-editor/src/fonts.rs](../../crates/neoflash-editor/src/fonts.rs), [crates/neoflash-editor/src/main.rs](../../crates/neoflash-editor/src/main.rs), [crates/neoflash-editor/src/native_screens.rs](../../crates/neoflash-editor/src/native_screens.rs), [crates/neoflash-editor/src/panel_tests.rs](../../crates/neoflash-editor/src/panel_tests.rs), [crates/neoflash-editor/src/panels.rs](../../crates/neoflash-editor/src/panels.rs), [crates/neoflash-editor/src/resources.rs](../../crates/neoflash-editor/src/resources.rs), [crates/neoflash-editor/src/selection.rs](../../crates/neoflash-editor/src/selection.rs), [crates/neoflash-editor/src/selection_tests.rs](../../crates/neoflash-editor/src/selection_tests.rs), [crates/neoflash-editor/src/sources.rs](../../crates/neoflash-editor/src/sources.rs), [crates/neoflash-editor/src/stage.rs](../../crates/neoflash-editor/src/stage.rs), [crates/neoflash-editor/src/stage_primitives.rs](../../crates/neoflash-editor/src/stage_primitives.rs), [crates/neoflash-editor/src/stage_selection.rs](../../crates/neoflash-editor/src/stage_selection.rs), [crates/neoflash-editor/src/tests.rs](../../crates/neoflash-editor/src/tests.rs), [crates/neoflash-editor/src/text_boxes.rs](../../crates/neoflash-editor/src/text_boxes.rs), [crates/neoflash-editor/src/theme.rs](../../crates/neoflash-editor/src/theme.rs), [crates/neoflash-editor/src/timeline_paint.rs](../../crates/neoflash-editor/src/timeline_paint.rs), [crates/neoflash-editor/src/transform_geometry.rs](../../crates/neoflash-editor/src/transform_geometry.rs), [crates/neoflash-editor/src/transform_gesture_tests.rs](../../crates/neoflash-editor/src/transform_gesture_tests.rs), [crates/neoflash-editor/src/ui_icons.rs](../../crates/neoflash-editor/src/ui_icons.rs), [crates/neoflash-editor/src/vector.rs](../../crates/neoflash-editor/src/vector.rs), [crates/neoflash-editor/src/vector_gesture_tests.rs](../../crates/neoflash-editor/src/vector_gesture_tests.rs), [crates/neoflash-editor/src/workspace.rs](../../crates/neoflash-editor/src/workspace.rs), [crates/neoflash-editor/src/workspace_editor_tests.rs](../../crates/neoflash-editor/src/workspace_editor_tests.rs), [crates/neoflash-export/Cargo.toml](../../crates/neoflash-export/Cargo.toml), [crates/neoflash-export/src/lib.rs](../../crates/neoflash-export/src/lib.rs), [crates/neoflash-export/src/main.rs](../../crates/neoflash-export/src/main.rs), [crates/neoflash-import/Cargo.toml](../../crates/neoflash-import/Cargo.toml), [crates/neoflash-import/examples/contour_fixture.rs](../../crates/neoflash-import/examples/contour_fixture.rs), [crates/neoflash-import/examples/inspect_binary_corpus.rs](../../crates/neoflash-import/examples/inspect_binary_corpus.rs), [crates/neoflash-import/examples/inspect_contour_candidates.rs](../../crates/neoflash-import/examples/inspect_contour_candidates.rs), [crates/neoflash-import/src/legacy.rs](../../crates/neoflash-import/src/legacy.rs), [crates/neoflash-import/src/legacy/contents.rs](../../crates/neoflash-import/src/legacy/contents.rs), [crates/neoflash-import/src/legacy/contents/payload.rs](../../crates/neoflash-import/src/legacy/contents/payload.rs), [crates/neoflash-import/src/legacy/contours.rs](../../crates/neoflash-import/src/legacy/contours.rs), [crates/neoflash-import/src/legacy/contours/certificate.rs](../../crates/neoflash-import/src/legacy/contours/certificate.rs), [crates/neoflash-import/src/legacy/geometry.rs](../../crates/neoflash-import/src/legacy/geometry.rs), [crates/neoflash-import/src/legacy/mfc.rs](../../crates/neoflash-import/src/legacy/mfc.rs), [crates/neoflash-import/src/legacy/timeline.rs](../../crates/neoflash-import/src/legacy/timeline.rs), [crates/neoflash-import/src/lib.rs](../../crates/neoflash-import/src/lib.rs), [crates/neoflash-import/src/main.rs](../../crates/neoflash-import/src/main.rs), [crates/neoflash-import/src/source.rs](../../crates/neoflash-import/src/source.rs), [crates/neoflash-import/src/xfl.rs](../../crates/neoflash-import/src/xfl.rs), [crates/neoflash-import/src/xfl/publish.rs](../../crates/neoflash-import/src/xfl/publish.rs), [crates/neoflash-import/src/xfl/shape.rs](../../crates/neoflash-import/src/xfl/shape.rs), [crates/neoflash-script/Cargo.toml](../../crates/neoflash-script/Cargo.toml), [crates/neoflash-script/examples/compile_batch.rs](../../crates/neoflash-script/examples/compile_batch.rs), [crates/neoflash-script/examples/compile_project.rs](../../crates/neoflash-script/examples/compile_project.rs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs), [crates/neoflash-script/src/actionscript/collections.js](../../crates/neoflash-script/src/actionscript/collections.js), [crates/neoflash-script/src/actionscript/completion.rs](../../crates/neoflash-script/src/actionscript/completion.rs), [crates/neoflash-script/src/actionscript/containers.js](../../crates/neoflash-script/src/actionscript/containers.js), [crates/neoflash-script/src/actionscript/control_tests.rs](../../crates/neoflash-script/src/actionscript/control_tests.rs), [crates/neoflash-script/src/actionscript/dates.js](../../crates/neoflash-script/src/actionscript/dates.js), [crates/neoflash-script/src/actionscript/dictionary.js](../../crates/neoflash-script/src/actionscript/dictionary.js), [crates/neoflash-script/src/actionscript/exceptions.js](../../crates/neoflash-script/src/actionscript/exceptions.js), [crates/neoflash-script/src/actionscript/intrinsics.js](../../crates/neoflash-script/src/actionscript/intrinsics.js), [crates/neoflash-script/src/actionscript/json.js](../../crates/neoflash-script/src/actionscript/json.js), [crates/neoflash-script/src/actionscript/project-runtime.js](../../crates/neoflash-script/src/actionscript/project-runtime.js), [crates/neoflash-script/src/actionscript/project.rs](../../crates/neoflash-script/src/actionscript/project.rs), [crates/neoflash-script/src/actionscript/regexp.js](../../crates/neoflash-script/src/actionscript/regexp.js), [crates/neoflash-script/src/actionscript/scope.rs](../../crates/neoflash-script/src/actionscript/scope.rs), [crates/neoflash-script/src/actionscript/strings.js](../../crates/neoflash-script/src/actionscript/strings.js), [crates/neoflash-script/src/actionscript/vectors.js](../../crates/neoflash-script/src/actionscript/vectors.js), [crates/neoflash-script/src/lib.rs](../../crates/neoflash-script/src/lib.rs), [crates/neoflash-web/Cargo.toml](../../crates/neoflash-web/Cargo.toml), [crates/neoflash-web/src/lib.rs](../../crates/neoflash-web/src/lib.rs), [web/accessibility.js](../../web/accessibility.js), [web/audio-formats.js](../../web/audio-formats.js), [web/audio.js](../../web/audio.js), [web/bitmap.js](../../web/bitmap.js), [web/byte-array.js](../../web/byte-array.js), [web/display.js](../../web/display.js), [web/events.js](../../web/events.js), [web/geom.js](../../web/geom.js), [web/legacy-input.js](../../web/legacy-input.js), [web/net.js](../../web/net.js), [web/path.js](../../web/path.js), [web/preview.js](../../web/preview.js), [web/progress/app.js](../../web/progress/app.js), [web/progress/history.html](../../web/progress/history.html), [web/progress/index.html](../../web/progress/index.html), [web/progress/style.css](../../web/progress/style.css), [web/runtime.js](../../web/runtime.js), [web/stage.js](../../web/stage.js), [web/text.js](../../web/text.js), [web/timers.js](../../web/timers.js)
-
-### U01 — U01
-
-Unmapped core/language declarations; property/native routes cannot safely be classified by a name search.
-
-Use only within the exact reviewed rule; no full Flash compatibility is claimed.
 
 ### VIDEO-HTML5-20261027T1042Z — Independent HTML5 acceptance: VIDEO-HTML5-20261027T1042Z
 
@@ -4700,3 +4696,753 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:property:flash/text/TextFormat.html#underline` — **working**: Main contract covered by the listed tests.
 
 Evidence: [crates/neoflash-core/src/text.rs](../../crates/neoflash-core/src/text.rs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/filter-gallery.mjs](../../crates/neoflash-script/tests/filter-gallery.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/text-layout.mjs](../../crates/neoflash-script/tests/text-layout.mjs)
+
+### AS2-SERVICES-MATH-20261101 — AS2 global functions, device/network/system services, XMLSocket, and math-geometry promotions
+
+Closes all 12 needs_review AS2 global functions and 58 missing Areas 7-8 declarations (Camera/Microphone encoder prefs, System/IME/security, LocalConnection allowDomain, FileReference dates, NetConnection.protocol, NetStream play2/getInfo/publish/send, remote SharedObject, XMLSocket) and promotes 124 verified Area 1 math/geometry entries to working.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:Camera.html#bandwidth` — **partial**: Rust ScriptAS2Capture tracks bandwidth byte-rate preferences (default 16384); browser MediaStream preview does not run Flash Sorenson/VP6 upstream bitrate throttling.
+- `as2:Camera.html#keyFrameInterval` — **partial**: Rust ScriptAS2Capture tracks keyframe interval preferences (1..=300, default 15); browser MediaStream preview has no Flash RTMP video encoder.
+- `as2:Camera.html#loopback` — **partial**: Rust ScriptAS2Capture tracks boolean loopback preferences (default false); local HTML5 video preview does not simulate Flash software compression artifacts.
+- `as2:Camera.html#quality` — **partial**: Rust ScriptAS2Capture tracks compression quality preferences (0..=100, default 0); browser MediaStream preview uses native camera tracks without Flash software frame encoding.
+- `as2:Camera.html#setKeyFrameInterval()` — **partial**: Rust ScriptAS2Capture validates and stores keyframe intervals (1..=300); browser MediaStream preview does not run Flash RTMP keyframe encoding.
+- `as2:Camera.html#setLoopback()` — **partial**: Rust ScriptAS2Capture validates and stores boolean loopback flags; browser camera preview renders native video frames without simulated Flash encoder compression.
+- `as2:Camera.html#setQuality()` — **partial**: Rust ScriptAS2Capture validates and stores bandwidth (>= 0) and quality (0..=100); browser MediaStream preview does not run Flash RTMP video encoding.
+- `as2:LocalConnection.html#event:allowDomain` — **working**: Main contract covered by the listed tests.
+- `as2:LocalConnection.html#event:allowInsecureDomain` — **working**: Main contract covered by the listed tests.
+- `as2:Microphone.html#codec` — **partial**: Rust ScriptAS2Capture normalizes and reports NellyMoser/Speex codec names (default NellyMoser); Web Audio capture streams PCM locally without Flash RTMP audio encoding.
+- `as2:Microphone.html#encodeQuality` — **partial**: Rust ScriptAS2Capture tracks Speex encodeQuality (0..=10, default 6); Web Audio capture does not run Flash Speex upstream encoding.
+- `as2:Microphone.html#framesPerPacket` — **partial**: Rust ScriptAS2Capture tracks Speex framesPerPacket (1..=16, default 2); Web Audio capture does not packetize RTMP audio frames.
+- `as2:Microphone.html#setCodec()` — **partial**: Rust ScriptAS2Capture validates case-insensitive NellyMoser and Speex codec names; Web Audio capture streams local PCM without Flash RTMP codec encoding.
+- `as2:Microphone.html#setEncodeQuality()` — **partial**: Rust ScriptAS2Capture validates and stores encodeQuality integers (0..=10); Web Audio capture does not run Flash Speex upstream encoding.
+- `as2:Microphone.html#setFramesPerPacket()` — **partial**: Rust ScriptAS2Capture validates and stores framesPerPacket integers (1..=16); Web Audio capture does not packetize RTMP audio frames.
+- `as2:NetConnection.html#protocol` — **working**: Main contract covered by the listed tests.
+- `as2:NetStream.html#attachAudio()` — **partial**: Validates Microphone, false, or null sources and records stream attachment; HTML5 NetStream has no RTMP upstream audio publishing server.
+- `as2:NetStream.html#attachVideo()` — **partial**: Validates Camera, false, or null sources and optional snapshotMilliseconds and records stream attachment; HTML5 NetStream has no RTMP upstream video publishing server.
+- `as2:NetStream.html#event:onCuePoint` — **working**: Main contract covered by the listed tests.
+- `as2:NetStream.html#event:onTextData` — **working**: Main contract covered by the listed tests.
+- `as2:NetStream.html#event:onXMPData` — **working**: Main contract covered by the listed tests.
+- `as2:NetStream.html#getInfo()` — **partial**: Returns an AS2 NetStream info snapshot with live bufferLength and loaded byte metrics; RTMP round-trip srtt and server bitrate counters report 0 in progressive HTTP playback.
+- `as2:NetStream.html#liveDelay` — **partial**: Returns 0 for progressive HTTP/resource video streams; live RTMP server latency measurement is unavailable in HTML5.
+- `as2:NetStream.html#maxPauseBufferTime` — **partial**: Rust ScriptAS2Stream validates and stores maxPauseBufferTime (0..=3600s, default 30); browser HTMLVideoElement manages HTTP progressive pause buffering natively.
+- `as2:NetStream.html#play2()` — **partial**: Validates stream transition options (streamName and optional start offset) and switches progressive media playback; RTMP dynamic bitrate server switching is unavailable.
+- `as2:NetStream.html#publish()` — **partial**: Validates stream name and live/record/append mode (or false to unpublish) and asynchronously emits NetStream.Publish.BadName because HTML5 has no RTMP media server.
+- `as2:NetStream.html#send()` — **partial**: Validates handler names and asynchronously dispatches data messages to stream callbacks (onCuePoint, onTextData, onXMPData, or custom handlers); RTMP upstream recording is unavailable.
+- `as2:SharedObject.html#close()` — **partial**: Disconnects a remote SharedObject peer session or flushes a local SharedObject; remote RTMP server channel teardown is unavailable.
+- `as2:SharedObject.html#connect()` — **partial**: Connects a remote SharedObject to an AS2 NetConnection and asynchronously dispatches initial onSync ([{code:'clear'}]); Flash Media Server RTMP sync is unavailable.
+- `as2:SharedObject.html#event:onStatus` — **partial**: Supports assigning and invoking onStatus callback handlers on AS2 SharedObject instances; remote FMS server error codes are not emitted locally.
+- `as2:SharedObject.html#event:onSync` — **partial**: Dispatches initial onSync change lists when a remote SharedObject connects; multi-client RTMP server delta synchronization is unavailable.
+- `as2:SharedObject.html#getRemote()` — **partial**: Creates origin-scoped in-session remote SharedObject instances with validated name and remotePath; multi-client Flash Media Server RTMP persistence is unavailable.
+- `as2:SharedObject.html#send()` — **partial**: Validates handler names and asynchronously broadcasts messages across connected in-session remote SharedObject peers; multi-client RTMP server broadcast is unavailable.
+- `as2:SharedObject.html#setFps()` — **partial**: Validates finite non-negative update rates on remote SharedObjects; Flash Media Server RTMP polling intervals are not used in browser memory.
+- `as2:System.html#event:onStatus` — **partial**: Stores and resets the System.onStatus callback handler; browser services deliver status events to target listeners without Flash NetConnection/SharedObject global fallback bubbling.
+- `as2:System.html#setClipboard()` — **working**: Main contract covered by the listed tests.
+- `as2:System.html#showSettings()` — **partial**: Rust ScriptAS2Platform validates settings tab IDs (0..=3) and notifies the host UI hook; browser site permission UI replaces Flash Player's embedded settings dialog.
+- `as2:System/IME.html#doConversion()` — **partial**: Rust ScriptAS2Platform dispatches pending composition text to System.IME onIMEComposition listeners when enabled; browsers do not expose forced OS IME candidate conversion.
+- `as2:System/IME.html#getConversionMode()` — **partial**: Rust ScriptAS2Platform reports the active IME conversion mode constant; browsers do not expose native OS IME mode inspection.
+- `as2:System/IME.html#getEnabled()` — **partial**: Rust ScriptAS2Platform reports the tracked IME enabled state initialized from browser CompositionEvent support; OS-level IME state cannot be queried directly.
+- `as2:System/IME.html#setCompositionString()` — **partial**: Rust ScriptAS2Platform validates and stores UTF-8 composition strings (up to 4 KiB) when enabled; browsers do not allow scripts to overwrite active OS IME preedit buffers.
+- `as2:System/IME.html#setConversionMode()` — **partial**: Rust ScriptAS2Platform validates Flash IME mode constants and updates tracked state when enabled; browsers do not permit scripts to switch OS input method modes.
+- `as2:System/IME.html#setEnabled()` — **partial**: Rust ScriptAS2Platform validates boolean state and toggles tracked IME availability; browsers do not permit scripts to enable or disable the user's OS IME.
+- `as2:System/security.html#allowDomain()` — **partial**: Rust ScriptAS2Platform validates and records allowed domains; browser cross-origin access remains governed by standard CORS and origin isolation.
+- `as2:System/security.html#allowInsecureDomain()` — **partial**: Rust ScriptAS2Platform validates and records allowed HTTP domains; browser mixed-content and CORS policies remain enforced by the user agent.
+- `as2:System/security.html#loadPolicyFile()` — **partial**: Rust ScriptAS2Platform validates and records HTTP(S) policy file URLs; browser networking uses standard CORS headers rather than Flash crossdomain.xml files.
+- `as2:XMLSocket.html#XMLSocket()` — **partial**: Constructs an AS2 XMLSocket backed by Rust ScriptAS2Connections session state; raw TCP socket transport requires a WebSocket bridge in browsers.
+- `as2:XMLSocket.html#class` — **partial**: Provides AS2 XMLSocket with Rust NUL-frame assembly, port >= 1024 validation, timeout, and XML/raw callbacks over WebSocket or injected transport; raw browser TCP sockets are unavailable.
+- `as2:XMLSocket.html#close()` — **partial**: Closes active WebSocket/host transport and clears Rust XMLSocket receive buffers; raw TCP half-close semantics are unavailable.
+- `as2:XMLSocket.html#connect()` — **partial**: Validates host (empty/null resolving to publication domain) and port (1024..=65535) in Rust and initiates WebSocket/host transport with connection timeout; port 843 TCP policy sockets are unavailable.
+- `as2:XMLSocket.html#event:onClose` — **partial**: Invokes onClose() when an open remote WebSocket connection closes unexpectedly.
+- `as2:XMLSocket.html#event:onConnect` — **partial**: Invokes onConnect(true|false) upon WebSocket handshake completion, error, or timeout; TCP crossdomain policy handshakes are not used.
+- `as2:XMLSocket.html#event:onData` — **partial**: Invokes onData(src) for each NUL-delimited UTF-8 frame reassembled in Rust and parses LegacyXML into onXML unless overridden.
+- `as2:XMLSocket.html#event:onXML` — **partial**: Invokes onXML(doc) with a parsed AS2 XML document from the default XMLSocket.prototype.onData handler.
+- `as2:XMLSocket.html#send()` — **partial**: Validates NUL-free UTF-8 payloads up to 256 KiB in Rust and transmits NUL-terminated frames over open WebSocket/host transport; raw unframed TCP sockets are unavailable.
+- `as2:XMLSocket.html#timeout` — **partial**: Rust ScriptAS2Connections validates and stores non-negative integer connection timeouts in milliseconds (default 20000) enforced on pending WebSocket handshakes.
+- `as2:flash/net/FileReference.html#creationDate` — **partial**: Returns a Date from browser File metadata (created timestamp or lastModified fallback) once a file is selected; Web File APIs do not expose distinct filesystem birth times.
+- `as2:flash/net/FileReference.html#creator` — **partial**: Returns undefined on Web File selections because browser File objects do not expose classic macOS HFS four-character creator codes.
+- `as2:global_functions.html#MMExecute()` — **partial**: Validates the JSFL command String and returns an empty string at runtime, matching standalone Flash Player behavior outside the Flash IDE authoring panel.
+- `as2:global_functions.html#asfunction()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#fscommand()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#getURL()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#loadMovie()` — **partial**: Resolves MovieClip instances or AS2 target paths and loads raster image resources via the shared Loader pipeline; external SWF binary loading and root replacement are unavailable.
+- `as2:global_functions.html#loadMovieNum()` — **partial**: Validates non-negative integer levels and reports an explicit HTML5 boundary diagnostic because multi-SWF _level1+ stacks and _level0 root replacement are unavailable.
+- `as2:global_functions.html#print()` — **partial**: Validates target MovieClip and bmovie/bmax/bframe bounding mode and renders bitmap print pages via PrintJob browser preview; multi-frame #p vector spooling is unavailable.
+- `as2:global_functions.html#printAsBitmap()` — **partial**: Validates target MovieClip and bmovie/bmax/bframe bounding mode and renders bitmap print pages via PrintJob browser preview; multi-frame #p frame selection is unavailable.
+- `as2:global_functions.html#printAsBitmapNum()` — **partial**: Validates level 0 and bmovie/bmax/bframe bounding mode and renders stage bitmap pages via PrintJob browser preview; multi-SWF levels above 0 are unavailable.
+- `as2:global_functions.html#printNum()` — **partial**: Validates level 0 and bmovie/bmax/bframe bounding mode and renders stage print pages via PrintJob browser preview; levels above 0 and vector spooling are unavailable.
+- `as2:global_functions.html#unloadMovie()` — **partial**: Resolves MovieClip instances or AS2 target paths and unloads loaded image content via the shared Loader pipeline; external SWF binary unloading and root replacement are unavailable.
+- `as2:global_functions.html#unloadMovieNum()` — **partial**: Validates non-negative integer levels and reports an explicit HTML5 boundary diagnostic because multi-SWF _level1+ stacks and _level0 root replacement are unavailable.
+- `as2:Math.html#E` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#LN10` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#LN2` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#LOG10E` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#LOG2E` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#PI` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#SQRT1_2` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#SQRT2` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#abs()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#acos()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#asin()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#atan()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#atan2()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#ceil()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#cos()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#exp()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#floor()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#log()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#max()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#min()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#pow()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#random()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#round()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#sin()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#sqrt()` — **working**: Main contract covered by the listed tests.
+- `as2:Math.html#tan()` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#MAX_VALUE` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#MIN_VALUE` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#NEGATIVE_INFINITY` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#NaN` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#POSITIVE_INFINITY` — **working**: Main contract covered by the listed tests.
+- `as2:Number.html#valueOf()` — **working**: Main contract covered by the listed tests.
+- `as2:constants.html#-Infinity` — **working**: Main contract covered by the listed tests.
+- `as2:constants.html#Infinity` — **working**: Main contract covered by the listed tests.
+- `as2:constants.html#NaN` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#ColorTransform()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#alphaMultiplier` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#alphaOffset` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#blueMultiplier` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#blueOffset` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#concat()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#greenMultiplier` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#greenOffset` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#redMultiplier` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#redOffset` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#rgb` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/ColorTransform.html#toString()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#Matrix()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#a` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#b` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#c` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#clone()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#concat()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#createBox()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#createGradientBox()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#d` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#deltaTransformPoint()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#identity()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#invert()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#rotate()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#scale()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#toString()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#transformPoint()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#translate()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#tx` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Matrix.html#ty` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#Point()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#add()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#clone()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#distance()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#equals()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#interpolate()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#length` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#normalize()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#offset()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#polar()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#subtract()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#toString()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#x` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Point.html#y` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#Rectangle()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#bottom` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#bottomRight` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#clone()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#contains()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#containsPoint()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#containsRectangle()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#equals()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#height` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#inflate()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#inflatePoint()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#intersection()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#intersects()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#isEmpty()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#left` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#offset()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#offsetPoint()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#right` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#setEmpty()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#size` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#toString()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#top` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#topLeft` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#union()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#width` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#x` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Rectangle.html#y` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#Transform()` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#colorTransform` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#concatenatedColorTransform` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#concatenatedMatrix` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#matrix` — **working**: Main contract covered by the listed tests.
+- `as2:flash/geom/Transform.html#pixelBounds` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#int()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#isFinite()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#isNaN()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#parseFloat()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#random()` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-core/src/as2_capture.rs](../../crates/neoflash-core/src/as2_capture.rs), [crates/neoflash-core/src/as2_connections.rs](../../crates/neoflash-core/src/as2_connections.rs), [crates/neoflash-core/src/as2_media.rs](../../crates/neoflash-core/src/as2_media.rs), [crates/neoflash-core/src/as2_platform.rs](../../crates/neoflash-core/src/as2_platform.rs), [crates/neoflash-core/src/as_math.rs](../../crates/neoflash-core/src/as_math.rs), [crates/neoflash-core/src/as2d_geom.rs](../../crates/neoflash-core/src/as2d_geom.rs)
+
+### AS3-INTERACTIVE-E4X-TEXT-20261101 — AS3 E4X/Vector/global re-audit, binary/event interfaces, InteractiveObject, JPEG and text
+
+Re-audits all 98 AS3 needs_review entries with compiled behavioral probes and implements IDataInput, IDataOutput, CompressionAlgorithm, ObjectEncoding, IEventDispatcher, aggregated EventDispatcher, InteractiveObject, SimpleButton, MouseEvent/Event constants, Graphics.beginBitmapFill, JPEGEncoderOptions, DisplacementMapFilter and Area 6 text classes.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:constant:package.html#-Infinity` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:package.html#Infinity` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:package.html#NaN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:package.html#undefined` — **working**: Main contract covered by the listed tests.
+- `AS3:function:package.html#Vector()` — **working**: Main contract covered by the listed tests.
+- `AS3:package:package-detail.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:DefinitionError.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:DefinitionError.html#DefinitionError()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:SecurityError.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:SecurityError.html#SecurityError()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:VerifyError.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:VerifyError.html#VerifyError()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:Error.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:Error.html#Error()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Error.html#errorID` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Error.html#message` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Error.html#name` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Error.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Error.html#getStackTrace()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:Vector.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:Vector.html#Vector()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Vector.html#fixed` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Vector.html#length` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#indexOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#lastIndexOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#insertAt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#removeAt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#concat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#every()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#filter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#forEach()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#join()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#map()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#pop()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#push()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#reverse()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#shift()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#slice()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#some()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#sort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#splice()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#toLocaleString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Vector.html#unshift()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:Namespace.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:Namespace.html#Namespace()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:Namespace.html#Namespace():variant:b74c3ffc7e9e` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Namespace.html#prefix` — **working**: Main contract covered by the listed tests.
+- `AS3:property:Namespace.html#uri` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Namespace.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:Namespace.html#valueOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:QName.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:QName.html#QName()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:QName.html#QName():variant:ed6d67a1b434` — **working**: Main contract covered by the listed tests.
+- `AS3:property:QName.html#localName` — **working**: Main contract covered by the listed tests.
+- `AS3:property:QName.html#uri` — **working**: Main contract covered by the listed tests.
+- `AS3:method:QName.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:QName.html#valueOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:XML.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:XML.html#XML()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#addNamespace()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#appendChild()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#attribute()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#attributes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#child()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#childIndex()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#children()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#comments()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#contains()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#copy()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#defaultSettings()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#descendants()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#elements()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#hasComplexContent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#hasOwnProperty()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#hasSimpleContent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#inScopeNamespaces()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#insertChildAfter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#insertChildBefore()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#length()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#localName()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#name()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#namespace()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#namespaceDeclarations()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#nodeKind()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#normalize()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#parent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#prependChild()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#processingInstructions()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#propertyIsEnumerable()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#removeNamespace()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#replace()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#setChildren()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#setLocalName()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#setName()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#setNamespace()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#setSettings()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#settings()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#text()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#toJSON()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#toXMLString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XML.html#valueOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:XML.html#ignoreComments` — **working**: Main contract covered by the listed tests.
+- `AS3:property:XML.html#ignoreProcessingInstructions` — **working**: Main contract covered by the listed tests.
+- `AS3:property:XML.html#ignoreWhitespace` — **working**: Main contract covered by the listed tests.
+- `AS3:property:XML.html#prettyIndent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:XML.html#prettyPrinting` — **working**: Main contract covered by the listed tests.
+- `AS3:class:XMLList.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:XMLList.html#XMLList()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#attribute()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#attributes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#child()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#children()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#comments()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#contains()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#copy()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#descendants()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#elements()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#hasComplexContent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#hasOwnProperty()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#hasSimpleContent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#length()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#normalize()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#parent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#processingInstructions()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#propertyIsEnumerable()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#text()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#toXMLString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:XMLList.html#valueOf()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/media/Video.html#smoothing` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/NetStream.html#soundTransform` — **partial**: Reads and writes NetStream SoundTransform volume in [0, 1]; nonzero stereo pan is rejected on HTML5 media elements.
+- `AS3:class:flash/utils/CompressionAlgorithm.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/utils/CompressionAlgorithm.html#DEFLATE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/utils/CompressionAlgorithm.html#LZMA` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/utils/CompressionAlgorithm.html#ZLIB` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/net/ObjectEncoding.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/net/ObjectEncoding.html#AMF0` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/net/ObjectEncoding.html#AMF3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/net/ObjectEncoding.html#DEFAULT` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/ObjectEncoding.html#dynamicPropertyWriter` — **working**: Main contract covered by the listed tests.
+- `AS3:interface:flash/utils/IDataInput.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/IDataInput.html#bytesAvailable` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/IDataInput.html#endian` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/IDataInput.html#objectEncoding` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readBoolean()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readDouble()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readFloat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readMultiByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readObject()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readUTF()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readUTFBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readUnsignedByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readUnsignedInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataInput.html#readUnsignedShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:interface:flash/utils/IDataOutput.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/IDataOutput.html#endian` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/IDataOutput.html#objectEncoding` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeBoolean()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeDouble()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeFloat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeMultiByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeObject()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeUTF()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeUTFBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/IDataOutput.html#writeUnsignedInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/utils/ByteArray.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/utils/ByteArray.html#ByteArray()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapIntAt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapLength()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#clear()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#deflate()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#inflate()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readBoolean()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readDouble()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readFloat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readMultiByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readObject()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readUTF()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readUTFBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readUnsignedByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readUnsignedInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#readUnsignedShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#toJSON()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeBoolean()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeDouble()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeFloat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeMultiByte()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeObject()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeShort()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeUTF()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeUTFBytes()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/utils/ByteArray.html#writeUnsignedInt()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#bytesAvailable` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#endian` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#length` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#objectEncoding` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#position` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/utils/ByteArray.html#shareable` — **partial**: Defaults to false and validates Boolean writes; shareable=true is rejected because Flash Worker shared memory is outside the HTML5 profile.
+- `AS3:class:flash/display/InteractiveObject.html#` — **partial**: Interactive hierarchy checks, abstract construction guard, mouse/tab/focus/menu/accessibility properties and core pointer/keyboard/focus/text events work; softKeyboard and nativeDrag/touch/clipboard members remain unimplemented.
+- `AS3:constructor:flash/display/InteractiveObject.html#InteractiveObject()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#mouseEnabled` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#doubleClickEnabled` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#tabEnabled` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#tabIndex` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#focusRect` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#contextMenu` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/InteractiveObject.html#accessibilityImplementation` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/DisplayObjectContainer.html#tabChildren` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:tabEnabledChange` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:tabIndexChange` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:tabChildrenChange` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:click` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:doubleClick` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseDown` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseMove` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseOut` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseOver` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseUp` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseWheel` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:rollOut` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:rollOver` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:middleClick` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:middleMouseDown` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:middleMouseUp` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:rightClick` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:rightMouseDown` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:rightMouseUp` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:releaseOutside` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:keyDown` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:keyUp` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:focusIn` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:focusOut` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:keyFocusChange` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:mouseFocusChange` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/display/InteractiveObject.html#event:textInput` — **working**: Main contract covered by the listed tests.
+- `AS3:interface:flash/events/IEventDispatcher.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/IEventDispatcher.html#addEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/IEventDispatcher.html#dispatchEvent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/IEventDispatcher.html#hasEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/IEventDispatcher.html#removeEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/IEventDispatcher.html#willTrigger()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/events/EventDispatcher.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/EventDispatcher.html#addEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/EventDispatcher.html#dispatchEvent()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/EventDispatcher.html#hasEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/EventDispatcher.html#removeEventListener()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/EventDispatcher.html#willTrigger()` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/events/EventDispatcher.html#event:activate` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/events/EventDispatcher.html#event:deactivate` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/SimpleButton.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/display/SimpleButton.html#SimpleButton()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#upState` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#overState` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#downState` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#hitTestState` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#enabled` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#trackAsMenu` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#useHandCursor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/SimpleButton.html#soundTransform` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/events/MouseEvent.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/events/MouseEvent.html#MouseEvent()` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#CLICK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#CONTEXT_MENU` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#MIDDLE_CLICK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_DOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_UP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#RELEASE_OUTSIDE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#RIGHT_CLICK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_DOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_UP` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#altKey` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#buttonDown` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#clickCount` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#commandKey` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#controlKey` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#ctrlKey` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#delta` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#isRelatedObjectInaccessible` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#localX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#localY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#movementX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#movementY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#relatedObject` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#shiftKey` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#stageX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/MouseEvent.html#stageY` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/MouseEvent.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/MouseEvent.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/MouseEvent.html#updateAfterEvent()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/events/Event.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/events/Event.html#Event()` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#DISPLAYING` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#HTML_BOUNDS_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#HTML_DOM_INITIALIZE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#HTML_RENDER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#LOCATION_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#NETWORK_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#PREPARING` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#STANDARD_ERROR_CLOSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#STANDARD_INPUT_CLOSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#STANDARD_OUTPUT_CLOSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#USER_IDLE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#USER_PRESENT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#BROWSER_ZOOM_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CANCEL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CHANNEL_MESSAGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CHANNEL_STATE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CLEAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CLOSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CLOSING` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#COMPLETE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CONNECT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CONTEXT3D_CREATE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#COPY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#CUT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#ENTER_FRAME` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#EXITING` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#FRAME_LABEL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#FULLSCREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#ID3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#INIT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#MOUSE_LEAVE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#PASTE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#SCROLL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#SELECT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#SELECT_ALL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#SOUND_COMPLETE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#SUSPEND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#TAB_CHILDREN_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#TAB_ENABLED_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#TAB_INDEX_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#TEXTURE_READY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#TEXT_INTERACTION_MODE_CHANGE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#UNLOAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#VIDEO_FRAME` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#WORKER_STATE` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#formatToString()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#isDefaultPrevented()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#preventDefault()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#stopImmediatePropagation()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#stopPropagation()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/events/Event.html#toString()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#bubbles` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#cancelable` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#currentTarget` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#eventPhase` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#target` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/events/Event.html#type` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/Graphics.html#beginBitmapFill()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/JPEGEncoderOptions.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/display/JPEGEncoderOptions.html#JPEGEncoderOptions()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/JPEGEncoderOptions.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/DisplacementMapFilterMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/DisplacementMapFilterMode.html#CLAMP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/DisplacementMapFilterMode.html#COLOR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/DisplacementMapFilterMode.html#IGNORE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/DisplacementMapFilterMode.html#WRAP` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/DisplacementMapFilter.html#` — **partial**: Supports BitmapData.applyFilter across all four DisplacementMapFilterMode modes; DisplayObject.filters map snapshots are not implemented yet.
+- `AS3:constructor:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/DisplacementMapFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#alpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#componentX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#componentY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#mapBitmap` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#mapPoint` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#mode` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#scaleX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DisplacementMapFilter.html#scaleY` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/BitmapFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/BitmapFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/BitmapFilterQuality.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterQuality.html#LOW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterQuality.html#MEDIUM` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterQuality.html#HIGH` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/BitmapFilterType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterType.html#FULL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterType.html#INNER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/filters/BitmapFilterType.html#OUTER` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/BlurFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/BlurFilter.html#BlurFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/BlurFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BlurFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BlurFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BlurFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/ColorMatrixFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/ColorMatrixFilter.html#ColorMatrixFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/ColorMatrixFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ColorMatrixFilter.html#matrix` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/ConvolutionFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/ConvolutionFilter.html#ConvolutionFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/ConvolutionFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#alpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#bias` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#clamp` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#divisor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#matrix` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#matrixX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#matrixY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/ConvolutionFilter.html#preserveAlpha` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/GlowFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/GlowFilter.html#GlowFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/GlowFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#alpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#inner` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#knockout` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GlowFilter.html#strength` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/DropShadowFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/DropShadowFilter.html#DropShadowFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/DropShadowFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#alpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#angle` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#distance` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#hideObject` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#inner` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#knockout` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/DropShadowFilter.html#strength` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/BevelFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/BevelFilter.html#BevelFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/BevelFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#angle` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#distance` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#highlightAlpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#highlightColor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#knockout` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#shadowAlpha` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#shadowColor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#strength` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/BevelFilter.html#type` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/GradientBevelFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/GradientBevelFilter.html#GradientBevelFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/GradientBevelFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#alphas` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#angle` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#colors` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#distance` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#knockout` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#ratios` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#strength` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientBevelFilter.html#type` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/filters/GradientGlowFilter.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/filters/GradientGlowFilter.html#GradientGlowFilter()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/filters/GradientGlowFilter.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#alphas` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#angle` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#blurX` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#blurY` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#colors` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#distance` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#knockout` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#quality` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#ratios` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#strength` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/filters/GradientGlowFilter.html#type` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/FontStyle.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontStyle.html#BOLD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontStyle.html#BOLD_ITALIC` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontStyle.html#ITALIC` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontStyle.html#REGULAR` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/FontType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontType.html#DEVICE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontType.html#EMBEDDED` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/FontType.html#EMBEDDED_CFF` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextColorType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextColorType.html#DARK_COLOR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextColorType.html#LIGHT_COLOR` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextDisplayMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextDisplayMode.html#CRT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextDisplayMode.html#DEFAULT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextDisplayMode.html#LCD` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextInteractionMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextInteractionMode.html#NORMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextInteractionMode.html#SELECTION` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#textInteractionMode` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/CSMSettings.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/text/CSMSettings.html#CSMSettings()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/CSMSettings.html#fontSize` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/CSMSettings.html#insideCutoff` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/CSMSettings.html#outsideCutoff` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextRenderer.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextRenderer.html#displayMode` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextRenderer.html#maxLevel` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/Font.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/Font.html#registerFont()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/Font.html#enumerateFonts()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/Font.html#hasGlyphs()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/Font.html#fontName` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/Font.html#fontStyle` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/Font.html#fontType` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/StyleSheet.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/text/StyleSheet.html#StyleSheet()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/StyleSheet.html#parseCSS()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/StyleSheet.html#styleNames` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/StyleSheet.html#getStyle()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/StyleSheet.html#setStyle()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/StyleSheet.html#transform()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/StyleSheet.html#clear()` — **working**: Main contract covered by the listed tests.
+- `AS3:statement:statements.html#AS3` — **missing**: Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic.
+- `AS3:statement:statements.html#flash_proxy` — **missing**: Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic.
+- `AS3:statement:statements.html#object_proxy` — **missing**: Custom namespace qualifiers (AS3, flash_proxy, object_proxy) are rejected with an explicit compiler diagnostic.
+
+Evidence: [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/core-surface.json](../../crates/neoflash-script/tests/core-surface.json), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/xml-catalog.mjs](../../crates/neoflash-script/tests/xml-catalog.mjs), [crates/neoflash-script/tests/typed-collections.mjs](../../crates/neoflash-script/tests/typed-collections.mjs), [crates/neoflash-script/tests/binary-data.mjs](../../crates/neoflash-script/tests/binary-data.mjs), [crates/neoflash-script/tests/filter-gallery.mjs](../../crates/neoflash-script/tests/filter-gallery.mjs), [web/tests/events.test.cjs](../../web/tests/events.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs)

@@ -1155,7 +1155,7 @@ impl Editor {
         element.transform.primitive = None;
         element.kind = ElementKind::PaintedPath {
             commands,
-            fill_rule: fill_rule,
+            fill_rule,
             fill: if effective_fill == [0, 0, 0, 0] && fill_gradient.is_none() {
                 effective_fill
             } else {
