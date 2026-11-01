@@ -639,7 +639,7 @@ impl Editor {
                     let zoom = self.zoom;
                     let to_local = |pos: Pos2| (pos - origin) / zoom;
                     let on_path_handle = self.tool == Tool::Subselect
-                        && self.selected_sampled().is_some_and(|e| {
+                        && (self.selected_sampled().is_some_and(|e| {
                             if let ElementKind::Path { commands, .. }
                             | ElementKind::PaintedPath { commands, .. } = &e.kind
                             {
@@ -654,7 +654,22 @@ impl Editor {
                             } else {
                                 false
                             }
-                        });
+                        }) || ((ui.input(|i| {
+                            i.modifiers.alt
+                                || i.events.iter().any(|e| {
+                                    matches!(
+                                        e,
+                                        egui::Event::PointerButton {
+                                            pressed: true,
+                                            modifiers,
+                                            ..
+                                        } if modifiers.alt
+                                    )
+                                })
+                        }) || response.double_clicked())
+                            && response
+                                .interact_pointer_pos()
+                                .is_some_and(|pos| self.on_selected_path_segment(origin, pos))));
                     let clicked = response.clicked() && !self.stage_view.guide_pointer;
                     if clicked
                         && self.tool == Tool::Subselect

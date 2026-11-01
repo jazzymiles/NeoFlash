@@ -189,6 +189,31 @@ fn color_lerp(a: Color, b: Color, t: f64) -> Color {
 fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
     let mut e = a.clone();
     let (x, y) = (a.transform, b.transform);
+    let pivot = match (x.pivot, y.pivot) {
+        (Some(pa), Some(pb)) => Some([lerp(pa[0], pb[0], t), lerp(pa[1], pb[1], t)]),
+        (pa, _) => pa,
+    };
+    let primitive = match (x.primitive, y.primitive) {
+        (Some(PrimitiveOptions::Rectangle(ra)), Some(PrimitiveOptions::Rectangle(rb))) => {
+            let r = RectangleOptions {
+                corner_radii: std::array::from_fn(|i| {
+                    lerp(ra.corner_radii[i], rb.corner_radii[i], t)
+                }),
+                corners_locked: ra.corners_locked,
+            };
+            (!r.is_default()).then_some(PrimitiveOptions::Rectangle(r))
+        }
+        (Some(PrimitiveOptions::Oval(oa)), Some(PrimitiveOptions::Oval(ob))) => {
+            let o = OvalOptions {
+                start_angle: lerp(oa.start_angle, ob.start_angle, t),
+                end_angle: lerp(oa.end_angle, ob.end_angle, t),
+                inner_radius: lerp(oa.inner_radius, ob.inner_radius, t),
+                close_path: oa.close_path,
+            };
+            (!o.is_default()).then_some(PrimitiveOptions::Oval(o))
+        }
+        (pa, _) => pa,
+    };
     e.transform = Transform {
         x: lerp(x.x, y.x, t),
         y: lerp(x.y, y.y, t),
@@ -213,6 +238,8 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
                 )
             }),
         },
+        pivot,
+        primitive,
     };
     match (&a.kind, &b.kind, &mut e.kind) {
         (
@@ -915,7 +942,8 @@ impl Walker<'_> {
                         depth + 1,
                     );
                 } else {
-                    node.kind = Some(e.kind.clone());
+                    let kind = e.parametric_path_kind().unwrap_or(e.kind);
+                    node.kind = Some(kind.clone());
                     self.result.nodes.push(node);
                     if effective_visible {
                         self.result.items.push(DrawItem {
@@ -926,7 +954,7 @@ impl Walker<'_> {
                             transform: world,
                             alpha: opacity,
                             color_transform,
-                            kind: e.kind,
+                            kind,
                         });
                     }
                 }

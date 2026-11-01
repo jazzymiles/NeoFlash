@@ -586,3 +586,176 @@ fn foreground_overlay_prevents_pen_or_pencil_press() {
         assert!(!editor.history.can_undo());
     }
 }
+
+#[test]
+fn polystar_stage_drag_and_modal_settings_author_valid_closed_paths() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.open_polystar_settings();
+    assert!(editor.authoring_tools.polystar_dialog.is_some());
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800., 600.),
+            )),
+            time: Some(0.05),
+            ..Default::default()
+        },
+        |ctx| editor.polystar_settings_modal(ctx),
+    );
+    editor.authoring_tools.polystar_dialog = None;
+    stage_input_frame(&mut editor, &ctx, 0.08, vec![]);
+    editor.authoring_tools.polystar_star = true;
+    editor.authoring_tools.polystar_sides = 6;
+    editor.authoring_tools.polystar_point_size = 0.45;
+    editor.set_tool(Tool::PolyStar);
+    editor.history.clear();
+    let before = editor.project.clone();
+
+    let center = page.min + egui::vec2(200., 180.);
+    let outer = center + egui::vec2(50., 0.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(center),
+            primary_button(center, true),
+            egui::Event::PointerMoved(outer),
+            primary_button(outer, false),
+        ],
+    );
+    let cmds = commands(&editor);
+    // 6-point star = 12 vertices: MoveTo + 11 LineTo + Close = 13 commands.
+    assert_eq!(cmds.len(), 13);
+    assert!(matches!(cmds.last(), Some(PathCommand::Close)));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn pen_and_subselect_insert_and_delete_anchor_points_preserving_curve_and_undo() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let cubic = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::CubicTo {
+            cx1: 0.,
+            cy1: 100.,
+            cx2: 100.,
+            cy2: 100.,
+            x: 100.,
+            y: 0.,
+        },
+    ];
+    let original_bounds = neoflash_core::path_bounds(&cubic).unwrap().unwrap();
+    editor.add_element(
+        ElementKind::Path {
+            commands: cubic,
+            fill_rule: neoflash_core::FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.,
+        },
+        100.,
+        100.,
+    );
+    editor.history.clear();
+    let before = editor.project.clone();
+
+    // At t = 0.5, the cubic midpoint in local coordinates is (50, 75) -> stage (150, 175).
+    let mid_screen = page.min + egui::vec2(150., 175.);
+    editor.set_tool(Tool::Pen);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![egui::Event::PointerMoved(mid_screen)],
+    );
+    assert_eq!(
+        editor.shown_stage_cursor.map(|c| c.name),
+        Some("pen-add"),
+        "Pen hovering an existing path segment shows PEN_ADD"
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(mid_screen),
+            primary_button(mid_screen, true),
+            primary_button(mid_screen, false),
+        ],
+    );
+    assert!(
+        editor.vector.draft.is_none(),
+        "subdividing must not start a new draft"
+    );
+    let after_pen_split = commands(&editor);
+    assert_eq!(after_pen_split.len(), 3);
+    let split_bounds = neoflash_core::path_bounds(&after_pen_split)
+        .unwrap()
+        .unwrap();
+    assert!((split_bounds.y_max - original_bounds.y_max).abs() < 1e-4);
+    editor.project.validate().unwrap();
+    let split_once_project = editor.project.clone();
+
+    // Switch to Subselect, Alt-click the right half at u=0.75 (t=0.5 of segment 2) -> local (84.375, 56.25).
+    editor.set_tool(Tool::Subselect);
+    let right_screen = page.min + egui::vec2(184.375, 156.25);
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280., 900.),
+            )),
+            time: Some(0.3),
+            modifiers: alt,
+            events: vec![
+                egui::Event::PointerMoved(right_screen),
+                egui::Event::PointerButton {
+                    pos: right_screen,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: alt,
+                },
+                egui::Event::PointerButton {
+                    pos: right_screen,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: alt,
+                },
+            ],
+            ..Default::default()
+        },
+        |ctx| editor.stage(ctx),
+    );
+    assert_eq!(commands(&editor).len(), 4);
+    editor.project.validate().unwrap();
+    let split_twice_project = editor.project.clone();
+
+    // Newly inserted anchor is selected; delete_selected() removes ONLY that anchor, keeping the path!
+    editor.delete_selected();
+    assert!(!editor.selection.is_empty(), "path element remains selected");
+    assert_eq!(commands(&editor).len(), 3);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, split_twice_project);
+    editor.undo();
+    assert_eq!(editor.project, split_once_project);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Closed cubic contour with coincident seam anchor: deleting seam anchor keeps valid 3-vertex contour.
+    let oval_cmds = neoflash_core::oval_path_commands(80., 60., neoflash_core::OvalOptions::default());
+    let trimmed = crate::vector::delete_anchors_from_path(&oval_cmds, &[oval_cmds.len() - 2]);
+    neoflash_core::validate_path_commands(&trimmed).unwrap();
+    assert_eq!(trimmed.len(), 4);
+    assert!(matches!(trimmed.first(), Some(PathCommand::MoveTo { .. })));
+    assert!(matches!(trimmed.last(), Some(PathCommand::Close)));
+}

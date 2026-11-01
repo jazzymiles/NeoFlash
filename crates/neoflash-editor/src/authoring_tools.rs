@@ -25,6 +25,12 @@ pub(crate) struct AuthoringToolsState {
     pub eraser_mode: EraserMode,
     pub lasso_contact: bool,
     pub zoom_out: bool,
+    pub polystar_star: bool,
+    pub polystar_sides: u32,
+    pub polystar_point_size: f64,
+    pub polystar_dialog: Option<(bool, u32, f64)>,
+    pub rect_options: RectangleOptions,
+    pub oval_options: OvalOptions,
 }
 impl Default for AuthoringToolsState {
     fn default() -> Self {
@@ -35,6 +41,12 @@ impl Default for AuthoringToolsState {
             eraser_mode: EraserMode::Objects,
             lasso_contact: true,
             zoom_out: false,
+            polystar_star: false,
+            polystar_sides: 5,
+            polystar_point_size: 0.5,
+            polystar_dialog: None,
+            rect_options: RectangleOptions::default(),
+            oval_options: OvalOptions::default(),
         }
     }
 }
@@ -78,6 +90,7 @@ fn extended(tool: Tool) -> bool {
     matches!(
         tool,
         Tool::Line
+            | Tool::PolyStar
             | Tool::Brush
             | Tool::Bucket
             | Tool::Ink
@@ -349,6 +362,12 @@ impl Editor {
                     .elements;
                 if let Some(kind) = kind {
                     if let Some(element) = elements.iter_mut().find(|e| e.id == target.element) {
+                        if !matches!(
+                            kind,
+                            ElementKind::Rectangle { .. } | ElementKind::Ellipse { .. }
+                        ) {
+                            element.transform.primitive = None;
+                        }
                         element.kind = kind;
                     }
                 } else {
@@ -390,7 +409,15 @@ impl Editor {
             }
             return;
         }
-        let mut kind = hit.kind;
+        let mut kind = self
+            .target_layer_index(&hit.target)
+            .and_then(|idx| {
+                sample_layer(&self.symbol().timeline.layers[idx], self.frame)
+                    .into_iter()
+                    .find(|e| e.id == hit.target.element)
+                    .map(|e| e.kind)
+            })
+            .unwrap_or(hit.kind);
         apply_paint(
             &mut kind,
             (tool == Tool::Bucket).then_some(self.fill),
@@ -442,7 +469,8 @@ impl Editor {
                     let tool = if space { Tool::Hand } else { self.tool };
                     if !matches!(tool, Tool::Hand | Tool::Zoom | Tool::Lasso)
                         && (!page.contains(pos)
-                            || (matches!(tool, Tool::Line | Tool::Brush) && !self.layer_editable()))
+                            || (matches!(tool, Tool::Line | Tool::PolyStar | Tool::Brush)
+                                && !self.layer_editable()))
                     {
                         continue;
                     }
@@ -458,8 +486,8 @@ impl Editor {
                     }
                     self.playing = false;
                     let local = Pos2::ZERO + (pos - origin) / self.zoom;
-                    // Line ends snap to guides and grid (ST-04).
-                    let local = if tool == Tool::Line {
+                    // Line ends and PolyStar centres snap to guides, objects, grid and pixels (ST-04).
+                    let local = if matches!(tool, Tool::Line | Tool::PolyStar) {
                         Pos2::ZERO + (self.snap_screen(origin, pos) - origin) / self.zoom
                     } else {
                         local
@@ -586,10 +614,10 @@ impl Editor {
         };
         g.latest = pos;
         let mut point = g.local(pos);
-        if g.tool == Tool::Line && !g.shift {
+        if matches!(g.tool, Tool::Line | Tool::PolyStar) && !g.shift {
             point = g.local(self.snap_screen(g.origin, pos));
         }
-        if g.tool == Tool::Line && g.shift {
+        if matches!(g.tool, Tool::Line | Tool::PolyStar) && g.shift {
             let vector = point - g.points[0];
             let angle = (vector.angle() / std::f32::consts::FRAC_PI_4).round()
                 * std::f32::consts::FRAC_PI_4;
@@ -600,7 +628,7 @@ impl Editor {
                 self.pan = g.pan + (pos - g.start);
                 p.ctx().request_repaint();
             }
-            Tool::Line => {
+            Tool::Line | Tool::PolyStar => {
                 g.points.truncate(1);
                 g.points.push(point);
             }
@@ -812,6 +840,55 @@ impl Editor {
                     self.change_tool_elements(vec![(gradient.target.clone(), Some(kind))]);
                 }
             }
+            Tool::PolyStar => {
+                let Some(layer) = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|layer| layer.id == g.layer)
+                else {
+                    return;
+                };
+                self.layer = layer;
+                if !self.layer_editable() || g.points.len() < 2 {
+                    return;
+                }
+                let center = [g.points[0].x as f64, g.points[0].y as f64];
+                let outer = [g.points[1].x as f64, g.points[1].y as f64];
+                let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
+                let radius = dx.hypot(dy);
+                if radius <= (2.0 / g.zoom as f64).max(0.5) {
+                    return;
+                }
+                let angle = dy.atan2(dx);
+                let (commands, origin_xy) = polystar_path_commands(
+                    center,
+                    radius,
+                    angle,
+                    self.authoring_tools.polystar_sides,
+                    self.authoring_tools.polystar_star,
+                    self.authoring_tools.polystar_point_size,
+                );
+                if commands.len() < 3 {
+                    return;
+                }
+                self.add_element_transformed(
+                    ElementKind::Path {
+                        commands,
+                        fill_rule: FillRule::NonZero,
+                        fill: self.fill,
+                        stroke: self.stroke,
+                        stroke_width: self.stroke_width,
+                    },
+                    Transform {
+                        x: origin_xy[0],
+                        y: origin_xy[1],
+                        ..Default::default()
+                    },
+                );
+                self.tool = g.tool;
+            }
             _ => {}
         }
     }
@@ -893,6 +970,55 @@ impl Editor {
                             gradient.element_matrix,
                             matrix,
                         );
+                    }
+                }
+                Tool::PolyStar => {
+                    if g.points.len() >= 2 {
+                        let center = [g.points[0].x as f64, g.points[0].y as f64];
+                        let outer = [g.points[1].x as f64, g.points[1].y as f64];
+                        let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
+                        let radius = dx.hypot(dy);
+                        if radius > 0.5 {
+                            let (commands, origin_xy) = polystar_path_commands(
+                                center,
+                                radius,
+                                dy.atan2(dx),
+                                self.authoring_tools.polystar_sides,
+                                self.authoring_tools.polystar_star,
+                                self.authoring_tools.polystar_point_size,
+                            );
+                            let pts: Vec<Pos2> = commands
+                                .iter()
+                                .filter_map(|cmd| match *cmd {
+                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                                        Some(screen(Pos2::new(
+                                            (origin_xy[0] + x) as f32,
+                                            (origin_xy[1] + y) as f32,
+                                        )))
+                                    }
+                                    _ => None,
+                                })
+                                .collect();
+                            if pts.len() >= 3 {
+                                let stroke_color = if self.stroke[3] > 0 {
+                                    Color32::from_rgba_unmultiplied(
+                                        self.stroke[0],
+                                        self.stroke[1],
+                                        self.stroke[2],
+                                        self.stroke[3],
+                                    )
+                                } else {
+                                    palette.overlay
+                                };
+                                p.add(Shape::closed_line(
+                                    pts,
+                                    Stroke::new(
+                                        (self.stroke_width as f32 * g.zoom).max(1.5),
+                                        stroke_color,
+                                    ),
+                                ));
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1187,11 +1313,476 @@ impl Editor {
                 ),
             ),
             Tool::Line => note(ui, "Shift: 45°", None),
+            Tool::PolyStar => {
+                let kind = if self.authoring_tools.polystar_star {
+                    "Star"
+                } else {
+                    "Polygon"
+                };
+                note(
+                    ui,
+                    &format!("{kind} · {} sides", self.authoring_tools.polystar_sides),
+                    Some("Drag from centre to outer vertex. Hold Shift to snap to 45°."),
+                );
+                if ui.add(nf::Button::ghost("PolyStar settings…")).clicked() {
+                    self.open_polystar_settings();
+                }
+            }
+            Tool::Rectangle => {
+                self.live_rectangle_tool_options(ui);
+                if ui.add(nf::Button::ghost("PolyStar settings…")).clicked() {
+                    self.open_polystar_settings();
+                }
+            }
+            Tool::Ellipse => {
+                self.live_oval_tool_options(ui);
+            }
             Tool::Hand => {
                 note(ui, "Drag to pan", None);
                 note(ui, "Space: temporary", None);
             }
             _ => {}
         }
+        if matches!(
+            self.tool,
+            Tool::Select
+                | Tool::Transform
+                | Tool::Rectangle
+                | Tool::Ellipse
+                | Tool::PolyStar
+                | Tool::Line
+                | Tool::Pen
+        ) {
+            let snap_on = self.stage_view.prefs.objects_snap;
+            let btn = ui.add(
+                nf::IconButton::new(neoflash_ui::icons::i20::TOOL_SNAP, "Snap to objects")
+                    .selected(snap_on),
+            );
+            if btn.clicked() {
+                self.toggle_object_snap();
+            }
+        }
     }
+
+    /// Open the NF2 `PolyStar tool settings` modal seeded from current PolyStar tool state.
+    pub(crate) fn open_polystar_settings(&mut self) {
+        self.authoring_tools.polystar_dialog = Some((
+            self.authoring_tools.polystar_star,
+            self.authoring_tools.polystar_sides.clamp(3, 32),
+            self.authoring_tools.polystar_point_size.clamp(0.05, 0.95),
+        ));
+    }
+
+    /// Render the NF2 `PolyStar tool settings` modal dialog when open.
+    pub(crate) fn polystar_settings_modal(&mut self, ctx: &egui::Context) {
+        let Some((mut star, mut sides, mut point_size)) = self.authoring_tools.polystar_dialog
+        else {
+            return;
+        };
+        use neoflash_ui::{
+            components as c,
+            tokens::{TextStyle, radius, space},
+            typography::rich,
+        };
+        let mut accept = false;
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::new("nf2-polystar-settings"))
+            .frame(c::Surface::Dialog.frame(ctx))
+            .show(ctx, |ui| {
+                ui.set_width(400.0);
+                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                cancel |= c::DialogHeader {
+                    title: "PolyStar tool settings",
+                }
+                .show(ui);
+                let nf = neoflash_ui::palette(ui.ctx());
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 20.0;
+                    let (frame, _) =
+                        ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
+                    ui.painter().rect_filled(
+                        frame,
+                        egui::CornerRadius::same(radius::LG as u8),
+                        nf.bg_canvas,
+                    );
+                    let center = frame.center();
+                    let count = if star { sides * 2 } else { sides } as usize;
+                    let inner_r = 45.0 * (point_size.clamp(0.05, 0.95) as f32);
+                    let points: Vec<Pos2> = (0..count)
+                        .map(|i| {
+                            let a = -std::f32::consts::FRAC_PI_2
+                                + (i as f32) * std::f32::consts::TAU / (count as f32);
+                            let r = if star && i % 2 == 1 { inner_r } else { 45.0 };
+                            center + egui::vec2(a.cos(), a.sin()) * r
+                        })
+                        .collect();
+                    let fill = if self.fill[3] > 0 {
+                        Color32::from_rgba_unmultiplied(
+                            self.fill[0],
+                            self.fill[1],
+                            self.fill[2],
+                            self.fill[3],
+                        )
+                    } else {
+                        nf.accent_default
+                    };
+                    let stroke = if self.stroke[3] > 0 {
+                        Color32::from_rgba_unmultiplied(
+                            self.stroke[0],
+                            self.stroke[1],
+                            self.stroke[2],
+                            self.stroke[3],
+                        )
+                    } else {
+                        nf.text_primary
+                    };
+                    for i in 0..points.len() {
+                        ui.painter().add(Shape::convex_polygon(
+                            vec![center, points[i], points[(i + 1) % points.len()]],
+                            fill,
+                            Stroke::NONE,
+                        ));
+                    }
+                    ui.painter()
+                        .add(Shape::closed_line(points, Stroke::new(2.0_f32, stroke)));
+
+                    ui.vertical(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.spacing_mut().item_spacing.y = 10.0;
+                        let w = ui.available_width();
+                        c::Select::options(
+                            ui,
+                            "polystar-style",
+                            &mut star,
+                            &[(false, "Style: Polygon"), (true, "Style: Star")],
+                            w,
+                        );
+                        let mut sides_f = f64::from(sides);
+                        if ui
+                            .add(
+                                c::Field::new(&mut sides_f, "Sides")
+                                    .prefix("Sides")
+                                    .range(3.0..=32.0)
+                                    .decimals(0)
+                                    .stepper()
+                                    .width(w),
+                            )
+                            .changed()
+                        {
+                            sides = (sides_f.round() as u32).clamp(3, 32);
+                        }
+                        ui.add_enabled(
+                            star,
+                            c::Field::new(&mut point_size, "Point size")
+                                .prefix("Point size")
+                                .range(0.05..=0.95)
+                                .decimals(2)
+                                .stepper()
+                                .width(w),
+                        );
+                        ui.label(
+                            rich(
+                                "Point size 0–1: smaller = sharper points",
+                                TextStyle::Small,
+                            )
+                            .color(nf.text_tertiary),
+                        );
+                    });
+                });
+                ui.add_space(space::S2);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(c::Button::primary("OK")).clicked() {
+                        accept = true;
+                    }
+                    if ui.add(c::Button::new("Cancel")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            accept = true;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if accept {
+            self.authoring_tools.polystar_star = star;
+            self.authoring_tools.polystar_sides = sides.clamp(3, 32);
+            self.authoring_tools.polystar_point_size = point_size.clamp(0.05, 0.95);
+            self.authoring_tools.polystar_dialog = None;
+            self.set_tool(Tool::PolyStar);
+        } else if cancel {
+            self.authoring_tools.polystar_dialog = None;
+        } else {
+            self.authoring_tools.polystar_dialog = Some((star, sides, point_size));
+        }
+    }
+
+    /// 2-line hook for `panels/properties.rs`: renders NF2 `Rectangle options` or `Oval options`
+    /// for a selected `Rectangle` or `Ellipse`, returning `Some(control_id)` when `element` changed.
+    #[allow(dead_code)]
+    pub(crate) fn primitive_options_properties_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        element: &mut Element,
+    ) -> Option<egui::Id> {
+        use neoflash_ui::components as c;
+        match &element.kind {
+            ElementKind::Rectangle { .. } => {
+                let mut opts = element.rectangle_options();
+                let mut changed = None;
+                c::SectionHeader::new("Rectangle options")
+                    .id_salt(("primitive-rect-options", &element.id))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        changed = rectangle_options_widgets(ui, &mut opts);
+                    });
+                if changed.is_some() {
+                    element.set_rectangle_options(opts);
+                    self.authoring_tools.rect_options = opts;
+                }
+                changed
+            }
+            ElementKind::Ellipse { .. } => {
+                let mut opts = element.oval_options();
+                let mut changed = None;
+                c::SectionHeader::new("Oval options")
+                    .id_salt(("primitive-oval-options", &element.id))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        changed = oval_options_widgets(ui, &mut opts);
+                    });
+                if changed.is_some() {
+                    element.set_oval_options(opts);
+                    self.authoring_tools.oval_options = opts;
+                }
+                changed
+            }
+            _ => None,
+        }
+    }
+
+    fn live_rectangle_tool_options(&mut self, ui: &mut egui::Ui) {
+        let selected_rect = self
+            .selection
+            .single()
+            .filter(|t| self.target_editable(t))
+            .cloned()
+            .and_then(|target| {
+                let el = self.selected_sampled()?;
+                matches!(el.kind, ElementKind::Rectangle { .. })
+                    .then(|| (target, el.rectangle_options()))
+            });
+        let mut opts = selected_rect
+            .as_ref()
+            .map(|(_, o)| *o)
+            .unwrap_or(self.authoring_tools.rect_options);
+        if let Some(control) = rectangle_options_widgets(ui, &mut opts) {
+            self.authoring_tools.rect_options = opts;
+            if let Some((target, _)) = selected_rect {
+                let scope = egui::Id::new("tool-rect-primitive-options");
+                self.begin_property_edit(scope, control);
+                self.ensure_key_for(&target.layer, false);
+                if let Some(layer_idx) = self.target_layer_index(&target) {
+                    let frame = self.frame;
+                    if let Some(el) = self.symbol_mut().timeline.layers[layer_idx]
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                    {
+                        el.set_rectangle_options(opts);
+                    }
+                    self.project.upgrade_format_for_features();
+                }
+            }
+        }
+    }
+
+    fn live_oval_tool_options(&mut self, ui: &mut egui::Ui) {
+        let selected_oval = self
+            .selection
+            .single()
+            .filter(|t| self.target_editable(t))
+            .cloned()
+            .and_then(|target| {
+                let el = self.selected_sampled()?;
+                matches!(el.kind, ElementKind::Ellipse { .. }).then(|| (target, el.oval_options()))
+            });
+        let mut opts = selected_oval
+            .as_ref()
+            .map(|(_, o)| *o)
+            .unwrap_or(self.authoring_tools.oval_options);
+        if let Some(control) = oval_options_widgets(ui, &mut opts) {
+            self.authoring_tools.oval_options = opts;
+            if let Some((target, _)) = selected_oval {
+                let scope = egui::Id::new("tool-oval-primitive-options");
+                self.begin_property_edit(scope, control);
+                self.ensure_key_for(&target.layer, false);
+                if let Some(layer_idx) = self.target_layer_index(&target) {
+                    let frame = self.frame;
+                    if let Some(el) = self.symbol_mut().timeline.layers[layer_idx]
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                    {
+                        el.set_oval_options(opts);
+                    }
+                    self.project.upgrade_format_for_features();
+                }
+            }
+        }
+    }
+}
+
+fn rectangle_options_widgets(
+    ui: &mut egui::Ui,
+    opts: &mut RectangleOptions,
+) -> Option<egui::Id> {
+    use neoflash_ui::{components as c, icons::i16, tokens::space};
+    let mut changed = None;
+    let w = ((ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0).max(56.0);
+    let mut r = opts.corner_radii;
+    let mut edited_corner = None;
+    ui.horizontal(|ui| {
+        let tl = ui.add(
+            c::Field::new(&mut r[0], "Top-left radius")
+                .prefix("↖")
+                .range(0.0..=500.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if tl.changed() {
+            edited_corner = Some((0, tl.id));
+        }
+        let tr = ui.add(
+            c::Field::new(&mut r[1], "Top-right radius")
+                .prefix("↗")
+                .range(0.0..=500.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if tr.changed() {
+            edited_corner = Some((1, tr.id));
+        }
+        let link = ui.add(
+            c::IconButton::new(i16::LINK, "Lock corners").selected(opts.corners_locked),
+        );
+        if link.clicked() {
+            opts.corners_locked = !opts.corners_locked;
+            if opts.corners_locked {
+                r = [r[0]; 4];
+            }
+            changed = Some(link.id);
+        }
+    });
+    ui.horizontal(|ui| {
+        let bl = ui.add(
+            c::Field::new(&mut r[3], "Bottom-left radius")
+                .prefix("↙")
+                .range(0.0..=500.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if bl.changed() {
+            edited_corner = Some((3, bl.id));
+        }
+        let br = ui.add(
+            c::Field::new(&mut r[2], "Bottom-right radius")
+                .prefix("↘")
+                .range(0.0..=500.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if br.changed() {
+            edited_corner = Some((2, br.id));
+        }
+    });
+    if let Some((idx, id)) = edited_corner {
+        let v = r[idx].clamp(0.0, 500.0);
+        if opts.corners_locked {
+            r = [v; 4];
+        } else {
+            r[idx] = v;
+        }
+        changed = Some(id);
+    }
+    let mut slider_val = r[0].clamp(0.0, 100.0);
+    let slider = ui.add(
+        c::Slider::new(&mut slider_val, 0.0..=100.0, "Corner radius").width(2.0 * w + space::S2),
+    );
+    if slider.changed() {
+        r = [slider_val; 4];
+        changed = Some(slider.id);
+    }
+    opts.corner_radii = r;
+    let reset = ui.add(c::Button::ghost("Reset"));
+    if reset.clicked() && !opts.is_default() {
+        *opts = RectangleOptions::default();
+        changed = Some(reset.id);
+    }
+    changed
+}
+
+fn oval_options_widgets(ui: &mut egui::Ui, opts: &mut OvalOptions) -> Option<egui::Id> {
+    use neoflash_ui::{components as c, icons::i16, tokens::space};
+    let mut changed = None;
+    let w = ((ui.available_width() - space::S2) / 2.0).max(64.0);
+    ui.horizontal(|ui| {
+        let s = ui.add(
+            c::Field::new(&mut opts.start_angle, "Start")
+                .prefix("Start")
+                .unit("°")
+                .range(0.0..=360.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if s.changed() {
+            opts.start_angle = opts.start_angle.clamp(0.0, 360.0);
+            changed = Some(s.id);
+        }
+        let e = ui.add(
+            c::Field::new(&mut opts.end_angle, "End")
+                .prefix("End")
+                .unit("°")
+                .range(0.0..=360.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if e.changed() {
+            opts.end_angle = opts.end_angle.clamp(0.0, 360.0);
+            changed = Some(e.id);
+        }
+    });
+    ui.horizontal(|ui| {
+        let inner = ui.add(
+            c::Field::new(&mut opts.inner_radius, "Inner")
+                .prefix("Inner")
+                .unit("%")
+                .range(0.0..=99.0)
+                .decimals(0)
+                .stepper()
+                .width(w),
+        );
+        if inner.changed() {
+            opts.inner_radius = opts.inner_radius.clamp(0.0, 99.0);
+            changed = Some(inner.id);
+        }
+        let close = ui.add(c::Checkbox::new(&mut opts.close_path, "Close path"));
+        if close.changed() {
+            changed = Some(close.id);
+        }
+    });
+    let reset = ui.add(c::Button::ghost("Reset").icon(i16::RESET_TRANSFORM));
+    if reset.clicked() && !opts.is_default() {
+        *opts = OvalOptions::default();
+        changed = Some(reset.id);
+    }
+    changed
 }

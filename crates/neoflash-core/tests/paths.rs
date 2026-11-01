@@ -396,3 +396,77 @@ fn invalid_path_geometry_is_rejected_on_document_load() {
     let json = serde_json::to_string(&project).unwrap();
     assert!(Project::from_json(&json).is_err());
 }
+
+#[test]
+fn polystar_and_de_casteljau_subdivision_preserve_exact_curve_geometry() {
+    let (star_cmds, star_min) = polystar_path_commands([0., 0.], 40., 0., 5, true, 0.5);
+    validate_path_commands(&star_cmds).unwrap();
+    // 5-point star = 10 vertices: MoveTo + 9 LineTo + Close = 11 commands.
+    assert_eq!(star_cmds.len(), 11);
+    assert!(matches!(star_cmds.last(), Some(PathCommand::Close)));
+    let star_bounds = path_bounds(&star_cmds).unwrap().unwrap();
+    assert!(star_bounds.x_min >= -1e-6 && star_bounds.y_min >= -1e-6);
+    assert!(star_min[0] < 0. && star_min[1] < 0.);
+
+    let (hex_cmds, _) = polystar_path_commands([0., 0.], 30., 0., 6, false, 0.5);
+    validate_path_commands(&hex_cmds).unwrap();
+    assert_eq!(hex_cmds.len(), 7);
+
+    // De Casteljau subdivision must preserve curve bounds and locus on Line, Quadratic, Cubic, Close.
+    let curves = [
+        vec![
+            PathCommand::MoveTo { x: 10., y: 20. },
+            PathCommand::LineTo { x: 110., y: 70. },
+        ],
+        vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::QuadraticTo {
+                cx: 40.,
+                cy: 120.,
+                x: 100.,
+                y: 10.,
+            },
+        ],
+        vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::CubicTo {
+                cx1: 20.,
+                cy1: 110.,
+                cx2: 80.,
+                cy2: -50.,
+                x: 120.,
+                y: 40.,
+            },
+        ],
+        vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::LineTo { x: 80., y: 0. },
+            PathCommand::LineTo { x: 80., y: 60. },
+            PathCommand::Close,
+        ],
+    ];
+    for cmds in curves {
+        let target_idx = cmds.len() - 1;
+        let before_bounds = path_bounds(&cmds).unwrap().unwrap();
+        let (split, inserted) = subdivide_path_at(&cmds, target_idx, 0.37).unwrap();
+        assert_eq!(inserted, target_idx);
+        validate_path_commands(&split).unwrap();
+        let after_bounds = path_bounds(&split).unwrap().unwrap();
+        assert!((before_bounds.x_min - after_bounds.x_min).abs() < 1e-6);
+        assert!((before_bounds.y_min - after_bounds.y_min).abs() < 1e-6);
+        assert!((before_bounds.x_max - after_bounds.x_max).abs() < 1e-6);
+        assert!((before_bounds.y_max - after_bounds.y_max).abs() < 1e-6);
+
+        // Every flattened point of the subdivided curve must lie within 1e-4 of the original curve.
+        let fine = FlattenOptions {
+            tolerance: 0.005,
+            ..Default::default()
+        };
+        for contour in flatten_path(&split, fine).unwrap() {
+            for pt in contour.points {
+                let (_, _, _, dist) = nearest_path_segment(&cmds, pt).unwrap();
+                assert!(dist < 0.05, "subdivided point {pt:?} drifted by {dist}");
+            }
+        }
+    }
+}

@@ -25,6 +25,7 @@ pub enum Tool {
     Hand,
     Zoom,
     Gradient,
+    PolyStar,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BottomTab {
@@ -447,7 +448,7 @@ impl Editor {
                 ElementKind::Video { .. } => "video",
             };
             let name = format!("{name}_{}", id.rsplit('-').next().unwrap_or("1"));
-            let element = Element {
+            let mut element = Element {
                 accessibility: None,
                 id: id.clone(),
                 name,
@@ -455,6 +456,9 @@ impl Editor {
                 kind,
                 scripts: vec![],
             };
+            if s.apply_drawing_gradients_to_element(&mut element) {
+                s.project.format_version = s.project.format_version.max(5);
+            }
             let layer = s.layer;
             let frame = s.frame;
             s.symbol_mut().timeline.layers[layer]

@@ -12,14 +12,41 @@ use neoflash_core::*;
 use neoflash_ui::{
     Icon, TextStyle,
     components::{
-        Button, ColorWell, ColorWellTarget, DragField, IconButton, IconGroup, MenuItem,
-        SectionHeader, Segmented, Select,
+        Button, Checkbox, ColorField, ColorPicker, ColorWell, ColorWellTarget, DragField, Field,
+        GradientBar, IconButton, IconGroup, MenuItem, SectionHeader, Segmented, Select,
+        color_picker::{Hsb, hsv},
     },
-    icons::i16,
+    icons::{i16, i20},
     tokens::space,
     typography::rich,
 };
 use std::collections::{HashMap, HashSet};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PaintFillType {
+    None,
+    Solid,
+    LinearGradient,
+    RadialGradient,
+}
+
+impl PaintFillType {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Solid => "Solid colour",
+            Self::LinearGradient => "Linear gradient",
+            Self::RadialGradient => "Radial gradient",
+        }
+    }
+}
+
+/// Entry-point names retained for menu coverage while `ColorGradient` is now live in `PanelId::Color`.
+#[allow(dead_code)]
+const LEGACY_COLOR_GRADIENT_ENTRIES: [&str; 2] = [
+    "Color fill type ▸ Linear gradient",
+    "Color fill type ▸ Radial gradient",
+];
 
 pub(crate) struct AuthoringModify {
     pub to_stage: bool,
@@ -27,6 +54,12 @@ pub(crate) struct AuthoringModify {
     pub vertical_gap: f64,
     pub linked_scale: bool,
     pub color_selection: bool,
+    pub color_model_hsb: bool,
+    pub selected_stop: usize,
+    pub drawing_fill_gradient: Option<GradientPaint>,
+    pub drawing_stroke_gradient: Option<GradientPaint>,
+    /// Transient world-space transformation point for a multi-selection in Free Transform.
+    pub group_pivot: Option<(Vec<SelectionTarget>, [f64; 2])>,
 }
 impl Default for AuthoringModify {
     fn default() -> Self {
@@ -36,6 +69,11 @@ impl Default for AuthoringModify {
             vertical_gap: 16.,
             linked_scale: true,
             color_selection: true,
+            color_model_hsb: false,
+            selected_stop: 0,
+            drawing_fill_gradient: None,
+            drawing_stroke_gradient: None,
+            group_pivot: None,
         }
     }
 }
@@ -150,7 +188,10 @@ impl Editor {
             let Some(index) = self.target_layer_index(&target) else {
                 continue;
             };
-            if element.transform.skew != 0. || !element.transform.color_transform.is_identity() {
+            if element.transform.skew != 0.
+                || !element.transform.color_transform.is_identity()
+                || matches!(element.kind, ElementKind::PaintedPath { .. })
+            {
                 self.project.format_version = self.project.format_version.max(5);
             }
             let frame = self.frame;
@@ -499,59 +540,103 @@ impl Editor {
             return;
         }
         let mut replacements = Vec::new();
+        let mut expanded_instance = false;
         for (target, instance) in selected {
-            let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
-                self.message("Break Apart currently supports static symbol instances. Text and bitmap conversion are separate operations.");
-                return;
-            };
-            if !self.target_editable(&target)
-                || !instance.scripts.is_empty()
-                || instance.accessibility.is_some()
-            {
-                self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
-                return;
-            }
-            let Some(symbol) = self.project.symbol(symbol_id) else {
-                return;
-            };
-            if symbol.timeline.frame_count != 1
-                || !symbol.timeline.scripts.is_empty()
-                || symbol
-                    .timeline
-                    .layers
-                    .iter()
-                    .any(|l| !l.visible || l.locked || l.properties != LayerProperties::default())
-                || contains_scripts(&self.project, symbol_id, &mut HashSet::new())
-            {
-                self.message("Break Apart requires a static symbol without scripts, hidden/locked layers, guides or masks. These would lose behavior when flattened.");
-                return;
-            }
-            let parent = instance.transform;
-            let mut children = Vec::new();
-            for layer in &symbol.timeline.layers {
-                for mut child in sample_layer(layer, 0) {
-                    let Some(mut transform) =
-                        affine_transform(child.transform, transform_matrix(parent))
-                    else {
-                        self.message("Break Apart would exceed transform limits.");
-                        return;
-                    };
-                    transform.alpha = 1.;
-                    transform.color_transform = child
-                        .transform
-                        .color_transform
-                        .with_alpha(child.transform.alpha)
-                        .then(parent.color_transform.with_alpha(parent.alpha));
-                    if transform.color_transform.validate().is_err() {
-                        self.message("Break Apart cannot preserve this combined color transform within document limits.");
+            match &instance.kind {
+                ElementKind::Rectangle {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Ellipse {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                } => {
+                    if !self.target_editable(&target) {
+                        self.message("This layer is locked or hidden.");
                         return;
                     }
-                    child.transform = transform;
-                    child.id = new_id("object");
-                    children.push(child);
+                    let (commands, fill_rule) = instance.to_path_commands().unwrap_or_else(|| {
+                        (
+                            rectangle_path_commands(0.0, 0.0, RectangleOptions::default()),
+                            FillRule::NonZero,
+                        )
+                    });
+                    let effective_fill = if matches!(instance.kind, ElementKind::Ellipse { .. })
+                        && !instance.oval_options().close_path
+                    {
+                        [0, 0, 0, 0]
+                    } else {
+                        *fill
+                    };
+                    let mut broken = instance.clone();
+                    broken.transform.primitive = None;
+                    broken.kind = ElementKind::Path {
+                        commands,
+                        fill_rule,
+                        fill: effective_fill,
+                        stroke: *stroke,
+                        stroke_width: *stroke_width,
+                    };
+                    replacements.push((target, vec![broken]));
+                }
+                ElementKind::Instance { symbol_id, .. } => {
+                    if !self.target_editable(&target)
+                        || !instance.scripts.is_empty()
+                        || instance.accessibility.is_some()
+                    {
+                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
+                        return;
+                    }
+                    let Some(symbol) = self.project.symbol(symbol_id) else {
+                        return;
+                    };
+                    if symbol.timeline.frame_count != 1
+                        || !symbol.timeline.scripts.is_empty()
+                        || symbol.timeline.layers.iter().any(|l| {
+                            !l.visible || l.locked || l.properties != LayerProperties::default()
+                        })
+                        || contains_scripts(&self.project, symbol_id, &mut HashSet::new())
+                    {
+                        self.message("Break Apart requires a static symbol without scripts, hidden/locked layers, guides or masks. These would lose behavior when flattened.");
+                        return;
+                    }
+                    let parent = instance.transform;
+                    let mut children = Vec::new();
+                    for layer in &symbol.timeline.layers {
+                        for mut child in sample_layer(layer, 0) {
+                            let Some(mut transform) =
+                                affine_transform(child.transform, transform_matrix(parent))
+                            else {
+                                self.message("Break Apart would exceed transform limits.");
+                                return;
+                            };
+                            transform.alpha = 1.;
+                            transform.color_transform = child
+                                .transform
+                                .color_transform
+                                .with_alpha(child.transform.alpha)
+                                .then(parent.color_transform.with_alpha(parent.alpha));
+                            if transform.color_transform.validate().is_err() {
+                                self.message("Break Apart cannot preserve this combined color transform within document limits.");
+                                return;
+                            }
+                            child.transform = transform;
+                            child.id = new_id("object");
+                            children.push(child);
+                        }
+                    }
+                    expanded_instance = true;
+                    replacements.push((target, children));
+                }
+                _ => {
+                    self.message("Break Apart currently supports static symbol instances and Rectangle/Oval shapes. Text and bitmap conversion are separate operations.");
+                    return;
                 }
             }
-            replacements.push((target, children));
         }
         self.playing = false;
         self.transact(|editor| {
@@ -573,7 +658,9 @@ impl Editor {
                 }
             }
             editor.prune_authoring_groups();
-            editor.project.format_version = editor.project.format_version.max(5);
+            if expanded_instance {
+                editor.project.format_version = editor.project.format_version.max(5);
+            }
             editor.set_selection(selection);
         });
     }
@@ -1033,6 +1120,276 @@ impl Editor {
             .show(ui, |ui| self.color_panel_contents(ui));
     }
 
+    pub(crate) fn apply_drawing_gradients_to_element(&self, element: &mut Element) -> bool {
+        if self.authoring_modify.drawing_fill_gradient.is_none()
+            && self.authoring_modify.drawing_stroke_gradient.is_none()
+        {
+            return false;
+        }
+        let Some((commands, fill_rule)) = element.to_path_commands() else {
+            return false;
+        };
+        let Some((fill, stroke, stroke_width, _)) = paints(&element.kind) else {
+            return false;
+        };
+        let matrix = default_gradient_matrix(&commands);
+        let fill_gradient =
+            self.authoring_modify
+                .drawing_fill_gradient
+                .clone()
+                .map(|mut paint| {
+                    paint.matrix = matrix;
+                    paint
+                });
+        let stroke_gradient =
+            self.authoring_modify
+                .drawing_stroke_gradient
+                .clone()
+                .map(|mut paint| {
+                    paint.matrix = matrix;
+                    paint
+                });
+        let effective_fill = if matches!(element.kind, ElementKind::Ellipse { .. })
+            && !element.oval_options().close_path
+        {
+            [0, 0, 0, 0]
+        } else {
+            fill
+        };
+        element.transform.primitive = None;
+        element.kind = ElementKind::PaintedPath {
+            commands,
+            fill_rule: fill_rule,
+            fill: if effective_fill == [0, 0, 0, 0] && fill_gradient.is_none() {
+                effective_fill
+            } else {
+                fill
+            },
+            stroke,
+            fill_gradient: if effective_fill == [0, 0, 0, 0] {
+                None
+            } else {
+                fill_gradient
+            },
+            stroke_gradient,
+            stroke_width,
+        };
+        true
+    }
+
+    pub(crate) fn set_selection_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
+        if !self.authoring_modify.color_selection {
+            self.set_drawing_fill_type(stroke_well, mode);
+            return;
+        }
+        let targets: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .collect();
+        let changes: Vec<_> = targets
+            .into_iter()
+            .filter_map(|(target, mut element)| {
+                set_element_fill_type(&mut element, stroke_well, mode)
+                    .then_some((target, element))
+            })
+            .collect();
+        self.apply_modified(changes, None);
+    }
+
+    pub(crate) fn set_drawing_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
+        let (color, grad) = if stroke_well {
+            (
+                &mut self.stroke,
+                &mut self.authoring_modify.drawing_stroke_gradient,
+            )
+        } else {
+            (
+                &mut self.fill,
+                &mut self.authoring_modify.drawing_fill_gradient,
+            )
+        };
+        match mode {
+            PaintFillType::None => {
+                color[3] = 0;
+                *grad = None;
+            }
+            PaintFillType::Solid => {
+                if color[3] == 0 {
+                    color[3] = 255;
+                }
+                *grad = None;
+            }
+            PaintFillType::LinearGradient | PaintFillType::RadialGradient => {
+                let kind = if mode == PaintFillType::LinearGradient {
+                    GradientKind::Linear
+                } else {
+                    GradientKind::Radial
+                };
+                if color[3] == 0 {
+                    *color = if stroke_well {
+                        [0, 0, 0, 255]
+                    } else {
+                        [255, 255, 255, 255]
+                    };
+                }
+                if let Some(existing) = grad {
+                    existing.kind = kind;
+                } else {
+                    let box_cmds = rectangle_path_commands(100.0, 100.0, RectangleOptions::default());
+                    *grad = Some(default_gradient_paint(kind, *color, &box_cmds));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn set_selection_gradient_stops(
+        &mut self,
+        stroke_well: bool,
+        stops: Vec<GradientStop>,
+        control: Option<egui::Id>,
+    ) {
+        let normalized = normalize_gradient_stops(stops);
+        if normalized.is_empty() {
+            return;
+        }
+        if !self.authoring_modify.color_selection {
+            let (color, grad) = if stroke_well {
+                (
+                    &mut self.stroke,
+                    &mut self.authoring_modify.drawing_stroke_gradient,
+                )
+            } else {
+                (
+                    &mut self.fill,
+                    &mut self.authoring_modify.drawing_fill_gradient,
+                )
+            };
+            if let Some(paint) = grad {
+                paint.stops = normalized.clone();
+                *color = normalized[0].color;
+            }
+            return;
+        }
+        let targets: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .collect();
+        let changes: Vec<_> = targets
+            .into_iter()
+            .filter_map(|(target, mut element)| {
+                if let ElementKind::PaintedPath {
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } = &mut element.kind
+                {
+                    let (base, slot) = if stroke_well {
+                        (stroke, stroke_gradient)
+                    } else {
+                        (fill, fill_gradient)
+                    };
+                    if let Some(paint) = slot
+                        && paint.stops != normalized
+                    {
+                        paint.stops = normalized.clone();
+                        *base = normalized[0].color;
+                        return Some((target, element));
+                    }
+                }
+                None
+            })
+            .collect();
+        self.apply_modified(changes, control);
+    }
+
+    pub(crate) fn swap_active_paints(&mut self) {
+        if !self.authoring_modify.color_selection {
+            std::mem::swap(&mut self.fill, &mut self.stroke);
+            std::mem::swap(
+                &mut self.authoring_modify.drawing_fill_gradient,
+                &mut self.authoring_modify.drawing_stroke_gradient,
+            );
+            return;
+        }
+        let changes: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .filter_map(|(target, mut element)| {
+                match &mut element.kind {
+                    ElementKind::Rectangle { fill, stroke, .. }
+                    | ElementKind::Ellipse { fill, stroke, .. }
+                    | ElementKind::Path { fill, stroke, .. } => {
+                        std::mem::swap(fill, stroke);
+                        Some((target, element))
+                    }
+                    ElementKind::PaintedPath {
+                        fill,
+                        stroke,
+                        fill_gradient,
+                        stroke_gradient,
+                        ..
+                    } => {
+                        std::mem::swap(fill, stroke);
+                        std::mem::swap(fill_gradient, stroke_gradient);
+                        Some((target, element))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        self.apply_modified(changes, None);
+    }
+
+    pub(crate) fn reset_default_paints(&mut self) {
+        if !self.authoring_modify.color_selection {
+            self.fill = [255, 255, 255, 255];
+            self.stroke = [0, 0, 0, 255];
+            self.authoring_modify.drawing_fill_gradient = None;
+            self.authoring_modify.drawing_stroke_gradient = None;
+            return;
+        }
+        let changes: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .filter_map(|(target, mut element)| {
+                match &mut element.kind {
+                    ElementKind::Rectangle { fill, stroke, .. }
+                    | ElementKind::Ellipse { fill, stroke, .. }
+                    | ElementKind::Path { fill, stroke, .. } => {
+                        *fill = [255, 255, 255, 255];
+                        *stroke = [0, 0, 0, 255];
+                        Some((target, element))
+                    }
+                    ElementKind::PaintedPath {
+                        fill,
+                        stroke,
+                        fill_gradient,
+                        stroke_gradient,
+                        ..
+                    } => {
+                        *fill = [255, 255, 255, 255];
+                        *stroke = [0, 0, 0, 255];
+                        *fill_gradient = None;
+                        *stroke_gradient = None;
+                        Some((target, element))
+                    }
+                    ElementKind::Text { color, .. } => {
+                        *color = [0, 0, 0, 255];
+                        Some((target, element))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        self.apply_modified(changes, None);
+    }
+
     fn color_panel_contents(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = space::S2;
         let p = neoflash_ui::palette(ui.ctx());
@@ -1065,155 +1422,669 @@ impl Editor {
         let active_id = egui::Id::new("color-panel-active-stroke");
         let mut stroke_active = ui.data(|d| d.get_temp::<bool>(active_id).unwrap_or(false));
         if !self.authoring_modify.color_selection {
-            color_wells(ui, &mut stroke_active, self.fill, self.stroke, true);
+            let fill_grad = self.authoring_modify.drawing_fill_gradient.clone();
+            let stroke_grad = self.authoring_modify.drawing_stroke_gradient.clone();
+            let action = color_wells_and_actions(
+                ui,
+                &mut stroke_active,
+                self.fill,
+                fill_grad.as_ref(),
+                self.stroke,
+                stroke_grad.as_ref(),
+                true,
+            );
             ui.data_mut(|d| d.insert_temp(active_id, stroke_active));
-            fill_type_select(ui);
-            if stroke_active {
-                paint_row(ui, "drawing-stroke", "Stroke", &mut self.stroke);
-            } else {
-                paint_row(ui, "drawing-fill", "Fill", &mut self.fill);
+            match action {
+                Some(WellAction::Swap) => {
+                    self.swap_active_paints();
+                    return;
+                }
+                Some(WellAction::NoColor) => {
+                    self.set_drawing_fill_type(stroke_active, PaintFillType::None);
+                    return;
+                }
+                Some(WellAction::DefaultBlackWhite) => {
+                    self.reset_default_paints();
+                    return;
+                }
+                None => {}
             }
-            overline(ui, "Stroke");
-            numeric_row(ui, "Width", &mut self.stroke_width, 0. ..=100., 0.25);
+            let active_color = if stroke_active { self.stroke } else { self.fill };
+            let active_grad = if stroke_active {
+                self.authoring_modify.drawing_stroke_gradient.clone()
+            } else {
+                self.authoring_modify.drawing_fill_gradient.clone()
+            };
+            let current_mode = classify_fill_type(active_color, active_grad.as_ref());
+            if let Some(new_mode) = fill_type_select(ui, current_mode, true) {
+                self.set_drawing_fill_type(stroke_active, new_mode);
+                return;
+            }
+            if let Some(mut grad) = active_grad {
+                flow_row(ui);
+                let stop_count = grad.stops.len().max(1);
+                if self.authoring_modify.selected_stop >= stop_count {
+                    self.authoring_modify.selected_stop = stop_count - 1;
+                }
+                let mut stop_color = grad.stops[self.authoring_modify.selected_stop].color;
+                let mixer_key = egui::Id::new((
+                    "drawing-grad-hsb",
+                    stroke_active,
+                    self.authoring_modify.selected_stop,
+                ));
+                if color_mixer_ui(
+                    ui,
+                    mixer_key,
+                    if stroke_active {
+                        "Stroke colour"
+                    } else {
+                        "Fill colour"
+                    },
+                    &mut stop_color,
+                    &mut self.authoring_modify.color_model_hsb,
+                )
+                .is_some()
+                {
+                    grad.stops[self.authoring_modify.selected_stop].color = stop_color;
+                    self.set_selection_gradient_stops(stroke_active, grad.stops.clone(), None);
+                }
+                if gradient_stops_bar_ui(
+                    ui,
+                    &mut grad.stops,
+                    &mut self.authoring_modify.selected_stop,
+                )
+                .is_some()
+                {
+                    self.set_selection_gradient_stops(stroke_active, grad.stops, None);
+                }
+            } else {
+                let target_color = if stroke_active {
+                    &mut self.stroke
+                } else {
+                    &mut self.fill
+                };
+                let mixer_key = egui::Id::new(("drawing-solid-hsb", stroke_active));
+                let _ = color_mixer_ui(
+                    ui,
+                    mixer_key,
+                    if stroke_active {
+                        "Stroke colour"
+                    } else {
+                        "Fill colour"
+                    },
+                    target_color,
+                    &mut self.authoring_modify.color_model_hsb,
+                );
+            }
+            let _ = stroke_section_ui(ui, &mut self.stroke_width, false);
             return;
         }
+
         let values: Vec<_> = targets
             .iter()
-            .filter_map(|(_, e)| paints(&e.kind))
+            .filter_map(|(_, e)| paints_with_gradients(&e.kind))
             .collect();
-        let Some(&(fill, mut stroke, mut width, _)) = values.first() else {
+        let Some(first) = values.first().cloned() else {
             crate::panels::properties::hint(
                 ui,
                 "Select a shape, path or text object; use Drawing for tool colors.",
             );
             return;
         };
-        let supports_stroke = values.iter().any(|value| value.3);
-        if let Some(value) = values.iter().find(|value| value.3) {
-            stroke = value.1;
-            width = value.2;
+        let fill = first.fill;
+        let fill_grad = first.fill_gradient.clone();
+        let mut stroke = first.stroke;
+        let mut stroke_grad = first.stroke_gradient.clone();
+        let mut width = first.stroke_width;
+        let supports_stroke = values.iter().any(|value| value.supports_stroke);
+        let supports_gradient = targets.iter().any(|(_, e)| {
+            matches!(
+                e.kind,
+                ElementKind::Rectangle { .. }
+                    | ElementKind::Ellipse { .. }
+                    | ElementKind::Path { .. }
+                    | ElementKind::PaintedPath { .. }
+            )
+        });
+        if let Some(value) = values.iter().find(|value| value.supports_stroke) {
+            stroke = value.stroke;
+            stroke_grad = value.stroke_gradient.clone();
+            width = value.stroke_width;
         }
-        let mixed_fill = values.iter().any(|value| value.0 != fill);
+        let mixed_fill = values
+            .iter()
+            .any(|v| v.fill != fill || v.fill_gradient != fill_grad);
         let mixed_stroke = values
             .iter()
-            .filter(|value| value.3)
-            .any(|value| value.1 != stroke);
+            .filter(|v| v.supports_stroke)
+            .any(|v| v.stroke != stroke || v.stroke_gradient != stroke_grad);
         let mixed_width = values
             .iter()
-            .filter(|value| value.3)
-            .any(|value| value.2 != width);
+            .filter(|v| v.supports_stroke)
+            .any(|v| v.stroke_width != width);
         if !supports_stroke {
             stroke_active = false;
         }
         let scope = self.modify_scope();
         self.property_edit_scope(scope);
         ui.push_id(scope.with("color"), |ui| {
-            // Mixed paints show the first object's colour; the row below says "Mixed".
-            color_wells(ui, &mut stroke_active, fill, stroke, supports_stroke);
+            let action = color_wells_and_actions(
+                ui,
+                &mut stroke_active,
+                fill,
+                fill_grad.as_ref(),
+                stroke,
+                stroke_grad.as_ref(),
+                supports_stroke,
+            );
             ui.data_mut(|d| d.insert_temp(active_id, stroke_active));
-            fill_type_select(ui);
-            let (mut new_fill, mut new_stroke, mut new_width) = (fill, stroke, width);
-            let (mut force_fill, mut force_stroke, mut force_width) = (false, false, false);
-            let mut control = None;
-            if !stroke_active {
-                if mixed_fill {
-                    if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
-                        new_fill = value;
-                        force_fill = true;
-                        control = Some(id);
-                    }
-                } else {
-                    let r = paint_row(ui, "selected-fill", "Fill", &mut new_fill);
-                    if r.changed() {
-                        control = Some(r.id);
-                    }
+            match action {
+                Some(WellAction::Swap) => {
+                    self.swap_active_paints();
+                    return;
                 }
-            } else if mixed_stroke {
-                if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
-                    new_stroke = value;
-                    force_stroke = true;
-                    control = Some(id);
+                Some(WellAction::NoColor) => {
+                    self.set_selection_fill_type(stroke_active, PaintFillType::None);
+                    return;
+                }
+                Some(WellAction::DefaultBlackWhite) => {
+                    self.reset_default_paints();
+                    return;
+                }
+                None => {}
+            }
+
+            let active_color = if stroke_active { stroke } else { fill };
+            let active_grad = if stroke_active {
+                stroke_grad.clone()
+            } else {
+                fill_grad.clone()
+            };
+            let current_mode = classify_fill_type(active_color, active_grad.as_ref());
+            if let Some(new_mode) = fill_type_select(ui, current_mode, supports_gradient) {
+                self.set_selection_fill_type(stroke_active, new_mode);
+                return;
+            }
+
+            if let Some(mut grad) = active_grad {
+                flow_row(ui);
+                let stop_count = grad.stops.len().max(1);
+                if self.authoring_modify.selected_stop >= stop_count {
+                    self.authoring_modify.selected_stop = stop_count - 1;
+                }
+                let mut stop_color = grad.stops[self.authoring_modify.selected_stop].color;
+                let mixer_key = scope.with((
+                    "sel-grad-hsb",
+                    stroke_active,
+                    self.authoring_modify.selected_stop,
+                ));
+                if let Some(control) = color_mixer_ui(
+                    ui,
+                    mixer_key,
+                    if stroke_active {
+                        "Stroke colour"
+                    } else {
+                        "Fill colour"
+                    },
+                    &mut stop_color,
+                    &mut self.authoring_modify.color_model_hsb,
+                ) {
+                    grad.stops[self.authoring_modify.selected_stop].color = stop_color;
+                    self.set_selection_gradient_stops(
+                        stroke_active,
+                        grad.stops.clone(),
+                        Some(control),
+                    );
+                }
+                if let Some(control) = gradient_stops_bar_ui(
+                    ui,
+                    &mut grad.stops,
+                    &mut self.authoring_modify.selected_stop,
+                ) {
+                    self.set_selection_gradient_stops(stroke_active, grad.stops, Some(control));
                 }
             } else {
-                let r = paint_row(ui, "selected-stroke", "Stroke", &mut new_stroke);
-                if r.changed() {
-                    control = Some(r.id);
-                }
-            }
-            if supports_stroke {
-                overline(ui, "Stroke");
-                if mixed_width {
-                    if let Some((value, id)) = mixed_width_edit(ui) {
-                        new_width = value;
-                        force_width = true;
+                let (mut new_fill, mut new_stroke) = (fill, stroke);
+                let (mut force_fill, mut force_stroke) = (false, false);
+                let mut control = None;
+                if !stroke_active {
+                    if mixed_fill {
+                        if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
+                            new_fill = value;
+                            force_fill = true;
+                            control = Some(id);
+                        }
+                    } else {
+                        control = color_mixer_ui(
+                            ui,
+                            scope.with("sel-fill-hsb"),
+                            "Fill colour",
+                            &mut new_fill,
+                            &mut self.authoring_modify.color_model_hsb,
+                        );
+                    }
+                } else if mixed_stroke {
+                    if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
+                        new_stroke = value;
+                        force_stroke = true;
                         control = Some(id);
                     }
                 } else {
-                    let r = numeric_row(ui, "Width", &mut new_width, 0. ..=100., 0.25);
-                    if r.changed() {
-                        control = Some(r.id);
-                    }
+                    control = color_mixer_ui(
+                        ui,
+                        scope.with("sel-stroke-hsb"),
+                        "Stroke colour",
+                        &mut new_stroke,
+                        &mut self.authoring_modify.color_model_hsb,
+                    );
+                }
+                if let Some(control) = control {
+                    let changes = targets
+                        .iter()
+                        .cloned()
+                        .filter_map(|(target, mut element)| {
+                            let previous = paints(&element.kind)?;
+                            let changed = edit_paints(
+                                &mut element.kind,
+                                (
+                                    if force_fill { previous.0 } else { fill },
+                                    if force_stroke { previous.1 } else { stroke },
+                                    width,
+                                ),
+                                (new_fill, new_stroke, width),
+                            );
+                            changed.then_some((target, element))
+                        })
+                        .collect();
+                    self.apply_modified(changes, Some(control));
                 }
             }
-            if targets.iter().any(|(_, e)| {
-                matches!(
-                    &e.kind,
-                    ElementKind::PaintedPath {
-                        fill_gradient: Some(_),
-                        ..
-                    } | ElementKind::PaintedPath {
-                        stroke_gradient: Some(_),
-                        ..
-                    }
-                )
-            }) {
-                crate::panels::properties::hint(
-                    ui,
-                    "Changing an RGB color replaces its gradient with a solid paint.",
-                );
-            }
-            if let Some(control) = control {
-                let changes = targets
-                    .into_iter()
-                    .filter_map(|(target, mut element)| {
-                        let previous = paints(&element.kind)?;
-                        let changed = edit_paints(
-                            &mut element.kind,
-                            (
-                                if force_fill { previous.0 } else { fill },
-                                if force_stroke { previous.1 } else { stroke },
-                                if force_width { previous.2 } else { width },
-                            ),
-                            (new_fill, new_stroke, new_width),
-                        );
-                        changed.then_some((target, element))
+
+            if supports_stroke {
+                let mut new_width = width;
+                let mut force_width = false;
+                let width_control = if mixed_width {
+                    mixed_width_edit(ui).map(|(v, id)| {
+                        new_width = v;
+                        force_width = true;
+                        id
                     })
-                    .collect();
-                self.apply_modified(changes, Some(control));
+                } else {
+                    stroke_section_ui(ui, &mut new_width, true)
+                };
+                if let Some(control) = width_control {
+                    let changes = targets
+                        .into_iter()
+                        .filter_map(|(target, mut element)| {
+                            let previous = paints(&element.kind)?;
+                            let changed = edit_paints(
+                                &mut element.kind,
+                                (
+                                    previous.0,
+                                    previous.1,
+                                    if force_width { previous.2 } else { width },
+                                ),
+                                (previous.0, previous.1, new_width),
+                            );
+                            changed.then_some((target, element))
+                        })
+                        .collect();
+                    self.apply_modified(changes, Some(control));
+                }
             }
         });
     }
 }
 
-/// Stroke and Fill `NF2/Color Well`s; the active one is edited below.
-/// A fully transparent paint shows the "no colour" chip.
-fn color_wells(
+#[derive(Clone)]
+struct PaintSample {
+    fill: Color,
+    stroke: Color,
+    fill_gradient: Option<GradientPaint>,
+    stroke_gradient: Option<GradientPaint>,
+    stroke_width: f64,
+    supports_stroke: bool,
+}
+
+fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
+    match kind {
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => Some(PaintSample {
+            fill: *fill,
+            stroke: *stroke,
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: *stroke_width,
+            supports_stroke: true,
+        }),
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+            ..
+        } => Some(PaintSample {
+            fill: *fill,
+            stroke: *stroke,
+            fill_gradient: fill_gradient.clone(),
+            stroke_gradient: stroke_gradient.clone(),
+            stroke_width: *stroke_width,
+            supports_stroke: true,
+        }),
+        ElementKind::Text { color, .. } => Some(PaintSample {
+            fill: *color,
+            stroke: [0; 4],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 0.,
+            supports_stroke: false,
+        }),
+        _ => None,
+    }
+}
+
+fn classify_fill_type(color: Color, gradient: Option<&GradientPaint>) -> PaintFillType {
+    match gradient.map(|g| g.kind) {
+        Some(GradientKind::Linear) => PaintFillType::LinearGradient,
+        Some(GradientKind::Radial) => PaintFillType::RadialGradient,
+        None if color[3] == 0 => PaintFillType::None,
+        None => PaintFillType::Solid,
+    }
+}
+
+pub(crate) fn default_gradient_matrix(commands: &[PathCommand]) -> [f64; 6] {
+    let (w, h, cx, cy) = match path_bounds(commands).ok().flatten() {
+        Some(b) => (
+            b.width().max(1.0),
+            b.height().max(1.0),
+            (b.x_min + b.x_max) * 0.5,
+            (b.y_min + b.y_max) * 0.5,
+        ),
+        None => (100.0, 100.0, 50.0, 50.0),
+    };
+    [
+        (w / 1638.4).clamp(1e-4, 1e4),
+        0.0,
+        0.0,
+        (h / 1638.4).clamp(1e-4, 1e4),
+        cx.clamp(-1e9, 1e9),
+        cy.clamp(-1e9, 1e9),
+    ]
+}
+
+fn default_gradient_paint(
+    kind: GradientKind,
+    base_color: Color,
+    commands: &[PathCommand],
+) -> GradientPaint {
+    let start = if base_color[3] == 0 {
+        [255, 255, 255, 255]
+    } else {
+        base_color
+    };
+    let end = if u16::from(start[0]) + u16::from(start[1]) + u16::from(start[2]) < 128 {
+        [255, 255, 255, start[3]]
+    } else {
+        [0, 0, 0, start[3]]
+    };
+    GradientPaint {
+        kind,
+        matrix: default_gradient_matrix(commands),
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: start,
+            },
+            GradientStop {
+                ratio: 255,
+                color: end,
+            },
+        ],
+        focal_point_ratio: 0.0,
+    }
+}
+
+fn normalize_gradient_stops(mut stops: Vec<GradientStop>) -> Vec<GradientStop> {
+    stops.sort_by_key(|s| s.ratio);
+    stops.truncate(15);
+    stops
+}
+
+fn set_element_fill_type(
+    element: &mut Element,
+    stroke_well: bool,
+    mode: PaintFillType,
+) -> bool {
+    match mode {
+        PaintFillType::None => match &mut element.kind {
+            ElementKind::Rectangle { fill, stroke, .. }
+            | ElementKind::Ellipse { fill, stroke, .. }
+            | ElementKind::Path { fill, stroke, .. } => {
+                let target = if stroke_well { stroke } else { fill };
+                if target[3] == 0 {
+                    return false;
+                }
+                target[3] = 0;
+                true
+            }
+            ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } => {
+                let (target, slot) = if stroke_well {
+                    (stroke, stroke_gradient)
+                } else {
+                    (fill, fill_gradient)
+                };
+                if target[3] == 0 && slot.is_none() {
+                    return false;
+                }
+                target[3] = 0;
+                *slot = None;
+                true
+            }
+            ElementKind::Text { color, .. } if !stroke_well => {
+                if color[3] == 0 {
+                    return false;
+                }
+                color[3] = 0;
+                true
+            }
+            _ => false,
+        },
+        PaintFillType::Solid => match &mut element.kind {
+            ElementKind::Rectangle { fill, stroke, .. }
+            | ElementKind::Ellipse { fill, stroke, .. }
+            | ElementKind::Path { fill, stroke, .. } => {
+                let target = if stroke_well { stroke } else { fill };
+                if target[3] > 0 {
+                    return false;
+                }
+                target[3] = 255;
+                true
+            }
+            ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } => {
+                let (target, slot) = if stroke_well {
+                    (stroke, stroke_gradient)
+                } else {
+                    (fill, fill_gradient)
+                };
+                if target[3] > 0 && slot.is_none() {
+                    return false;
+                }
+                if let Some(prev) = slot.take()
+                    && let Some(first) = prev.stops.first()
+                {
+                    *target = first.color;
+                }
+                if target[3] == 0 {
+                    target[3] = 255;
+                }
+                true
+            }
+            ElementKind::Text { color, .. } if !stroke_well => {
+                if color[3] > 0 {
+                    return false;
+                }
+                color[3] = 255;
+                true
+            }
+            _ => false,
+        },
+        PaintFillType::LinearGradient | PaintFillType::RadialGradient => {
+            let kind = if mode == PaintFillType::LinearGradient {
+                GradientKind::Linear
+            } else {
+                GradientKind::Radial
+            };
+            if let ElementKind::PaintedPath {
+                commands,
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } = &mut element.kind
+            {
+                let (base, slot) = if stroke_well {
+                    (stroke, stroke_gradient)
+                } else {
+                    (fill, fill_gradient)
+                };
+                if let Some(existing) = slot {
+                    if existing.kind == kind {
+                        return false;
+                    }
+                    existing.kind = kind;
+                } else {
+                    if base[3] == 0 {
+                        *base = if stroke_well {
+                            [0, 0, 0, 255]
+                        } else {
+                            [255, 255, 255, 255]
+                        };
+                    }
+                    *slot = Some(default_gradient_paint(kind, *base, commands));
+                }
+                return true;
+            }
+            let Some((commands, fill_rule)) = element.to_path_commands() else {
+                return false;
+            };
+            let (mut fill, mut stroke, stroke_width) = match &element.kind {
+                ElementKind::Rectangle {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Ellipse {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Path {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                } => (*fill, *stroke, *stroke_width),
+                _ => return false,
+            };
+            if matches!(element.kind, ElementKind::Ellipse { .. })
+                && !element.oval_options().close_path
+            {
+                fill = [0, 0, 0, 0];
+            }
+            let base = if stroke_well { &mut stroke } else { &mut fill };
+            if base[3] == 0 {
+                *base = if stroke_well {
+                    [0, 0, 0, 255]
+                } else {
+                    [255, 255, 255, 255]
+                };
+            }
+            let paint = default_gradient_paint(kind, *base, &commands);
+            element.transform.primitive = None;
+            element.kind = ElementKind::PaintedPath {
+                commands,
+                fill_rule,
+                fill,
+                stroke,
+                fill_gradient: (!stroke_well).then_some(paint.clone()),
+                stroke_gradient: stroke_well.then_some(paint),
+                stroke_width,
+            };
+            true
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum WellAction {
+    Swap,
+    NoColor,
+    DefaultBlackWhite,
+}
+
+/// Stroke and Fill `NF2/Color Well`s plus Swap / No colour / Black and white quick actions.
+fn color_wells_and_actions(
     ui: &mut egui::Ui,
     stroke_active: &mut bool,
     fill: Color,
+    fill_grad: Option<&GradientPaint>,
     stroke: Color,
+    stroke_grad: Option<&GradientPaint>,
     stroke_enabled: bool,
-) {
-    let shown = |c: Color| {
+) -> Option<WellAction> {
+    let shown = |c: Color, g: Option<&GradientPaint>| {
+        if let Some(paint) = g
+            && let Some(stop) = paint.stops.first()
+        {
+            return Some(egui::Color32::from_rgba_unmultiplied(
+                stop.color[0],
+                stop.color[1],
+                stop.color[2],
+                stop.color[3],
+            ));
+        }
         (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
     };
+    let mut action = None;
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.spacing_mut().item_spacing.x = 6.0;
         let stroke_well = ui.add_enabled(
             stroke_enabled,
             ColorWell {
                 target: ColorWellTarget::Stroke,
-                color: shown(stroke),
+                color: shown(stroke, stroke_grad),
                 active: *stroke_active,
             },
         );
@@ -1223,38 +2094,330 @@ fn color_wells(
         if ui
             .add(ColorWell {
                 target: ColorWellTarget::Fill,
-                color: shown(fill),
+                color: shown(fill, fill_grad),
                 active: !*stroke_active,
             })
             .clicked()
         {
             *stroke_active = false;
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add_enabled(
+                    stroke_enabled,
+                    IconButton::new(i20::COLOR_SWAP, "Swap colours").side(28.0),
+                )
+                .clicked()
+            {
+                action = Some(WellAction::Swap);
+            }
+            if ui
+                .add(IconButton::new(i20::COLOR_NONE, "No colour").side(28.0))
+                .clicked()
+            {
+                action = Some(WellAction::NoColor);
+            }
+            if ui
+                .add(IconButton::new(i20::COLOR_DEFAULT, "Black and white").side(28.0))
+                .clicked()
+            {
+                action = Some(WellAction::DefaultBlackWhite);
+            }
+        });
     });
+    action
 }
 
-/// Fill type `NF2/Select` (§6 "Color — type menu"): the panel edits solid colours; gradient and
-/// bitmap fills open their planned previews and keep the authored paint unchanged.
-fn fill_type_select(ui: &mut egui::Ui) {
+/// Fill type `NF2/Select` (§6 "Color — type menu"): edits None, Solid colour, Linear gradient and
+/// Radial gradient directly; Bitmap fill opens its planned preview.
+fn fill_type_select(
+    ui: &mut egui::Ui,
+    current: PaintFillType,
+    supports_gradient: bool,
+) -> Option<PaintFillType> {
     let width = ui.available_width();
-    Select::new("color-fill-type", "Solid colour")
+    let mut chosen = None;
+    Select::new("color-fill-type", current.label())
         .width(width)
         .show(ui, |ui| {
-            ui.add_enabled(false, MenuItem::new("None"))
-                .on_disabled_hover_text("Not available yet");
-            ui.add(MenuItem::new("Solid colour").checked(true));
-            for path in [
-                "Color fill type ▸ Linear gradient",
-                "Color fill type ▸ Radial gradient",
-                "Color fill type ▸ Bitmap fill",
+            for mode in [
+                PaintFillType::None,
+                PaintFillType::Solid,
+                PaintFillType::LinearGradient,
+                PaintFillType::RadialGradient,
             ] {
-                let label = path.rsplit(" ▸ ").next().unwrap_or(path);
-                if ui.add(MenuItem::new(label)).clicked() {
-                    Editor::open_planned(ui.ctx(), path);
+                let enabled = match mode {
+                    PaintFillType::LinearGradient | PaintFillType::RadialGradient => {
+                        supports_gradient
+                    }
+                    _ => true,
+                };
+                let resp = ui
+                    .add_enabled(enabled, MenuItem::new(mode.label()).checked(current == mode))
+                    .on_disabled_hover_text(
+                        "Select a rectangle, oval or vector path to apply a gradient",
+                    );
+                if resp.clicked() {
+                    chosen = Some(mode);
                     ui.close();
                 }
             }
+            if ui.add(MenuItem::new("Bitmap fill")).clicked() {
+                Editor::open_planned(ui.ctx(), "Color fill type ▸ Bitmap fill");
+                ui.close();
+            }
         });
+    chosen
+}
+
+fn flow_row(ui: &mut egui::Ui) {
+    let nf = neoflash_ui::palette(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(rich("Flow", TextStyle::Body).color(nf.text_secondary));
+        ui.add_enabled_ui(false, |ui| {
+            IconGroup {
+                items: &[
+                    (i16::FLOW_EXTEND, "Extend"),
+                    (i16::FLOW_REFLECT, "Reflect"),
+                    (i16::FLOW_REPEAT, "Repeat"),
+                ],
+                selected: Some(0),
+            }
+            .show(ui);
+        })
+        .response
+        .on_disabled_hover_text(
+            "Only Extend (pad) spread and sRGB interpolation are currently supported",
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut linear_rgb = false;
+            ui.add_enabled(false, Checkbox::new(&mut linear_rgb, "Linear RGB"))
+                .on_disabled_hover_text(
+                    "Only Extend (pad) spread and sRGB interpolation are currently supported",
+                );
+        });
+    });
+}
+
+fn color_to_hsb(c: Color) -> Hsb {
+    let (r, g, b, a) = (
+        c[0] as f32 / 255.0,
+        c[1] as f32 / 255.0,
+        c[2] as f32 / 255.0,
+        c[3] as f32 / 255.0,
+    );
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d <= 1e-6 {
+        0.0
+    } else if (max - r).abs() <= 1e-6 {
+        ((g - b) / d).rem_euclid(6.0) / 6.0
+    } else if (max - g).abs() <= 1e-6 {
+        ((b - r) / d + 2.0) / 6.0
+    } else {
+        ((r - g) / d + 4.0) / 6.0
+    };
+    let s = if max <= 1e-6 { 0.0 } else { d / max };
+    hsv(h, s, max, a)
+}
+
+fn color_mixer_ui(
+    ui: &mut egui::Ui,
+    hsb_cache_id: egui::Id,
+    field_label: &str,
+    color: &mut Color,
+    model_hsb: &mut bool,
+) -> Option<egui::Id> {
+    let mut hsb = ui
+        .data(|d| d.get_temp::<Hsb>(hsb_cache_id))
+        .filter(|cached| egui::Color32::from(*cached).to_srgba_unmultiplied() == *color)
+        .unwrap_or_else(|| color_to_hsb(*color));
+    let mut changed_id = None;
+
+    let picker_r = ui.add(ColorPicker { color: &mut hsb });
+    if picker_r.changed() {
+        *color = egui::Color32::from(hsb).to_srgba_unmultiplied();
+        changed_id = Some(picker_r.id);
+    }
+
+    Segmented::show(ui, model_hsb, &[(false, "RGB"), (true, "HSB")], false);
+
+    ui.horizontal(|ui| {
+        if !*model_hsb {
+            let mut r = f64::from(color[0]);
+            let mut g = f64::from(color[1]);
+            let mut b = f64::from(color[2]);
+            let rr = ui.add(
+                Field::new(&mut r, "Red")
+                    .prefix("R")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rg = ui.add(
+                Field::new(&mut g, "Green")
+                    .prefix("G")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rb = ui.add(
+                Field::new(&mut b, "Blue")
+                    .prefix("B")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            for resp in [&rr, &rg, &rb] {
+                if resp.changed() {
+                    color[0] = r.round().clamp(0.0, 255.0) as u8;
+                    color[1] = g.round().clamp(0.0, 255.0) as u8;
+                    color[2] = b.round().clamp(0.0, 255.0) as u8;
+                    if color[3] == 0 {
+                        color[3] = 255;
+                    }
+                    hsb = color_to_hsb(*color);
+                    changed_id = Some(resp.id);
+                }
+            }
+        } else {
+            let mut h_deg = f64::from(hsb.h * 360.0);
+            let mut s_pct = f64::from(hsb.s * 100.0);
+            let mut v_pct = f64::from(hsb.v * 100.0);
+            let rh = ui.add(
+                Field::new(&mut h_deg, "Hue")
+                    .prefix("H")
+                    .unit("°")
+                    .range(0.0..=360.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rs = ui.add(
+                Field::new(&mut s_pct, "Saturation")
+                    .prefix("S")
+                    .unit("%")
+                    .range(0.0..=100.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rv = ui.add(
+                Field::new(&mut v_pct, "Brightness")
+                    .prefix("B")
+                    .unit("%")
+                    .range(0.0..=100.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            for resp in [&rh, &rs, &rv] {
+                if resp.changed() {
+                    hsb.h = (h_deg.clamp(0.0, 360.0) / 360.0) as f32;
+                    hsb.s = (s_pct.clamp(0.0, 100.0) / 100.0) as f32;
+                    hsb.v = (v_pct.clamp(0.0, 100.0) / 100.0) as f32;
+                    if hsb.a == 0.0 {
+                        hsb.a = 1.0;
+                    }
+                    *color = egui::Color32::from(hsb).to_srgba_unmultiplied();
+                    changed_id = Some(resp.id);
+                }
+            }
+        }
+    });
+
+    let mut field_c32 =
+        egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+    let w = ui.available_width();
+    let cf = ColorField::new(&mut field_c32, field_label)
+        .width(w)
+        .show(ui);
+    if cf.response.changed() {
+        *color = field_c32.to_srgba_unmultiplied();
+        hsb = color_to_hsb(*color);
+        changed_id = Some(cf.response.id);
+    }
+
+    ui.data_mut(|d| d.insert_temp(hsb_cache_id, hsb));
+    changed_id
+}
+
+fn gradient_stops_bar_ui(
+    ui: &mut egui::Ui,
+    stops: &mut Vec<GradientStop>,
+    selected_stop: &mut usize,
+) -> Option<egui::Id> {
+    let mut ui_stops: Vec<(f32, egui::Color32)> = stops
+        .iter()
+        .map(|s| {
+            (
+                f32::from(s.ratio) / 255.0,
+                egui::Color32::from_rgba_unmultiplied(
+                    s.color[0], s.color[1], s.color[2], s.color[3],
+                ),
+            )
+        })
+        .collect();
+    if *selected_stop >= ui_stops.len() {
+        *selected_stop = ui_stops.len().saturating_sub(1);
+    }
+    let width = ui.available_width().max(120.0);
+    let r = ui.add(GradientBar {
+        stops: &mut ui_stops,
+        selected: selected_stop,
+        width,
+    });
+    if r.changed() {
+        if ui_stops.len() > 15 {
+            let drop_at = (*selected_stop).min(ui_stops.len() - 1);
+            ui_stops.remove(drop_at);
+            *selected_stop = (*selected_stop).min(ui_stops.len() - 1);
+        }
+        *stops = ui_stops
+            .into_iter()
+            .map(|(t, c)| GradientStop {
+                ratio: (t.clamp(0.0, 1.0) * 255.0).round() as u8,
+                color: c.to_srgba_unmultiplied(),
+            })
+            .collect();
+        stops.sort_by_key(|s| s.ratio);
+        return Some(r.id);
+    }
+    None
+}
+
+fn stroke_section_ui(ui: &mut egui::Ui, width: &mut f64, with_divider: bool) -> Option<egui::Id> {
+    let nf = neoflash_ui::palette(ui.ctx());
+    if with_divider {
+        ui.add_space(space::S1);
+        let r = ui.available_rect_before_wrap();
+        ui.painter().hline(
+            r.x_range(),
+            r.top(),
+            egui::Stroke::new(1.0_f32, nf.border_subtle),
+        );
+        ui.add_space(space::S2);
+    }
+    ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
+    let half = (ui.available_width() - space::S2).max(80.0) / 2.0;
+    let mut changed = None;
+    ui.horizontal(|ui| {
+        let r = ui.add(
+            Field::new(width, "Stroke width")
+                .prefix("Width")
+                .unit("px")
+                .range(0.0..=100.0)
+                .decimals(1)
+                .width(half),
+        );
+        if r.changed() {
+            changed = Some(r.id);
+        }
+        ui.add_enabled_ui(false, |ui| {
+            Select::new("color-stroke-style", "Solid")
+                .width(half)
+                .show(ui, |_| {});
+        });
+    });
+    changed
 }
 
 /// Mixed values are explicit. A new value is a deliberate draft, never an
@@ -1463,6 +2626,8 @@ fn affine_transform(old: Transform, matrix: [f64; 6]) -> Option<Transform> {
     let mut new = Transform::from_matrix(affine_multiply(matrix, transform_matrix(old)))?;
     new.alpha = old.alpha;
     new.color_transform = old.color_transform;
+    new.pivot = old.pivot;
+    new.primitive = old.primitive;
     Some(new)
 }
 fn transformed(items: &[Placement], matrix: [f64; 6]) -> Option<Vec<(SelectionTarget, Element)>> {

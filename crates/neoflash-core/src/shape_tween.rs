@@ -154,12 +154,19 @@ fn parent_shape(element: &Element) -> Option<Shape> {
     let local = match &element.kind {
         ElementKind::Rectangle { width, height, .. }
         | ElementKind::Ellipse { width, height, .. } => {
-            vector_path(&element.kind).map_or_else(
-                // Zero-sized boxes stay drawable as a degenerate outline so they
-                // can grow into (or shrink from) their partner.
-                || degenerate_box(width.max(0.), height.max(0.)),
-                |(commands, _)| commands,
-            )
+            if element.has_parametric_options() {
+                element.to_path_commands().map_or_else(
+                    || degenerate_box(width.max(0.), height.max(0.)),
+                    |(commands, _)| commands,
+                )
+            } else {
+                vector_path(&element.kind).map_or_else(
+                    // Zero-sized boxes stay drawable as a degenerate outline so they
+                    // can grow into (or shrink from) their partner.
+                    || degenerate_box(width.max(0.), height.max(0.)),
+                    |(commands, _)| commands,
+                )
+            }
         }
         ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
             commands.clone()
@@ -222,14 +229,25 @@ fn parent_shape(element: &Element) -> Option<Shape> {
             stroke,
             stroke_width,
             ..
-        }
-        | ElementKind::Ellipse {
+        } => Paint {
+            fill: *fill,
+            stroke: *stroke,
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: *stroke_width * stroke_scale,
+            fill_rule: FillRule::NonZero,
+        },
+        ElementKind::Ellipse {
             fill,
             stroke,
             stroke_width,
             ..
         } => Paint {
-            fill: *fill,
+            fill: if element.oval_options().close_path {
+                *fill
+            } else {
+                [0, 0, 0, 0]
+            },
             stroke: *stroke,
             fill_gradient: None,
             stroke_gradient: None,

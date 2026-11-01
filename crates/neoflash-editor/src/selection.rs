@@ -320,6 +320,9 @@ impl Editor {
     }
     pub fn delete_selected(&mut self) {
         self.finish_edits();
+        if self.tool == crate::app::Tool::Subselect && self.delete_selected_vector_points() {
+            return;
+        }
         let targets = self.sampled_targets();
         if targets.is_empty() {
             return;

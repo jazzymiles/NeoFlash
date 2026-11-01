@@ -77,7 +77,7 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 33] = [
+    pub(crate) const ALL: [Self; 31] = [
         Self::Debugger,
         Self::Project,
         Self::CodeSnippets,
@@ -94,11 +94,9 @@ impl PlannedPanel {
         Self::ExportAudio,
         Self::ImportVideo,
         Self::SoundProperties,
-        Self::ColorGradient,
         Self::BitmapFill,
         Self::PropertiesOvalPrimitive,
         Self::PropertiesRectPrimitive,
-        Self::PolyStarSettings,
         Self::DecoTool,
         Self::SprayBrush,
         Self::BoneProperties,
@@ -320,6 +318,15 @@ impl Editor {
     /// Draw open planned-panel previews. They never touch the project; the only wired setting,
     /// Preferences ▸ General ▸ Theme, changes the editor theme preference when Save is clicked.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
+        if is_open(ctx, PlannedPanel::ColorGradient) {
+            set_open(ctx, PlannedPanel::ColorGradient, false);
+            self.show_panel(crate::workspace::PanelId::Color);
+        }
+        if is_open(ctx, PlannedPanel::PolyStarSettings) {
+            set_open(ctx, PlannedPanel::PolyStarSettings, false);
+            self.open_polystar_settings();
+        }
+        self.polystar_settings_modal(ctx);
         open_from_env(ctx);
         show_planned_panels(ctx);
         let mut state = planned_state(ctx);

@@ -196,6 +196,18 @@ pub(crate) fn resize_single(
     current: Point,
     options: ResizeOptions,
 ) -> Option<Transform> {
+    resize_single_with_pivot(initial, bounds, handle, press, current, options, None)
+}
+
+pub(crate) fn resize_single_with_pivot(
+    initial: Transform,
+    bounds: Bounds,
+    handle: ResizeHandle,
+    press: Point,
+    current: Point,
+    options: ResizeOptions,
+    custom_pivot: Option<Point>,
+) -> Option<Transform> {
     if !valid_transform(initial)
         || !nonsingular(initial)
         || !bounds.resizable()
@@ -208,7 +220,9 @@ pub(crate) fn resize_single(
         return Some(initial);
     }
     let anchor = if options.from_center {
-        bounds.center()
+        custom_pivot
+            .filter(|p| finite_point(*p))
+            .unwrap_or_else(|| bounds.center())
     } else {
         handle.opposite().point(bounds)
     };
@@ -316,6 +330,7 @@ pub(crate) fn rotate_single(
 /// Apply an unwrapped gesture angle to the original pose. Full turns remain in
 /// `rotation` for timeline interpolation; only the visual position is periodic.
 /// A zero delta is an exact no-op, including when snapping is enabled.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn rotate_single_by(
     initial: Transform,
     bounds: Bounds,
@@ -326,7 +341,18 @@ pub(crate) fn rotate_single_by(
         return None;
     }
     let pivot = transformed_point(initial, bounds.center());
-    if !finite_point(pivot) {
+    rotate_single_about_by(initial, pivot, delta_degrees, snap_15)
+}
+
+/// Rotate a single placement about an arbitrary world-space `pivot`.
+/// Shift snaps the final single-object angle (not only the delta) to 15°.
+pub(crate) fn rotate_single_about_by(
+    initial: Transform,
+    pivot: Point,
+    delta_degrees: f64,
+    snap_15: bool,
+) -> Option<Transform> {
+    if !valid_transform(initial) || !finite_point(pivot) || !delta_degrees.is_finite() {
         return None;
     }
     if delta_degrees == 0.0 {
@@ -456,6 +482,8 @@ pub(crate) fn skew_many(
             let mut result = Transform {
                 alpha: t.alpha,
                 color_transform: t.color_transform,
+                pivot: t.pivot,
+                primitive: t.primitive,
                 ..decomposed
             };
             result.rotation += 360.0 * ((t.rotation - result.rotation) / 360.0).round();

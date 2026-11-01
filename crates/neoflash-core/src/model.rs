@@ -308,11 +308,25 @@ impl Project {
         }
     }
 
-    /// Raise the format version after an edit that uses a format 6 feature.
+    /// Raise the format version after an edit that uses a format 6 or 7 feature.
     pub fn upgrade_format_for_features(&mut self) {
         if self.uses_format_6() {
             self.format_version = self.format_version.max(6);
         }
+        if self.uses_format_7() {
+            self.format_version = self.format_version.max(7);
+        }
+    }
+
+    /// Document features introduced with format 7 (parametric Rectangle/Oval options and custom
+    /// authoring transformation points).
+    pub fn uses_format_7(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .any(|e| e.transform.pivot.is_some() || e.transform.primitive.is_some())
     }
 
     /// Scene timelines in play order; a document without scenes has one, `root`.
@@ -569,6 +583,125 @@ pub struct Element {
     pub accessibility: Option<Accessibility>,
 }
 
+impl Element {
+    pub fn pivot(&self) -> Option<[f64; 2]> {
+        self.transform.pivot
+    }
+
+    pub fn set_pivot(&mut self, pivot: Option<[f64; 2]>) {
+        self.transform.pivot = pivot;
+    }
+
+    pub fn rectangle_options(&self) -> RectangleOptions {
+        match self.transform.primitive {
+            Some(PrimitiveOptions::Rectangle(options)) => options,
+            _ => RectangleOptions::default(),
+        }
+    }
+
+    pub fn set_rectangle_options(&mut self, options: RectangleOptions) {
+        self.transform.primitive = (!options.is_default()).then_some(PrimitiveOptions::Rectangle(options));
+    }
+
+    pub fn oval_options(&self) -> OvalOptions {
+        match self.transform.primitive {
+            Some(PrimitiveOptions::Oval(options)) => options,
+            _ => OvalOptions::default(),
+        }
+    }
+
+    pub fn set_oval_options(&mut self, options: OvalOptions) {
+        self.transform.primitive = (!options.is_default()).then_some(PrimitiveOptions::Oval(options));
+    }
+
+    /// True when this element is a `Rectangle` or `Ellipse` with active parametric geometry.
+    pub fn has_parametric_options(&self) -> bool {
+        match &self.kind {
+            ElementKind::Rectangle { .. } => self.rectangle_options().has_rounded_corners(),
+            ElementKind::Ellipse { .. } => !self.oval_options().is_default(),
+            _ => false,
+        }
+    }
+
+    /// Local vector contour and fill rule for `Rectangle`, `Ellipse`, `Path` or `PaintedPath`.
+    pub fn to_path_commands(&self) -> Option<(Vec<PathCommand>, FillRule)> {
+        match &self.kind {
+            ElementKind::Rectangle { width, height, .. } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return None;
+                }
+                Some((
+                    crate::geometry::rectangle_path_commands(
+                        *width,
+                        *height,
+                        self.rectangle_options(),
+                    ),
+                    FillRule::NonZero,
+                ))
+            }
+            ElementKind::Ellipse { width, height, .. } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return None;
+                }
+                Some((
+                    crate::geometry::oval_path_commands(*width, *height, self.oval_options()),
+                    FillRule::NonZero,
+                ))
+            }
+            ElementKind::Path {
+                commands,
+                fill_rule,
+                ..
+            }
+            | ElementKind::PaintedPath {
+                commands,
+                fill_rule,
+                ..
+            } => Some((commands.clone(), *fill_rule)),
+            _ => None,
+        }
+    }
+
+    /// Evaluated `ElementKind::Path` when a `Rectangle` or `Ellipse` uses parametric options;
+    /// `None` for plain shapes so existing `Rectangle`/`Ellipse` rendering stays unchanged.
+    pub fn parametric_path_kind(&self) -> Option<ElementKind> {
+        if !self.has_parametric_options() {
+            return None;
+        }
+        let (commands, fill_rule) = self.to_path_commands()?;
+        match &self.kind {
+            ElementKind::Rectangle {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => Some(ElementKind::Path {
+                commands,
+                fill_rule,
+                fill: *fill,
+                stroke: *stroke,
+                stroke_width: *stroke_width,
+            }),
+            ElementKind::Ellipse {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                let close_path = self.oval_options().close_path;
+                Some(ElementKind::Path {
+                    commands,
+                    fill_rule,
+                    fill: if close_path { *fill } else { [0, 0, 0, 0] },
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Authored semantics are attached to a placement, including symbol instances.
 /// Hosts derive current visibility and lifetime from the shared runtime.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -590,6 +723,98 @@ pub enum AccessibleRole {
     Image,
 }
 
+/// Parametric options for a `Rectangle` primitive: corner radii `[top_left, top_right,
+/// bottom_left, bottom_right]` matching the NF2 `↖`, `↗`, `↙`, `↘` fields, plus corner linking.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RectangleOptions {
+    #[serde(default, skip_serializing_if = "is_zero_corners")]
+    pub corner_radii: [f64; 4],
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub corners_locked: bool,
+}
+
+impl Default for RectangleOptions {
+    fn default() -> Self {
+        Self {
+            corner_radii: [0.0; 4],
+            corners_locked: true,
+        }
+    }
+}
+
+impl RectangleOptions {
+    pub fn is_default(&self) -> bool {
+        self.corner_radii == [0.0; 4] && self.corners_locked
+    }
+    pub fn has_rounded_corners(&self) -> bool {
+        self.corner_radii.iter().any(|r| *r > 0.0)
+    }
+}
+
+/// Parametric options for an `Ellipse` (Oval) primitive.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OvalOptions {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_angle: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub end_angle: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub inner_radius: f64,
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub close_path: bool,
+}
+
+impl Default for OvalOptions {
+    fn default() -> Self {
+        Self {
+            start_angle: 0.0,
+            end_angle: 0.0,
+            inner_radius: 0.0,
+            close_path: true,
+        }
+    }
+}
+
+impl OvalOptions {
+    pub fn is_default(&self) -> bool {
+        self.start_angle == 0.0
+            && self.end_angle == 0.0
+            && self.inner_radius == 0.0
+            && self.close_path
+    }
+    pub fn is_partial_sweep(&self) -> bool {
+        let sweep = (self.end_angle - self.start_angle).rem_euclid(360.0);
+        sweep > 1e-6 && (360.0 - sweep) > 1e-6
+    }
+}
+
+/// Format-7 parametric shape options attached to a `Rectangle` or `Ellipse` placement.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PrimitiveOptions {
+    Rectangle(RectangleOptions),
+    Oval(OvalOptions),
+}
+
+impl PrimitiveOptions {
+    pub fn is_default(&self) -> bool {
+        match self {
+            Self::Rectangle(r) => r.is_default(),
+            Self::Oval(o) => o.is_default(),
+        }
+    }
+}
+
+fn is_zero_corners(corners: &[f64; 4]) -> bool {
+    *corners == [0.0; 4]
+}
+const fn bool_true() -> bool {
+    true
+}
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Transform {
     pub x: f64,
@@ -603,6 +828,13 @@ pub struct Transform {
     pub skew: f64,
     #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
     pub color_transform: crate::ColorTransform,
+    /// Custom authoring transformation point in the element's local space (format 7).
+    /// `None` uses the element's local geometric center.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pivot: Option<[f64; 2]>,
+    /// Parametric options for `Rectangle` and `Ellipse` primitives (format 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primitive: Option<PrimitiveOptions>,
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -620,6 +852,8 @@ impl Default for Transform {
             alpha: 1.,
             skew: 0.,
             color_transform: crate::ColorTransform::default(),
+            pivot: None,
+            primitive: None,
         }
     }
 }

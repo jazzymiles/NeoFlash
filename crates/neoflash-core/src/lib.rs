@@ -73,7 +73,8 @@ pub use filters::{
 };
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds, flatten_path,
-    hit_test_path, path_bounds, paths_have_same_topology, validate_path_commands,
+    hit_test_path, nearest_path_segment, oval_path_commands, path_bounds, paths_have_same_topology,
+    polystar_path_commands, rectangle_path_commands, subdivide_path_at, validate_path_commands,
 };
 pub use history::History;
 pub use library_folders::valid_library_folder;

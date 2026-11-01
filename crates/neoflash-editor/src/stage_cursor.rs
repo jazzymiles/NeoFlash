@@ -26,7 +26,9 @@ pub(crate) fn tool_cursor(tool: Tool) -> Cursor {
         Tool::Lasso => nf::LASSO,
         Tool::Hand => nf::HAND_OPEN,
         Tool::Zoom => nf::ZOOM_IN,
-        Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Gradient => nf::CROSSHAIR,
+        Tool::Rectangle | Tool::Ellipse | Tool::PolyStar | Tool::Line | Tool::Gradient => {
+            nf::CROSSHAIR
+        }
     }
 }
 
@@ -79,8 +81,8 @@ mod tests {
     fn every_tool_has_a_designed_cursor() {
         use Tool::*;
         for tool in [
-            Select, Transform, Rectangle, Ellipse, Text, Pen, Pencil, Subselect, Line, Brush,
-            Bucket, Ink, Eyedropper, Eraser, Lasso, Hand, Zoom, Gradient,
+            Select, Transform, Rectangle, Ellipse, PolyStar, Text, Pen, Pencil, Subselect, Line,
+            Brush, Bucket, Ink, Eyedropper, Eraser, Lasso, Hand, Zoom, Gradient,
         ] {
             let cursor = tool_cursor(tool);
             assert!(nf::ALL.contains(&cursor), "{}", cursor.name);

@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=6) {
+    if !matches!(project.format_version, 1..=7) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2, 3, 4, 5 and 6",
+                "unsupported version {}; supported versions are 1, 2, 3, 4, 5, 6 and 7",
                 project.format_version
             ),
         );
@@ -73,6 +73,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add(
             "format_version".into(),
             "scenes, shape/motion tweens, motion guides and frame sounds require document version 6"
+                .into(),
+        );
+    }
+    if project.uses_format_7() && project.format_version < 7 {
+        add(
+            "format_version".into(),
+            "parametric shape options and custom transformation points require document version 7"
                 .into(),
         );
     }
@@ -563,6 +570,66 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             || matches!(element.kind, ElementKind::PaintedPath { .. }))
                     {
                         add(format!("{ep}.transform"), "affine axes, authored color transforms and gradient paints require document version 5".into());
+                    }
+                    if let Some([px, py]) = t.pivot
+                        && (!px.is_finite()
+                            || !py.is_finite()
+                            || px.abs() > 1e9
+                            || py.abs() > 1e9)
+                    {
+                        add(
+                            format!("{ep}.transform.pivot"),
+                            "transformation point coordinates must be finite and within +-1e9"
+                                .into(),
+                        );
+                    }
+                    if let Some(primitive) = t.primitive {
+                        match primitive {
+                            PrimitiveOptions::Rectangle(r) => {
+                                if !matches!(element.kind, ElementKind::Rectangle { .. }) {
+                                    add(
+                                        format!("{ep}.transform.primitive"),
+                                        "rectangle options apply only to rectangle elements".into(),
+                                    );
+                                }
+                                if !r
+                                    .corner_radii
+                                    .iter()
+                                    .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1e9)
+                                {
+                                    add(
+                                        format!("{ep}.transform.primitive.corner_radii"),
+                                        "corner radii must be finite and in 0..=1e9".into(),
+                                    );
+                                }
+                            }
+                            PrimitiveOptions::Oval(o) => {
+                                if !matches!(element.kind, ElementKind::Ellipse { .. }) {
+                                    add(
+                                        format!("{ep}.transform.primitive"),
+                                        "oval options apply only to ellipse elements".into(),
+                                    );
+                                }
+                                if !o.start_angle.is_finite()
+                                    || !(0.0..=360.0).contains(&o.start_angle)
+                                    || !o.end_angle.is_finite()
+                                    || !(0.0..=360.0).contains(&o.end_angle)
+                                {
+                                    add(
+                                        format!("{ep}.transform.primitive"),
+                                        "oval sweep angles must be finite and in 0..=360".into(),
+                                    );
+                                }
+                                if !o.inner_radius.is_finite()
+                                    || !(0.0..=99.0).contains(&o.inner_radius)
+                                {
+                                    add(
+                                        format!("{ep}.transform.primitive.inner_radius"),
+                                        "oval inner radius must be finite and in 0..=99".into(),
+                                    );
+                                }
+                            }
+                        }
                     }
                     if let ElementKind::PaintedPath {
                         fill_gradient,
