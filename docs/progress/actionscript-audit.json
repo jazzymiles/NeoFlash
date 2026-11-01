@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "950c7f69e0f92cf7bb9ef5e37fb52b1d6df71d150f24af98e2a6491974977314",
+  "catalogSha256": "eaee2fcb68297cd2aa59943bbae2ce6549765580aa931a1528059cff3987738c",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1164,6 +1164,13 @@
             "sha256": "e7f28aac6e76fbcd15a04edcdb137a8b9fcc04a00bd7068d2f70d446aced04c1"
           }
         ]
+      },
+      {
+        "id": "U02",
+        "title": "U02",
+        "reason": "Explicit prototype/__proto__/__resolve questions identified by compiler auditor.",
+        "limitations": "Use only within the exact reviewed rule; no full Flash compatibility is claimed.",
+        "evidence": []
       }
     ],
     "normalizedReviewInputs": [
@@ -1298,6 +1305,22 @@
           "AS3-TIMELINE-SOUND-20261101",
           "AS2-TIMELINE-SOUND-20261101"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-as2-foundation.json",
+        "sha256": "cfbd97d1d698a3b45db5f7a476b7e8625cb425eadf70388743c50062803f1876",
+        "baseCatalogSha256": "950c7f69e0f92cf7bb9ef5e37fb52b1d6df71d150f24af98e2a6491974977314",
+        "reviewIds": [
+          "AS2-FOUNDATION-20261101"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-as3-stage-ui-text.json",
+        "sha256": "b9c334f37433738166b324ce6019b6ed28fe581682ba9cd791dff783359772ec",
+        "baseCatalogSha256": "268ae796b02d76821679364ee532dc09b8e3fe49c20fe7ef36b13e4e5628e37d",
+        "reviewIds": [
+          "AS3-STAGE-UI-TEXT-20261101"
+        ]
       }
     ],
     "statusReviews": [
@@ -1347,29 +1370,49 @@
         "changes": {
           "working": 1
         }
+      },
+      {
+        "id": "AS2-FOUNDATION-20261101",
+        "date": "2026-11-01",
+        "commit": "1db72af7575f18519c5df5a164f9823a3220cfe1",
+        "path": "docs/progress/reviews/2026-11-01-as2-foundation.json",
+        "changes": {
+          "partial": 19,
+          "working": 22
+        }
+      },
+      {
+        "id": "AS3-STAGE-UI-TEXT-20261101",
+        "date": "2026-11-01",
+        "commit": "1db72af7575f18519c5df5a164f9823a3220cfe1",
+        "path": "docs/progress/reviews/2026-11-01-as3-stage-ui-text.json",
+        "changes": {
+          "partial": 14,
+          "working": 362
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 73,
-      "partial": 2998,
-      "missing": 42843,
-      "needs_review": 133,
+      "implemented_subset": 457,
+      "partial": 3030,
+      "missing": 42443,
+      "needs_review": 117,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 16,
-        "partial": 1519,
-        "missing": 737,
-        "needs_review": 35,
+        "implemented_subset": 38,
+        "partial": 1538,
+        "missing": 712,
+        "needs_review": 19,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 57,
-        "partial": 1479,
-        "missing": 42106,
+        "implemented_subset": 419,
+        "partial": 1492,
+        "missing": 41731,
         "needs_review": 98,
         "total": 43740
       }
@@ -1383,10 +1426,10 @@
         "total": 3083
       },
       "core": {
-        "implemented_subset": 2,
+        "implemented_subset": 11,
         "partial": 413,
         "missing": 4,
-        "needs_review": 102,
+        "needs_review": 93,
         "total": 521
       },
       "framework": {
@@ -1397,10 +1440,10 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 29,
-        "partial": 236,
+        "implemented_subset": 33,
+        "partial": 238,
         "missing": 16,
-        "needs_review": 28,
+        "needs_review": 22,
         "total": 309
       },
       "platform_extension": {
@@ -1411,10 +1454,10 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 42,
-        "partial": 1794,
-        "missing": 4319,
-        "needs_review": 3,
+        "implemented_subset": 413,
+        "partial": 1824,
+        "missing": 3919,
+        "needs_review": 2,
         "total": 6158
       }
     },
@@ -1428,10 +1471,10 @@
           "total": 1044
         },
         "core": {
-          "implemented_subset": 0,
+          "implemented_subset": 9,
           "partial": 136,
           "missing": 0,
-          "needs_review": 9,
+          "needs_review": 0,
           "total": 145
         },
         "framework": {
@@ -1442,10 +1485,10 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 15,
-          "partial": 142,
+          "implemented_subset": 19,
+          "partial": 144,
           "missing": 3,
-          "needs_review": 25,
+          "needs_review": 19,
           "total": 185
         },
         "platform_extension": {
@@ -1456,10 +1499,10 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 1,
-          "partial": 810,
-          "missing": 96,
-          "needs_review": 1,
+          "implemented_subset": 10,
+          "partial": 827,
+          "missing": 71,
+          "needs_review": 0,
           "total": 908
         }
       },
@@ -1500,9 +1543,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 41,
-          "partial": 984,
-          "missing": 4223,
+          "implemented_subset": 403,
+          "partial": 997,
+          "missing": 3848,
           "needs_review": 2,
           "total": 5250
         }
@@ -16978,13 +17021,6 @@
       "id": "U01",
       "title": "U01",
       "reason": "Unmapped core/language declarations; property/native routes cannot safely be classified by a name search.",
-      "limitations": "Use only within the exact reviewed rule; no full Flash compatibility is claimed.",
-      "evidence": []
-    },
-    {
-      "id": "U02",
-      "title": "U02",
-      "reason": "Explicit prototype/__proto__/__resolve questions identified by compiler auditor.",
       "limitations": "Use only within the exact reviewed rule; no full Flash compatibility is claimed.",
       "evidence": []
     },
@@ -49032,6 +49068,4645 @@
           "status": "partial",
           "ruleId": "COORD-AS2-HOUR-20261028-PLATFORM",
           "evidenceKind": "source_review_with_family_html5_not_individual_conformance"
+        }
+      ]
+    },
+    {
+      "id": "AS2-FOUNDATION-20261101",
+      "title": "AS2 foundation globals, display properties, TextRenderer, and Object/Date/arguments",
+      "reason": "Implements and verifies AS2 publication settings (_quality, _highquality, toggleHighQuality, _focusrect, _soundbuftime, showRedrawRegions), MovieClip._lockroot/getSWFVersion/scale9Grid, Button class and properties, Stage.wmodeGPU, TextField render hints/getFontList, flash.text.TextRenderer, Date.getUTCYear, Object.__proto__/constructor/registerClass, and arguments.callee/caller.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "c1a6fcaab6c2ef7a1f43968e69a4d2a7894fdad6377e160e3633761120a49399"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_input.rs",
+          "sha256": "c164b8d564a92e6e199c7114e17d8588d98544376e0d02a316f46c46eddae931"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_stage.rs",
+          "sha256": "0c265492e5db1231e331b5b63ed49a2a2c74a290703724b1fe634130cfb4e54a"
+        },
+        {
+          "path": "crates/neoflash-core/src/as2_text.rs",
+          "sha256": "55f32486be43595a861bd0b7583d3d69ef53dbd7e87d911852fc5a2f731f1c1a"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:global_props.html#_quality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#_highquality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_functions.html#toggleHighQuality()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#_focusrect",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "partial",
+          "scopeNote": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "partial",
+          "scopeNote": "Validates boolean enable and optional 24-bit RGB color in Rust publication settings; Canvas 2D repaints full frames and does not draw Flash dirty-region debug rectangles."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_quality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_highquality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "partial",
+          "scopeNote": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_lockroot",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "partial",
+          "scopeNote": "Returns 8 for live AS2 MovieClip instances in NeoFlash's unified SWF8-level HTML5 publication; multi-version external SWF bytecode inspection is not implemented."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#scale9Grid",
+          "status": "partial",
+          "scopeNote": "Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet."
+        },
+        {
+          "catalogId": "as2:Button.html#class",
+          "status": "partial",
+          "scopeNote": "AS2 Button constructor resolves in frame and class scripts (instanceof Button, subclassing, pointer states, _visible, depth/render/input properties); Button.enabled callback-only toggle remains separate from mouseEnabled."
+        },
+        {
+          "catalogId": "as2:Button.html#_visible",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Button.html#_quality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Button.html#_highquality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "partial",
+          "scopeNote": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:Button.html#scale9Grid",
+          "status": "partial",
+          "scopeNote": "Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet."
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:TextField.html#_quality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:TextField.html#_highquality",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:TextField.html#_soundbuftime",
+          "status": "partial",
+          "scopeNote": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "partial",
+          "scopeNote": "Boolean embedFonts flag is stored and reset per TextField in Rust; Canvas 2D renders loaded CSS/project font faces rather than gating rendering on embedded Flash glyph outlines."
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "partial",
+          "scopeNote": "Validates and stores 'normal' or 'advanced' per TextField in Rust; Canvas 2D uses browser font antialiasing rather than Flash Saffron CSM glyph rasterization."
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "partial",
+          "scopeNote": "Validates and stores 'none', 'pixel' or 'subpixel' per TextField in Rust; Canvas 2D uses browser font hinting rather than Flash Saffron pixel/subpixel grid fitting."
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "partial",
+          "scopeNote": "Validates finite numbers and clamps sharpness to [-400, 400] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph sharpness."
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "partial",
+          "scopeNote": "Validates finite numbers and clamps thickness to [-200, 200] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph stem thickness."
+        },
+        {
+          "catalogId": "as2:TextField.html#getFontList()",
+          "status": "partial",
+          "scopeNote": "Returns normalized, deduplicated, sorted font family names from loaded document.fonts, authored project fonts and standard browser families; full OS font enumeration without browser permission is unavailable."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "partial",
+          "scopeNote": "Static flash.text.TextRenderer class resolves in AS2 with Rust-backed displayMode, maxLevel and setAdvancedAntialiasingTable; Canvas 2D delegates subpixel/hint rasterization to the browser."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "partial",
+          "scopeNote": "Validates and stores 'default', 'lcd' or 'crt' in Rust and resets on restart; Canvas 2D delegates LCD/CRT subpixel text rasterization to the browser."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "partial",
+          "scopeNote": "Validates integer maxLevel in 0..=64 (default 4) in Rust and resets on restart; Canvas 2D does not generate Flash Saffron adaptive antialiasing mip tables."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "partial",
+          "scopeNote": "Validates fontName, fontStyle ('none'/'bold'/'italic'), colorType ('dark'/'light') and bounded cutoff entries in Rust; Canvas 2D text rendering does not consume Flash Saffron cutoff tables."
+        },
+        {
+          "catalogId": "as2:Date.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Date.html#getTimezoneOffset()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCYear()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Date.html#toString()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Object.html#__proto__",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Object.html#constructor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Object.html#registerClass()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:arguments.html#callee",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:arguments.html#caller",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:global_props.html#_quality",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#_highquality",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_functions.html#toggleHighQuality()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#_focusrect",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_highquality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_lockroot",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#scale9Grid",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Button.html#class",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Button.html#_visible",
+          "status": "needs_review",
+          "ruleId": "P0-VISIBILITY-20261026T2353Z",
+          "evidenceKind": "source_inference_shared_display_proxy_not_individually_executed"
+        },
+        {
+          "catalogId": "as2:Button.html#_quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Button.html#_highquality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Button.html#scale9Grid",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#_quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#_highquality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#_soundbuftime",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:TextField.html#getFontList()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Date.html#class",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Date.html#getTimezoneOffset()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCYear()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Date.html#toString()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Object.html#__proto__",
+          "status": "needs_review",
+          "ruleId": "U02",
+          "evidenceKind": "explicit_semantics_review_required"
+        },
+        {
+          "catalogId": "as2:Object.html#constructor",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Object.html#registerClass()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:arguments.html#callee",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:arguments.html#caller",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        }
+      ]
+    },
+    {
+      "id": "AS3-STAGE-UI-TEXT-20261101",
+      "title": "AS3 Stage properties, flash.ui Keyboard/Mouse, text enums, TextLineMetrics and BitmapDataChannel",
+      "reason": "Register and implement AS3 Stage scale/align/quality/fullscreen/color/invalidate members, flash.ui Keyboard (all 278 constants and state queries), KeyLocation, KeyboardType, Mouse and MouseCursor, flash.text enum classes, TextLineMetrics, TextField.getLineMetrics and BitmapDataChannel.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/core-surface.mjs",
+          "sha256": "74303d2fa61a0b8d66df940bbd21e416586195c877abe99aaef0ae5baaeeba54"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "5f944de7cc59e2e4497bbe775ae3bac25cb9e351dc9874afcca9a983b959800f"
+        },
+        {
+          "path": "web/tests/stage.test.cjs",
+          "sha256": "4cdab07016f6a58d35c8799709e47e1a75fe92501bc973b6a2bbb530309c1588"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/BitmapDataChannel.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageAlign.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageDisplayState.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageQuality.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageScaleMode.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/AntiAliasType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/GridFitType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldAutoSize.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextLineMetrics.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyLocation.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Keyboard.html#",
+          "status": "partial",
+          "scopeNote": "All 278 key/keyname/string constants and CharCodeStrings work; lock/hardware queries are bounded by browser DOM keyboard APIs."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyboardType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Mouse.html#",
+          "status": "partial",
+          "scopeNote": "Built-in MouseCursor values, cursor visibility and capability flags work; custom bitmap cursors via registerCursor/unregisterCursor remain unimplemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursor.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#ALPHA",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#BLUE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#GREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#RED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN_INTERACTIVE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#NORMAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#BEST",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16_LINEAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8_LINEAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#LOW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#MEDIUM",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#EXACT_FIT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_BORDER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_SCALE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#SHOW_ALL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#RENDER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#ADVANCED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#NORMAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#PIXEL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#SUBPIXEL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#CENTER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#D_PAD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#NUM_PAD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#STANDARD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#A",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ALTERNATE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#AUDIO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#B",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKQUOTE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSLASH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSPACE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BLUE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#C",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CAPS_LOCK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_DOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_UP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMA",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMAND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CONTROL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CharCodeStrings",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#D",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DELETE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DVR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#E",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#END",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ENTER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EQUAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ESCAPE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EXIT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F1",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F10",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F11",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F12",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F13",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F14",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F15",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F2",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F3",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F4",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F5",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F6",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F7",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F9",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#FAST_FORWARD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#G",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GUIDE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#H",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HELP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HOME",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#I",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INFO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INPUT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INSERT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#J",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#K",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BEGIN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BREAK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARDISPLAY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARLINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETECHAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETELINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DOWNARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_END",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_EXECUTE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F1",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F10",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F11",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F12",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F13",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F14",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F15",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F16",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F17",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F18",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F19",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F2",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F20",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F21",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F22",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F23",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F24",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F25",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F26",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F27",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F28",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F29",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F3",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F30",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F31",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F32",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F33",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F34",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F35",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F4",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F5",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F6",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F7",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F9",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_FIND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HELP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HOME",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTCHAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTLINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_LEFTARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MENU",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MODESWITCH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_NEXT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEDOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEUP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAUSE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PLAYPAUSE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PREV",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINTSCREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_REDO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RESET",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RIGHTARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SCROLLLOCK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SELECT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_STOP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSREQ",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSTEM",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UNDO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UPARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_USER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#L",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LAST",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFTBRACKET",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LIVE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#M",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MASTER_SHELL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MENU",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MINUS",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#N",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NEXT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_0",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_1",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_2",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_3",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_4",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_5",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_6",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_7",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_9",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_0",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_1",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_2",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_3",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_4",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_5",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_6",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_7",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_9",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ADD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DECIMAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DIVIDE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ENTER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_MULTIPLY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_SUBTRACT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#O",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#P",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_DOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_UP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAUSE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PERIOD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PREVIOUS",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Q",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#QUOTE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#R",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RECORD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RED",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#REWIND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHTBRACKET",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#S",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEARCH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEMICOLON",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SETUP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SHIFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_BACKWARD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_FORWARD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SLASH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SPACE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STOP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BEGIN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BREAK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARDISPLAY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARLINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETECHAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETELINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DOWNARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_END",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_EXECUTE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F1",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F10",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F11",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F12",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F13",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F14",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F15",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F16",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F17",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F18",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F19",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F2",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F20",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F21",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F22",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F23",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F24",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F25",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F26",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F27",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F28",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F29",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F3",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F30",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F31",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F32",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F33",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F34",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F35",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F4",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F5",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F6",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F7",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F8",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F9",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_FIND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HELP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HOME",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTCHAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTLINE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_LEFTARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MENU",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MODESWITCH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_NEXT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEDOWN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEUP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAUSE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PREV",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINTSCREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_REDO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RESET",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RIGHTARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SCROLLLOCK",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SELECT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_STOP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSREQ",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSTEM",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UNDO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UPARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_USER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SUBTITLE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#T",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#TAB",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#U",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#UP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#V",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#VOD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#W",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#X",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Y",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#YELLOW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Z",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#ALPHANUMERIC",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#KEYPAD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#ARROW",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#AUTO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#BUTTON",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#HAND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#IBEAM",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#invalidate()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineMetrics()",
+          "status": "partial",
+          "scopeNote": "Computes TextLineMetrics from the shared uniform TextField line layout; per-run font ascent/descent shaping is not implemented."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Keyboard.html#isAccessible()",
+          "status": "partial",
+          "scopeNote": "Returns host accessibility keyboard state (false by default); Flash MSAA keyboard-hook detection does not apply in HTML5."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#hide()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#show()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#align",
+          "status": "partial",
+          "scopeNote": "Validates, normalizes and stores StageAlign values; automatic viewport alignment offset in noScale mode is not wired to AS3 Stage yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreen",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreenInteractive",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#color",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#contentsScaleFactor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#displayState",
+          "status": "partial",
+          "scopeNote": "Delegates fullscreen transitions to the DOM Fullscreen API and throws SecurityError without permission/gesture; fullScreenSourceRect is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenHeight",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenWidth",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseChildren",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#numChildren",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "partial",
+          "scopeNote": "Validates StageQuality values and returns uppercase names; Canvas 2D antialiasing subpixel quality modes (8x8/16x16) are not differentiated."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#scaleMode",
+          "status": "partial",
+          "scopeNote": "Validates and stores StageScaleMode values; automatic viewport letterboxing/stretching layout for all modes is not wired to AS3 Stage yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#showDefaultContextMenu",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageFocusRect",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean state; AS3 focus-ring rendering suppression is not wired to display objects yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#tabChildren",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean state; automatic Tab-key focus cycling across Stage children is not implemented yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#ascent",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#descent",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#height",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#leading",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#width",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#x",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#capsLock",
+          "status": "partial",
+          "scopeNote": "Updated from DOM KeyboardEvent.getModifierState during key input; initial OS CapsLock state before key events is unavailable in browsers."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#hasVirtualKeyboard",
+          "status": "partial",
+          "scopeNote": "Returns host-configured or desktop default Boolean; browser APIs do not expose virtual keyboard hardware presence."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#numLock",
+          "status": "partial",
+          "scopeNote": "Updated from DOM KeyboardEvent.getModifierState during key input; initial OS NumLock state before key events is unavailable in browsers."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#physicalKeyboardType",
+          "status": "partial",
+          "scopeNote": "Returns host-configured or alphanumeric KeyboardType; browser APIs do not distinguish physical keypad hardware."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#cursor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsCursor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/BitmapDataChannel.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageAlign.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageDisplayState.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageQuality.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageScaleMode.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/AntiAliasType.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/GridFitType.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldAutoSize.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextLineMetrics.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyLocation.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Keyboard.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyboardType.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Mouse.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursor.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#ALPHA",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#BLUE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#GREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#RED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN_INTERACTIVE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#NORMAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#BEST",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16_LINEAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8_LINEAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#LOW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#MEDIUM",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#EXACT_FIT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_BORDER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_SCALE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#SHOW_ALL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#RENDER",
+          "status": "partial",
+          "ruleId": "COORD-RUNTIME-HOUR2-EVENTS-20261028",
+          "evidenceKind": "coordinator_source_review_and_representative_html5_family_acceptance"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#ADVANCED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#NORMAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#NONE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#PIXEL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#SUBPIXEL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#CENTER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#NONE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#D_PAD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#NUM_PAD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#STANDARD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#A",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ALTERNATE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#AUDIO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#B",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKQUOTE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSLASH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSPACE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BLUE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#C",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CAPS_LOCK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_DOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_UP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMA",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMAND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CONTROL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CharCodeStrings",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#D",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DELETE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DVR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#E",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#END",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ENTER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EQUAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ESCAPE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EXIT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F1",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F10",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F11",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F12",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F13",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F14",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F15",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F2",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F3",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F4",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F5",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F6",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F7",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F9",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#FAST_FORWARD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#G",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GUIDE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#H",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HELP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HOME",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#I",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INFO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INPUT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INSERT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#J",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#K",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BEGIN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BREAK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARDISPLAY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARLINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETECHAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETELINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DOWNARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_END",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_EXECUTE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F1",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F10",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F11",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F12",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F13",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F14",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F15",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F16",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F17",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F18",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F19",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F2",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F20",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F21",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F22",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F23",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F24",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F25",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F26",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F27",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F28",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F29",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F3",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F30",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F31",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F32",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F33",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F34",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F35",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F4",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F5",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F6",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F7",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F9",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_FIND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HELP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HOME",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTCHAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTLINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_LEFTARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MENU",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MODESWITCH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_NEXT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEDOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEUP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAUSE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PLAYPAUSE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PREV",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINTSCREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_REDO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RESET",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RIGHTARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SCROLLLOCK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SELECT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_STOP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSREQ",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSTEM",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UNDO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UPARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_USER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#L",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LAST",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFTBRACKET",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LIVE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#M",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MASTER_SHELL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MENU",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MINUS",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#N",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NEXT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_0",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_1",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_2",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_3",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_4",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_5",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_6",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_7",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_9",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_0",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_1",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_2",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_3",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_4",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_5",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_6",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_7",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_9",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ADD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DECIMAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DIVIDE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ENTER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_MULTIPLY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_SUBTRACT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#O",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#P",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_DOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_UP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAUSE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PERIOD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PREVIOUS",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Q",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#QUOTE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#R",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RECORD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RED",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#REWIND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHTBRACKET",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#S",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEARCH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEMICOLON",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SETUP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SHIFT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_BACKWARD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_FORWARD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SLASH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SPACE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STOP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BEGIN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BREAK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARDISPLAY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARLINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETECHAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETELINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DOWNARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_END",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_EXECUTE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F1",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F10",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F11",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F12",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F13",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F14",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F15",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F16",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F17",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F18",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F19",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F2",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F20",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F21",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F22",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F23",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F24",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F25",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F26",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F27",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F28",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F29",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F3",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F30",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F31",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F32",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F33",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F34",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F35",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F4",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F5",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F6",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F7",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F8",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F9",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_FIND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HELP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HOME",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTCHAR",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTLINE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_LEFTARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MENU",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MODESWITCH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_NEXT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEDOWN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEUP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAUSE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PREV",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINTSCREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_REDO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RESET",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RIGHTARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SCROLLLOCK",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SELECT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_STOP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSREQ",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSTEM",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UNDO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UPARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_USER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SUBTITLE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#T",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#TAB",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#U",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#UP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#V",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#VOD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#W",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#X",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Y",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#YELLOW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Z",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#ALPHANUMERIC",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#KEYPAD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#NONE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#ARROW",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#AUTO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#BUTTON",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#HAND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#IBEAM",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#invalidate()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineMetrics()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Keyboard.html#isAccessible()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#hide()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#show()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#align",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreen",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreenInteractive",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#color",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#contentsScaleFactor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#displayState",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenHeight",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenWidth",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseChildren",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#numChildren",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#scaleMode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#showDefaultContextMenu",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageFocusRect",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#tabChildren",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#ascent",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#descent",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#height",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#leading",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#width",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#x",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#capsLock",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#hasVirtualKeyboard",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#numLock",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#physicalKeyboardType",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#cursor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsCursor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
         }
       ]
     }

@@ -22,13 +22,13 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
 | 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
 | 3. MovieClip and timeline | 37 | 10 | 22 | 5 | 0 | 27.0% | 86.5% |
-| 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
-| 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
-| 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
+| 4. Display, events and basic input | 678 | 359 | 195 | 124 | 0 | 52.9% | 81.7% |
+| 5. Graphics, bitmaps and filters | 313 | 8 | 151 | 154 | 0 | 2.6% | 50.8% |
+| 6. Text and fonts | 174 | 23 | 59 | 92 | 0 | 13.2% | 47.1% |
 | 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 56 | 927 | 861 | 95 | 2.9% | 50.7% |
-| **All Flash Player areas** | 4,164 | 57 | 1,322 | 2,688 | 97 | 1.4% | 33.1% |
+| **Now: areas 1–6** | 1,939 | 416 | 940 | 488 | 95 | 21.5% | 69.9% |
+| **All Flash Player areas** | 4,164 | 417 | 1,335 | 2,315 | 97 | 10.0% | 42.1% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -37,15 +37,15 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
-| 2. Objects, language and collections | 281 | 14 | 255 | 3 | 9 | 5.0% | 95.7% |
-| 3. MovieClip and timeline | 123 | 1 | 111 | 7 | 4 | 0.8% | 91.1% |
-| 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
-| 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
-| 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
-| 7. File audio and video playback | 83 | 1 | 65 | 16 | 1 | 1.2% | 79.5% |
+| 2. Objects, language and collections | 281 | 23 | 255 | 3 | 0 | 8.2% | 98.9% |
+| 3. MovieClip and timeline | 123 | 4 | 114 | 1 | 4 | 3.3% | 95.9% |
+| 4. Display, events and basic input | 130 | 5 | 125 | 0 | 0 | 3.8% | 100.0% |
+| 5. Graphics, bitmaps and filters | 145 | 3 | 142 | 0 | 0 | 2.1% | 100.0% |
+| 6. Text and fonts | 118 | 2 | 114 | 0 | 2 | 1.7% | 98.3% |
+| 7. File audio and video playback | 83 | 1 | 66 | 16 | 0 | 1.2% | 80.7% |
 | 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
-| **Now: areas 1–6** | 925 | 15 | 860 | 29 | 21 | 1.6% | 94.6% |
-| **All Flash Player areas** | 1,238 | 16 | 1,088 | 99 | 35 | 1.3% | 89.2% |
+| **Now: areas 1–6** | 925 | 37 | 878 | 4 | 6 | 4.0% | 98.9% |
+| **All Flash Player areas** | 1,238 | 38 | 1,107 | 74 | 19 | 3.1% | 92.5% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 

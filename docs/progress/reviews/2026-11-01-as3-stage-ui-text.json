@@ -1,0 +1,1538 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "268ae796b02d76821679364ee532dc09b8e3fe49c20fe7ef36b13e4e5628e37d",
+  "reviews": [
+    {
+      "id": "AS3-STAGE-UI-TEXT-20261101",
+      "date": "2026-11-01",
+      "commit": "1db72af7575f18519c5df5a164f9823a3220cfe1",
+      "title": "AS3 Stage properties, flash.ui Keyboard/Mouse, text enums, TextLineMetrics and BitmapDataChannel",
+      "summary": "Register and implement AS3 Stage scale/align/quality/fullscreen/color/invalidate members, flash.ui Keyboard (all 278 constants and state queries), KeyLocation, KeyboardType, Mouse and MouseCursor, flash.text enum classes, TextLineMetrics, TextField.getLineMetrics and BitmapDataChannel.",
+      "tests": [
+        "crates/neoflash-script/tests/core-surface.mjs",
+        "crates/neoflash-script/tests/project.rs",
+        "web/tests/stage.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/display/BitmapDataChannel.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageAlign.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageDisplayState.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageQuality.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/StageScaleMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/AntiAliasType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/GridFitType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldAutoSize.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextLineMetrics.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyLocation.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Keyboard.html#",
+          "status": "partial",
+          "note": "All 278 key/keyname/string constants and CharCodeStrings work; lock/hardware queries are bounded by browser DOM keyboard APIs."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/KeyboardType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/Mouse.html#",
+          "status": "partial",
+          "note": "Built-in MouseCursor values, cursor visibility and capability flags work; custom bitmap cursors via registerCursor/unregisterCursor remain unimplemented."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursor.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#ALPHA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#BLUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#GREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#RED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN_INTERACTIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageDisplayState.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#BEST",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16_LINEAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8_LINEAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#LOW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageQuality.html#MEDIUM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#EXACT_FIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_BORDER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_SCALE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/StageScaleMode.html#SHOW_ALL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/Event.html#RENDER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#ADVANCED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AntiAliasType.html#NORMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#PIXEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/GridFitType.html#SUBPIXEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#CENTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#D_PAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#NUM_PAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyLocation.html#STANDARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#A",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ALTERNATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#AUDIO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#B",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKQUOTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSLASH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSPACE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#BLUE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#C",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CAPS_LOCK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMAND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CONTROL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#CharCodeStrings",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#D",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DELETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#DVR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#E",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#END",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ENTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EQUAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#ESCAPE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#EXIT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F1",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F10",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F11",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F12",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F13",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F14",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F15",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F7",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#F9",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#FAST_FORWARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#G",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#GUIDE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#H",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HELP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#HOME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#I",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INFO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INPUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#INSERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#J",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#K",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BEGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BREAK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARDISPLAY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARLINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETECHAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETELINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DOWNARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_END",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_EXECUTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F1",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F10",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F11",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F12",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F13",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F14",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F15",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F16",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F17",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F18",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F19",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F20",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F21",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F22",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F23",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F24",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F25",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F26",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F27",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F28",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F29",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F30",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F31",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F32",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F33",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F34",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F35",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F7",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F9",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_FIND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HELP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HOME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTCHAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTLINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_LEFTARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MENU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MODESWITCH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_NEXT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEDOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEUP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAUSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PLAYPAUSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PREV",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINTSCREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_REDO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RESET",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RIGHTARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SCROLLLOCK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SELECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_STOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSREQ",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSTEM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UNDO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UPARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_USER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#L",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LAST",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFTBRACKET",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#LIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#M",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MASTER_SHELL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MENU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#MINUS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#N",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NEXT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_0",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_1",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_7",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_9",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_0",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_1",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_7",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_9",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ADD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DECIMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DIVIDE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ENTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_MULTIPLY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_SUBTRACT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#O",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#P",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAUSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PERIOD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#PREVIOUS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Q",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#QUOTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#R",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RECORD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#REWIND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHTBRACKET",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#S",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEARCH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEMICOLON",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SETUP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SHIFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_BACKWARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_FORWARD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SLASH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SPACE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BEGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BREAK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARDISPLAY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARLINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETECHAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETELINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DOWNARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_END",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_EXECUTE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F1",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F10",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F11",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F12",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F13",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F14",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F15",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F16",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F17",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F18",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F19",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F20",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F21",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F22",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F23",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F24",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F25",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F26",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F27",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F28",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F29",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F3",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F30",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F31",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F32",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F33",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F34",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F35",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F7",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F8",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F9",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_FIND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HELP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HOME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTCHAR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTLINE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_LEFTARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MENU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MODESWITCH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_NEXT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEDOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEUP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAUSE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PREV",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINTSCREEN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_REDO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RESET",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RIGHTARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SCROLLLOCK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SELECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_STOP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSREQ",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSTEM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UNDO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UPARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_USER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#SUBTITLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#T",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#TAB",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#U",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#V",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#VOD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#W",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#X",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#YELLOW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/Keyboard.html#Z",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#ALPHANUMERIC",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#KEYPAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/KeyboardType.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#ARROW",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#AUTO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#BUTTON",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#HAND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/MouseCursor.html#IBEAM",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage.html#invalidate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineMetrics()",
+          "status": "partial",
+          "note": "Computes TextLineMetrics from the shared uniform TextField line layout; per-run font ascent/descent shaping is not implemented."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Keyboard.html#isAccessible()",
+          "status": "partial",
+          "note": "Returns host accessibility keyboard state (false by default); Flash MSAA keyboard-hook detection does not apply in HTML5."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#hide()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#show()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#align",
+          "status": "partial",
+          "note": "Validates, normalizes and stores StageAlign values; automatic viewport alignment offset in noScale mode is not wired to AS3 Stage yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreen",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreenInteractive",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#contentsScaleFactor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#displayState",
+          "status": "partial",
+          "note": "Delegates fullscreen transitions to the DOM Fullscreen API and throws SecurityError without permission/gesture; fullScreenSourceRect is not implemented."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#fullScreenWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#numChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "partial",
+          "note": "Validates StageQuality values and returns uppercase names; Canvas 2D antialiasing subpixel quality modes (8x8/16x16) are not differentiated."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#scaleMode",
+          "status": "partial",
+          "note": "Validates and stores StageScaleMode values; automatic viewport letterboxing/stretching layout for all modes is not wired to AS3 Stage yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#showDefaultContextMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageFocusRect",
+          "status": "partial",
+          "note": "Validates and stores Boolean state; AS3 focus-ring rendering suppression is not wired to display objects yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#tabChildren",
+          "status": "partial",
+          "note": "Validates and stores Boolean state; automatic Tab-key focus cycling across Stage children is not implemented yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#ascent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#descent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#leading",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextLineMetrics.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#capsLock",
+          "status": "partial",
+          "note": "Updated from DOM KeyboardEvent.getModifierState during key input; initial OS CapsLock state before key events is unavailable in browsers."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#hasVirtualKeyboard",
+          "status": "partial",
+          "note": "Returns host-configured or desktop default Boolean; browser APIs do not expose virtual keyboard hardware presence."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#numLock",
+          "status": "partial",
+          "note": "Updated from DOM KeyboardEvent.getModifierState during key input; initial OS NumLock state before key events is unavailable in browsers."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Keyboard.html#physicalKeyboardType",
+          "status": "partial",
+          "note": "Returns host-configured or alphanumeric KeyboardType; browser APIs do not distinguish physical keypad hardware."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#cursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsCursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

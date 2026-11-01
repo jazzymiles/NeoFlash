@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — ActionScript 2 and 3
+
+- AS3 Stage, input and text APIs: added `StageScaleMode`, `StageAlign`, `StageDisplayState`, `StageQuality` and `Stage` properties (`scaleMode`, `align`, `quality`, `displayState`, `color`, `fullScreenWidth`, `fullScreenHeight`, `allowsFullScreen`, `allowsFullScreenInteractive`, `contentsScaleFactor`, `numChildren`, `mouseChildren`, `tabChildren`, `showDefaultContextMenu`, `stageFocusRect`, `invalidate()` with `Event.RENDER`), `flash.ui.Keyboard` (all 278 key constants and modifier queries), `KeyLocation`, `KeyboardType`, `flash.ui.Mouse` and `MouseCursor`, `TextFieldAutoSize`, `AntiAliasType`, `GridFitType`, `TextLineMetrics`, `TextField.getLineMetrics()` and `BitmapDataChannel`.
+- AS2 foundation globals, display and language APIs: added publication settings `_quality`, `_highquality`, `toggleHighQuality()`, `_focusrect`, `_soundbuftime` and `showRedrawRegions()`, `MovieClip._lockroot`, `MovieClip.getSWFVersion()`, `MovieClip.scale9Grid`, `Button` class and properties, `Stage.wmodeGPU`, `TextField` anti-aliasing properties and `TextField.getFontList()`, `flash.text.TextRenderer`, `Date.getUTCYear()`, `Object.__proto__`, `Object.constructor`, `Object.registerClass()` (for `attachMovie`) and `arguments.caller`.
+
 ## Unreleased — Stage cursors and editing chrome
 
 - The Stage shows NF2 cursors for every tool, and they change with what is under the pointer: move over an object, resize arrows on Free Transform handles, rotate just outside a corner, skew on an edge, a point cursor over path points, pen-close over the first pen anchor, an open/closed hand for the Hand tool and motion-path keys, zoom out with ⌥. Rulers, panels and popovers keep system cursors.

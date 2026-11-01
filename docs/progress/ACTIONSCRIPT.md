@@ -15,13 +15,13 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
 | 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
 | 3. MovieClip and timeline | 37 | 10 | 22 | 5 | 0 | 27.0% | 86.5% |
-| 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
-| 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
-| 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
+| 4. Display, events and basic input | 678 | 359 | 195 | 124 | 0 | 52.9% | 81.7% |
+| 5. Graphics, bitmaps and filters | 313 | 8 | 151 | 154 | 0 | 2.6% | 50.8% |
+| 6. Text and fonts | 174 | 23 | 59 | 92 | 0 | 13.2% | 47.1% |
 | 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 56 | 927 | 861 | 95 | 2.9% | 50.7% |
-| **All Flash Player areas** | 4,164 | 57 | 1,322 | 2,688 | 97 | 1.4% | 33.1% |
+| **Now: areas 1–6** | 1,939 | 416 | 940 | 488 | 95 | 21.5% | 69.9% |
+| **All Flash Player areas** | 4,164 | 417 | 1,335 | 2,315 | 97 | 10.0% | 42.1% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -30,15 +30,15 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
-| 2. Objects, language and collections | 281 | 14 | 255 | 3 | 9 | 5.0% | 95.7% |
-| 3. MovieClip and timeline | 123 | 1 | 111 | 7 | 4 | 0.8% | 91.1% |
-| 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
-| 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
-| 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
-| 7. File audio and video playback | 83 | 1 | 65 | 16 | 1 | 1.2% | 79.5% |
+| 2. Objects, language and collections | 281 | 23 | 255 | 3 | 0 | 8.2% | 98.9% |
+| 3. MovieClip and timeline | 123 | 4 | 114 | 1 | 4 | 3.3% | 95.9% |
+| 4. Display, events and basic input | 130 | 5 | 125 | 0 | 0 | 3.8% | 100.0% |
+| 5. Graphics, bitmaps and filters | 145 | 3 | 142 | 0 | 0 | 2.1% | 100.0% |
+| 6. Text and fonts | 118 | 2 | 114 | 0 | 2 | 1.7% | 98.3% |
+| 7. File audio and video playback | 83 | 1 | 66 | 16 | 0 | 1.2% | 80.7% |
 | 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
-| **Now: areas 1–6** | 925 | 15 | 860 | 29 | 21 | 1.6% | 94.6% |
-| **All Flash Player areas** | 1,238 | 16 | 1,088 | 99 | 35 | 1.3% | 89.2% |
+| **Now: areas 1–6** | 925 | 37 | 878 | 4 | 6 | 4.0% | 98.9% |
+| **All Flash Player areas** | 1,238 | 38 | 1,107 | 74 | 19 | 3.1% | 92.5% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -49,17 +49,17 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | Language | Scope | Entries | Working | Partial | Missing | Needs review |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
-| AS2 | core | 145 | 0 | 136 | 0 | 9 |
+| AS2 | core | 145 | 9 | 136 | 0 | 0 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 15 | 142 | 3 | 25 |
+| AS2 | language | 185 | 19 | 144 | 3 | 19 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 1 | 810 | 96 | 1 |
+| AS2 | runtime | 908 | 10 | 827 | 71 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
 | AS3 | core | 376 | 2 | 277 | 4 | 93 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 14 | 94 | 13 | 3 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 41 | 984 | 4,223 | 2 |
+| AS3 | runtime | 5,250 | 403 | 997 | 3,848 | 2 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-STAGE-UI-TEXT-20261101` | 2026-11-01 | `1db72af7575f` | 14 → partial, 362 → working |
+| `AS2-FOUNDATION-20261101` | 2026-11-01 | `1db72af7575f` | 19 → partial, 22 → working |
 | `AS2-TIMELINE-SOUND-20261101` | 2026-11-01 | `feb7cea5cad5` | 1 → working |
 | `AS3-TIMELINE-SOUND-20261101` | 2026-11-01 | `feb7cea5cad5` | 1 → partial, 1 → working |
 | `AS2-SCENES-20261101` | 2026-11-01 | `b2bd864fe2e3` | 2 → partial |
@@ -1170,12 +1172,6 @@ Evidence: [crates/neoflash-core/Cargo.toml](../../crates/neoflash-core/Cargo.tom
 ### U01 — U01
 
 Unmapped core/language declarations; property/native routes cannot safely be classified by a name search.
-
-Use only within the exact reviewed rule; no full Flash compatibility is claimed.
-
-### U02 — U02
-
-Explicit prototype/__proto__/__resolve questions identified by compiler auditor.
 
 Use only within the exact reviewed rule; no full Flash compatibility is claimed.
 
@@ -4058,3 +4054,438 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `as2:global_functions.html#stopAllSounds()` — **working**: Main contract covered by the listed tests.
 
 Evidence: [crates/neoflash-script/tests/sound-playback.mjs](../../crates/neoflash-script/tests/sound-playback.mjs), [crates/neoflash-core/tests/timeline_sound.rs](../../crates/neoflash-core/tests/timeline_sound.rs)
+
+### AS2-FOUNDATION-20261101 — AS2 foundation globals, display properties, TextRenderer, and Object/Date/arguments
+
+Implements and verifies AS2 publication settings (_quality, _highquality, toggleHighQuality, _focusrect, _soundbuftime, showRedrawRegions), MovieClip._lockroot/getSWFVersion/scale9Grid, Button class and properties, Stage.wmodeGPU, TextField render hints/getFontList, flash.text.TextRenderer, Date.getUTCYear, Object.__proto__/constructor/registerClass, and arguments.callee/caller.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:global_props.html#_quality` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#_highquality` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#toggleHighQuality()` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#_focusrect` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#_soundbuftime` — **partial**: Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime.
+- `as2:global_functions.html#showRedrawRegions()` — **partial**: Validates boolean enable and optional 24-bit RGB color in Rust publication settings; Canvas 2D repaints full frames and does not draw Flash dirty-region debug rectangles.
+- `as2:MovieClip.html#_quality` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClip.html#_highquality` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClip.html#_soundbuftime` — **partial**: Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime.
+- `as2:MovieClip.html#_lockroot` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClip.html#getSWFVersion()` — **partial**: Returns 8 for live AS2 MovieClip instances in NeoFlash's unified SWF8-level HTML5 publication; multi-version external SWF bytecode inspection is not implemented.
+- `as2:MovieClip.html#scale9Grid` — **partial**: Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet.
+- `as2:Button.html#class` — **partial**: AS2 Button constructor resolves in frame and class scripts (instanceof Button, subclassing, pointer states, _visible, depth/render/input properties); Button.enabled callback-only toggle remains separate from mouseEnabled.
+- `as2:Button.html#_visible` — **working**: Main contract covered by the listed tests.
+- `as2:Button.html#_quality` — **working**: Main contract covered by the listed tests.
+- `as2:Button.html#_highquality` — **working**: Main contract covered by the listed tests.
+- `as2:Button.html#_soundbuftime` — **partial**: Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime.
+- `as2:Button.html#scale9Grid` — **partial**: Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet.
+- `as2:Stage.html#wmodeGPU` — **working**: Main contract covered by the listed tests.
+- `as2:TextField.html#_quality` — **working**: Main contract covered by the listed tests.
+- `as2:TextField.html#_highquality` — **working**: Main contract covered by the listed tests.
+- `as2:TextField.html#_soundbuftime` — **partial**: Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime.
+- `as2:TextField.html#embedFonts` — **partial**: Boolean embedFonts flag is stored and reset per TextField in Rust; Canvas 2D renders loaded CSS/project font faces rather than gating rendering on embedded Flash glyph outlines.
+- `as2:TextField.html#antiAliasType` — **partial**: Validates and stores 'normal' or 'advanced' per TextField in Rust; Canvas 2D uses browser font antialiasing rather than Flash Saffron CSM glyph rasterization.
+- `as2:TextField.html#gridFitType` — **partial**: Validates and stores 'none', 'pixel' or 'subpixel' per TextField in Rust; Canvas 2D uses browser font hinting rather than Flash Saffron pixel/subpixel grid fitting.
+- `as2:TextField.html#sharpness` — **partial**: Validates finite numbers and clamps sharpness to [-400, 400] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph sharpness.
+- `as2:TextField.html#thickness` — **partial**: Validates finite numbers and clamps thickness to [-200, 200] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph stem thickness.
+- `as2:TextField.html#getFontList()` — **partial**: Returns normalized, deduplicated, sorted font family names from loaded document.fonts, authored project fonts and standard browser families; full OS font enumeration without browser permission is unavailable.
+- `as2:flash/text/TextRenderer.html#class` — **partial**: Static flash.text.TextRenderer class resolves in AS2 with Rust-backed displayMode, maxLevel and setAdvancedAntialiasingTable; Canvas 2D delegates subpixel/hint rasterization to the browser.
+- `as2:flash/text/TextRenderer.html#displayMode` — **partial**: Validates and stores 'default', 'lcd' or 'crt' in Rust and resets on restart; Canvas 2D delegates LCD/CRT subpixel text rasterization to the browser.
+- `as2:flash/text/TextRenderer.html#maxLevel` — **partial**: Validates integer maxLevel in 0..=64 (default 4) in Rust and resets on restart; Canvas 2D does not generate Flash Saffron adaptive antialiasing mip tables.
+- `as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()` — **partial**: Validates fontName, fontStyle ('none'/'bold'/'italic'), colorType ('dark'/'light') and bounded cutoff entries in Rust; Canvas 2D text rendering does not consume Flash Saffron cutoff tables.
+- `as2:Date.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:Date.html#getTimezoneOffset()` — **working**: Main contract covered by the listed tests.
+- `as2:Date.html#getUTCYear()` — **working**: Main contract covered by the listed tests.
+- `as2:Date.html#toString()` — **working**: Main contract covered by the listed tests.
+- `as2:Object.html#__proto__` — **working**: Main contract covered by the listed tests.
+- `as2:Object.html#constructor` — **working**: Main contract covered by the listed tests.
+- `as2:Object.html#registerClass()` — **working**: Main contract covered by the listed tests.
+- `as2:arguments.html#callee` — **working**: Main contract covered by the listed tests.
+- `as2:arguments.html#caller` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [crates/neoflash-core/tests/as2_input.rs](../../crates/neoflash-core/tests/as2_input.rs), [crates/neoflash-core/src/as2_stage.rs](../../crates/neoflash-core/src/as2_stage.rs), [crates/neoflash-core/src/as2_text.rs](../../crates/neoflash-core/src/as2_text.rs)
+
+### AS3-STAGE-UI-TEXT-20261101 — AS3 Stage properties, flash.ui Keyboard/Mouse, text enums, TextLineMetrics and BitmapDataChannel
+
+Register and implement AS3 Stage scale/align/quality/fullscreen/color/invalidate members, flash.ui Keyboard (all 278 constants and state queries), KeyLocation, KeyboardType, Mouse and MouseCursor, flash.text enum classes, TextLineMetrics, TextField.getLineMetrics and BitmapDataChannel.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:class:flash/display/BitmapDataChannel.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/StageAlign.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/StageDisplayState.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/StageQuality.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/StageScaleMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/AntiAliasType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/GridFitType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextFieldAutoSize.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextLineMetrics.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/ui/KeyLocation.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/ui/Keyboard.html#` — **partial**: All 278 key/keyname/string constants and CharCodeStrings work; lock/hardware queries are bounded by browser DOM keyboard APIs.
+- `AS3:class:flash/ui/KeyboardType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/ui/Mouse.html#` — **partial**: Built-in MouseCursor values, cursor visibility and capability flags work; custom bitmap cursors via registerCursor/unregisterCursor remain unimplemented.
+- `AS3:class:flash/ui/MouseCursor.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BitmapDataChannel.html#ALPHA` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BitmapDataChannel.html#BLUE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BitmapDataChannel.html#GREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BitmapDataChannel.html#RED` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#BOTTOM` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#BOTTOM_LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#BOTTOM_RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#TOP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#TOP_LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageAlign.html#TOP_RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN_INTERACTIVE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageDisplayState.html#NORMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#BEST` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#HIGH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#HIGH_16X16` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#HIGH_16X16_LINEAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#HIGH_8X8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#HIGH_8X8_LINEAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#LOW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageQuality.html#MEDIUM` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageScaleMode.html#EXACT_FIT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageScaleMode.html#NO_BORDER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageScaleMode.html#NO_SCALE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/StageScaleMode.html#SHOW_ALL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/events/Event.html#RENDER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/AntiAliasType.html#ADVANCED` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/AntiAliasType.html#NORMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/GridFitType.html#NONE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/GridFitType.html#PIXEL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/GridFitType.html#SUBPIXEL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFieldAutoSize.html#CENTER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFieldAutoSize.html#LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFieldAutoSize.html#NONE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFieldAutoSize.html#RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyLocation.html#D_PAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyLocation.html#LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyLocation.html#NUM_PAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyLocation.html#RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyLocation.html#STANDARD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#A` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#ALTERNATE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#AUDIO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#B` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#BACK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#BACKQUOTE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#BACKSLASH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#BACKSPACE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#BLUE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#C` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#CAPS_LOCK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#CHANNEL_DOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#CHANNEL_UP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#COMMA` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#COMMAND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#CONTROL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#CharCodeStrings` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#D` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#DELETE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#DOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#DVR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#E` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#END` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#ENTER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#EQUAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#ESCAPE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#EXIT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F1` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F10` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F11` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F12` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F13` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F14` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F15` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F2` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F4` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F5` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F6` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F7` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#F9` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#FAST_FORWARD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#G` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#GREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#GUIDE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#H` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#HELP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#HOME` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#I` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#INFO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#INPUT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#INSERT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#J` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#K` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_BEGIN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_BREAK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARDISPLAY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARLINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETECHAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETELINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_DOWNARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_END` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_EXECUTE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F1` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F10` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F11` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F12` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F13` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F14` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F15` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F16` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F17` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F18` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F19` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F2` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F20` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F21` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F22` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F23` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F24` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F25` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F26` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F27` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F28` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F29` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F30` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F31` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F32` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F33` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F34` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F35` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F4` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F5` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F6` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F7` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_F9` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_FIND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_HELP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_HOME` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTCHAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTLINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_LEFTARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_MENU` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_MODESWITCH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_NEXT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEDOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEUP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAUSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PLAYPAUSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PREV` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINTSCREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_REDO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_RESET` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_RIGHTARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_SCROLLLOCK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_SELECT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_STOP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSREQ` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSTEM` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_UNDO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_UPARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#KEYNAME_USER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#L` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#LAST` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#LEFTBRACKET` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#LIVE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#M` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#MASTER_SHELL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#MENU` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#MINUS` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#N` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NEXT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_0` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_1` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_2` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_4` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_5` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_6` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_7` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMBER_9` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_0` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_1` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_2` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_4` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_5` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_6` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_7` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_9` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_ADD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_DECIMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_DIVIDE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_ENTER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_MULTIPLY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#NUMPAD_SUBTRACT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#O` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#P` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PAGE_DOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PAGE_UP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PAUSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PERIOD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PLAY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#PREVIOUS` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#Q` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#QUOTE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#R` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#RECORD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#RED` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#REWIND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#RIGHTBRACKET` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#S` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SEARCH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SEMICOLON` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SETUP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SHIFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SKIP_BACKWARD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SKIP_FORWARD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SLASH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SPACE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STOP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_BEGIN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_BREAK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_CLEARDISPLAY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_CLEARLINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_DELETE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_DELETECHAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_DELETELINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_DOWNARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_END` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_EXECUTE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F1` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F10` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F11` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F12` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F13` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F14` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F15` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F16` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F17` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F18` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F19` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F2` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F20` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F21` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F22` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F23` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F24` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F25` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F26` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F27` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F28` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F29` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F3` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F30` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F31` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F32` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F33` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F34` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F35` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F4` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F5` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F6` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F7` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F8` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_F9` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_FIND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_HELP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_HOME` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_INSERT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_INSERTCHAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_INSERTLINE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_LEFTARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_MENU` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_MODESWITCH` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_NEXT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PAGEDOWN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PAGEUP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PAUSE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PREV` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PRINT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_PRINTSCREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_REDO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_RESET` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_RIGHTARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_SCROLLLOCK` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_SELECT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_STOP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_SYSREQ` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_SYSTEM` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_UNDO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_UPARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#STRING_USER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#SUBTITLE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#T` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#TAB` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#U` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#UP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#V` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#VOD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#W` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#X` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#Y` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#YELLOW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/Keyboard.html#Z` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyboardType.html#ALPHANUMERIC` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyboardType.html#KEYPAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/KeyboardType.html#NONE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/MouseCursor.html#ARROW` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/MouseCursor.html#AUTO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/MouseCursor.html#BUTTON` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/MouseCursor.html#HAND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/ui/MouseCursor.html#IBEAM` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/Stage.html#invalidate()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineMetrics()` — **partial**: Computes TextLineMetrics from the shared uniform TextField line layout; per-run font ascent/descent shaping is not implemented.
+- `AS3:method:flash/ui/Keyboard.html#isAccessible()` — **partial**: Returns host accessibility keyboard state (false by default); Flash MSAA keyboard-hook detection does not apply in HTML5.
+- `AS3:method:flash/ui/Mouse.html#hide()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/ui/Mouse.html#show()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#align` — **partial**: Validates, normalizes and stores StageAlign values; automatic viewport alignment offset in noScale mode is not wired to AS3 Stage yet.
+- `AS3:property:flash/display/Stage.html#allowsFullScreen` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#allowsFullScreenInteractive` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#contentsScaleFactor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#displayState` — **partial**: Delegates fullscreen transitions to the DOM Fullscreen API and throws SecurityError without permission/gesture; fullScreenSourceRect is not implemented.
+- `AS3:property:flash/display/Stage.html#fullScreenHeight` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#fullScreenWidth` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#mouseChildren` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#numChildren` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#quality` — **partial**: Validates StageQuality values and returns uppercase names; Canvas 2D antialiasing subpixel quality modes (8x8/16x16) are not differentiated.
+- `AS3:property:flash/display/Stage.html#scaleMode` — **partial**: Validates and stores StageScaleMode values; automatic viewport letterboxing/stretching layout for all modes is not wired to AS3 Stage yet.
+- `AS3:property:flash/display/Stage.html#showDefaultContextMenu` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Stage.html#stageFocusRect` — **partial**: Validates and stores Boolean state; AS3 focus-ring rendering suppression is not wired to display objects yet.
+- `AS3:property:flash/display/Stage.html#tabChildren` — **partial**: Validates and stores Boolean state; automatic Tab-key focus cycling across Stage children is not implemented yet.
+- `AS3:property:flash/text/TextLineMetrics.html#ascent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextLineMetrics.html#descent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextLineMetrics.html#height` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextLineMetrics.html#leading` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextLineMetrics.html#width` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextLineMetrics.html#x` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/ui/Keyboard.html#capsLock` — **partial**: Updated from DOM KeyboardEvent.getModifierState during key input; initial OS CapsLock state before key events is unavailable in browsers.
+- `AS3:property:flash/ui/Keyboard.html#hasVirtualKeyboard` — **partial**: Returns host-configured or desktop default Boolean; browser APIs do not expose virtual keyboard hardware presence.
+- `AS3:property:flash/ui/Keyboard.html#numLock` — **partial**: Updated from DOM KeyboardEvent.getModifierState during key input; initial OS NumLock state before key events is unavailable in browsers.
+- `AS3:property:flash/ui/Keyboard.html#physicalKeyboardType` — **partial**: Returns host-configured or alphanumeric KeyboardType; browser APIs do not distinguish physical keypad hardware.
+- `AS3:property:flash/ui/Mouse.html#cursor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/ui/Mouse.html#supportsCursor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/ui/Mouse.html#supportsNativeCursor` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs)

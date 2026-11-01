@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "950c7f69e0f92cf7bb9ef5e37fb52b1d6df71d150f24af98e2a6491974977314",
+  "reviews": [
+    {
+      "id": "AS2-FOUNDATION-20261101",
+      "date": "2026-11-01",
+      "commit": "1db72af7575f18519c5df5a164f9823a3220cfe1",
+      "title": "AS2 foundation globals, display properties, TextRenderer, and Object/Date/arguments",
+      "summary": "Implements and verifies AS2 publication settings (_quality, _highquality, toggleHighQuality, _focusrect, _soundbuftime, showRedrawRegions), MovieClip._lockroot/getSWFVersion/scale9Grid, Button class and properties, Stage.wmodeGPU, TextField render hints/getFontList, flash.text.TextRenderer, Date.getUTCYear, Object.__proto__/constructor/registerClass, and arguments.callee/caller.",
+      "tests": [
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-core/tests/as2_input.rs",
+        "crates/neoflash-core/src/as2_stage.rs",
+        "crates/neoflash-core/src/as2_text.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:global_props.html#_quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_highquality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#toggleHighQuality()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_focusrect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "partial",
+          "note": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "partial",
+          "note": "Validates boolean enable and optional 24-bit RGB color in Rust publication settings; Canvas 2D repaints full frames and does not draw Flash dirty-region debug rectangles."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_highquality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "partial",
+          "note": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_lockroot",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "partial",
+          "note": "Returns 8 for live AS2 MovieClip instances in NeoFlash's unified SWF8-level HTML5 publication; multi-version external SWF bytecode inspection is not implemented."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#scale9Grid",
+          "status": "partial",
+          "note": "Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet."
+        },
+        {
+          "catalogId": "as2:Button.html#class",
+          "status": "partial",
+          "note": "AS2 Button constructor resolves in frame and class scripts (instanceof Button, subclassing, pointer states, _visible, depth/render/input properties); Button.enabled callback-only toggle remains separate from mouseEnabled."
+        },
+        {
+          "catalogId": "as2:Button.html#_visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_highquality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "partial",
+          "note": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:Button.html#scale9Grid",
+          "status": "partial",
+          "note": "Validates and clones flash.geom.Rectangle (positive interior width and height) or clears to undefined on live instances; 9-slice vector mesh deformation during scaled Canvas 2D rendering is not applied yet."
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_highquality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#_soundbuftime",
+          "status": "partial",
+          "note": "Shared 32-bit integer preference (default 5) is stored across global, display and getProperty/setProperty and reset on restart; Web Audio/HTML5 streaming does not throttle prebuffer duration by _soundbuftime."
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "partial",
+          "note": "Boolean embedFonts flag is stored and reset per TextField in Rust; Canvas 2D renders loaded CSS/project font faces rather than gating rendering on embedded Flash glyph outlines."
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "partial",
+          "note": "Validates and stores 'normal' or 'advanced' per TextField in Rust; Canvas 2D uses browser font antialiasing rather than Flash Saffron CSM glyph rasterization."
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "partial",
+          "note": "Validates and stores 'none', 'pixel' or 'subpixel' per TextField in Rust; Canvas 2D uses browser font hinting rather than Flash Saffron pixel/subpixel grid fitting."
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "partial",
+          "note": "Validates finite numbers and clamps sharpness to [-400, 400] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph sharpness."
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "partial",
+          "note": "Validates finite numbers and clamps thickness to [-200, 200] per TextField in Rust; Canvas 2D text rendering does not apply Flash Saffron glyph stem thickness."
+        },
+        {
+          "catalogId": "as2:TextField.html#getFontList()",
+          "status": "partial",
+          "note": "Returns normalized, deduplicated, sorted font family names from loaded document.fonts, authored project fonts and standard browser families; full OS font enumeration without browser permission is unavailable."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "partial",
+          "note": "Static flash.text.TextRenderer class resolves in AS2 with Rust-backed displayMode, maxLevel and setAdvancedAntialiasingTable; Canvas 2D delegates subpixel/hint rasterization to the browser."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "partial",
+          "note": "Validates and stores 'default', 'lcd' or 'crt' in Rust and resets on restart; Canvas 2D delegates LCD/CRT subpixel text rasterization to the browser."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "partial",
+          "note": "Validates integer maxLevel in 0..=64 (default 4) in Rust and resets on restart; Canvas 2D does not generate Flash Saffron adaptive antialiasing mip tables."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "partial",
+          "note": "Validates fontName, fontStyle ('none'/'bold'/'italic'), colorType ('dark'/'light') and bounded cutoff entries in Rust; Canvas 2D text rendering does not consume Flash Saffron cutoff tables."
+        },
+        {
+          "catalogId": "as2:Date.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getTimezoneOffset()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#getUTCYear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Date.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#__proto__",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#constructor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Object.html#registerClass()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:arguments.html#callee",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:arguments.html#caller",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}
