@@ -1381,9 +1381,305 @@ pub struct WorkspacePrefs {
     pub text_size: f64,
     /// Preferences ▸ Clipboard ▸ Default paste: plain Paste keeps the copied position.
     pub paste_in_place: bool,
+    /// Preferences pages, one group each (`panels/preferences.rs`). Never document data.
+    pub general: GeneralPrefs,
+    pub code_editor: CodeEditorPrefs,
+    pub timeline_prefs: TimelinePrefs,
+    pub drawing: DrawingPrefs,
+    pub text_prefs: TextPrefs,
+    pub clipboard_prefs: ClipboardPrefs,
+    pub publish: PublishPrefs,
+    pub shortcuts: ShortcutPrefs,
+}
+
+/// Preferences ▸ General (besides theme, UI scale, undo levels and Shift-select).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneralPrefs {
+    /// Interface language. Only English exists.
+    pub language: String,
+    pub on_launch: OnLaunch,
+    /// Most recent first, bounded to 10 (File ▸ Open recent, On launch ▸ Last document).
+    pub recent_files: Vec<String>,
+    pub autosave: bool,
+    pub autosave_minutes: u32,
+    /// Show keyboard shortcuts in tooltips.
+    pub tooltip_shortcuts: bool,
+}
+impl Default for GeneralPrefs {
+    fn default() -> Self {
+        Self {
+            language: "English".into(),
+            on_launch: OnLaunch::Example,
+            recent_files: Vec::new(),
+            autosave: true,
+            autosave_minutes: 5,
+            tooltip_shortcuts: true,
+        }
+    }
+}
+
+/// Preferences ▸ General ▸ On launch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnLaunch {
+    NewDocument,
+    LastDocument,
+    /// The bundled example document (behaviour before the preference existed).
+    #[default]
+    Example,
+}
+
+/// Preferences ▸ Code editor (Actions panel and project source files).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CodeEditorPrefs {
+    /// Font family; empty = the bundled NF2 mono font (Roboto Mono).
+    pub font: String,
+    pub font_size: f32,
+    pub line_height: f32,
+    pub line_numbers: bool,
+    pub word_wrap: bool,
+    pub auto_close_brackets: bool,
+    pub code_hints: bool,
+    pub hint_delay_ms: u32,
+    /// Spaces inserted by Tab and used by Auto format.
+    pub tab_size: u8,
+    pub format_on_save: bool,
+    pub highlight_current_line: bool,
+}
+impl Default for CodeEditorPrefs {
+    fn default() -> Self {
+        Self {
+            font: String::new(),
+            font_size: 13.0,
+            line_height: 1.6,
+            line_numbers: true,
+            word_wrap: false,
+            auto_close_brackets: true,
+            code_hints: true,
+            hint_delay_ms: 300,
+            tab_size: 4,
+            format_on_save: true,
+            highlight_current_line: true,
+        }
+    }
+}
+
+/// Preferences ▸ Timeline (besides the frame view options in `TimelineView` and the onion range).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimelinePrefs {
+    /// Clicking a frame selects the whole span between keyframes.
+    pub span_selection: bool,
+    /// New scenes get a named anchor on their first frame.
+    pub scene_anchors: bool,
+    /// Onion skin opacity of the nearest ghost, in percent; it falls to 15 % at the range end.
+    pub onion_falloff: f32,
+    /// Transforming on an in-between frame creates a keyframe (off: edits the span's keyframe).
+    pub auto_keyframe: bool,
+    pub tween_on_drag: TweenOnDrag,
+}
+impl Default for TimelinePrefs {
+    fn default() -> Self {
+        Self {
+            span_selection: true,
+            scene_anchors: false,
+            onion_falloff: 70.0,
+            auto_keyframe: true,
+            tween_on_drag: TweenOnDrag::None,
+        }
+    }
+}
+
+/// Preferences ▸ Timeline ▸ Tween type on drag: the tween created when a drag on an in-between
+/// frame creates a keyframe.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TweenOnDrag {
+    #[default]
+    None,
+    Classic,
+    Motion,
+}
+
+/// Off / tolerance levels used by the Drawing ▸ Recognition selects (Flash wording).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tolerance {
+    Off,
+    MustBeClose,
+    #[default]
+    Normal,
+    CanBeDistant,
+}
+
+/// Preferences ▸ Drawing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DrawingPrefs {
+    /// New shapes are drawing objects (Merge drawing is not available yet).
+    pub object_drawing: bool,
+    pub pen_preview: bool,
+    pub solid_points: bool,
+    /// Drawing tools show the crosshair cursor instead of the tool glyph.
+    pub precise_cursors: bool,
+    pub connect_lines: Tolerance,
+    pub smooth_curves: Tolerance,
+    pub recognise_lines: Tolerance,
+    pub recognise_shapes: Tolerance,
+    pub click_accuracy: Tolerance,
+    /// Object snapping tolerance in screen pixels.
+    pub snap_tolerance: f32,
+    pub snap_align: bool,
+}
+impl Default for DrawingPrefs {
+    fn default() -> Self {
+        Self {
+            object_drawing: true,
+            pen_preview: true,
+            solid_points: false,
+            precise_cursors: false,
+            connect_lines: Tolerance::Normal,
+            smooth_curves: Tolerance::Normal,
+            recognise_lines: Tolerance::Normal,
+            recognise_shapes: Tolerance::Normal,
+            click_accuracy: Tolerance::Normal,
+            snap_tolerance: 8.0,
+            snap_align: true,
+        }
+    }
+}
+
+/// Preferences ▸ Text (besides the default font and size).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextPrefs {
+    pub anti_alias: TextAntiAlias,
+    /// Report missing fonts that are drawn with a substitute.
+    pub substitution_warning: bool,
+    pub embed_glyphs: bool,
+    pub spell_check: bool,
+    pub vertical_rtl: bool,
+    pub vertical_no_kerning: bool,
+}
+impl Default for TextPrefs {
+    fn default() -> Self {
+        Self {
+            anti_alias: TextAntiAlias::Readability,
+            substitution_warning: true,
+            embed_glyphs: true,
+            spell_check: true,
+            vertical_rtl: false,
+            vertical_no_kerning: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextAntiAlias {
+    #[default]
+    Readability,
+    Animation,
+    Device,
+}
+
+/// Preferences ▸ Clipboard (besides Default paste).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClipboardPrefs {
+    /// Resolution of bitmaps copied to other apps.
+    pub bitmap_ppi: u32,
+    pub gradient_quality: Tolerance,
+    pub copy_svg: bool,
+    pub keep_layer_names: bool,
+    /// SVG pasted from other apps becomes editable paths (off: one bitmap).
+    pub editable_vector_paste: bool,
+    pub ask_large_bitmaps: bool,
+}
+impl Default for ClipboardPrefs {
+    fn default() -> Self {
+        Self {
+            bitmap_ppi: 144,
+            gradient_quality: Tolerance::Normal,
+            copy_svg: true,
+            keep_layer_names: true,
+            editable_vector_paste: true,
+            ask_large_bitmaps: true,
+        }
+    }
+}
+
+/// Preferences ▸ Publish: defaults for File ▸ Publish.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PublishPrefs {
+    /// Publish into this folder instead of asking each time.
+    pub output_folder: Option<String>,
+    pub html_wrapper: bool,
+    pub assets_folder: bool,
+    pub source_maps: bool,
+    pub jpeg_quality: u8,
+    pub strict: bool,
+    pub warnings_as_errors: bool,
+    pub publish_on_save: bool,
+}
+impl Default for PublishPrefs {
+    fn default() -> Self {
+        Self {
+            output_folder: None,
+            html_wrapper: true,
+            assets_folder: true,
+            source_maps: false,
+            jpeg_quality: 80,
+            strict: true,
+            warnings_as_errors: false,
+            publish_on_save: false,
+        }
+    }
+}
+
+/// Preferences ▸ Shortcuts: the active set and per-command overrides (command id → shortcut labels).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShortcutPrefs {
+    /// Active set name; empty = "NeoFlash default".
+    pub set: String,
+    pub overrides: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl WorkspacePrefs {
+    /// Clamp every Preferences group to the ranges its controls offer.
+    fn sanitize_preference_groups(&mut self) {
+        let g = &mut self.general;
+        g.language = "English".into();
+        g.recent_files.retain(|p| !p.is_empty() && p.len() <= 4096);
+        g.recent_files.truncate(10);
+        g.autosave_minutes = g.autosave_minutes.clamp(1, 120);
+        let c = &mut self.code_editor;
+        c.font.truncate(256);
+        c.font_size = finite_or(c.font_size, 13.0).clamp(8.0, 32.0);
+        c.line_height = finite_or(c.line_height, 1.6).clamp(1.0, 3.0);
+        c.hint_delay_ms = c.hint_delay_ms.min(2000);
+        c.tab_size = c.tab_size.clamp(1, 8);
+        let t = &mut self.timeline_prefs;
+        t.onion_falloff = finite_or(t.onion_falloff, 70.0).clamp(15.0, 100.0);
+        let d = &mut self.drawing;
+        d.snap_tolerance = finite_or(d.snap_tolerance, 8.0).clamp(1.0, 32.0);
+        self.clipboard_prefs.bitmap_ppi = self.clipboard_prefs.bitmap_ppi.clamp(72, 600);
+        let p = &mut self.publish;
+        p.jpeg_quality = p.jpeg_quality.clamp(1, 100);
+        p.output_folder = p
+            .output_folder
+            .take()
+            .filter(|f| !f.is_empty() && f.len() <= 4096);
+        self.shortcuts.set.truncate(128);
+        self.shortcuts
+            .overrides
+            .retain(|k, v| k.len() <= 128 && v.len() <= 4);
+    }
+
     pub const UI_SCALES: [(f32, &'static str); 6] = [
         (0.8, "80 %"),
         (0.9, "90 %"),
@@ -1490,8 +1786,20 @@ impl Default for WorkspacePrefs {
             text_font: String::new(),
             text_size: Self::DEFAULT_TEXT_SIZE,
             paste_in_place: false,
+            general: GeneralPrefs::default(),
+            code_editor: CodeEditorPrefs::default(),
+            timeline_prefs: TimelinePrefs::default(),
+            drawing: DrawingPrefs::default(),
+            text_prefs: TextPrefs::default(),
+            clipboard_prefs: ClipboardPrefs::default(),
+            publish: PublishPrefs::default(),
+            shortcuts: ShortcutPrefs::default(),
         }
     }
+}
+
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
 }
 
 /// Built-in workspace templates (Window ▸ Workspace and the top-bar select). Each one is a complete
@@ -1775,6 +2083,7 @@ impl WorkspacePrefs {
             .text_size
             .clamp(*Self::TEXT_SIZES.start(), *Self::TEXT_SIZES.end());
         self.text_font.truncate(256);
+        self.sanitize_preference_groups();
         if let Some(view) = &mut self.view_defaults {
             view.sanitize();
         }
@@ -1875,6 +2184,14 @@ impl WorkspacePrefs {
             text_font: std::mem::take(&mut self.text_font),
             text_size: self.text_size,
             paste_in_place: self.paste_in_place,
+            general: std::mem::take(&mut self.general),
+            code_editor: std::mem::take(&mut self.code_editor),
+            timeline_prefs: std::mem::take(&mut self.timeline_prefs),
+            drawing: std::mem::take(&mut self.drawing),
+            text_prefs: std::mem::take(&mut self.text_prefs),
+            clipboard_prefs: std::mem::take(&mut self.clipboard_prefs),
+            publish: std::mem::take(&mut self.publish),
+            shortcuts: std::mem::take(&mut self.shortcuts),
             view_defaults: self.view_defaults.take(),
             recent_colors: std::mem::take(&mut self.recent_colors),
             custom_swatches: std::mem::take(&mut self.custom_swatches),

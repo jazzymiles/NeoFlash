@@ -14,7 +14,10 @@ use super::planned::{
 };
 use crate::app::Editor;
 use crate::theme::ThemeMode;
-use crate::workspace::{FramePreview, TimelineView, WorkspacePrefs};
+use crate::workspace::{
+    ClipboardPrefs, CodeEditorPrefs, DrawingPrefs, FramePreview, GeneralPrefs, PublishPrefs,
+    ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
+};
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
@@ -38,10 +41,14 @@ pub(crate) const PREFERENCE_PAGES: [&str; 9] = [
     "Updates",
 ];
 pub(crate) const PAGE_GENERAL: usize = 0;
+pub(crate) const PAGE_CODE_EDITOR: usize = 1;
 pub(crate) const PAGE_TIMELINE: usize = 2;
+pub(crate) const PAGE_DRAWING: usize = 3;
 pub(crate) const PAGE_TEXT: usize = 4;
 pub(crate) const PAGE_CLIPBOARD: usize = 5;
 pub(crate) const PAGE_SHORTCUTS: usize = 6;
+pub(crate) const PAGE_PUBLISH: usize = 7;
+pub(crate) const PAGE_UPDATES: usize = 8;
 
 /// Editable copy of the wired preferences while the dialog is open.
 #[derive(Clone, Debug, PartialEq)]
@@ -61,10 +68,26 @@ pub(crate) struct PreferencesDraft {
     pub(crate) paste_in_place: bool,
     /// System font families for the Text ▸ Font menu (snapshot when the dialog opened).
     pub(crate) font_families: Vec<String>,
+    /// Page groups, copied back as a whole on Save (`WorkspacePrefs` fields of the same name).
+    pub(crate) general: GeneralPrefs,
+    pub(crate) code_editor: CodeEditorPrefs,
+    pub(crate) timeline_prefs: TimelinePrefs,
+    pub(crate) drawing: DrawingPrefs,
+    pub(crate) text_prefs: TextPrefs,
+    pub(crate) clipboard_prefs: ClipboardPrefs,
+    pub(crate) publish: PublishPrefs,
+    pub(crate) shortcuts: ShortcutPrefs,
+    /// Stage view settings edited by Drawing ▸ Snap to pixels (`StageView::prefs`, one state).
+    pub(crate) pixels_snap: bool,
 }
 
 impl PreferencesDraft {
-    fn from_prefs(prefs: &WorkspacePrefs, page: usize, font_families: Vec<String>) -> Self {
+    fn from_prefs(
+        prefs: &WorkspacePrefs,
+        page: usize,
+        font_families: Vec<String>,
+        pixels_snap: bool,
+    ) -> Self {
         Self {
             page,
             original_theme: prefs.theme,
@@ -79,6 +102,15 @@ impl PreferencesDraft {
             text_size: prefs.text_size,
             paste_in_place: prefs.paste_in_place,
             font_families,
+            general: prefs.general.clone(),
+            code_editor: prefs.code_editor.clone(),
+            timeline_prefs: prefs.timeline_prefs.clone(),
+            drawing: prefs.drawing.clone(),
+            text_prefs: prefs.text_prefs.clone(),
+            clipboard_prefs: prefs.clipboard_prefs.clone(),
+            publish: prefs.publish.clone(),
+            shortcuts: prefs.shortcuts.clone(),
+            pixels_snap,
         }
     }
 
@@ -91,7 +123,20 @@ impl PreferencesDraft {
                 self.ui_scale = defaults.ui_scale;
                 self.undo_levels = defaults.undo_levels as f64;
                 self.shift_select = defaults.shift_select;
+                // Recent files are history, not a setting.
+                let recent = std::mem::take(&mut self.general.recent_files);
+                self.general = GeneralPrefs {
+                    recent_files: recent,
+                    ..defaults.general
+                };
             }
+            PAGE_CODE_EDITOR => self.code_editor = defaults.code_editor,
+            PAGE_DRAWING => {
+                self.drawing = defaults.drawing;
+                self.pixels_snap = false;
+            }
+            PAGE_SHORTCUTS => self.shortcuts = defaults.shortcuts,
+            PAGE_PUBLISH => self.publish = defaults.publish,
             PAGE_TIMELINE => {
                 let t = TimelineView::default();
                 self.timeline.preview = t.preview;
@@ -100,21 +145,23 @@ impl PreferencesDraft {
                 self.timeline.snap_playhead = t.snap_playhead;
                 self.onion = defaults.onion_range.map(f64::from);
                 self.default_ease = defaults.default_ease;
+                self.timeline_prefs = defaults.timeline_prefs;
             }
             PAGE_TEXT => {
                 self.text_font = defaults.text_font;
                 self.text_size = defaults.text_size;
+                self.text_prefs = defaults.text_prefs;
             }
-            PAGE_CLIPBOARD => self.paste_in_place = defaults.paste_in_place,
+            PAGE_CLIPBOARD => {
+                self.paste_in_place = defaults.paste_in_place;
+                self.clipboard_prefs = defaults.clipboard_prefs;
+            }
             _ => {}
         }
     }
 
     fn page_has_settings(&self) -> bool {
-        matches!(
-            self.page,
-            PAGE_GENERAL | PAGE_TIMELINE | PAGE_TEXT | PAGE_CLIPBOARD
-        )
+        self.page != PAGE_UPDATES
     }
 }
 
@@ -168,6 +215,7 @@ impl Editor {
             &self.workspace,
             page.min(PREFERENCE_PAGES.len() - 1),
             self.fonts.families.clone(),
+            self.stage_view.prefs.pixels_snap,
         ));
     }
 
@@ -187,7 +235,20 @@ impl Editor {
         w.text_font = draft.text_font.clone();
         w.text_size = draft.text_size;
         w.paste_in_place = draft.paste_in_place;
+        w.general = draft.general.clone();
+        w.code_editor = draft.code_editor.clone();
+        w.timeline_prefs = draft.timeline_prefs.clone();
+        w.drawing = draft.drawing.clone();
+        w.text_prefs = draft.text_prefs.clone();
+        w.clipboard_prefs = draft.clipboard_prefs.clone();
+        w.publish = draft.publish.clone();
+        w.shortcuts = draft.shortcuts.clone();
+        // Snap to pixels is the one stage view setting: change it now and in the saved view defaults.
+        w.view_defaults
+            .get_or_insert_with(Default::default)
+            .pixels_snap = draft.pixels_snap;
         w.sanitize();
+        self.stage_view.prefs.pixels_snap = draft.pixels_snap;
         self.apply_editor_preferences(ctx);
     }
 
@@ -298,13 +359,13 @@ fn body(ui: &mut Ui, draft: &mut PreferencesDraft) -> Option<FooterClick> {
         ui.add_space(space::S5);
         ui.vertical(|ui| match draft.page {
             0 => prefs_general(ui, draft),
-            1 => disabled(ui, prefs_code_editor),
+            1 => prefs_code_editor(ui, draft),
             2 => prefs_timeline(ui, draft),
-            3 => disabled(ui, prefs_drawing),
+            3 => prefs_drawing(ui, draft),
             4 => prefs_text(ui, draft),
             5 => prefs_clipboard(ui, draft),
-            6 => disabled(ui, prefs_shortcuts),
-            7 => disabled(ui, prefs_publish),
+            6 => prefs_shortcuts(ui, draft),
+            7 => prefs_publish(ui, draft),
             _ => disabled(ui, prefs_updates),
         });
     });
@@ -393,7 +454,12 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
 }
 
-fn prefs_code_editor(ui: &mut Ui) {
+/// Not wired yet: the reference layout, disabled.
+fn prefs_code_editor(ui: &mut Ui, _draft: &mut PreferencesDraft) {
+    disabled(ui, prefs_code_editor_reference);
+}
+
+fn prefs_code_editor_reference(ui: &mut Ui) {
     let nf = neoflash_ui::palette(ui.ctx());
     section(ui, "Font");
     ui.horizontal(|ui| {
@@ -648,7 +714,12 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
 }
 
-fn prefs_drawing(ui: &mut Ui) {
+/// Not wired yet: the reference layout, disabled.
+fn prefs_drawing(ui: &mut Ui, _draft: &mut PreferencesDraft) {
+    disabled(ui, prefs_drawing_reference);
+}
+
+fn prefs_drawing_reference(ui: &mut Ui) {
     section(ui, "Default mode");
     row(ui, "New shapes", |ui| {
         segmented(ui, &["Merge drawing", "Object drawing"], 1)
@@ -763,7 +834,12 @@ fn prefs_clipboard(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
 }
 
-fn prefs_shortcuts(ui: &mut Ui) {
+/// Not wired yet: the reference layout, disabled.
+fn prefs_shortcuts(ui: &mut Ui, _draft: &mut PreferencesDraft) {
+    disabled(ui, prefs_shortcuts_reference);
+}
+
+fn prefs_shortcuts_reference(ui: &mut Ui) {
     let nf = neoflash_ui::palette(ui.ctx());
     section(ui, "Shortcut set");
     ui.horizontal(|ui| {
@@ -822,7 +898,12 @@ fn prefs_shortcuts(ui: &mut Ui) {
     });
 }
 
-fn prefs_publish(ui: &mut Ui) {
+/// Not wired yet: the reference layout, disabled.
+fn prefs_publish(ui: &mut Ui, _draft: &mut PreferencesDraft) {
+    disabled(ui, prefs_publish_reference);
+}
+
+fn prefs_publish_reference(ui: &mut Ui) {
     section(ui, "Target");
     row(ui, "Default target", |ui| {
         select(ui, "HTML5 · Rust / WebAssembly", 280.0)
