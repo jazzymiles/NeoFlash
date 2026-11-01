@@ -1481,11 +1481,8 @@ impl Editor {
                                 .width(w),
                         );
                         ui.label(
-                            rich(
-                                "Point size 0–1: smaller = sharper points",
-                                TextStyle::Small,
-                            )
-                            .color(nf.text_tertiary),
+                            rich("Point size 0–1: smaller = sharper points", TextStyle::Small)
+                                .color(nf.text_tertiary),
                         );
                     });
                 });
@@ -1634,10 +1631,7 @@ impl Editor {
     }
 }
 
-fn rectangle_options_widgets(
-    ui: &mut egui::Ui,
-    opts: &mut RectangleOptions,
-) -> Option<egui::Id> {
+fn rectangle_options_widgets(ui: &mut egui::Ui, opts: &mut RectangleOptions) -> Option<egui::Id> {
     use neoflash_ui::{components as c, icons::i16, tokens::space};
     let mut changed = None;
     let w = ((ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0).max(56.0);
@@ -1666,9 +1660,8 @@ fn rectangle_options_widgets(
         if tr.changed() {
             edited_corner = Some((1, tr.id));
         }
-        let link = ui.add(
-            c::IconButton::new(i16::LINK, "Lock corners").selected(opts.corners_locked),
-        );
+        let link =
+            ui.add(c::IconButton::new(i16::LINK, "Lock corners").selected(opts.corners_locked));
         if link.clicked() {
             opts.corners_locked = !opts.corners_locked;
             if opts.corners_locked {

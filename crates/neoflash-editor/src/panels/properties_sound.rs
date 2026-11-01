@@ -1,8 +1,8 @@
 //! Properties ▸ Sound (PR-08 / PP-13, `panel-properties-sound.png`): the frame sound of the current
 //! keyframe. The composition is the former planned preview's: sound select, Effect + Envelope…,
 //! Sync + Repeat/Loop + count, waveform span, file info, Play and Sound properties….
-//! Envelope… opens the modal Edit envelope dialog (DL-09); Sound properties… still opens its
-//! planned dialog (DL-08).
+//! Envelope… opens the modal Edit envelope dialog (DL-09); Sound properties… opens the modal
+//! Sound properties dialog (DL-08).
 use super::planned::caption;
 use crate::app::Editor;
 use eframe::egui;
@@ -36,6 +36,7 @@ impl Editor {
         let info = self.sound_info(&sound);
         let mut edit = None;
         let mut play = false;
+        let mut open_props = false;
         let w = ui.available_width();
         c::SectionHeader::new("Sound")
             .id_salt("properties-sound")
@@ -127,12 +128,15 @@ impl Editor {
                         .add(c::Button::ghost("Sound properties…").icon(i16::SOUND_FILE))
                         .clicked()
                     {
-                        Self::open_planned(ui.ctx(), "Library menu ▸ Sound properties…");
+                        open_props = true;
                     }
                 });
             });
         if play {
             self.timeline_audio.audition(&self.project, &sound);
+        }
+        if open_props {
+            self.open_sound_properties(ui.ctx(), Some(sound.resource.clone()));
         }
         match edit {
             Some(SoundEdit::Resource(resource)) => self.set_frame_sound(resource),

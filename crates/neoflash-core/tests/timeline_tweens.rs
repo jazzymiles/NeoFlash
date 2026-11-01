@@ -711,7 +711,10 @@ fn motion_tween_sync_symbols_and_snap_to_guide() {
     guided_proj.upgrade_format_for_features();
     guided_proj.validate().unwrap();
     let (gx5, gy5) = position(&guided_proj, 5);
-    assert!((gx5 - 100.0).abs() < 1e-6 && gy5.abs() < 1e-6, "at corner: ({gx5}, {gy5})");
+    assert!(
+        (gx5 - 100.0).abs() < 1e-6 && gy5.abs() < 1e-6,
+        "at corner: ({gx5}, {gy5})"
+    );
     let rot2 = neoflash_core::sample_layer_in(
         &guided_proj.symbols[0].timeline,
         &guided_proj.symbols[0].timeline.layers[0],
@@ -770,7 +773,10 @@ fn range_edits_preserve_editable_curves_and_motion_spans() {
         );
         assert!(matches!(keys[0].tween, Some(Easing::CubicBezier { .. })));
         let right_start = keys.iter().find(|k| k.frame == 13).expect("right sub-span");
-        assert!(matches!(right_start.tween, Some(Easing::CubicBezier { .. })));
+        assert!(matches!(
+            right_start.tween,
+            Some(Easing::CubicBezier { .. })
+        ));
         for frame in (0..8).chain(13..=20) {
             let (ox, oy) = position(&original, frame);
             let (ex, ey) = position(&edited, frame);
@@ -822,14 +828,14 @@ fn range_edits_preserve_editable_curves_and_motion_spans() {
             .iter()
             .any(|k| k.frame == 5 && k.keyed_properties == Some(vec![TweenProperty::X]))
     );
-    let m_right = m_keys.iter().find(|k| k.frame == 13).expect("right motion start");
+    let m_right = m_keys
+        .iter()
+        .find(|k| k.frame == 13)
+        .expect("right motion start");
     assert_eq!(m_right.tween_kind, TweenKind::Motion);
-    assert!(
-        m_keys.iter().any(|k| {
-            k.frame == 16
-                && k.keyed_properties == Some(vec![TweenProperty::X, TweenProperty::Y])
-        })
-    );
+    assert!(m_keys.iter().any(|k| {
+        k.frame == 16 && k.keyed_properties == Some(vec![TweenProperty::X, TweenProperty::Y])
+    }));
     for frame in (0..8).chain(13..=20) {
         let (ox, oy) = position(&m_orig, frame);
         let (ex, ey) = position(&m_edit, frame);

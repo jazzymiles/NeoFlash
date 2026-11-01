@@ -771,7 +771,7 @@ impl Editor {
             )
         );
         nf::menu_separator(ui);
-        Self::planned_menu_item(ui, "Layer menu ▸ Properties…", "");
+        action!("Properties…", self.open_layer_properties(&ctx, index));
         nf::menu_separator(ui);
         nf::menu_section(ui, "More");
         action!("Rename layer", rename = true);

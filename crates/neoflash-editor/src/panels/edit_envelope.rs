@@ -83,7 +83,9 @@ impl EditEnvelopeDraft {
     }
 }
 
-pub(crate) fn split_stereo_envelope(points: &[[f64; 3]]) -> (Vec<(f32, f32)>, Vec<(f32, f32)>) {
+pub(crate) type StereoEnvelopeLanes = (Vec<(f32, f32)>, Vec<(f32, f32)>);
+
+pub(crate) fn split_stereo_envelope(points: &[[f64; 3]]) -> StereoEnvelopeLanes {
     if points.is_empty() {
         return (vec![(0.0, 1.0)], vec![(0.0, 1.0)]);
     }
@@ -141,7 +143,10 @@ pub(crate) fn merge_stereo_envelope(left: &[(f32, f32)], right: &[(f32, f32)]) -
     times.sort_by(|a, b| a.total_cmp(b));
     let mut unique_times: Vec<f64> = Vec::with_capacity(times.len());
     for t in times {
-        if unique_times.last().is_none_or(|prev| (t - *prev).abs() > 1e-4) {
+        if unique_times
+            .last()
+            .is_none_or(|prev| (t - *prev).abs() > 1e-4)
+        {
             unique_times.push(t);
         }
     }
@@ -222,20 +227,16 @@ impl Editor {
             Some((self.layer, layer_id, key_frame, sound))
         } else {
             let timeline = &self.symbol().timeline;
-            timeline
-                .layers
-                .iter()
-                .enumerate()
-                .find_map(|(idx, layer)| {
-                    if neoflash_core::layer_effectively_locked(timeline, layer)
-                        || !neoflash_core::layer_effectively_visible(timeline, layer)
-                    {
-                        return None;
-                    }
-                    let key = layer.key_at(self.frame)?;
-                    let sound = key.sound.clone()?;
-                    Some((idx, layer.id.clone(), key.frame, sound))
-                })
+            timeline.layers.iter().enumerate().find_map(|(idx, layer)| {
+                if neoflash_core::layer_effectively_locked(timeline, layer)
+                    || !neoflash_core::layer_effectively_visible(timeline, layer)
+                {
+                    return None;
+                }
+                let key = layer.key_at(self.frame)?;
+                let sound = key.sound.clone()?;
+                Some((idx, layer.id.clone(), key.frame, sound))
+            })
         };
         let Some((layer_idx, layer_id, key_frame, sound)) = target else {
             self.message("Select a keyframe with a sound first.");
@@ -272,7 +273,12 @@ impl Editor {
             if let Some(sound) = s
                 .project
                 .symbol_mut(&draft.symbol_id)
-                .and_then(|sym| sym.timeline.layers.iter_mut().find(|l| l.id == draft.layer_id))
+                .and_then(|sym| {
+                    sym.timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == draft.layer_id)
+                })
                 .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == draft.key_frame))
                 .and_then(|k| k.sound.as_mut())
             {
@@ -377,9 +383,8 @@ impl Editor {
                                 draft.left = prev_left;
                                 over_limit = true;
                             } else {
-                                draft.selected_left =
-                                    changed_point_index(&prev_left, &draft.left)
-                                        .or(draft.selected_left);
+                                draft.selected_left = changed_point_index(&prev_left, &draft.left)
+                                    .or(draft.selected_left);
                                 draft.selected_right = None;
                                 draft.effect = SoundEffect::Custom;
                             }
@@ -391,9 +396,8 @@ impl Editor {
                         );
                         let visible_secs = (duration_secs / draft.zoom).max(0.1);
                         if draft.unit == 1 {
-                            let visible_frames =
-                                ((visible_secs * fps).round() as u32).max(1);
-                            let major = ((visible_frames / 8).max(1) + 4) / 5 * 5;
+                            let visible_frames = ((visible_secs * fps).round() as u32).max(1);
+                            let major = (visible_frames / 8).max(1).div_ceil(5) * 5;
                             c::paint_frame_scale(
                                 ui.painter(),
                                 ui.ctx(),

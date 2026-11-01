@@ -389,7 +389,10 @@ fn custom_stereo_sound_envelope_emits_points_and_validates_bounds() {
         assert!((gl - 0.6).abs() < 1e-9 && (gr - 0.6).abs() < 1e-9);
     }
     assert!(proj.uses_format_7());
-    assert!(proj.validate().is_err(), "format 6 rejects custom envelopes");
+    assert!(
+        proj.validate().is_err(),
+        "format 6 rejects custom envelopes"
+    );
     proj.upgrade_format_for_features();
     assert_eq!(proj.format_version, 7);
     proj.validate().unwrap();

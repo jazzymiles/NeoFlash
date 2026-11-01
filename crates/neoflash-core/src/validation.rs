@@ -462,43 +462,43 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 if !keys.insert(key.frame) {
                     add(format!("{kp}.frame"), "duplicate frame in a layer".into());
                 }
-                let check_easing = |ease: Easing,
-                                    field_path: String,
-                                    add: &mut dyn FnMut(String, String)| {
-                    match ease {
-                        Easing::CubicBezier { x1, y1, x2, y2 } => {
-                            if ![x1, y1, x2, y2].iter().all(|v| v.is_finite())
-                                || !(0.0..=1.0).contains(&x1)
-                                || !(0.0..=1.0).contains(&x2)
-                                || y1.abs() > 100.
-                                || y2.abs() > 100.
-                            {
-                                add(
-                                    field_path,
-                                    "Bézier controls must be finite, x in [0,1], |y| <= 100"
-                                        .into(),
-                                );
+                let check_easing =
+                    |ease: Easing, field_path: String, add: &mut dyn FnMut(String, String)| {
+                        match ease {
+                            Easing::CubicBezier { x1, y1, x2, y2 } => {
+                                if ![x1, y1, x2, y2].iter().all(|v| v.is_finite())
+                                    || !(0.0..=1.0).contains(&x1)
+                                    || !(0.0..=1.0).contains(&x2)
+                                    || y1.abs() > 100.
+                                    || y2.abs() > 100.
+                                {
+                                    add(
+                                        field_path,
+                                        "Bézier controls must be finite, x in [0,1], |y| <= 100"
+                                            .into(),
+                                    );
+                                }
                             }
+                            Easing::Flash { acceleration } => {
+                                if !acceleration.is_finite()
+                                    || !(-100.0..=100.0).contains(&acceleration)
+                                {
+                                    add(
+                                        field_path.clone(),
+                                        "Flash acceleration must be finite and within [-100,100]"
+                                            .into(),
+                                    );
+                                }
+                                if project.format_version < 5 {
+                                    add(
+                                        field_path,
+                                        "Flash easing requires format version 5".into(),
+                                    );
+                                }
+                            }
+                            _ => {}
                         }
-                        Easing::Flash { acceleration } => {
-                            if !acceleration.is_finite() || !(-100.0..=100.0).contains(&acceleration)
-                            {
-                                add(
-                                    field_path.clone(),
-                                    "Flash acceleration must be finite and within [-100,100]"
-                                        .into(),
-                                );
-                            }
-                            if project.format_version < 5 {
-                                add(
-                                    field_path,
-                                    "Flash easing requires format version 5".into(),
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-                };
+                    };
                 if let Some(ease) = key.tween {
                     check_easing(ease, format!("{kp}.tween"), &mut add);
                 }
@@ -637,10 +637,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         add(format!("{ep}.transform"), "affine axes, authored color transforms and gradient paints require document version 5".into());
                     }
                     if let Some([px, py]) = t.pivot
-                        && (!px.is_finite()
-                            || !py.is_finite()
-                            || px.abs() > 1e9
-                            || py.abs() > 1e9)
+                        && (!px.is_finite() || !py.is_finite() || px.abs() > 1e9 || py.abs() > 1e9)
                     {
                         add(
                             format!("{ep}.transform.pivot"),

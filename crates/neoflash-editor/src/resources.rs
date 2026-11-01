@@ -13,8 +13,8 @@ use std::{io::Read, path::Path};
 
 #[derive(Default)]
 pub(crate) struct ResourcePanel {
-    selected: Option<String>,
-    baseline: Option<(String, String)>,
+    pub(crate) selected: Option<String>,
+    pub(crate) baseline: Option<(String, String)>,
     path: String,
     media_type: String,
 }
@@ -32,12 +32,20 @@ impl Editor {
             .sum();
         let mut remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
         let mut units = Vec::with_capacity(paths.len());
+        let mut audio_sources = Vec::new();
         for path in paths {
             let unit = read_resource(path, remaining)?;
             remaining -= unit.byte_len();
+            if unit.is_audio() {
+                audio_sources.push((unit.id.clone(), path.clone()));
+            }
             units.push(unit);
         }
-        self.add_resource_units(units)
+        self.add_resource_units(units)?;
+        for (id, path) in audio_sources {
+            self.timeline_audio.source_paths.insert(id, path);
+        }
+        Ok(())
     }
 
     /// Validate the whole import before applying one undoable edit.
@@ -91,6 +99,7 @@ impl Editor {
         {
             self.resource_panel = ResourcePanel::default();
         }
+        let mut open_sound_props: Option<String> = None;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             for unit in &self.project.resources {
@@ -114,13 +123,27 @@ impl Editor {
                         || crate::library::LibraryDrag::Resource(unit.id.clone()),
                     );
                 }
-                if response.clicked() {
+                if response.clicked() || response.secondary_clicked() {
                     self.resource_panel.selected = Some(unit.id.clone());
                     self.resource_panel.baseline = None;
                     self.library_selected = None;
                 }
+                if unit.is_audio() {
+                    let unit_id = unit.id.clone();
+                    response.context_menu(|ui| {
+                        crate::ui_icons::menu_contents(ui, 200., |ui| {
+                            if ui.add(nf::MenuItem::new("Sound properties…")).clicked() {
+                                open_sound_props = Some(unit_id.clone());
+                                ui.close();
+                            }
+                        });
+                    });
+                }
             }
         });
+        if let Some(id) = open_sound_props {
+            self.open_sound_properties(ui.ctx(), Some(id));
+        }
         let Some(index) = self
             .project
             .resources

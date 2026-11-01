@@ -294,8 +294,15 @@ impl Editor {
                                         self.clear_selection();
                                     }
                                     if response.double_clicked() {
-                                        reorder=None;
-                                        rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                        reorder = None;
+                                        let pointer = response
+                                            .interact_pointer_pos()
+                                            .or_else(|| ui.input(|i| i.pointer.latest_pos()));
+                                        if pointer.is_some_and(|p| p.x < row.label_rect.left()) {
+                                            self.open_layer_properties(ui.ctx(), idx);
+                                        } else {
+                                            rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                        }
                                         ui.ctx().request_repaint();
                                     }
                                     response.on_hover_text("Drag to reorder. Double-click to rename layer").context_menu(|ui| {

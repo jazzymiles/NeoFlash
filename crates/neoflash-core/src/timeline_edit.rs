@@ -201,9 +201,7 @@ fn subdivide_cubic_bezier([x1, y1, x2, y2]: [f64; 4], t0: f64, t1: f64) -> Optio
     let nx2 = ((xs[2] - xs[0]) / dx).clamp(0.0, 1.0);
     let ny1 = (ys[1] - ys[0]) / dy;
     let ny2 = (ys[2] - ys[0]) / dy;
-    if ![nx1, ny1, nx2, ny2].iter().all(|v| v.is_finite())
-        || ny1.abs() > 100.0
-        || ny2.abs() > 100.0
+    if ![nx1, ny1, nx2, ny2].iter().all(|v| v.is_finite()) || ny1.abs() > 100.0 || ny2.abs() > 100.0
     {
         return None;
     }

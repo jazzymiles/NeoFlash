@@ -615,7 +615,9 @@ impl Editor {
                         bitmap_texture: None,
                     },
                 );
-                let scene: Vec<_> = authored_scene
+                let interactive_scene =
+                    self.interactive_authored_scene(authored_scene, self.show_layer_masking(ctx));
+                let scene: Vec<_> = interactive_scene
                     .draws
                     .into_iter()
                     .map(|draw| draw.item)

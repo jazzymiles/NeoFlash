@@ -652,7 +652,8 @@ impl Element {
     }
 
     pub fn set_rectangle_options(&mut self, options: RectangleOptions) {
-        self.transform.primitive = (!options.is_default()).then_some(PrimitiveOptions::Rectangle(options));
+        self.transform.primitive =
+            (!options.is_default()).then_some(PrimitiveOptions::Rectangle(options));
     }
 
     pub fn oval_options(&self) -> OvalOptions {
@@ -663,7 +664,8 @@ impl Element {
     }
 
     pub fn set_oval_options(&mut self, options: OvalOptions) {
-        self.transform.primitive = (!options.is_default()).then_some(PrimitiveOptions::Oval(options));
+        self.transform.primitive =
+            (!options.is_default()).then_some(PrimitiveOptions::Oval(options));
     }
 
     /// True when this element is a `Rectangle` or `Ellipse` with active parametric geometry.

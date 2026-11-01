@@ -52,10 +52,7 @@ fn ease_amount(easing: Easing) -> (f64, &'static str) {
         Easing::EaseIn => Some(-100.),
         Easing::EaseOut => Some(100.),
         Easing::Flash { acceleration } => Some(acceleration),
-        Easing::EaseInOut
-        | Easing::Bounce
-        | Easing::Elastic
-        | Easing::CubicBezier { .. } => None,
+        Easing::EaseInOut | Easing::Bounce | Easing::Elastic | Easing::CubicBezier { .. } => None,
     };
     match value {
         Some(v) if v < 0. => (v, "(in)"),
@@ -413,12 +410,7 @@ impl Editor {
                     .iter_mut()
                     .find(|l| l.id == span.layer_id)
                 {
-                    neoflash_core::sync_layer_symbols(
-                        &snapshot,
-                        layer,
-                        span.start,
-                        span.end,
-                    );
+                    neoflash_core::sync_layer_symbols(&snapshot, layer, span.start, span.end);
                 }
             }
         });
@@ -433,16 +425,18 @@ impl Editor {
         let span = span.clone();
         self.finish_edits();
         self.transact_named("Snap to motion guide", |s| {
-            let guide_path = on.then(|| {
-                let timeline = &s.symbol().timeline;
-                let layer = timeline.layers.iter().find(|l| l.id == span.layer_id)?;
-                let guide_id = layer.properties.motion_guide.as_deref()?;
-                let guide = timeline
-                    .layers
-                    .iter()
-                    .find(|l| l.id == guide_id && l.properties.role == LayerRole::Guide)?;
-                guide_polyline(guide, span.start)
-            }).flatten();
+            let guide_path = on
+                .then(|| {
+                    let timeline = &s.symbol().timeline;
+                    let layer = timeline.layers.iter().find(|l| l.id == span.layer_id)?;
+                    let guide_id = layer.properties.motion_guide.as_deref()?;
+                    let guide = timeline
+                        .layers
+                        .iter()
+                        .find(|l| l.id == guide_id && l.properties.role == LayerRole::Guide)?;
+                    guide_polyline(guide, span.start)
+                })
+                .flatten();
             if let Some(layer) = s
                 .symbol_mut()
                 .timeline
@@ -460,9 +454,7 @@ impl Editor {
                             && key.keyed_properties.as_ref().is_some_and(|kp| {
                                 kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
                             }));
-                    if keys_xy
-                        && let Some(path) = &guide_path
-                    {
+                    if keys_xy && let Some(path) = &guide_path {
                         for element in &mut key.elements {
                             let snapped = path
                                 .point_at(path.nearest([element.transform.x, element.transform.y]));

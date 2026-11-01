@@ -425,7 +425,10 @@ fn show_motion_path_and_frame_dots_preferences_control_stage_overlay_without_his
     assert!(!editor.motion_paths_interactive());
     assert!(!editor.begin_motion_key_drag(10, [100.0, 30.0]));
     assert_eq!(count_shapes(&editor, true).saturating_sub(baseline), 0);
-    assert!(!editor.history.can_undo(), "view toggles never record Undo steps");
+    assert!(
+        !editor.history.can_undo(),
+        "view toggles never record Undo steps"
+    );
 }
 
 #[test]

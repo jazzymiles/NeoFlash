@@ -590,14 +590,7 @@ fn motion_pose(
     for property in TweenProperty::ALL {
         let ease = effective_property_ease(start, property);
         let time = start.frame as f64 + easing(progress, ease) * length;
-        interpolate_motion_property(
-            &mut transform,
-            start,
-            properties,
-            element,
-            property,
-            time,
-        );
+        interpolate_motion_property(&mut transform, start, properties, element, property, time);
     }
     transform
 }
@@ -611,14 +604,7 @@ fn motion_pose_at_time(
 ) -> Transform {
     let mut transform = element.transform;
     for property in TweenProperty::ALL {
-        interpolate_motion_property(
-            &mut transform,
-            start,
-            properties,
-            element,
-            property,
-            time,
-        );
+        interpolate_motion_property(&mut transform, start, properties, element, property, time);
     }
     transform
 }
@@ -863,9 +849,9 @@ pub(crate) fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
         if seen_current
             && motion_span(layer, key.frame).is_some_and(|(s, _, _)| s.sync_symbols)
             && let Some(sym) = target_symbol
-            && let Some(matched) = key.elements.iter().find(|e| {
-                matches!(&e.kind, ElementKind::Instance { symbol_id, .. } if symbol_id == sym)
-            })
+            && let Some(matched) = key.elements.iter().find(
+                |e| matches!(&e.kind, ElementKind::Instance { symbol_id, .. } if symbol_id == sym),
+            )
         {
             current_id = &matched.id;
             start = key.frame;

@@ -161,7 +161,9 @@ impl Editor {
         let doc_changed = size_changed
             || new_fps != self.project.fps
             || new_bg != self.project.background
-            || draft.match_shift.is_some_and(|(dx, dy)| dx.abs() > 1e-6 || dy.abs() > 1e-6);
+            || draft
+                .match_shift
+                .is_some_and(|(dx, dy)| dx.abs() > 1e-6 || dy.abs() > 1e-6);
 
         if !doc_changed {
             return;
@@ -452,7 +454,9 @@ impl Editor {
         if !close_cancel && !close_ok {
             let typing = ctx.wants_keyboard_input();
             let popup_open = egui::Popup::is_any_open(ctx);
-            if !popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if !popup_open
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
                 close_cancel = true;
             } else if !typing
                 && !popup_open

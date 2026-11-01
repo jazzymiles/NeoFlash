@@ -375,7 +375,8 @@ impl Editor {
                         playback,
                     } = &mut element.kind
                 {
-                    *playback = adapt_swapped_playback(*playback, old_kind, target_kind, target_frames);
+                    *playback =
+                        adapt_swapped_playback(*playback, old_kind, target_kind, target_frames);
                     *symbol_id = target_symbol_id.to_owned();
                 }
             }

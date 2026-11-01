@@ -441,10 +441,13 @@ impl Editor {
                     commands,
                     stroke_width,
                     ..
-                } => neoflash_core::path_bounds(commands).ok().flatten().map(|b| {
-                    let pad = stroke_width.max(0.0) * 0.5;
-                    [b.x_min - pad, b.y_min - pad, b.x_max + pad, b.y_max + pad]
-                }),
+                } => neoflash_core::path_bounds(commands)
+                    .ok()
+                    .flatten()
+                    .map(|b| {
+                        let pad = stroke_width.max(0.0) * 0.5;
+                        [b.x_min - pad, b.y_min - pad, b.x_max + pad, b.y_max + pad]
+                    }),
                 ElementKind::Instance { .. } => None,
             };
             let Some([lx0, ly0, lx1, ly1]) = local else {
@@ -465,8 +468,7 @@ impl Editor {
                     max_y = max_y.max(wy);
                 }
             }
-            if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite())
-            {
+            if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
                 continue;
             }
             if let Some((_, b)) = boxes.iter_mut().find(|(id, _)| id == top_id) {

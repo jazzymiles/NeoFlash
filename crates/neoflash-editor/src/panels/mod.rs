@@ -24,6 +24,9 @@
 //! | `project.rs` | Project (source/asset file tree, search, create/delete/publish) |
 //! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
 //! | `edit_envelope.rs` | Edit envelope modal dialog (`Properties ▸ Sound ▸ Envelope…`, `Library menu ▸ Edit envelope…`) |
+//! | `layer_properties.rs` | Layer properties modal dialog (`Modify ▸ Timeline ▸ Layer properties…`) |
+//! | `sound_properties.rs` | Sound properties modal dialog (`Properties ▸ Sound`, `Library menu`) |
+//! | `symbols_popover.rs` | Breadcrumb `▾` `Symbols & scenes` popover |
 //! | `planned.rs` | NF2 panels the engine does not support yet (read-only previews; bodies in `planned_*.rs`) |
 pub(crate) mod accessibility;
 mod actions;
@@ -33,6 +36,7 @@ pub(crate) mod ease;
 pub(crate) mod edit_envelope;
 mod history;
 mod info;
+pub(crate) mod layer_properties;
 pub(crate) mod library;
 mod menu;
 mod motion_editor;
@@ -47,7 +51,9 @@ pub(crate) mod project;
 pub(crate) mod properties;
 mod properties_sound;
 pub(crate) mod scene;
+pub(crate) mod sound_properties;
 mod swatches;
+pub(crate) mod symbols_popover;
 mod timeline;
 mod timeline_controls;
 mod tools;

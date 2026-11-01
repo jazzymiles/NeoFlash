@@ -451,7 +451,10 @@ fn per_property_eases_and_move_motion_key_with_single_undo() {
     assert_eq!(editor.project.format_version, 7);
     editor.project.validate().unwrap();
     let span = editor.motion_tween_span().unwrap();
-    assert_eq!(span.property_override(TweenProperty::X), Some(Easing::Bounce));
+    assert_eq!(
+        span.property_override(TweenProperty::X),
+        Some(Easing::Bounce)
+    );
     assert_eq!(span.property_override(TweenProperty::Y), None);
     let x5 = editor.motion_value(&span, TweenProperty::X, 5).unwrap();
     let y5 = editor.motion_value(&span, TweenProperty::Y, 5).unwrap();
@@ -504,6 +507,9 @@ fn per_property_eases_and_move_motion_key_with_single_undo() {
         editor.motion_key_frames(&span, TweenProperty::Y),
         vec![0, 4, 9]
     );
-    assert_eq!(editor.motion_key_value(&span, TweenProperty::X, 7), Some(80.));
+    assert_eq!(
+        editor.motion_key_value(&span, TweenProperty::X, 7),
+        Some(80.)
+    );
     undo_restores(&mut editor, &before_move);
 }

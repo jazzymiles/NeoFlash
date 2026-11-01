@@ -1,6 +1,10 @@
 //! Ephemeral transport state. The serialized document stays authored and pure.
 use crate::app::Editor;
-use neoflash_core::{AuthoredPlayback, AuthoredScene, Id, Project, SoundCommand, evaluate_scene};
+use neoflash_core::{
+    AuthoredDraw, AuthoredPlayback, AuthoredScene, Id, Project, RuntimeClip, SoundCommand,
+    evaluate_scene,
+};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) struct AuthoringPreview {
@@ -79,6 +83,72 @@ impl Editor {
     /// preview. A direct edit must not expose a stale presentation to callers.
     pub(crate) fn presented_authored_scene(&self, show_masking: bool) -> AuthoredScene {
         self.authored_scene_from_preview(self.valid_authored_preview(), show_masking)
+    }
+
+    /// When `Edit multiple frames` is active, merge placements that exist only on other keyframes
+    /// inside `onion_range()` (nearest keyframe first) so they can be hit-tested, marquee-selected,
+    /// and bounded without duplicating objects already present on `self.frame`.
+    pub(crate) fn interactive_authored_scene(
+        &self,
+        base: AuthoredScene,
+        show_masking: bool,
+    ) -> AuthoredScene {
+        if !self.timeline_edit.edit_multiple {
+            return base;
+        }
+        let mut merged = base;
+        let mut seen_top: HashSet<Id> = merged
+            .draws
+            .iter()
+            .filter_map(|d| d.item.instance_path.first().cloned())
+            .collect();
+        let mut frames = self.edit_multiple_key_frames();
+        frames.retain(|&f| f != self.frame);
+        frames.sort_by_key(|&f| (f.abs_diff(self.frame), f));
+        let symbol_id = self.symbol_id();
+        for f in frames {
+            let ghost = evaluate_scene(&self.project, symbol_id, f, true, show_masking);
+            let mut added_this_frame = HashSet::new();
+            let mut used_clips = HashSet::new();
+            for mut draw in ghost.draws {
+                let Some(top) = draw.item.instance_path.first() else {
+                    continue;
+                };
+                if seen_top.contains(top) {
+                    continue;
+                }
+                added_this_frame.insert(top.clone());
+                draw.clip_ids = draw
+                    .clip_ids
+                    .into_iter()
+                    .map(|cid| {
+                        let prefixed = format!("@emf-{f}:{cid}");
+                        used_clips.insert((cid, prefixed.clone()));
+                        prefixed
+                    })
+                    .collect();
+                merged.draws.push(AuthoredDraw { ..draw });
+            }
+            if !used_clips.is_empty() {
+                for clip in ghost.clips {
+                    if let Some((_, prefixed)) =
+                        used_clips.iter().find(|(orig, _)| *orig == clip.id)
+                    {
+                        merged.clips.push(RuntimeClip {
+                            id: prefixed.clone(),
+                            ..clip
+                        });
+                    }
+                }
+            }
+            seen_top.extend(added_this_frame);
+        }
+        merged
+    }
+
+    pub(crate) fn presented_interactive_authored_scene(&self, show_masking: bool) -> AuthoredScene {
+        let base = self.presented_authored_scene(show_masking);
+        self.interactive_authored_scene(base, show_masking)
     }
 
     fn authored_scene_from_preview(

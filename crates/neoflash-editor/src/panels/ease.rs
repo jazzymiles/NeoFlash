@@ -277,6 +277,7 @@ impl Editor {
 
     /// Write the span ease of a tween span on the current symbol (preserving any per-property eases).
     /// One Undo step; `false` when the span's layer is not editable or its keyframe is gone.
+    #[cfg(test)]
     pub(crate) fn set_tween_easing(&mut self, span: &TweenSpan, easing: Easing) -> bool {
         self.set_tween_eases(span, easing, span.property_eases.clone())
     }
@@ -605,8 +606,7 @@ impl Editor {
             Some(FooterAction::Cancel) => {
                 draft.easing = draft.span.easing;
                 draft.property_eases = draft.span.property_eases.clone();
-                draft.one_curve_for_all =
-                    draft.property_eases.is_empty() && draft.target.is_none();
+                draft.one_curve_for_all = draft.property_eases.is_empty() && draft.target.is_none();
                 draft.dirty = false;
             }
             Some(FooterAction::Apply) => {

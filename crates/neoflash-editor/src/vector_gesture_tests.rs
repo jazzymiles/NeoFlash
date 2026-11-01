@@ -740,7 +740,10 @@ fn pen_and_subselect_insert_and_delete_anchor_points_preserving_curve_and_undo()
 
     // Newly inserted anchor is selected; delete_selected() removes ONLY that anchor, keeping the path!
     editor.delete_selected();
-    assert!(!editor.selection.is_empty(), "path element remains selected");
+    assert!(
+        !editor.selection.is_empty(),
+        "path element remains selected"
+    );
     assert_eq!(commands(&editor).len(), 3);
     editor.project.validate().unwrap();
 
@@ -752,7 +755,8 @@ fn pen_and_subselect_insert_and_delete_anchor_points_preserving_curve_and_undo()
     assert_eq!(editor.project, before);
 
     // Closed cubic contour with coincident seam anchor: deleting seam anchor keeps valid 3-vertex contour.
-    let oval_cmds = neoflash_core::oval_path_commands(80., 60., neoflash_core::OvalOptions::default());
+    let oval_cmds =
+        neoflash_core::oval_path_commands(80., 60., neoflash_core::OvalOptions::default());
     let trimmed = crate::vector::delete_anchors_from_path(&oval_cmds, &[oval_cmds.len() - 2]);
     neoflash_core::validate_path_commands(&trimmed).unwrap();
     assert_eq!(trimmed.len(), 4);
