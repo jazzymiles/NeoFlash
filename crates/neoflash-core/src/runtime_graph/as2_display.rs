@@ -405,11 +405,29 @@ impl Player {
         relative: &ObjectRef,
         path: &str,
     ) -> Result<Option<ObjectRef>, DisplayError> {
+        self.as2_resolve_target_case(project, relative, path, false)
+    }
+
+    pub fn as2_resolve_target_case(
+        &self,
+        project: &Project,
+        relative: &ObjectRef,
+        path: &str,
+        case_insensitive: bool,
+    ) -> Result<Option<ObjectRef>, DisplayError> {
         if path.len() > 4096 || !self.graph.alive(relative) {
             return Err(error(
                 "AS2 target path is oversized or its relative target is stale",
             ));
         }
+        let eq_part = |left: &str, right: &str| {
+            if case_insensitive {
+                crate::as2_strings::legacy_case_fold(left)
+                    == crate::as2_strings::legacy_case_fold(right)
+            } else {
+                left == right
+            }
+        };
         let root = self
             .object_ref(&[])
             .ok_or_else(|| error("Publication root is unavailable"))?;
@@ -417,19 +435,21 @@ impl Player {
         let mut current = relative.clone();
         let mut tail = path;
         for (prefix, base) in [("_root", &locked_root), ("_level0", &root)] {
-            if path == prefix {
+            if eq_part(path, prefix) {
                 return Ok(Some(base.clone()));
             }
-            if let Some(rest) = path
-                .strip_prefix(prefix)
-                .filter(|rest| rest.starts_with(['.', '/']))
+            if path.len() > prefix.len()
+                && path.is_char_boundary(prefix.len())
+                && eq_part(&path[..prefix.len()], prefix)
+                && path[prefix.len()..].starts_with(['.', '/'])
             {
                 current = base.clone();
-                tail = &rest[1..];
+                tail = &path[prefix.len() + 1..];
                 break;
             }
         }
-        if let Some(rest) = path.strip_prefix("_level") {
+        if path.len() >= 6 && path.is_char_boundary(6) && eq_part(&path[..6], "_level") {
+            let rest = &path[6..];
             let digits_len = rest.bytes().take_while(u8::is_ascii_digit).count();
             if digits_len > 0 && &rest[..digits_len] != "0" {
                 let after = &rest[digits_len..];
@@ -453,10 +473,10 @@ impl Player {
             return Err(error("AS2 target path exceeds 64 segments"));
         }
         for part in parts {
-            if part.is_empty() || part == "this" {
+            if part.is_empty() || eq_part(part, "this") {
                 continue;
             }
-            if part == ".." || part == "_parent" {
+            if part == ".." || eq_part(part, "_parent") {
                 let Some(parent) = self.graph.parent(&current) else {
                     return Ok(None);
                 };
@@ -464,11 +484,18 @@ impl Player {
                 continue;
             }
             let children = self.graph.children(&current);
-            let Some(child) = snapshot
+            let child = snapshot
                 .objects
                 .iter()
                 .find(|node| children.contains(&node.object_ref) && node.display.name == part)
-            else {
+                .or_else(|| {
+                    case_insensitive.then(|| {
+                        snapshot.objects.iter().find(|node| {
+                            children.contains(&node.object_ref) && eq_part(&node.display.name, part)
+                        })
+                    })?
+                });
+            let Some(child) = child else {
                 return Ok(None);
             };
             current = child.object_ref.clone();

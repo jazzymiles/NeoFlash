@@ -507,6 +507,12 @@ pub fn legacy_case_name(name: &str, candidates: &[String]) -> Result<String, As2
         .unwrap_or_else(|| name.into()))
 }
 
+/// Fold an identifier or path segment with the SWF6 case table.
+pub fn legacy_case_fold(name: &str) -> String {
+    let units: Vec<u16> = name.encode_utf16().map(swf_to_lowercase).collect();
+    String::from_utf16_lossy(&units)
+}
+
 // Directly reused from Ruffle wstr/src/utils.rs, with local table visibility.
 pub(crate) fn swf_to_lowercase(c: u16) -> u16 {
     if c < 0x80 {

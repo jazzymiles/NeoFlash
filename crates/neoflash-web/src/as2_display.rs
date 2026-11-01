@@ -128,6 +128,25 @@ impl WebPlayer {
         )
         .map_err(display_error)
     }
+    pub fn as2_resolve_target_case(
+        &self,
+        relative: &str,
+        path: &str,
+        case_insensitive: bool,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .as2_resolve_target_case(
+                    &self.project,
+                    &object_ref(relative)?,
+                    path,
+                    case_insensitive,
+                )
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
     pub fn as2_call_frame_scripts(&self, relative: &str, spec: &str) -> Result<String, JsValue> {
         if spec.len() > 4096 {
             return Err(JsValue::from_str("AS2 call() specifier exceeds 4096 bytes"));

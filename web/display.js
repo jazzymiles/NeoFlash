@@ -62,6 +62,40 @@
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
+    const pendingClipLoads = [];
+    const clipEventForCallback = {onEnterFrame:'enterFrame',onUnload:'unload',onMouseDown:'mouseDown',onMouseMove:'mouseMove',onMouseUp:'mouseUp'};
+    const buttonEventForCallback = {onPress:'press',onRelease:'release',onReleaseOutside:'releaseOutside',onRollOver:'rollOver',onRollOut:'rollOut',onDragOver:'dragOver',onDragOut:'dragOut'};
+    function matchFlashKeyPress(keySpec, event = {}) {
+      if (typeof keySpec !== 'string' || !keySpec) return false;
+      const key = typeof event.key === 'string' ? event.key : null;
+      const code = typeof event.code === 'string' ? event.code : '';
+      const kc = typeof event.keyCode === 'number' ? event.keyCode : -1;
+      switch (keySpec) {
+        case '<Left>': return key === 'ArrowLeft' || key === 'Left' || code === 'ArrowLeft' || kc === 37;
+        case '<Right>': return key === 'ArrowRight' || key === 'Right' || code === 'ArrowRight' || kc === 39;
+        case '<Up>': return key === 'ArrowUp' || key === 'Up' || code === 'ArrowUp' || kc === 38;
+        case '<Down>': return key === 'ArrowDown' || key === 'Down' || code === 'ArrowDown' || kc === 40;
+        case '<Enter>': return key === 'Enter' || code === 'Enter' || code === 'NumpadEnter' || kc === 13;
+        case '<Space>': return key === ' ' || key === 'Spacebar' || code === 'Space' || kc === 32;
+        case '<Tab>': return key === 'Tab' || code === 'Tab' || kc === 9;
+        case '<Escape>': return key === 'Escape' || key === 'Esc' || code === 'Escape' || kc === 27;
+        case '<Backspace>': return key === 'Backspace' || code === 'Backspace' || kc === 8;
+        case '<Delete>': return key === 'Delete' || key === 'Del' || code === 'Delete' || kc === 46;
+        case '<Home>': return key === 'Home' || code === 'Home' || kc === 36;
+        case '<End>': return key === 'End' || code === 'End' || kc === 35;
+        case '<PageUp>': return key === 'PageUp' || code === 'PageUp' || kc === 33;
+        case '<PageDown>': return key === 'PageDown' || code === 'PageDown' || kc === 34;
+        case '<Insert>': return key === 'Insert' || code === 'Insert' || kc === 45;
+        default: break;
+      }
+      if (key !== null && [...key].length === 1) return key === keySpec;
+      if (key === null && kc > 0 && [...keySpec].length === 1) {
+        if (keySpec >= 'a' && keySpec <= 'z') return !event.shiftKey && kc === keySpec.toUpperCase().charCodeAt(0);
+        if (keySpec >= 'A' && keySpec <= 'Z') return Boolean(event.shiftKey) && kc === keySpec.charCodeAt(0);
+        return kc === keySpec.charCodeAt(0);
+      }
+      return false;
+    }
     let accProps = new WeakMap();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
@@ -348,9 +382,14 @@
       }
     }
     function targetPath(target) {descriptor(target);return player.as2_target_path(referenceOf(target).key,false);}
-    function resolveTarget(value,relative=proxyFor([])) {
+    function resolveTarget(value,relative=proxyFor([]),legacyCase=false) {
       if(typeof value!=='string'){descriptor(value);return value;}
-      descriptor(relative);const ref=JSON.parse(player.as2_resolve_target(referenceOf(relative).key,value));
+      descriptor(relative);
+      const ref=JSON.parse(
+        legacyCase&&typeof player.as2_resolve_target_case==='function'
+          ? player.as2_resolve_target_case(referenceOf(relative).key,value,true)
+          : player.as2_resolve_target(referenceOf(relative).key,value)
+      );
       return ref?proxyForRef(ref):undefined;
     }
     function legacyDrawing(target) {
@@ -469,7 +508,7 @@
       as2Settings(request);
     }
     function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
-    function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
+    function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>hasCallback(record,name))||Boolean(record?.authoredButton?.some(entry=>entry.event==='keyPress'));}
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
@@ -618,8 +657,17 @@
     function updateDrag(){if(!dragging)return;const d=dragging;if(!alive(d.target)){dragging=null;return;}const node=descriptor(d.target);if(node.on_stage===false||node.effective_visible===false||refKey(node.parent_ref)!==d.parent){dragging=null;return;}const p=dragPoint(d.target);let x=p.x+d.offsetX,y=p.y+d.offsetY;if(d.box){x=Math.max(d.box.x,Math.min(d.box.x+d.box.width,x));y=Math.max(d.box.y,Math.min(d.box.y+d.box.height,y));}if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1e12||Math.abs(y)>1e12)throw new RangeError('Drag coordinates exceed the finite display range.');if(!invoke(d.target,'set_property','x',x)||!invoke(d.target,'set_property','y',y))throw new Error('The runtime rejected movement of this drag target.');drops.set(d.target,pick(getStage().mouseX,getStage().mouseY,d.target));}
     function stopDrag(target){if(dragging){updateDrag();dragging=null;}}
     function legacyPath(target){if(!target||!alive(target))return '';const names=[];for(let current=target;current&&current!==getStage();current=parentSpace(current)){const node=descriptor(current);if(!node.parent_ref)break;if(!node.name||/[/.]/.test(node.name))throw new TypeError('AS2 _droptarget paths require named placements without slash or dot; use dropTarget for stable object identity.');names.push(node.name);}return '/'+names.reverse().join('/');}
-    function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(as2Input(target).enabled&&names.some(name=>callback(record,name)))return target;target=parentSpace(target);}return null;}
-    function callLegacy(target,name,args=[]){if(!target||!alive(target))return;if(buttonCallbacks.has(name)&&!as2Input(target).enabled)return;const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),fn=callback(record,name);if(fn&&alive(target))Reflect.apply(fn,target,args);}
+    function callbackOwner(target,names){while(target&&target!==getStage()&&alive(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(as2Input(target).enabled&&names.some(name=>hasCallback(record,name)))return target;target=parentSpace(target);}return null;}
+    function callLegacy(target,name,args=[]){
+      if(!target||!alive(target))return;
+      if(buttonCallbacks.has(name)&&!as2Input(target).enabled)return;
+      const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);
+      for(const fn of authoredHandlersFor(record,name)){
+        if(alive(target))Reflect.apply(fn,authoredReceiver(target),args);
+      }
+      const fn=callback(record,name);
+      if(fn&&alive(target))Reflect.apply(fn,target,args);
+    }
     let buttonOver=null,buttonPressed=null;
     function authoredButton(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current))if(descriptor(current).owner==='button')return current;return null;}
     function buttonState(target,state){if(target&&alive(target))player.object_button_state?.(referenceOf(target).key,state);}
@@ -646,6 +694,24 @@
       if(type==='mouseWheel'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.wheel(referenceOf(target).key,event);return;}
       if(type==='keyDown' ||type==='keyUp'){
         if(target&&target!==getStage())callLegacy(target,type==='keyDown'?'onKeyDown':'onKeyUp');
+        for(const record of [...legacy.values()]){
+          if(!alive(record.target))continue;
+          const node=descriptor(record.target);
+          if(node.on_stage===false)continue;
+          const clipHandlers=record.authoredClip?.get(type);
+          if(clipHandlers){
+            for(const fn of [...clipHandlers]){
+              if(alive(record.target))Reflect.apply(fn,authoredReceiver(record.target),[]);
+            }
+          }
+          if(type==='keyDown'&&record.authoredButton?.length&&node.effective_visible!==false&&as2Input(record.target).enabled&&(node.owner==='button'?nativeInput(record.target).button_enabled!==false:nativeInput(record.target).movieclip_enabled!==false)){
+            for(const entry of [...record.authoredButton]){
+              if(entry.event==='keyPress'&&matchFlashKeyPress(entry.key,event)&&alive(record.target)){
+                Reflect.apply(entry.fn,authoredReceiver(record.target),[]);
+              }
+            }
+          }
+        }
         if(type==='keyDown'&&(event.key==='Tab'||event.keyCode===9))as2Tab(event);return;
       }
       const broadcast={mouseDown:'onMouseDown',mouseMove:'onMouseMove',mouseUp:'onMouseUp'}[type];
@@ -665,7 +731,7 @@
     }
     function cancelPointer(){const changed=movieClipPointer('cancel',null);buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;return changed;}
     function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner))return null;const pref=as2Input(target).focus_rect,globalPref=as2TabActive&&typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;if((pref??globalPref)!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
         getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
@@ -878,6 +944,75 @@
       if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner)))throw new TypeError(`${name} is read-only.`);
       return false;
     }
+    function ensureLegacyRecord(target) {
+      const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
+      let record=legacy.get(id);
+      if(!record){record={target,ref,handlers:new Map(),dynamic:false,authoredClip:new Map(),authoredButton:[]};legacy.set(id,record);}
+      return {id,record};
+    }
+    function authoredReceiver(target) {
+      if(!target||!alive(target))return target;
+      if(descriptor(target).owner==='button'){
+        const parent=parentSpace(target);
+        if(parent&&parent!==getStage()&&alive(parent))return parent;
+      }
+      return target;
+    }
+    function authoredHandlersFor(record,name) {
+      if(!record)return [];
+      const out=[];
+      const clipName=clipEventForCallback[name];
+      if(clipName&&record.authoredClip?.has(clipName))out.push(...record.authoredClip.get(clipName));
+      const btnName=buttonEventForCallback[name];
+      if(btnName&&record.authoredButton?.length){
+        for(const entry of record.authoredButton)if(entry.event===btnName)out.push(entry.fn);
+      }
+      return out;
+    }
+    function hasCallback(record,name) {
+      return Boolean(authoredHandlersFor(record,name).length||callback(record,name));
+    }
+    function addLegacyEvent(target,kind,event,keySpec,fn) {
+      if(!referenceOf(target))throw new TypeError('Legacy event handlers require a live display object.');
+      const node=descriptor(target);
+      if(kind==='clip'){
+        if(node.owner!=='movie_clip')throw new TypeError('onClipEvent requires a MovieClip instance.');
+      }else if(kind==='button'){
+        if(!['movie_clip','button'].includes(node.owner))throw new TypeError('on(...) requires a Button or MovieClip instance.');
+      }else throw new TypeError(`Unsupported legacy event kind '${kind}'.`);
+      if(typeof fn!=='function')throw new TypeError('Legacy event handler requires a function.');
+      const {record}=ensureLegacyRecord(target);
+      if(kind==='clip'){
+        let list=record.authoredClip.get(event);
+        if(!list){list=[];record.authoredClip.set(event,list);}
+        list.push(fn);
+        if(event==='load')pendingClipLoads.push({target,fn});
+      }else{
+        record.authoredButton.push({event,key:keySpec??null,fn});
+      }
+    }
+    function flushClipLoads() {
+      while(pendingClipLoads.length){
+        const batch=pendingClipLoads.splice(0,pendingClipLoads.length);
+        for(const item of batch){
+          if(alive(item.target))Reflect.apply(item.fn,authoredReceiver(item.target),[]);
+        }
+      }
+    }
+    function notifyData(target) {
+      if(!target||!alive(target))return;
+      const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);
+      const handlers=record?.authoredClip?.get('data');
+      if(handlers){
+        for(const fn of [...handlers]){
+          if(alive(target))Reflect.apply(fn,authoredReceiver(target),[]);
+        }
+      }
+      if(alive(target)){
+        const handler=target.onData;
+        if(typeof handler==='function')Reflect.apply(handler,target,[]);
+      }
+    }
     function setLegacyCallback(target,name,value) {
       if(!referenceOf(target)){target[name]=value;return value;}
       const node=descriptor(target);
@@ -886,17 +1021,14 @@
       if(!callbackNames.has(name))throw new TypeError(`AS2 callback ${name} is not supported yet.`);
       if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError(`${name} requires a function or null.`);
       target[name]=value;
-      const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
-      let record=legacy.get(id);if(!record){record={target,ref,handlers:new Map(),dynamic:false};legacy.set(id,record);}
+      const {id,record}=ensureLegacyRecord(target);
       if(value==null)record.handlers.delete(name);else record.handlers.set(name,value);
-      if(!record.handlers.size&&!record.dynamic)legacy.delete(id);
+      if(!record.handlers.size&&!record.dynamic&&!record.authoredClip.size&&!record.authoredButton.length)legacy.delete(id);
       return value;
     }
     function refreshLegacyCallbacks(target,as2Class=false) {
       if(!['movie_clip','button'].includes(descriptor(target).owner))return;
-      const ref=referenceOf(target),id=ref.key+'\u0000'+ref.lifetime;
-      let record=legacy.get(id);
-      if(!record){record={target,ref,handlers:new Map(),dynamic:true};legacy.set(id,record);}
+      const {record}=ensureLegacyRecord(target);
       record.dynamic=true;record.as2Class=record.as2Class||as2Class;
     }
     function callback(record,name) {
@@ -906,8 +1038,26 @@
     }
     function alive(target){const ref=referenceOf(target);return !!ref&&(graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime);}
     function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
-    function enterFrame(){prune();for(const record of [...legacy.values()]){if(!alive(record.target))continue;const handler=callback(record,'onEnterFrame');if(handler)Reflect.apply(handler,record.target,[]);}}
-    function press(target){prune();while(target&&referenceOf(target)){const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime),handler=callback(record,'onPress');if(handler){Reflect.apply(handler,target,[]);return;}target=parentSpace(target);if(target===getStage())target=null;}}
+    function enterFrame(){
+      prune();
+      for(const record of [...legacy.values()]){
+        if(!alive(record.target))continue;
+        for(const fn of authoredHandlersFor(record,'onEnterFrame')){
+          if(alive(record.target))Reflect.apply(fn,authoredReceiver(record.target),[]);
+        }
+        const handler=callback(record,'onEnterFrame');
+        if(handler&&alive(record.target))Reflect.apply(handler,record.target,[]);
+      }
+    }
+    function press(target){
+      prune();
+      while(target&&referenceOf(target)){
+        const ref=referenceOf(target),record=legacy.get(ref.key+'\u0000'+ref.lifetime);
+        if(hasCallback(record,'onPress')){callLegacy(target,'onPress');return;}
+        target=parentSpace(target);
+        if(target===getStage())target=null;
+      }
+    }
     function pixelSnapping(value){if(!['auto','always','never'].includes(value))throw new TypeError('Bitmap.pixelSnapping requires auto, always or never.');return value;}
     function bitmapArguments(args){
       if(args.length>3)throw new TypeError('Bitmap expects optional bitmapData, pixelSnapping and smoothing.');
@@ -948,7 +1098,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();pendingClipLoads.length=0;accProps=new WeakMap();contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

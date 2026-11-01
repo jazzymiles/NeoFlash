@@ -3,7 +3,7 @@
  * No global JavaScript prototype is modified. */
 (function(global){
   'use strict';
-  function create(wasm,{isNative=()=>false,isProject=()=>false,globals=()=>({}),globalProp=()=>null,nativeRef=()=>null,textVariable=null}={}){
+  function create(wasm,{isNative=()=>false,isProject=()=>false,globals=()=>({}),globalProp=()=>null,nativeRef=()=>null,caseKey=null,textVariable=null}={}){
     let kernel=new wasm.ScriptAS2Object(),ids=new WeakMap(),generation=1,syncingText=false;const callbacks=new Map(),textFields=new Map();
     const object=value=>value!==null&&(typeof value==='object'||typeof value==='function');
     function eligible(value){if(!object(value)||isNative(value)||Array.isArray(value))return false;const p=Object.getPrototypeOf(value);return p===null||p===Object.prototype||typeof value==='function'||isProject(value);}
@@ -39,11 +39,18 @@
       try{const item=callbacks.get(token),next=item?Reflect.apply(item.callback,receiver,[name,read(),value,item.userData]):value;write(next);syncTextVariables();return value;}finally{kernel.end_write(id,name);}
     }
     function deleted(receiver,name){const id=object(receiver)?ids.get(receiver):0;if(id)kernel.deleted(id,name);}
-    function namedGet(receiver,name){const ref=nativeRef(receiver,name);return ref?ref.get():get(receiver,name);}
-    function namedOwner(frame,parts,root=null){
-      let owner=frame;const name=parts[parts.length-1];
-      if(parts.length>1){owner=root?root.get():namedGet(frame,parts[0]);for(let i=1;i<parts.length-1;i++){if(owner==null)return{owner:null,name};owner=namedGet(owner,parts[i]);}}
-      return{owner,name};
+    function resolveName(receiver,name,legacyCase=false){
+      return legacyCase&&caseKey&&object(receiver)?caseKey(receiver,name):name;
+    }
+    function namedGet(receiver,name,legacyCase=false){
+      const actual=resolveName(receiver,name,legacyCase);
+      const ref=nativeRef(receiver,actual);
+      return ref?ref.get():get(receiver,actual);
+    }
+    function namedOwner(frame,parts,root=null,legacyCase=false){
+      let owner=frame;const rawName=parts[parts.length-1];
+      if(parts.length>1){owner=root?root.get():namedGet(frame,parts[0],legacyCase);for(let i=1;i<parts.length-1;i++){if(owner==null)return{owner:null,name:rawName};owner=namedGet(owner,parts[i],legacyCase);}}
+      return{owner,name:owner!=null?resolveName(owner,rawName,legacyCase):rawName};
     }
     function textCommand(value){if(!kernel)throw new Error('AS2 Object service disposed.');return JSON.parse(kernel.text_binding(JSON.stringify(value)));}
     function packedPrimitive(value){
@@ -105,27 +112,29 @@
       }
       return null;
     }
-    function resolve(frame,path,lexical,writing,value){
+    function resolve(frame,path,lexical,writing,value,legacyCase=false){
       if(!writing&&object(path))return path;
       if(typeof path!=='string')throw new TypeError('AS2 eval/set requires a variable path string or an object reference for eval.');
       const parts=JSON.parse(wasm.as2_reference_path_json(path));if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
-      const first=parts.shift(),known=lexical?.(first),environment=globals(frame),level=parseLevel(first);
-      const root=first==='this'?{get:()=>frame}:known??(level!==null?{get:()=>level===0?environment._level0:undefined}:null)??globalProp(first)??(Object.hasOwn(environment,first)?{get:()=>environment[first]}:null);
-      if(parts.length&&(parts.at(-1)==='scroll'||parts.at(-1)==='maxscroll')){
-        const prop=parts.at(-1),varPath=[first,...parts.slice(0,-1)],varFound=namedOwner(frame,varPath,root);
+      const first=parts.shift(),firstLookup=legacyCase?first.toLowerCase():first;
+      const known=firstLookup==='this'?null:lexical?.(first),environment=globals(frame),level=parseLevel(firstLookup);
+      const root=firstLookup==='this'?{get:()=>frame}:known??(level!==null?{get:()=>level===0?environment._level0:undefined}:null)??globalProp(firstLookup)??(Object.hasOwn(environment,firstLookup)?{get:()=>environment[firstLookup]}:null);
+      const lastFolded=parts.length?(legacyCase?parts.at(-1).toLowerCase():parts.at(-1)):'';
+      if(parts.length&&(lastFolded==='scroll'||lastFolded==='maxscroll')){
+        const prop=lastFolded,varPath=[first,...parts.slice(0,-1)],varFound=namedOwner(frame,varPath,root,legacyCase);
         if(varFound.owner!=null){
-          const current=varPath.length===1&&root?root.get():namedGet(varFound.owner,varFound.name);
+          const current=varPath.length===1&&root?root.get():namedGet(varFound.owner,varFound.name,legacyCase);
           if(!object(current)){const scrollRef=variableScrollRef(varFound.owner,varFound.name,prop);if(scrollRef){if(writing){scrollRef.set(value);return undefined;}return scrollRef.get();}}
         }
       }
-      let owner=frame,name=first;
-      if(parts.length){const found=namedOwner(frame,[first,...parts],root);owner=found.owner;name=found.name;if(owner==null){if(writing)throw new TypeError('AS2 set target does not exist.');return undefined;}}
+      let owner=frame,name=!parts.length&&!root&&owner!=null?resolveName(owner,first,legacyCase):first;
+      if(parts.length){const found=namedOwner(frame,[first,...parts],root,legacyCase);owner=found.owner;name=found.name;if(owner==null){if(writing)throw new TypeError('AS2 set target does not exist.');return undefined;}}
       if(writing){
         if(!parts.length&&root){if(!root.set)throw new TypeError('This AS2 named binding cannot be reassigned.');root.set(value);return undefined;}
         if(owner==null)throw new TypeError('AS2 set target does not exist.');
         const ref=nativeRef(owner,name);if(ref){ref.set(value);return undefined;}set(owner,name,value,()=>owner[name],next=>{if(!Reflect.set(owner,name,next))throw new TypeError('Cannot write AS2 named property.');});return undefined;
       }
-      return !parts.length&&root?root.get():owner==null?undefined:namedGet(owner,name);
+      return !parts.length&&root?root.get():owner==null?undefined:namedGet(owner,name,legacyCase);
     }
     return {get,set,deleted,resolve,variableRef,variableScrollRef,textChanged,syncTextVariables,reset(){kernel.reset();generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;},dispose(){kernel?.free();kernel=null;generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;}};
   }

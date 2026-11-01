@@ -14,6 +14,7 @@ pub(super) enum BindingKind {
     Arguments,
 }
 pub(super) struct Binding {
+    pub canonical: String,
     pub ty: Option<String>,
     pub kind: BindingKind,
 }
@@ -61,9 +62,11 @@ impl<'a> Analysis<'a> {
             },
         );
         for (name, ty) in result.context.members.clone() {
+            let key = result.fold(&name);
             result.scopes.get_mut(&0).unwrap().bindings.insert(
-                name,
+                key,
                 Binding {
+                    canonical: name,
                     ty,
                     kind: BindingKind::Field,
                 },
@@ -73,18 +76,25 @@ impl<'a> Analysis<'a> {
         result.body(0, body)?;
         Ok(result)
     }
+    fn fold(&self, name: &str) -> String {
+        if self.context.legacy_case {
+            neoflash_core::as2_strings::legacy_case_fold(name)
+        } else {
+            name.to_owned()
+        }
+    }
     fn collect_catch_names(&mut self, body: &[Stmt]) {
         for stmt in body {
             if let Stmt::Try(_, catches, _) = stmt {
                 for catch in catches {
                     self.as2_catch_names
-                        .insert(catch.name.clone(), catch.offset);
+                        .insert(self.fold(&catch.name), catch.offset);
                 }
             }
             for child in statements(stmt) {
                 self.collect_catch_names(std::slice::from_ref(child));
             }
-            if let Stmt::Function(f) = stmt {
+            if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt {
                 self.collect_catch_names(&f.body);
             }
             for expr in expressions(stmt) {
@@ -101,9 +111,10 @@ impl<'a> Analysis<'a> {
         }
     }
     pub fn resolve(&self, mut scope: usize, name: &str) -> Option<(usize, &Binding)> {
+        let key = self.fold(name);
         loop {
             let current = &self.scopes[&scope];
-            if let Some(binding) = current.bindings.get(name) {
+            if let Some(binding) = current.bindings.get(&key) {
                 return Some((scope, binding));
             }
             scope = current.parent?;
@@ -119,8 +130,9 @@ impl<'a> Analysis<'a> {
         ty: Option<String>,
         kind: BindingKind,
     ) -> Result<(), Diagnostic> {
+        let key = self.fold(name);
         let current = self.scopes.get_mut(&scope).unwrap();
-        if let Some(previous) = current.bindings.get(name) {
+        if let Some(previous) = current.bindings.get(&key) {
             if kind == BindingKind::Variable && previous.kind == kind && previous.ty == ty {
                 return Ok(());
             }
@@ -129,7 +141,14 @@ impl<'a> Analysis<'a> {
                 format!("Conflicting declaration of '{name}' in one function scope."),
             ));
         }
-        current.bindings.insert(name.into(), Binding { ty, kind });
+        current.bindings.insert(
+            key,
+            Binding {
+                canonical: name.into(),
+                ty,
+                kind,
+            },
+        );
         Ok(())
     }
     fn declarations(&mut self, scope: usize, stmt: &Stmt, direct: bool) -> Result<(), Diagnostic> {
@@ -272,12 +291,12 @@ impl<'a> Analysis<'a> {
                     } else {
                         format!("@local{owner}")
                     },
-                    name.clone(),
+                    self.fold(name),
                 ])
             }
             Expr::Member(base, name) => {
                 let mut path = self.path(scope, base)?;
-                path.push(name.clone());
+                path.push(self.fold(name));
                 Some(path)
             }
             _ => None,
@@ -322,8 +341,9 @@ impl<'a> Analysis<'a> {
                     Scope {
                         parent: Some(scope),
                         bindings: [(
-                            catch.name.clone(),
+                            self.fold(&catch.name),
                             Binding {
+                                canonical: catch.name.clone(),
                                 ty: catch.ty.clone(),
                                 kind: BindingKind::Catch,
                             },
@@ -490,16 +510,18 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="Selection" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Selection is the AS2 focus singleton. AS3 uses Stage.focus and TextField selection methods.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="MovieClipLoader" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"MovieClipLoader is the AS2 loading API. AS3 uses flash.display.Loader and its contentLoaderInfo.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList" | "Namespace" | "QName") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
-            Expr::TypeTest(_, _, name, offset) if self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
+            Expr::TypeTest(op, _, name, offset) if !(self.context.legacy_case && op == "instanceof") && self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
             Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
             Expr::NewBuiltin(name, _, offset) if name == "JSON" => return Err(self.error(*offset, "JSON supplies parse/stringify static functions and is not constructible.")),
             Expr::Name(name) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"A static method cannot access an instance member without an explicit object receiver.")),
             Expr::Name(name) if self.context.static_method && name=="super" => return Err(self.error(self.scopes[&scope].offset,"Static methods cannot use instance super access.")),
+            Expr::Name(name) if self.context.legacy_case && self.context.class_name.is_none() && name=="super" && self.scopes[&scope].function == 0 => return Err(self.error(self.scopes[&scope].offset,"super is only valid inside a constructor or prototype method function.")),
+            Expr::Name(name) if self.context.legacy_case && self.context.class_name.is_none() && name=="super" && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS1 super property values and method extraction are outside this profile; call super(...) or super.method(...) directly.")),
             Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript3 && name=="super" && (self.context.class_name.is_none() || !direct_callee) => return Err(self.error(self.scopes[&scope].offset,"AS3 super is not a standalone value; use super(...) or super.member inside a project class.")),
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
-            Expr::NewValue(name, _, offset) if self.resolve(scope,name).is_none() => return Err(self.error(*offset,"Constructor alias must be a declared Class/value binding or a resolved project class; unknown constructors are unsupported.")),
+            Expr::NewValue(name, _, offset) if !self.context.legacy_case && self.resolve(scope,name).is_none() => return Err(self.error(*offset,"Constructor alias must be a declared Class/value binding or a resolved project class; unknown constructors are unsupported.")),
             Expr::NewValue(name, _, offset) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(*offset,"A static method cannot construct through an instance field without an explicit receiver.")),
             Expr::NewBuiltin(name, _, offset) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "int" | "uint") => return Err(self.error(*offset, "int/uint constructors require AS3; use Number in AS2.")),
             Expr::NewBuiltin(name, args, offset) if self.script.language == ScriptLanguage::ActionScript3 && matches!(name.as_str(), "Number" | "Boolean" | "int" | "uint") && args.len() > 1 => return Err(self.error(*offset, "Scalar construction currently accepts zero or one argument; excess-argument semantics are outside this profile.")),
@@ -520,7 +542,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, args, offset) if name == "MovieClipLoader" && !args.is_empty() => return Err(self.error(*offset,"AS2 MovieClipLoader construction takes no arguments. Pass a URL and target to loadClip().")),
             Expr::NewBuiltin(name, _, offset) if name == "Selection" => return Err(self.error(*offset,"AS2 Selection is a shared focus singleton and cannot be constructed. Call Selection.setFocus or Selection.setSelection.")),
             Expr::NewBuiltin(name, _, offset) if name == "SharedObject" => return Err(self.error(*offset,"Local SharedObject instances are supplied by SharedObject.getLocal(name); direct construction is unsupported in this persistence profile.")),
-            Expr::NewBuiltin(name, args, offset) if name == "Sound" && !args.is_empty() => return Err(self.error(*offset,"AS2 Sound construction takes no target argument in this profile; create Sound() and load a non-streaming resource.")),
+            Expr::NewBuiltin(name, args, offset) if name == "Sound" && args.len() > 1 => return Err(self.error(*offset,"AS2 Sound construction accepts at most one optional target MovieClip argument.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
             Expr::NewClass(name, _, offset) if name == "flash.filters.BitmapFilterQuality" => return Err(self.error(*offset,"BitmapFilterQuality supplies LOW, MEDIUM and HIGH constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.filters.BitmapFilter" => return Err(self.error(*offset,"BitmapFilter is the filter base type; construct BlurFilter, GlowFilter, DropShadowFilter or ColorMatrixFilter instead.")),
@@ -544,7 +566,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if name == "flash.utils.Endian" => return Err(self.error(*offset,"Endian contains byte-order constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.Graphics" => return Err(self.error(*offset,"Graphics is supplied by a compatible display object's graphics property and is not directly constructible.")),
             Expr::NewClass(name, args, offset) if name == "flash.utils.ByteArray" && !args.is_empty() => return Err(self.error(*offset,"ByteArray construction takes no arguments in the bounded binary-buffer profile.")),
-            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(&self.fold(name)) && !is_global(name) => return Err(self.error(self.as2_catch_names[&self.fold(name)], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
             Expr::Function(f) => {self.function(scope,f)?; return Ok(());},
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
             Expr::Call(callee,args,offset) => {
@@ -636,7 +658,10 @@ impl<'a> Analysis<'a> {
                                         | "setAdvancedAntiAliasingTable"
                                 )
                         ));
-                if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
+                let legacy_proto_call = self.context.legacy_case
+                    && (matches!(callee.as_ref(), Expr::Member(_, _))
+                        || matches!(callee.as_ref(), Expr::Name(name) if name == "super" && self.scopes[&scope].function != 0));
+                if !builtin && !project_call && !legacy_proto_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
             }
@@ -699,7 +724,7 @@ impl<'a> Analysis<'a> {
             }
             return Ok(());
         }
-        if let Stmt::Function(f) = stmt {
+        if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt {
             return self.function(scope, f);
         }
         if let Stmt::Return(value, offset) = stmt {
@@ -804,7 +829,16 @@ pub(super) fn with_body_supported(stmt: &Stmt) -> bool {
             && !matches!(expr,Expr::Name(name) if name == "eval" || name == "set")
             && children(expr).into_iter().all(supported)
     }
-    !matches!(stmt, Stmt::Function(_))
+    !matches!(stmt, Stmt::Function(_) | Stmt::LegacyEvent(_, _))
         && expressions(stmt).into_iter().all(supported)
         && statements(stmt).into_iter().all(with_body_supported)
+}
+
+pub(super) fn tell_target_body_supported(stmt: &Stmt) -> bool {
+    fn supported(expr: &Expr) -> bool {
+        !matches!(expr, Expr::Function(_)) && children(expr).into_iter().all(supported)
+    }
+    !matches!(stmt, Stmt::Function(_) | Stmt::LegacyEvent(_, _))
+        && expressions(stmt).into_iter().all(supported)
+        && statements(stmt).into_iter().all(tell_target_body_supported)
 }
