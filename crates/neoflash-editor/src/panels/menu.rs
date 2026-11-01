@@ -438,7 +438,10 @@ impl Editor {
             self.reverse_frames();
             ui.close();
         }
-        Self::unavailable_item(ui, "Synchronise symbols", "");
+        if menu_item_enabled(ui, self.can_sync_symbols(), "Synchronise symbols", "").clicked() {
+            self.sync_symbols();
+            ui.close();
+        }
     }
 
     /// View (§8) with Magnification, Preview mode, Grid, Guides and Snapping submenus.

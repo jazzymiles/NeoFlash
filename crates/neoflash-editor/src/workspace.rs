@@ -1247,6 +1247,20 @@ pub struct TimelineView {
     pub snap_playhead: bool,
     /// Off = editor playback stops on the last frame instead of wrapping.
     pub loop_playback: bool,
+    /// Frame view ▸ Preview / Preview in context: keyframe thumbnails in taller rows.
+    pub preview: FramePreview,
+}
+
+/// Keyframe thumbnails in the Timeline (Frame view ▸ Preview / Preview in context, TL-10).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FramePreview {
+    #[default]
+    Off,
+    /// Each span shows its layer's content at the keyframe, scaled to fit.
+    Layer,
+    /// Each span shows the whole stage at the keyframe.
+    InContext,
 }
 
 impl Default for TimelineView {
@@ -1257,6 +1271,7 @@ impl Default for TimelineView {
             short_rows: false,
             snap_playhead: false,
             loop_playback: true,
+            preview: FramePreview::Off,
         }
     }
 }
@@ -1264,7 +1279,9 @@ impl Default for TimelineView {
 impl TimelineView {
     /// `NF2/TL Layer` row height for the current frame view.
     pub fn row_height(&self) -> f32 {
-        if self.short_rows {
+        if self.preview != FramePreview::Off {
+            neoflash_ui::metrics::LAYER_ROW_PREVIEW
+        } else if self.short_rows {
             neoflash_ui::metrics::LAYER_ROW_SHORT
         } else {
             neoflash_ui::metrics::LAYER_ROW

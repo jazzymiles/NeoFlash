@@ -230,6 +230,7 @@ impl Editor {
             if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == start) {
                 key.tween = None;
                 key.tween_kind = TweenKind::Classic;
+                key.orient_to_path = false;
             }
         });
     }
@@ -244,14 +245,14 @@ impl Editor {
     }
 
     /// Add motion guide is available for an editable normal layer that has no guide yet.
+    /// Like Flash, any normal layer can get a new motion guide, also when it is locked or hidden
+    /// (its artwork is not edited) or already guided (the new guide replaces the link).
     pub(crate) fn can_add_motion_guide_to(&self, index: usize) -> bool {
-        let timeline = &self.symbol().timeline;
-        timeline.layers.get(index).is_some_and(|layer| {
-            layer.properties.role == LayerRole::Normal
-                && layer.properties.motion_guide.is_none()
-                && !layer_effectively_locked(timeline, layer)
-                && layer_effectively_visible(timeline, layer)
-        })
+        self.symbol()
+            .timeline
+            .layers
+            .get(index)
+            .is_some_and(|layer| layer.properties.role == LayerRole::Normal)
     }
 
     /// Insert a guide layer "Guide: <name>" above the current layer and guide the current layer
@@ -259,7 +260,9 @@ impl Editor {
     pub(crate) fn add_motion_guide(&mut self) {
         self.finish_edits();
         if !self.can_add_motion_guide_to(self.layer) {
-            self.message("Select an unlocked, visible normal layer without a motion guide.");
+            self.message(
+                "Select a normal layer (not a folder, guide or mask) to add a motion guide.",
+            );
             return;
         }
         self.transact(|s| {
@@ -353,6 +356,21 @@ impl Editor {
                 self.apply_frame_edit(TimelineEdit::Reverse { range });
             }
             _ => self.message("Select two or more frames to reverse."),
+        }
+    }
+
+    /// Synchronise symbols is available on an editable layer (it works on the selected frames or the
+    /// frame under the playhead).
+    pub(crate) fn can_sync_symbols(&self) -> bool {
+        self.frame_range().is_some() || self.layer_editable()
+    }
+
+    /// Synchronise symbols (Frame menu, Edit / Modify ▸ Timeline): graphic instances on the selected
+    /// keyframes continue the nested animation of the keyframe before them. One Undo step.
+    pub(crate) fn sync_symbols(&mut self) {
+        self.finish_edits();
+        if let Some(range) = self.frame_range_or_current() {
+            self.apply_frame_edit(TimelineEdit::SyncSymbols { range });
         }
     }
 

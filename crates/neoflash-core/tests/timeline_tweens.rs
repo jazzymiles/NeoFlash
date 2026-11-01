@@ -340,3 +340,155 @@ fn imported_fla_corpus_plays_through_the_timeline_engine() {
     assert_ne!(middle, first);
     assert_ne!(middle, last);
 }
+
+fn l_guide() -> Layer {
+    // (0,0) → (100,0) → (100,100): tangent 0° on the first leg, 90° on the second.
+    let guide_path = Element {
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 100., y: 0. },
+                PathCommand::LineTo { x: 100., y: 100. },
+            ],
+            fill_rule: Default::default(),
+            fill: [0, 0, 0, 0],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.,
+        },
+        ..rect("path", 0., 0.)
+    };
+    let mut guide = layer("guide", vec![key(0, vec![guide_path])]);
+    guide.properties.role = LayerRole::Guide;
+    guide
+}
+
+#[test]
+fn orient_to_path_turns_the_object_with_the_guide_tangent() {
+    use neoflash_core::sample_layer_in;
+    let mut box_start = rect("box", 2., 0.);
+    box_start.transform.rotation = 10.;
+    let mut start = key(0, vec![box_start]);
+    start.tween = Some(Easing::Linear);
+    start.orient_to_path = true;
+    let mut guided = layer(
+        "guided",
+        vec![start, key(10, vec![rect("box", 100., 100.)])],
+    );
+    guided.properties.motion_guide = Some("guide".into());
+    let mut project = project(11, vec![guided, l_guide()]);
+    project.validate().unwrap();
+    let rotation = |project: &Project, frame| {
+        let timeline = &project.symbols[0].timeline;
+        sample_layer_in(timeline, &timeline.layers[0], frame)[0]
+            .transform
+            .rotation
+    };
+    // On the first leg the start rotation holds; past the corner the box has turned 90°.
+    assert!((rotation(&project, 0) - 10.).abs() < 1e-9);
+    assert!((rotation(&project, 3) - 10.).abs() < 1e-9);
+    assert!(
+        (rotation(&project, 5) - 100.).abs() < 1e-9,
+        "{}",
+        rotation(&project, 5)
+    );
+    // The published evaluation (editor, runtime, HTML5) uses the same path.
+    let item = evaluate(&project, &project.root, 5)
+        .into_iter()
+        .find(|item| matches!(item.kind, ElementKind::Rectangle { .. }) && item.transform[4] > 99.)
+        .expect("box drawn");
+    assert!((item.transform[1].atan2(item.transform[0]).to_degrees() - 100.).abs() < 1e-6);
+    // Without the option the rotation interpolates between the keys (10 → 0).
+    project.symbols[0].timeline.layers[0].keyframes[0].orient_to_path = false;
+    assert!((rotation(&project, 5) - 5.).abs() < 1e-9);
+    // The option is a format 6 feature and serialises only when set.
+    let unguided = self::project(2, vec![layer("row", vec![key(0, vec![])])]);
+    assert!(!unguided.uses_format_6());
+    let mut oriented = unguided.clone();
+    oriented.symbols[0].timeline.layers[0].keyframes[0].orient_to_path = true;
+    assert!(oriented.uses_format_6());
+    let plain =
+        serde_json::to_string(&unguided.symbols[0].timeline.layers[0].keyframes[0]).unwrap();
+    assert!(!plain.contains("orient_to_path"));
+}
+
+#[test]
+fn synchronise_symbols_keeps_nested_graphics_in_step() {
+    use neoflash_core::{
+        FrameRange, InstancePlayback, Symbol, SymbolKind, TimelineEdit, edit_frames,
+    };
+    // A 10-frame graphic whose art moves 10 px per nested frame.
+    let art = layer(
+        "art",
+        (0..10)
+            .map(|f| key(f, vec![rect("dot", f as f64 * 10., 0.)]))
+            .collect(),
+    );
+    let graphic = Symbol {
+        id: "anim".into(),
+        name: "anim".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 10,
+            layers: vec![art],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    let instance = |id: &str, playback| Element {
+        kind: ElementKind::Instance {
+            symbol_id: "anim".into(),
+            playback,
+        },
+        ..rect(id, 0., 0.)
+    };
+    // Frame 4 places another instance (fresh id) that restarts at nested frame 0; frame 6 keeps
+    // that instance but was given another first frame.
+    let row = layer(
+        "row",
+        vec![
+            key(0, vec![instance("a", InstancePlayback::Loop)]),
+            key(4, vec![instance("b", InstancePlayback::Loop)]),
+            key(6, vec![instance("b", InstancePlayback::LoopFrom(2))]),
+        ],
+    );
+    let mut project = project(9, vec![row]);
+    project.symbols.push(graphic);
+    project.validate().unwrap();
+    assert_eq!(
+        xs(&project, 0..9),
+        [0., 10., 20., 30., 0., 10., 40., 50., 60.]
+    );
+    let root = project.root.clone();
+    let range = FrameRange {
+        layers: vec!["row".into()],
+        start: 0,
+        end: 8,
+    };
+    edit_frames(
+        &mut project,
+        &root,
+        TimelineEdit::SyncSymbols {
+            range: range.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        xs(&project, 0..9),
+        [0., 10., 20., 30., 40., 50., 60., 70., 80.]
+    );
+    let keys = &project.symbols[0].timeline.layers[0].keyframes;
+    assert!(matches!(
+        keys[1].elements[0].kind,
+        ElementKind::Instance {
+            playback: InstancePlayback::LoopFrom(4),
+            ..
+        }
+    ));
+    // Running it again changes nothing and says so; the document is untouched.
+    let before = project.clone();
+    assert!(edit_frames(&mut project, &root, TimelineEdit::SyncSymbols { range }).is_err());
+    assert_eq!(project, before);
+}

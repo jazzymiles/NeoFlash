@@ -11,7 +11,7 @@
 //! part scrolls horizontally while the onion group and frame view menu stay pinned and visible.
 use super::menu::NOT_AVAILABLE;
 use crate::app::*;
-use crate::workspace::{DockDestination, DockEdge, PanelId, PanelPlacement};
+use crate::workspace::{DockDestination, DockEdge, FramePreview, PanelId, PanelPlacement};
 use eframe::egui::{self, Rect, Sense, Stroke, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components::{
@@ -197,6 +197,7 @@ impl Editor {
                         self.can_add_motion_guide_to(self.layer),
                         IconButton::new(i16::GUIDEPLUS, "Add motion guide"),
                     )
+                    .on_disabled_hover_text("Select a normal layer to add a motion guide")
                     .clicked()
                 {
                     self.add_motion_guide();
@@ -579,10 +580,21 @@ impl Editor {
                 .clamp(MIN_CELL, MAX_CELL);
         }
         let view = &mut self.workspace.timeline;
-        ui.add_enabled(false, MenuItem::new("Preview"))
-            .on_disabled_hover_text(NOT_AVAILABLE);
-        ui.add_enabled(false, MenuItem::new("Preview in context"))
-            .on_disabled_hover_text(NOT_AVAILABLE);
+        for (label, mode) in [
+            ("Preview", FramePreview::Layer),
+            ("Preview in context", FramePreview::InContext),
+        ] {
+            if ui
+                .add(MenuItem::new(label).checked(view.preview == mode))
+                .clicked()
+            {
+                view.preview = if view.preview == mode {
+                    FramePreview::Off
+                } else {
+                    mode
+                };
+            }
+        }
         if ui
             .add(MenuItem::new("Short").checked(view.short_rows))
             .clicked()

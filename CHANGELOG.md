@@ -19,11 +19,16 @@
 - Loop playback toggle (Timeline and Control menu): off stops on the last frame. Edit multiple frames shows every keyframe in the onion range and moves the selection on all of them.
 - Frame commands: Clear keyframe (⇧F6), Convert to keyframes, Convert to blank keyframes and Reverse frames in the frame menu and Modify ▸ Timeline.
 - Frame view: Short rows, Snap playhead to keyframes (⇧ suspends it) and Timeline placement on any dock edge. These options are saved with the workspace.
-- Documents using scenes, shape/motion tweens or motion guides are saved as format 6; older documents open unchanged.
 - Ease panel (Window ▸ Ease, the Timeline Ease button, Frame menu ▸ Ease…): edit the curve of the tween under the playhead with presets (Linear, Ease In/Out/In-Out, Back, Custom), draggable handles, numeric X1–Y2 and a preview; Apply is one Undo step. Overshooting curves and Flash acceleration can also be typed in Properties.
 - Scene panel (Window ▸ Scene, ⇧F2): find, add, duplicate, delete, rename (double-click) and drag scenes into a new play order.
 - Motion editor (Window ▸ Motion editor): property tracks of the motion tween under the playhead with their ◆ keys; add or remove one property's key at the playhead, type values, jump between keys and drag a key's value.
 - Properties shows Motion tween settings inside a motion tween: ease, rotation turns and direction, Orient to path and the path box.
+- Motion path on the stage: a selected motion-tweened instance shows its path with a dot per frame and ◆ key points while the playhead is in its span; drag a point to move that key (one Undo).
+- Copy motion / Paste motion (frame menu): copy the classic or motion tween under the playhead and animate another selected object the same way, relative to its own position, scale and rotation. Paste motion special is not available yet.
+- Synchronise symbols (frame menu, Edit ▸ Timeline, Modify ▸ Timeline): graphic instances on the selected keyframes continue the nested animation of the keyframe before them.
+- Orient to path: guided classic tweens can turn their objects with the guide path in the editor and HTML5 (stored per tween; the Properties control follows with the Motion tween panel).
+- Frame view ▸ Preview and Preview in context: taller rows with a thumbnail of each keyframe span (the layer alone, or the whole stage). Saved with the workspace.
+- Documents using scenes, shape/motion tweens, motion guides or Orient to path are saved as format 6; older documents open unchanged.
 
 ## Unreleased — Progress counting v3
 

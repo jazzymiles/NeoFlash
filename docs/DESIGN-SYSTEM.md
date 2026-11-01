@@ -109,7 +109,7 @@ crates/neoflash-editor
 | `color_picker.rs` | Color Picker (saturation/brightness area, hue and alpha strips; standard HSB conversion) |
 | `gradient.rs` | Gradient Bar, Gradient Stop |
 | `envelope.rs` | Sound envelope lanes and anchor points (Edit envelope) |
-| `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection, Gradient Transform, Snap Ring |
+| `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection, Gradient Transform, Snap Ring, Motion Path |
 
 ### Panel files (`crates/neoflash-editor/src/panels/`)
 

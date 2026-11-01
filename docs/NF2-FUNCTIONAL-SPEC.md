@@ -47,7 +47,7 @@ not confirmed in code.
 | TL-07 | Sound | Timeline controls | disabled | yes | P3 |
 | TL-08 | Edit multiple frames | Timeline controls | partial | editor | P2 |
 | TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
-| TL-10 | Frame view ▸ Preview | Frame view menu | disabled | editor | P3 |
+| TL-10 | Frame view ▸ Preview | Frame view menu | done | editor | P3 |
 | TL-11 | Frame view ▸ Snap playhead to keyframes | Frame view menu | done | UI-only | P1 |
 | TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | partial | UI-only | P3 |
 | TL-13 | Layer types Sound / Video / Armature / Motion guide rows | Timeline layers | partial | yes | P2–P3 |
@@ -141,7 +141,7 @@ groups.
 ## 1. Timeline controls (`crates/neoflash-editor/src/panels/timeline_controls.rs`, `panels/timeline.rs`)
 
 **TL-01 · Add motion guide** — `timeline_layer_actions` · done
-- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). Not yet: Orient to path / Snap options (PR-10), drawing the path when the guide has no stroke is the author's step.
+- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Not yet: the Orient / Snap controls in Properties (PR-10); drawing the path when the guide has no stroke is the author's step.
 - Purpose: insert a classic motion guide layer above the current layer and make the current layer guided by it.
 - Behaviour: click → new layer `Guide: <name>` of type Motion Guide above the current layer; current layer indents
   under it. A stroke drawn on the guide is the path; classic tweens on guided layers follow it ("Snap to motion
@@ -186,7 +186,7 @@ groups.
   topology produces a diagnostic instead of a jump (until general morphing lands).
 
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
-- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). Not yet: motion path on stage (request R-005), Motion editor (PP-02), Properties — Motion tween (PR-10).
+- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Not yet: Motion editor (PP-02), Properties — Motion tween (PR-10), Bézier path editing between keys.
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
 - Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
   later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
@@ -231,7 +231,8 @@ groups.
 - Depends on: UI-only (editor).
 - Acceptance: rows 18 pt; clicking/dragging frames and layers hits the right row; preference persists.
 
-**TL-10 · Frame view ▸ Preview** — `timeline_frame_view_menu` · disabled
+**TL-10 · Frame view ▸ Preview** — `timeline_frame_view_menu` · done
+- Done (2026-11-01): Preview and Preview in context (checked rows, saved in `TimelineView.preview`) switch rows to `metrics::LAYER_ROW_PREVIEW` (44) and paint a ≤ 62 × 38 thumbnail after each span's keyframe cell with the stage painter: the layer's own content, or the whole stage on the document background. Evaluated scenes are cached per (symbol, layer, keyframe, `History::revision`), only for visible spans, at most 12 new per repaint (`timeline_preview.rs`).
 - Purpose: thumbnails of keyframe content inside spans (Preview) and in stage context (Preview in context).
 - Behaviour: when on, row height grows (Large) and each span shows a thumbnail of its first frame; cached per keyframe
   revision.
@@ -246,7 +247,7 @@ groups.
 - Acceptance: scrub lands exactly on keyframes when on; free scrubbing when off.
 
 **TL-12 · Frame view ▸ Placement / Preview in context / Help / Close panel** — partial
-- Done: Placement Bottom/Top/Left/Right/Floating, Close panel. Not yet: Preview in context (TL-10), Help (F1).
+- Done: Placement Bottom/Top/Left/Right/Floating, Close panel, Preview in context (TL-10). Not yet: Help (F1).
 - Purpose (§5.4): move the Timeline to Bottom / Top / Left / Right / Floating; Help (F1); Close panel.
 - Behaviour: Placement items call the existing dock/detach commands (`set_panel_placement`); Close hides the panel.
 - Data: workspace layout. Depends on: UI-only. Missing menu rows require a design check that the existing menu
@@ -490,6 +491,8 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Controls: Ease −100 in … +100 out + Edit curve… (→ PP-01); Rotation count + direction CW/CCW + Orient to path; Path
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
 - Data: needs TL-05. Acceptance: Orient to path rotates the object along the path tangent in editor and HTML5.
+- Ready for wiring: `Keyframe.orient_to_path` + `Editor::set_orient_to_path(bool)` (guided classic tweens); Sync graphic
+  symbols = `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`; Show path = `NF2/Motion Path` on the stage.
 
 **PR-11 · Frame easing values** — done (`properties` Tween section)
 - Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100.
@@ -773,6 +776,6 @@ unclear.
 
 | Menu | Absent items | Depends on |
 | --- | --- | --- |
-| Frame | Create motion / shape tween; Clear keyframe ⇧F6; Convert to keyframes; Convert to blank keyframes; Select all frames ⌥⌘A; Copy / Paste motion, Paste motion special…; Reverse frames; Synchronise symbols; Ease… | TL-04/05; `TimelineEdit` (reverse = **NEW** variant); PP-01 |
+| Frame | Paste motion special… (R-006); Ease… (done: tweens, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Reverse frames, Synchronise symbols) | TL-04/05; `TimelineEdit` (reverse = **NEW** variant); PP-01 |
 | Layer | Add classic motion guide; Guide / Mask as checked toggles (role select exists) | TL-01 |
 | Stage object | Edit in place, Edit in new window, Swap symbol…, Duplicate symbol…, Create motion tween, Distribute to layers ⇧⌘D, Show in library | PR-06, LI-01, TL-05; distribute = editor |

@@ -64,6 +64,13 @@ pub const FRAME: f32 = 12.0;
 /// Layer row height (Short mode: [`LAYER_ROW_SHORT`]).
 pub const LAYER_ROW: f32 = 28.0;
 pub const LAYER_ROW_SHORT: f32 = 18.0;
+/// Layer row height in Frame view ▸ Preview / Preview in context (outline `Mode / Preview`: three
+/// rows in a 132 px frame area).
+pub const LAYER_ROW_PREVIEW: f32 = 44.0;
+/// Largest keyframe thumbnail in Preview rows (outline `Mode / Preview` › `Frame` 62 × 38); smaller
+/// spans scale it down to fit.
+pub const PREVIEW_THUMBNAIL_WIDTH: f32 = 62.0;
+pub const PREVIEW_THUMBNAIL_HEIGHT: f32 = 38.0;
 pub const TIMELINE_RULER: f32 = 32.0;
 pub const LAYER_COLUMN: f32 = 280.0;
 pub const LAYERS_HEADER: f32 = 32.0;

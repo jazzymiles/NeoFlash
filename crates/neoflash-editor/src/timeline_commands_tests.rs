@@ -171,7 +171,23 @@ fn add_motion_guide_creates_a_guide_above_the_layer() {
         neoflash_ui::components::timeline::LayerKind::MotionGuide
     );
     editor.project.validate().unwrap();
-    assert!(!editor.can_add_motion_guide_to(0), "one guide per layer");
+    assert!(
+        !editor.can_add_motion_guide_to(1),
+        "a guide layer cannot be guided"
+    );
+    // A guided, locked layer can get a new guide; it replaces the old link.
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    assert!(editor.can_add_motion_guide_to(0));
+    editor.layer = 0;
+    editor.add_motion_guide();
+    let timeline = &editor.symbol().timeline;
+    assert_eq!(timeline.layers.len(), 3);
+    assert_eq!(
+        timeline.layers[0].properties.motion_guide.as_ref(),
+        Some(&timeline.layers[1].id)
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
     undo_restores(&mut editor, &before);
 }
 

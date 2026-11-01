@@ -529,6 +529,7 @@ impl Editor {
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
                 self.stage_view_input(ui, rect, origin);
+                self.motion_path_input(ui, rect, origin);
                 self.stage_file_drop(ui, rect, origin);
                 self.stage_library_drop(ui, rect, origin);
                 let visible_page = page.intersect(rect);
@@ -636,6 +637,7 @@ impl Editor {
                     Stroke::new(1.0_f32, palette.stage_border),
                     StrokeKind::Outside,
                 );
+                self.paint_motion_path(&p, origin);
                 self.paint_stage_guides(&p, rect, origin);
                 let extended_tool = self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
                 if !extended_tool {
@@ -874,6 +876,27 @@ impl Editor {
                 break;
             }
         }
+    }
+    /// Paint an evaluated scene opaque at `origin` / `zoom` (timeline thumbnails).
+    pub(crate) fn paint_scene_at(
+        &mut self,
+        painter: &egui::Painter,
+        scene: &AuthoredScene,
+        origin: Pos2,
+        zoom: f32,
+    ) {
+        self.paint_authored_scene(
+            painter,
+            scene,
+            DrawStyle {
+                origin,
+                zoom,
+                opacity: 1.,
+                tint: None,
+                outlines: false,
+                bitmap_texture: None,
+            },
+        );
     }
     pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
         let (rect, _) = ui.allocate_exact_size(

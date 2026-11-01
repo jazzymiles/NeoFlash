@@ -347,13 +347,9 @@ pub struct Keyframe {
     /// this frame. `None` is an ordinary keyframe that starts a new span.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyed_properties: Option<Vec<TweenProperty>>,
-    /// Rotate tweened objects to follow the motion guide path
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// Rotate tweened objects to follow the motion guide path.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub orient_to_path: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 /// Interpolation used by a tweened span.

@@ -529,9 +529,16 @@ pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<El
         };
         let s0 = path.nearest([a.transform.x, a.transform.y]);
         let s1 = path.nearest([b.transform.x, b.transform.y]);
-        let [x, y] = path.point_at(lerp(s0, s1, t));
+        let s = lerp(s0, s1, t);
+        let [x, y] = path.point_at(s);
         element.transform.x = x;
         element.transform.y = y;
+        if key.orient_to_path {
+            // Flash semantics: the object keeps its start pose relative to the path and turns
+            // with the path tangent.
+            element.transform.rotation =
+                a.transform.rotation + path.tangent_at(s) - path.tangent_at(s0);
+        }
     }
     elements
 }
@@ -566,6 +573,26 @@ impl GuidePath {
             }
         }
         best.1
+    }
+
+    /// Direction of the path at arc length `s`, in degrees (0 = +x, clockwise with y down).
+    /// Uses the segment containing `s`; zero-length segments look ahead, then behind.
+    pub fn tangent_at(&self, s: f64) -> f64 {
+        let s = s.clamp(0., self.length());
+        let i = self
+            .lengths
+            .partition_point(|l| *l < s)
+            .clamp(1, self.points.len() - 1);
+        let segment = |i: usize| {
+            let (a, b) = (self.points[i - 1], self.points[i]);
+            [b[0] - a[0], b[1] - a[1]]
+        };
+        let d = (i..self.points.len())
+            .chain((1..i).rev())
+            .map(segment)
+            .find(|d| d[0] != 0. || d[1] != 0.)
+            .unwrap_or([1., 0.]);
+        d[1].atan2(d[0]).to_degrees()
     }
 
     pub fn point_at(&self, s: f64) -> [f64; 2] {
@@ -624,7 +651,7 @@ pub fn guide_polyline(guide: &Layer, frame: u32) -> Option<GuidePath> {
 }
 
 /// Earliest key in the current continuous placement span (stable IDs survive keys).
-fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
+pub(crate) fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     let mut keys: Vec<_> = layer
         .keyframes
         .iter()
