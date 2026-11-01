@@ -46,7 +46,7 @@
   }
   Object.assign(Event, { ENTER_FRAME: 'enterFrame', EXIT_FRAME: 'exitFrame', FRAME_CONSTRUCTED: 'frameConstructed',
     ADDED: 'added', REMOVED: 'removed', ADDED_TO_STAGE: 'addedToStage', REMOVED_FROM_STAGE: 'removedFromStage',
-    RESIZE: 'resize', CHANGE: 'change', OPEN: 'open', INIT:'init',UNLOAD:'unload',COMPLETE: 'complete', SOUND_COMPLETE: 'soundComplete', ACTIVATE: 'activate', DEACTIVATE: 'deactivate' });
+    RESIZE: 'resize', RENDER: 'render', CHANGE: 'change', OPEN: 'open', INIT:'init',UNLOAD:'unload',COMPLETE: 'complete', SOUND_COMPLETE: 'soundComplete', ACTIVATE: 'activate', DEACTIVATE: 'deactivate' });
 
   class MouseEvent extends Event {
     constructor(type, bubbles = true, cancelable = false, localX = 0, localY = 0, relatedObject = null,

@@ -32,6 +32,12 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:class:flash/display/BitmapDataChannel.html#",
+   "owner": "flash.display.BitmapDataChannel",
+   "code": "__r = typeof BitmapDataChannel;",
+   "expect": "notundefined"
+  },
+  {
    "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
    "owner": "flash.display.DisplayObjectContainer",
    "code": "__r = typeof DisplayObjectContainer;",
@@ -77,6 +83,30 @@
    "catalogId": "AS3:class:flash/display/Stage.html#",
    "owner": "flash.display.Stage",
    "code": "__r = typeof Stage;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/StageAlign.html#",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = typeof StageAlign;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/StageDisplayState.html#",
+   "owner": "flash.display.StageDisplayState",
+   "code": "__r = typeof StageDisplayState;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/StageQuality.html#",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = typeof StageQuality;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/StageScaleMode.html#",
+   "owner": "flash.display.StageScaleMode",
+   "code": "__r = typeof StageScaleMode;",
    "expect": "notundefined"
   },
   {
@@ -158,6 +188,24 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:class:flash/text/AntiAliasType.html#",
+   "owner": "flash.text.AntiAliasType",
+   "code": "__r = typeof AntiAliasType;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/GridFitType.html#",
+   "owner": "flash.text.GridFitType",
+   "code": "__r = typeof GridFitType;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextFieldAutoSize.html#",
+   "owner": "flash.text.TextFieldAutoSize",
+   "code": "__r = typeof TextFieldAutoSize;",
+   "expect": "notundefined"
+  },
+  {
    "catalogId": "AS3:class:flash/text/TextFieldType.html#",
    "owner": "flash.text.TextFieldType",
    "code": "__r = typeof TextFieldType;",
@@ -173,6 +221,42 @@
    "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
    "owner": "flash.text.TextFormatAlign",
    "code": "__r = typeof TextFormatAlign;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextLineMetrics.html#",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__r = typeof TextLineMetrics;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/ui/KeyLocation.html#",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = typeof KeyLocation;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/ui/Keyboard.html#",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = typeof Keyboard;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/ui/KeyboardType.html#",
+   "owner": "flash.ui.KeyboardType",
+   "code": "__r = typeof KeyboardType;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/ui/Mouse.html#",
+   "owner": "flash.ui.Mouse",
+   "code": "__r = typeof Mouse;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/ui/MouseCursor.html#",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = typeof MouseCursor;",
    "expect": "notundefined"
   },
   {
@@ -206,6 +290,30 @@
    "expect": "eq:16"
   },
   {
+   "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#ALPHA",
+   "owner": "flash.display.BitmapDataChannel",
+   "code": "__r = String(BitmapDataChannel.ALPHA);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#BLUE",
+   "owner": "flash.display.BitmapDataChannel",
+   "code": "__r = String(BitmapDataChannel.BLUE);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#GREEN",
+   "owner": "flash.display.BitmapDataChannel",
+   "code": "__r = String(BitmapDataChannel.GREEN);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BitmapDataChannel.html#RED",
+   "owner": "flash.display.BitmapDataChannel",
+   "code": "__r = String(BitmapDataChannel.RED);",
+   "expect": "eq:1"
+  },
+  {
    "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
    "owner": "flash.display.PixelSnapping",
    "code": "__r = String(PixelSnapping.ALWAYS);",
@@ -222,6 +330,144 @@
    "owner": "flash.display.PixelSnapping",
    "code": "__r = String(PixelSnapping.NEVER);",
    "expect": "eq:never"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.BOTTOM);",
+   "expect": "eq:B"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_LEFT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.BOTTOM_LEFT);",
+   "expect": "eq:BL"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM_RIGHT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.BOTTOM_RIGHT);",
+   "expect": "eq:BR"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#LEFT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.LEFT);",
+   "expect": "eq:L"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#RIGHT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.RIGHT);",
+   "expect": "eq:R"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.TOP);",
+   "expect": "eq:T"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_LEFT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.TOP_LEFT);",
+   "expect": "eq:TL"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageAlign.html#TOP_RIGHT",
+   "owner": "flash.display.StageAlign",
+   "code": "__r = String(StageAlign.TOP_RIGHT);",
+   "expect": "eq:TR"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN",
+   "owner": "flash.display.StageDisplayState",
+   "code": "__r = String(StageDisplayState.FULL_SCREEN);",
+   "expect": "eq:fullScreen"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageDisplayState.html#FULL_SCREEN_INTERACTIVE",
+   "owner": "flash.display.StageDisplayState",
+   "code": "__r = String(StageDisplayState.FULL_SCREEN_INTERACTIVE);",
+   "expect": "eq:fullScreenInteractive"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageDisplayState.html#NORMAL",
+   "owner": "flash.display.StageDisplayState",
+   "code": "__r = String(StageDisplayState.NORMAL);",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#BEST",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.BEST);",
+   "expect": "eq:best"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.HIGH);",
+   "expect": "eq:high"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.HIGH_16X16);",
+   "expect": "eq:16x16"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_16X16_LINEAR",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.HIGH_16X16_LINEAR);",
+   "expect": "eq:16x16linear"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.HIGH_8X8);",
+   "expect": "eq:8x8"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#HIGH_8X8_LINEAR",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.HIGH_8X8_LINEAR);",
+   "expect": "eq:8x8linear"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#LOW",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.LOW);",
+   "expect": "eq:low"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageQuality.html#MEDIUM",
+   "owner": "flash.display.StageQuality",
+   "code": "__r = String(StageQuality.MEDIUM);",
+   "expect": "eq:medium"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageScaleMode.html#EXACT_FIT",
+   "owner": "flash.display.StageScaleMode",
+   "code": "__r = String(StageScaleMode.EXACT_FIT);",
+   "expect": "eq:exactFit"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_BORDER",
+   "owner": "flash.display.StageScaleMode",
+   "code": "__r = String(StageScaleMode.NO_BORDER);",
+   "expect": "eq:noBorder"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageScaleMode.html#NO_SCALE",
+   "owner": "flash.display.StageScaleMode",
+   "code": "__r = String(StageScaleMode.NO_SCALE);",
+   "expect": "eq:noScale"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/StageScaleMode.html#SHOW_ALL",
+   "owner": "flash.display.StageScaleMode",
+   "code": "__r = String(StageScaleMode.SHOW_ALL);",
+   "expect": "eq:showAll"
   },
   {
    "catalogId": "AS3:constant:flash/events/Event.html#ACTIVATE",
@@ -276,6 +522,12 @@
    "owner": "flash.events.Event",
    "code": "__r = String(Event.REMOVED_FROM_STAGE);",
    "expect": "eq:removedFromStage"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#RENDER",
+   "owner": "flash.events.Event",
+   "code": "__r = String(Event.RENDER);",
+   "expect": "eq:render"
   },
   {
    "catalogId": "AS3:constant:flash/events/Event.html#RESIZE",
@@ -380,6 +632,60 @@
    "expect": "eq:link"
   },
   {
+   "catalogId": "AS3:constant:flash/text/AntiAliasType.html#ADVANCED",
+   "owner": "flash.text.AntiAliasType",
+   "code": "__r = String(AntiAliasType.ADVANCED);",
+   "expect": "eq:advanced"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/AntiAliasType.html#NORMAL",
+   "owner": "flash.text.AntiAliasType",
+   "code": "__r = String(AntiAliasType.NORMAL);",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/GridFitType.html#NONE",
+   "owner": "flash.text.GridFitType",
+   "code": "__r = String(GridFitType.NONE);",
+   "expect": "eq:none"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/GridFitType.html#PIXEL",
+   "owner": "flash.text.GridFitType",
+   "code": "__r = String(GridFitType.PIXEL);",
+   "expect": "eq:pixel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/GridFitType.html#SUBPIXEL",
+   "owner": "flash.text.GridFitType",
+   "code": "__r = String(GridFitType.SUBPIXEL);",
+   "expect": "eq:subpixel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#CENTER",
+   "owner": "flash.text.TextFieldAutoSize",
+   "code": "__r = String(TextFieldAutoSize.CENTER);",
+   "expect": "eq:center"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#LEFT",
+   "owner": "flash.text.TextFieldAutoSize",
+   "code": "__r = String(TextFieldAutoSize.LEFT);",
+   "expect": "eq:left"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#NONE",
+   "owner": "flash.text.TextFieldAutoSize",
+   "code": "__r = String(TextFieldAutoSize.NONE);",
+   "expect": "eq:none"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFieldAutoSize.html#RIGHT",
+   "owner": "flash.text.TextFieldAutoSize",
+   "code": "__r = String(TextFieldAutoSize.RIGHT);",
+   "expect": "eq:right"
+  },
+  {
    "catalogId": "AS3:constant:flash/text/TextFieldType.html#DYNAMIC",
    "owner": "flash.text.TextFieldType",
    "code": "__r = String(TextFieldType.DYNAMIC);",
@@ -390,6 +696,1752 @@
    "owner": "flash.text.TextFormatAlign",
    "code": "__r = String(TextFormatAlign.JUSTIFY);",
    "expect": "eq:justify"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyLocation.html#D_PAD",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = String(KeyLocation.D_PAD);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyLocation.html#LEFT",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = String(KeyLocation.LEFT);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyLocation.html#NUM_PAD",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = String(KeyLocation.NUM_PAD);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyLocation.html#RIGHT",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = String(KeyLocation.RIGHT);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyLocation.html#STANDARD",
+   "owner": "flash.ui.KeyLocation",
+   "code": "__r = String(KeyLocation.STANDARD);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#A",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.A);",
+   "expect": "eq:65"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#ALTERNATE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.ALTERNATE);",
+   "expect": "eq:18"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#AUDIO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.AUDIO);",
+   "expect": "eq:16777239"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#B",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.B);",
+   "expect": "eq:66"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.BACK);",
+   "expect": "eq:16777238"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKQUOTE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.BACKQUOTE);",
+   "expect": "eq:192"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSLASH",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.BACKSLASH);",
+   "expect": "eq:220"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#BACKSPACE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.BACKSPACE);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#BLUE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.BLUE);",
+   "expect": "eq:16777219"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#C",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.C);",
+   "expect": "eq:67"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#CAPS_LOCK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.CAPS_LOCK);",
+   "expect": "eq:20"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_DOWN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.CHANNEL_DOWN);",
+   "expect": "eq:16777221"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#CHANNEL_UP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.CHANNEL_UP);",
+   "expect": "eq:16777220"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMA",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.COMMA);",
+   "expect": "eq:188"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#COMMAND",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.COMMAND);",
+   "expect": "eq:15"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#CONTROL",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.CONTROL);",
+   "expect": "eq:17"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#CharCodeStrings",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.CharCodeStrings.length) + \":\" + String(Keyboard.CharCodeStrings[0]) + \":\" + String(Keyboard.CharCodeStrings[71]);",
+   "expect": "eq:72:Up:ModeSw"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#D",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.D);",
+   "expect": "eq:68"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#DELETE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.DELETE);",
+   "expect": "eq:46"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#DOWN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.DOWN);",
+   "expect": "eq:40"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#DVR",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.DVR);",
+   "expect": "eq:16777241"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#E",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.E);",
+   "expect": "eq:69"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#END",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.END);",
+   "expect": "eq:35"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#ENTER",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.ENTER);",
+   "expect": "eq:13"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#EQUAL",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.EQUAL);",
+   "expect": "eq:187"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#ESCAPE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.ESCAPE);",
+   "expect": "eq:27"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#EXIT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.EXIT);",
+   "expect": "eq:16777237"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F);",
+   "expect": "eq:70"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F1",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F1);",
+   "expect": "eq:112"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F10",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F10);",
+   "expect": "eq:121"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F11",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F11);",
+   "expect": "eq:122"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F12",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F12);",
+   "expect": "eq:123"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F13",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F13);",
+   "expect": "eq:124"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F14",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F14);",
+   "expect": "eq:125"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F15",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F15);",
+   "expect": "eq:126"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F2",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F2);",
+   "expect": "eq:113"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F3",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F3);",
+   "expect": "eq:114"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F4",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F4);",
+   "expect": "eq:115"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F5",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F5);",
+   "expect": "eq:116"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F6",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F6);",
+   "expect": "eq:117"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F7",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F7);",
+   "expect": "eq:118"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F8",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F8);",
+   "expect": "eq:119"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#F9",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.F9);",
+   "expect": "eq:120"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#FAST_FORWARD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.FAST_FORWARD);",
+   "expect": "eq:16777226"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#G",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.G);",
+   "expect": "eq:71"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#GREEN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.GREEN);",
+   "expect": "eq:16777217"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#GUIDE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.GUIDE);",
+   "expect": "eq:16777236"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#H",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.H);",
+   "expect": "eq:72"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#HELP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.HELP);",
+   "expect": "eq:16777245"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#HOME",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.HOME);",
+   "expect": "eq:36"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#I",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.I);",
+   "expect": "eq:73"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#INFO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.INFO);",
+   "expect": "eq:16777235"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#INPUT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.INPUT);",
+   "expect": "eq:16777243"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#INSERT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.INSERT);",
+   "expect": "eq:45"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#J",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.J);",
+   "expect": "eq:74"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#K",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.K);",
+   "expect": "eq:75"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BEGIN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_BEGIN);",
+   "expect": "eq:Begin"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_BREAK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_BREAK);",
+   "expect": "eq:Break"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARDISPLAY",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_CLEARDISPLAY);",
+   "expect": "eq:ClrDsp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_CLEARLINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_CLEARLINE);",
+   "expect": "eq:ClrLn"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_DELETE);",
+   "expect": "eq:Delete"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETECHAR",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_DELETECHAR);",
+   "expect": "eq:DelChr"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DELETELINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_DELETELINE);",
+   "expect": "eq:DelLn"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_DOWNARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_DOWNARROW);",
+   "expect": "eq:Down"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_END",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_END);",
+   "expect": "eq:End"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_EXECUTE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_EXECUTE);",
+   "expect": "eq:Exec"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F1",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F1);",
+   "expect": "eq:F1"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F10",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F10);",
+   "expect": "eq:F10"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F11",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F11);",
+   "expect": "eq:F11"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F12",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F12);",
+   "expect": "eq:F12"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F13",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F13);",
+   "expect": "eq:F13"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F14",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F14);",
+   "expect": "eq:F14"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F15",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F15);",
+   "expect": "eq:F15"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F16",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F16);",
+   "expect": "eq:F16"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F17",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F17);",
+   "expect": "eq:F17"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F18",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F18);",
+   "expect": "eq:F18"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F19",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F19);",
+   "expect": "eq:F19"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F2",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F2);",
+   "expect": "eq:F2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F20",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F20);",
+   "expect": "eq:F20"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F21",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F21);",
+   "expect": "eq:F21"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F22",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F22);",
+   "expect": "eq:F22"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F23",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F23);",
+   "expect": "eq:F23"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F24",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F24);",
+   "expect": "eq:F24"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F25",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F25);",
+   "expect": "eq:F25"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F26",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F26);",
+   "expect": "eq:F26"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F27",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F27);",
+   "expect": "eq:F27"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F28",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F28);",
+   "expect": "eq:F28"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F29",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F29);",
+   "expect": "eq:F29"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F3",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F3);",
+   "expect": "eq:F3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F30",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F30);",
+   "expect": "eq:F30"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F31",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F31);",
+   "expect": "eq:F31"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F32",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F32);",
+   "expect": "eq:F32"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F33",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F33);",
+   "expect": "eq:F33"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F34",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F34);",
+   "expect": "eq:F34"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F35",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F35);",
+   "expect": "eq:F35"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F4",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F4);",
+   "expect": "eq:F4"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F5",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F5);",
+   "expect": "eq:F5"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F6",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F6);",
+   "expect": "eq:F6"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F7",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F7);",
+   "expect": "eq:F7"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F8",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F8);",
+   "expect": "eq:F8"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_F9",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_F9);",
+   "expect": "eq:F9"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_FIND",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_FIND);",
+   "expect": "eq:Find"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HELP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_HELP);",
+   "expect": "eq:Help"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_HOME",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_HOME);",
+   "expect": "eq:Home"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_INSERT);",
+   "expect": "eq:Insert"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTCHAR",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_INSERTCHAR);",
+   "expect": "eq:InsChr"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_INSERTLINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_INSERTLINE);",
+   "expect": "eq:InsLn"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_LEFTARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_LEFTARROW);",
+   "expect": "eq:Left"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MENU",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_MENU);",
+   "expect": "eq:Menu"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_MODESWITCH",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_MODESWITCH);",
+   "expect": "eq:ModeSw"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_NEXT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_NEXT);",
+   "expect": "eq:Next"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEDOWN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PAGEDOWN);",
+   "expect": "eq:PgDn"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAGEUP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PAGEUP);",
+   "expect": "eq:PgUp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PAUSE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PAUSE);",
+   "expect": "eq:Pause"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PLAYPAUSE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PLAYPAUSE);",
+   "expect": "eq:PlayPause"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PREV",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PREV);",
+   "expect": "eq:Prev"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PRINT);",
+   "expect": "eq:Print"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_PRINTSCREEN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_PRINTSCREEN);",
+   "expect": "eq:PrntScrn"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_REDO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_REDO);",
+   "expect": "eq:Redo"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RESET",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_RESET);",
+   "expect": "eq:Reset"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_RIGHTARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_RIGHTARROW);",
+   "expect": "eq:Right"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SCROLLLOCK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_SCROLLLOCK);",
+   "expect": "eq:ScrlLck"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SELECT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_SELECT);",
+   "expect": "eq:Select"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_STOP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_STOP);",
+   "expect": "eq:Stop"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSREQ",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_SYSREQ);",
+   "expect": "eq:SysReq"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_SYSTEM",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_SYSTEM);",
+   "expect": "eq:Sys"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UNDO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_UNDO);",
+   "expect": "eq:Undo"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_UPARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_UPARROW);",
+   "expect": "eq:Up"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#KEYNAME_USER",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.KEYNAME_USER);",
+   "expect": "eq:User"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#L",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.L);",
+   "expect": "eq:76"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#LAST",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.LAST);",
+   "expect": "eq:16777233"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.LEFT);",
+   "expect": "eq:37"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#LEFTBRACKET",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.LEFTBRACKET);",
+   "expect": "eq:219"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#LIVE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.LIVE);",
+   "expect": "eq:16777232"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#M",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.M);",
+   "expect": "eq:77"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#MASTER_SHELL",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.MASTER_SHELL);",
+   "expect": "eq:16777246"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#MENU",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.MENU);",
+   "expect": "eq:16777234"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#MINUS",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.MINUS);",
+   "expect": "eq:189"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#N",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.N);",
+   "expect": "eq:78"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NEXT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NEXT);",
+   "expect": "eq:16777230"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_0",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_0);",
+   "expect": "eq:48"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_1",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_1);",
+   "expect": "eq:49"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_2",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_2);",
+   "expect": "eq:50"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_3",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_3);",
+   "expect": "eq:51"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_4",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_4);",
+   "expect": "eq:52"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_5",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_5);",
+   "expect": "eq:53"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_6",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_6);",
+   "expect": "eq:54"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_7",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_7);",
+   "expect": "eq:55"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_8",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_8);",
+   "expect": "eq:56"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMBER_9",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMBER_9);",
+   "expect": "eq:57"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD);",
+   "expect": "eq:21"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_0",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_0);",
+   "expect": "eq:96"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_1",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_1);",
+   "expect": "eq:97"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_2",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_2);",
+   "expect": "eq:98"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_3",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_3);",
+   "expect": "eq:99"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_4",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_4);",
+   "expect": "eq:100"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_5",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_5);",
+   "expect": "eq:101"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_6",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_6);",
+   "expect": "eq:102"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_7",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_7);",
+   "expect": "eq:103"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_8",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_8);",
+   "expect": "eq:104"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_9",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_9);",
+   "expect": "eq:105"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ADD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_ADD);",
+   "expect": "eq:107"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DECIMAL",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_DECIMAL);",
+   "expect": "eq:110"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_DIVIDE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_DIVIDE);",
+   "expect": "eq:111"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_ENTER",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_ENTER);",
+   "expect": "eq:108"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_MULTIPLY",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_MULTIPLY);",
+   "expect": "eq:106"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#NUMPAD_SUBTRACT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.NUMPAD_SUBTRACT);",
+   "expect": "eq:109"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#O",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.O);",
+   "expect": "eq:79"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#P",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.P);",
+   "expect": "eq:80"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_DOWN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PAGE_DOWN);",
+   "expect": "eq:34"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAGE_UP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PAGE_UP);",
+   "expect": "eq:33"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PAUSE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PAUSE);",
+   "expect": "eq:16777224"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PERIOD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PERIOD);",
+   "expect": "eq:190"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PLAY);",
+   "expect": "eq:16777223"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PLAY_PAUSE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PLAY_PAUSE);",
+   "expect": "eq:16777248"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#PREVIOUS",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.PREVIOUS);",
+   "expect": "eq:16777231"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#Q",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.Q);",
+   "expect": "eq:81"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#QUOTE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.QUOTE);",
+   "expect": "eq:222"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#R",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.R);",
+   "expect": "eq:82"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#RECORD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.RECORD);",
+   "expect": "eq:16777222"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#RED",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.RED);",
+   "expect": "eq:16777216"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#REWIND",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.REWIND);",
+   "expect": "eq:16777227"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.RIGHT);",
+   "expect": "eq:39"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#RIGHTBRACKET",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.RIGHTBRACKET);",
+   "expect": "eq:221"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#S",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.S);",
+   "expect": "eq:83"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEARCH",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SEARCH);",
+   "expect": "eq:16777247"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SEMICOLON",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SEMICOLON);",
+   "expect": "eq:186"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SETUP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SETUP);",
+   "expect": "eq:16777244"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SHIFT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SHIFT);",
+   "expect": "eq:16"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_BACKWARD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SKIP_BACKWARD);",
+   "expect": "eq:16777229"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SKIP_FORWARD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SKIP_FORWARD);",
+   "expect": "eq:16777228"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SLASH",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SLASH);",
+   "expect": "eq:191"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SPACE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SPACE);",
+   "expect": "eq:32"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STOP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STOP);",
+   "expect": "eq:16777225"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BEGIN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_BEGIN.length) + \":\" + String(Keyboard.STRING_BEGIN.charCodeAt(0));",
+   "expect": "eq:1:63274"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_BREAK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_BREAK.length) + \":\" + String(Keyboard.STRING_BREAK.charCodeAt(0));",
+   "expect": "eq:1:63282"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARDISPLAY",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_CLEARDISPLAY.length) + \":\" + String(Keyboard.STRING_CLEARDISPLAY.charCodeAt(0));",
+   "expect": "eq:1:63290"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_CLEARLINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_CLEARLINE.length) + \":\" + String(Keyboard.STRING_CLEARLINE.charCodeAt(0));",
+   "expect": "eq:1:63289"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_DELETE.length) + \":\" + String(Keyboard.STRING_DELETE.charCodeAt(0));",
+   "expect": "eq:1:63272"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETECHAR",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_DELETECHAR.length) + \":\" + String(Keyboard.STRING_DELETECHAR.charCodeAt(0));",
+   "expect": "eq:1:63294"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DELETELINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_DELETELINE.length) + \":\" + String(Keyboard.STRING_DELETELINE.charCodeAt(0));",
+   "expect": "eq:1:63292"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_DOWNARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_DOWNARROW.length) + \":\" + String(Keyboard.STRING_DOWNARROW.charCodeAt(0));",
+   "expect": "eq:1:63233"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_END",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_END.length) + \":\" + String(Keyboard.STRING_END.charCodeAt(0));",
+   "expect": "eq:1:63275"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_EXECUTE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_EXECUTE.length) + \":\" + String(Keyboard.STRING_EXECUTE.charCodeAt(0));",
+   "expect": "eq:1:63298"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F1",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F1.length) + \":\" + String(Keyboard.STRING_F1.charCodeAt(0));",
+   "expect": "eq:1:63236"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F10",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F10.length) + \":\" + String(Keyboard.STRING_F10.charCodeAt(0));",
+   "expect": "eq:1:63245"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F11",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F11.length) + \":\" + String(Keyboard.STRING_F11.charCodeAt(0));",
+   "expect": "eq:1:63246"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F12",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F12.length) + \":\" + String(Keyboard.STRING_F12.charCodeAt(0));",
+   "expect": "eq:1:63247"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F13",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F13.length) + \":\" + String(Keyboard.STRING_F13.charCodeAt(0));",
+   "expect": "eq:1:63248"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F14",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F14.length) + \":\" + String(Keyboard.STRING_F14.charCodeAt(0));",
+   "expect": "eq:1:63249"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F15",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F15.length) + \":\" + String(Keyboard.STRING_F15.charCodeAt(0));",
+   "expect": "eq:1:63250"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F16",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F16.length) + \":\" + String(Keyboard.STRING_F16.charCodeAt(0));",
+   "expect": "eq:1:63251"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F17",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F17.length) + \":\" + String(Keyboard.STRING_F17.charCodeAt(0));",
+   "expect": "eq:1:63252"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F18",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F18.length) + \":\" + String(Keyboard.STRING_F18.charCodeAt(0));",
+   "expect": "eq:1:63253"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F19",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F19.length) + \":\" + String(Keyboard.STRING_F19.charCodeAt(0));",
+   "expect": "eq:1:63254"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F2",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F2.length) + \":\" + String(Keyboard.STRING_F2.charCodeAt(0));",
+   "expect": "eq:1:63237"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F20",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F20.length) + \":\" + String(Keyboard.STRING_F20.charCodeAt(0));",
+   "expect": "eq:1:63255"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F21",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F21.length) + \":\" + String(Keyboard.STRING_F21.charCodeAt(0));",
+   "expect": "eq:1:63256"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F22",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F22.length) + \":\" + String(Keyboard.STRING_F22.charCodeAt(0));",
+   "expect": "eq:1:63257"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F23",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F23.length) + \":\" + String(Keyboard.STRING_F23.charCodeAt(0));",
+   "expect": "eq:1:63258"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F24",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F24.length) + \":\" + String(Keyboard.STRING_F24.charCodeAt(0));",
+   "expect": "eq:1:63259"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F25",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F25.length) + \":\" + String(Keyboard.STRING_F25.charCodeAt(0));",
+   "expect": "eq:1:63260"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F26",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F26.length) + \":\" + String(Keyboard.STRING_F26.charCodeAt(0));",
+   "expect": "eq:1:63261"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F27",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F27.length) + \":\" + String(Keyboard.STRING_F27.charCodeAt(0));",
+   "expect": "eq:1:63262"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F28",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F28.length) + \":\" + String(Keyboard.STRING_F28.charCodeAt(0));",
+   "expect": "eq:1:63263"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F29",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F29.length) + \":\" + String(Keyboard.STRING_F29.charCodeAt(0));",
+   "expect": "eq:1:63264"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F3",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F3.length) + \":\" + String(Keyboard.STRING_F3.charCodeAt(0));",
+   "expect": "eq:1:63238"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F30",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F30.length) + \":\" + String(Keyboard.STRING_F30.charCodeAt(0));",
+   "expect": "eq:1:63265"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F31",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F31.length) + \":\" + String(Keyboard.STRING_F31.charCodeAt(0));",
+   "expect": "eq:1:63266"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F32",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F32.length) + \":\" + String(Keyboard.STRING_F32.charCodeAt(0));",
+   "expect": "eq:1:63267"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F33",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F33.length) + \":\" + String(Keyboard.STRING_F33.charCodeAt(0));",
+   "expect": "eq:1:63268"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F34",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F34.length) + \":\" + String(Keyboard.STRING_F34.charCodeAt(0));",
+   "expect": "eq:1:63269"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F35",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F35.length) + \":\" + String(Keyboard.STRING_F35.charCodeAt(0));",
+   "expect": "eq:1:63270"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F4",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F4.length) + \":\" + String(Keyboard.STRING_F4.charCodeAt(0));",
+   "expect": "eq:1:63239"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F5",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F5.length) + \":\" + String(Keyboard.STRING_F5.charCodeAt(0));",
+   "expect": "eq:1:63240"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F6",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F6.length) + \":\" + String(Keyboard.STRING_F6.charCodeAt(0));",
+   "expect": "eq:1:63241"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F7",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F7.length) + \":\" + String(Keyboard.STRING_F7.charCodeAt(0));",
+   "expect": "eq:1:63242"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F8",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F8.length) + \":\" + String(Keyboard.STRING_F8.charCodeAt(0));",
+   "expect": "eq:1:63243"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_F9",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_F9.length) + \":\" + String(Keyboard.STRING_F9.charCodeAt(0));",
+   "expect": "eq:1:63244"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_FIND",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_FIND.length) + \":\" + String(Keyboard.STRING_FIND.charCodeAt(0));",
+   "expect": "eq:1:63301"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HELP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_HELP.length) + \":\" + String(Keyboard.STRING_HELP.charCodeAt(0));",
+   "expect": "eq:1:63302"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_HOME",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_HOME.length) + \":\" + String(Keyboard.STRING_HOME.charCodeAt(0));",
+   "expect": "eq:1:63273"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_INSERT.length) + \":\" + String(Keyboard.STRING_INSERT.charCodeAt(0));",
+   "expect": "eq:1:63271"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTCHAR",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_INSERTCHAR.length) + \":\" + String(Keyboard.STRING_INSERTCHAR.charCodeAt(0));",
+   "expect": "eq:1:63293"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_INSERTLINE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_INSERTLINE.length) + \":\" + String(Keyboard.STRING_INSERTLINE.charCodeAt(0));",
+   "expect": "eq:1:63291"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_LEFTARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_LEFTARROW.length) + \":\" + String(Keyboard.STRING_LEFTARROW.charCodeAt(0));",
+   "expect": "eq:1:63234"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MENU",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_MENU.length) + \":\" + String(Keyboard.STRING_MENU.charCodeAt(0));",
+   "expect": "eq:1:63285"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_MODESWITCH",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_MODESWITCH.length) + \":\" + String(Keyboard.STRING_MODESWITCH.charCodeAt(0));",
+   "expect": "eq:1:63303"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_NEXT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_NEXT.length) + \":\" + String(Keyboard.STRING_NEXT.charCodeAt(0));",
+   "expect": "eq:1:63296"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEDOWN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PAGEDOWN.length) + \":\" + String(Keyboard.STRING_PAGEDOWN.charCodeAt(0));",
+   "expect": "eq:1:63277"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAGEUP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PAGEUP.length) + \":\" + String(Keyboard.STRING_PAGEUP.charCodeAt(0));",
+   "expect": "eq:1:63276"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PAUSE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PAUSE.length) + \":\" + String(Keyboard.STRING_PAUSE.charCodeAt(0));",
+   "expect": "eq:1:63280"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PREV",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PREV.length) + \":\" + String(Keyboard.STRING_PREV.charCodeAt(0));",
+   "expect": "eq:1:63295"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PRINT.length) + \":\" + String(Keyboard.STRING_PRINT.charCodeAt(0));",
+   "expect": "eq:1:63288"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_PRINTSCREEN",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_PRINTSCREEN.length) + \":\" + String(Keyboard.STRING_PRINTSCREEN.charCodeAt(0));",
+   "expect": "eq:1:63278"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_REDO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_REDO.length) + \":\" + String(Keyboard.STRING_REDO.charCodeAt(0));",
+   "expect": "eq:1:63300"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RESET",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_RESET.length) + \":\" + String(Keyboard.STRING_RESET.charCodeAt(0));",
+   "expect": "eq:1:63283"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_RIGHTARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_RIGHTARROW.length) + \":\" + String(Keyboard.STRING_RIGHTARROW.charCodeAt(0));",
+   "expect": "eq:1:63235"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SCROLLLOCK",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_SCROLLLOCK.length) + \":\" + String(Keyboard.STRING_SCROLLLOCK.charCodeAt(0));",
+   "expect": "eq:1:63279"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SELECT",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_SELECT.length) + \":\" + String(Keyboard.STRING_SELECT.charCodeAt(0));",
+   "expect": "eq:1:63297"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_STOP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_STOP.length) + \":\" + String(Keyboard.STRING_STOP.charCodeAt(0));",
+   "expect": "eq:1:63284"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSREQ",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_SYSREQ.length) + \":\" + String(Keyboard.STRING_SYSREQ.charCodeAt(0));",
+   "expect": "eq:1:63281"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_SYSTEM",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_SYSTEM.length) + \":\" + String(Keyboard.STRING_SYSTEM.charCodeAt(0));",
+   "expect": "eq:1:63287"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UNDO",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_UNDO.length) + \":\" + String(Keyboard.STRING_UNDO.charCodeAt(0));",
+   "expect": "eq:1:63299"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_UPARROW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_UPARROW.length) + \":\" + String(Keyboard.STRING_UPARROW.charCodeAt(0));",
+   "expect": "eq:1:63232"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#STRING_USER",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.STRING_USER.length) + \":\" + String(Keyboard.STRING_USER.charCodeAt(0));",
+   "expect": "eq:1:63286"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#SUBTITLE",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.SUBTITLE);",
+   "expect": "eq:16777240"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#T",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.T);",
+   "expect": "eq:84"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#TAB",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.TAB);",
+   "expect": "eq:9"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#U",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.U);",
+   "expect": "eq:85"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#UP",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.UP);",
+   "expect": "eq:38"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#V",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.V);",
+   "expect": "eq:86"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#VOD",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.VOD);",
+   "expect": "eq:16777242"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#W",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.W);",
+   "expect": "eq:87"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#X",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.X);",
+   "expect": "eq:88"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#Y",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.Y);",
+   "expect": "eq:89"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#YELLOW",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.YELLOW);",
+   "expect": "eq:16777218"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/Keyboard.html#Z",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.Z);",
+   "expect": "eq:90"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyboardType.html#ALPHANUMERIC",
+   "owner": "flash.ui.KeyboardType",
+   "code": "__r = String(KeyboardType.ALPHANUMERIC);",
+   "expect": "eq:alphanumeric"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyboardType.html#KEYPAD",
+   "owner": "flash.ui.KeyboardType",
+   "code": "__r = String(KeyboardType.KEYPAD);",
+   "expect": "eq:keypad"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/KeyboardType.html#NONE",
+   "owner": "flash.ui.KeyboardType",
+   "code": "__r = String(KeyboardType.NONE);",
+   "expect": "eq:none"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/MouseCursor.html#ARROW",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = String(MouseCursor.ARROW);",
+   "expect": "eq:arrow"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/MouseCursor.html#AUTO",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = String(MouseCursor.AUTO);",
+   "expect": "eq:auto"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/MouseCursor.html#BUTTON",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = String(MouseCursor.BUTTON);",
+   "expect": "eq:button"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/MouseCursor.html#HAND",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = String(MouseCursor.HAND);",
+   "expect": "eq:hand"
+  },
+  {
+   "catalogId": "AS3:constant:flash/ui/MouseCursor.html#IBEAM",
+   "owner": "flash.ui.MouseCursor",
+   "code": "__r = String(MouseCursor.IBEAM);",
+   "expect": "eq:ibeam"
   },
   {
    "catalogId": "AS3:constructor:Object.html#Object()",
@@ -444,6 +2496,12 @@
    "owner": "flash.events.TimerEvent",
    "code": "__o = new TimerEvent(\"timer\"); __r = __o == null ? \"null\" : \"ok\";",
    "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o is TextLineMetrics);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:function:package.html#Array()",
@@ -728,6 +2786,12 @@
    "expect": "ok"
   },
   {
+   "catalogId": "AS3:method:flash/display/Stage.html#invalidate()",
+   "owner": "flash.display.Stage",
+   "code": "stage.invalidate(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
    "catalogId": "AS3:method:flash/display/Stage.html#willTrigger()",
    "owner": "flash.display.Stage",
    "code": "__o = stage; __v = __o.willTrigger(\"a\"); __r = \"ok\";",
@@ -857,6 +2921,30 @@
    "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
    "owner": "flash.filters.GlowFilter",
    "code": "__o = new GlowFilter(); __v = __o.clone(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineMetrics()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = \"Hello\"; __v = __o.getLineMetrics(0); __r = String(__v is TextLineMetrics) + \":\" + String(__v.width > 0) + \":\" + String(__v.height == __v.ascent + __v.descent + __v.leading);",
+   "expect": "eq:true:true:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/ui/Keyboard.html#isAccessible()",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.isAccessible());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:method:flash/ui/Mouse.html#hide()",
+   "owner": "flash.ui.Mouse",
+   "code": "Mouse.hide(); __r = \"ok\";",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/ui/Mouse.html#show()",
+   "owner": "flash.ui.Mouse",
+   "code": "Mouse.show(); __r = \"ok\";",
    "expect": "ok"
   },
   {
@@ -1002,6 +3090,96 @@
    "owner": "flash.display.Sprite",
    "code": "__o = new Sprite(); __r = typeof __o.useHandCursor;",
    "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#align",
+   "owner": "flash.display.Stage",
+   "code": "stage.align = StageAlign.TOP_LEFT; __r = stage.align; stage.align = \"\";",
+   "expect": "eq:TL"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreen",
+   "owner": "flash.display.Stage",
+   "code": "__r = typeof stage.allowsFullScreen;",
+   "expect": "eq:boolean"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#allowsFullScreenInteractive",
+   "owner": "flash.display.Stage",
+   "code": "__r = typeof stage.allowsFullScreenInteractive;",
+   "expect": "eq:boolean"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#color",
+   "owner": "flash.display.Stage",
+   "code": "stage.color = 0x112233; __r = String(stage.color); stage.color = 0xffffff;",
+   "expect": "eq:1122867"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#contentsScaleFactor",
+   "owner": "flash.display.Stage",
+   "code": "__r = String(stage.contentsScaleFactor >= 1);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#displayState",
+   "owner": "flash.display.Stage",
+   "code": "stage.displayState = StageDisplayState.NORMAL; __r = stage.displayState;",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#fullScreenHeight",
+   "owner": "flash.display.Stage",
+   "code": "__r = String(stage.fullScreenHeight > 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#fullScreenWidth",
+   "owner": "flash.display.Stage",
+   "code": "__r = String(stage.fullScreenWidth > 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#mouseChildren",
+   "owner": "flash.display.Stage",
+   "code": "stage.mouseChildren = false; __r = String(stage.mouseChildren); stage.mouseChildren = true;",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#numChildren",
+   "owner": "flash.display.Stage",
+   "code": "__r = String(stage.numChildren >= 1);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#quality",
+   "owner": "flash.display.Stage",
+   "code": "stage.quality = StageQuality.LOW; __r = stage.quality; stage.quality = StageQuality.HIGH;",
+   "expect": "eq:LOW"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#scaleMode",
+   "owner": "flash.display.Stage",
+   "code": "stage.scaleMode = StageScaleMode.NO_SCALE; __r = stage.scaleMode; stage.scaleMode = StageScaleMode.SHOW_ALL;",
+   "expect": "eq:noScale"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#showDefaultContextMenu",
+   "owner": "flash.display.Stage",
+   "code": "stage.showDefaultContextMenu = false; __r = String(stage.showDefaultContextMenu); stage.showDefaultContextMenu = true;",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#stageFocusRect",
+   "owner": "flash.display.Stage",
+   "code": "stage.stageFocusRect = false; __r = String(stage.stageFocusRect); stage.stageFocusRect = true;",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/Stage.html#tabChildren",
+   "owner": "flash.display.Stage",
+   "code": "stage.tabChildren = false; __r = String(stage.tabChildren); stage.tabChildren = true;",
+   "expect": "eq:false"
   },
   {
    "catalogId": "AS3:property:flash/events/Event.html#bubbles",
@@ -1322,6 +3500,84 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#ascent",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.ascent);",
+   "expect": "eq:12"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#descent",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.descent);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#height",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.height);",
+   "expect": "eq:16"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#leading",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.leading);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#width",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.width);",
+   "expect": "eq:40"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextLineMetrics.html#x",
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(2, 40, 16, 12, 3, 1); __r = String(__o.x);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Keyboard.html#capsLock",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = typeof Keyboard.capsLock;",
+   "expect": "eq:boolean"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Keyboard.html#hasVirtualKeyboard",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = typeof Keyboard.hasVirtualKeyboard;",
+   "expect": "eq:boolean"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Keyboard.html#numLock",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = typeof Keyboard.numLock;",
+   "expect": "eq:boolean"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Keyboard.html#physicalKeyboardType",
+   "owner": "flash.ui.Keyboard",
+   "code": "__r = String(Keyboard.physicalKeyboardType);",
+   "expect": "eq:alphanumeric"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Mouse.html#cursor",
+   "owner": "flash.ui.Mouse",
+   "code": "Mouse.cursor = MouseCursor.IBEAM; __r = Mouse.cursor; Mouse.cursor = MouseCursor.AUTO;",
+   "expect": "eq:ibeam"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Mouse.html#supportsCursor",
+   "owner": "flash.ui.Mouse",
+   "code": "__r = String(Mouse.supportsCursor);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+   "owner": "flash.ui.Mouse",
+   "code": "__r = String(Mouse.supportsNativeCursor);",
+   "expect": "eq:false"
+  },
+  {
    "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
    "owner": "flash.utils.ByteArray",
    "code": "__r = String(ByteArray.defaultObjectEncoding);",
@@ -1549,6 +3805,21 @@
   {
    "owner": "flash.utils.Timer",
    "code": "__o = new Timer(1000); __v = __o.nfNoSuchMethod(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.text.TextLineMetrics",
+   "code": "__o = new TextLineMetrics(1, 2, 3, 4, 5, 6); __r = typeof __o.nfNoSuchMember;",
+   "expect": "eq:undefined"
+  },
+  {
+   "owner": "flash.ui.Mouse",
+   "code": "Mouse.registerCursor(\"custom\", null); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "owner": "flash.ui.Mouse",
+   "code": "Mouse.unregisterCursor(\"custom\"); __r = \"ok\";",
    "expect": "throws"
   }
  ]

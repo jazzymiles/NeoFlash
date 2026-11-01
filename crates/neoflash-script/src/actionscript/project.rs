@@ -112,15 +112,29 @@ const BUILTINS: &[&str] = &[
     "flash.display.GraphicsPathWinding",
     "flash.display.Bitmap",
     "flash.display.BitmapData",
+    "flash.display.BitmapDataChannel",
     "flash.display.PixelSnapping",
     "flash.display.PNGEncoderOptions",
     "flash.display.Loader",
     "flash.display.LoaderInfo",
     "flash.display.Stage",
+    "flash.display.StageScaleMode",
+    "flash.display.StageAlign",
+    "flash.display.StageDisplayState",
+    "flash.display.StageQuality",
     "flash.text.TextField",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
     "flash.text.TextFieldType",
+    "flash.text.TextFieldAutoSize",
+    "flash.text.AntiAliasType",
+    "flash.text.GridFitType",
+    "flash.text.TextLineMetrics",
+    "flash.ui.Keyboard",
+    "flash.ui.KeyLocation",
+    "flash.ui.KeyboardType",
+    "flash.ui.Mouse",
+    "flash.ui.MouseCursor",
     "flash.media.Video",
     "flash.net.NetConnection",
     "flash.net.NetStream",
@@ -402,10 +416,17 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "getLineLength"
                 | "getLineOffset"
                 | "getLineIndexOfChar"
+                | "getLineMetrics"
                 | "getTextFormat"
                 | "setTextFormat"
                 | "getNewTextFormat"
                 | "setNewTextFormat"
+                | "invalidate"
+                | "hide"
+                | "show"
+                | "registerCursor"
+                | "unregisterCursor"
+                | "isAccessible"
         )
 }
 
@@ -1016,14 +1037,30 @@ fn parse_class(
         Some(
             "flash.display.Bitmap"
                 | "flash.display.BitmapData"
+                | "flash.display.BitmapDataChannel"
                 | "flash.display.PixelSnapping"
                 | "flash.display.PNGEncoderOptions"
+                | "flash.display.Stage"
+                | "flash.display.StageScaleMode"
+                | "flash.display.StageAlign"
+                | "flash.display.StageDisplayState"
+                | "flash.display.StageQuality"
         )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Bitmap and BitmapData native subclass initialization is outside this profile; construct the native facade and use composition. PixelSnapping provides constants; PNGEncoderOptions is final. Neither can be a base class.",
+            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; PNGEncoderOptions is final.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.ui."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "flash.ui Keyboard and Mouse classes are final and cannot be extended.",
         ));
     }
     if matches!(
