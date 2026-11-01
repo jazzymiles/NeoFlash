@@ -15,6 +15,7 @@ pub(crate) struct Source {
     pub version: Option<String>,
     pub files: BTreeMap<String, String>,
     pub binary: Option<crate::legacy::BinaryTimelineDocument>,
+    pub swf: Option<crate::swf::SwfContainer>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
@@ -30,6 +31,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             version: None,
             files,
             binary: None,
+            swf: None,
         });
     }
     let mut file = File::open(path)?;
@@ -41,15 +43,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         return read_directory_source(path.parent().unwrap_or_else(|| Path::new(".")));
     }
     if read >= 8 && matches!(&header[..3], b"FWS" | b"CWS" | b"ZWS") {
-        let declared = u32::from_le_bytes(header[4..8].try_into().unwrap());
-        if declared < 8 {
-            return Err(ImportError::Container("invalid SWF declared length".into()));
-        }
-        if &header[..3] == b"FWS" && u64::from(declared) != file.metadata()?.len() {
-            return Err(ImportError::Container(
-                "uncompressed SWF length does not match its header".into(),
-            ));
-        }
+        let swf = crate::swf::read_container(path, &header[..read])?;
         return Ok(Source {
             format: ImportFormat::Swf,
             version: Some(format!(
@@ -59,6 +53,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             )),
             files,
             binary: None,
+            swf: Some(swf),
         });
     }
     if header[..read].starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
@@ -74,6 +69,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 .and_then(|b| b.inspection.authoring_version.clone()),
             files,
             binary,
+            swf: None,
         });
     }
     if header[..read].starts_with(b"PK\x03\x04") {
@@ -138,6 +134,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             version: None,
             files,
             binary: None,
+            swf: None,
         });
     }
     Ok(Source {
@@ -145,6 +142,7 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         version: None,
         files,
         binary: None,
+        swf: None,
     })
 }
 

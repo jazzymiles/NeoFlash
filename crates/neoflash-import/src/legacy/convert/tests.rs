@@ -12,6 +12,7 @@ fn report() -> ImportReport {
         statistics: Statistics::default(),
         diagnostics: vec![],
         binary_fla: None,
+        swf: None,
     }
 }
 
@@ -125,6 +126,7 @@ fn convert_timeline_reporting(
         report: &mut report,
         library: BTreeMap::from([(100, "graphic".into())]),
         bitmaps: BTreeMap::new(),
+        sounds: BTreeMap::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
         generated: vec![],
@@ -402,6 +404,7 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
         report: &mut report,
         library: BTreeMap::new(),
         bitmaps: BTreeMap::new(),
+        sounds: BTreeMap::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
         generated: vec![],
@@ -442,4 +445,121 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
     assert_eq!(context.report.diagnostics[0].code, "fla_actions_translated");
     actions.complete = false;
     assert!(context.actions(&stream, Some(&actions)).is_err());
+}
+
+#[test]
+fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_media() {
+    use crate::legacy::contents::ContentsByteSpan;
+    use neoflash_core::{SoundEffect, SoundSync};
+
+    let mut stream = timeline_fixture();
+    let mut rep = report();
+    let mut sounds = BTreeMap::new();
+    sounds.insert(
+        7_u16,
+        assets::SoundAsset {
+            resource_id: "legacy-sound-7".into(),
+            duration_44: 44_100,
+        },
+    );
+    let mut context = Context {
+        report: &mut rep,
+        library: BTreeMap::new(),
+        bitmaps: BTreeMap::new(),
+        sounds,
+        language: ScriptLanguage::ActionScript2,
+        include_hidden: true,
+        generated: vec![],
+        provenance: vec![],
+        missing_bitmaps: BTreeMap::new(),
+    };
+
+    let mut frame = TimelineFrame {
+        sound_media_id: Some(7),
+        sound_sync: Some(1), // 1 = Start
+        sound_loop_count: Some(0x7fff),
+        sound_effect: Some(5), // 5 = FadeIn
+        sound_in_point: Some(0),
+        sound_out_point: Some(44_100),
+        ..TimelineFrame::default()
+    };
+    let mapped = context
+        .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
+        .unwrap();
+    assert_eq!(mapped.resource, "legacy-sound-7");
+    assert_eq!(mapped.sync, SoundSync::Start);
+    assert!(mapped.loop_forever);
+    assert_eq!(mapped.loops, 1);
+    assert_eq!(mapped.effect, SoundEffect::FadeIn);
+    assert!(context.report.diagnostics.is_empty());
+
+    // Pre-rev-21 legacy 2-point envelope matching LeftChannel preset imports without warning:
+    let mut env = Vec::new();
+    env.extend_from_slice(&0_u32.to_le_bytes());
+    env.extend_from_slice(&32768_u16.to_le_bytes());
+    env.extend_from_slice(&0_u16.to_le_bytes());
+    env.extend_from_slice(&44_100_u32.to_le_bytes());
+    env.extend_from_slice(&32768_u16.to_le_bytes());
+    env.extend_from_slice(&0_u16.to_le_bytes());
+    let env_start = stream.original_bytes.len();
+    stream.original_bytes.extend_from_slice(&env);
+    let env_span = ContentsByteSpan {
+        start: env_start,
+        end: stream.original_bytes.len(),
+    };
+    frame.sound_effect = None;
+    frame.sound_loop_count = Some(3);
+    frame.sound_sync = Some(3); // 3 = Stream
+    frame.sound_envelope_count = Some(2);
+    frame.sound_envelope = Some(env_span);
+    let legacy_preset = context
+        .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
+        .unwrap();
+    assert_eq!(legacy_preset.sync, SoundSync::Stream);
+    assert!(!legacy_preset.loop_forever);
+    assert_eq!(legacy_preset.loops, 3);
+    assert_eq!(legacy_preset.effect, SoundEffect::LeftChannel);
+    assert!(context.report.diagnostics.is_empty());
+
+    // Non-preset custom envelope + trim points keep sound and emit fla_frame_sound warning:
+    frame.sound_effect = Some(7); // 7 = Custom
+    let mut custom_env = Vec::new();
+    for (p, l, r) in [
+        (0_u32, 16384_u16, 16384_u16),
+        (20_000, 32768, 8192),
+        (44_100, 0, 0),
+    ] {
+        custom_env.extend_from_slice(&p.to_le_bytes());
+        custom_env.extend_from_slice(&l.to_le_bytes());
+        custom_env.extend_from_slice(&r.to_le_bytes());
+    }
+    let c_start = stream.original_bytes.len();
+    stream.original_bytes.extend_from_slice(&custom_env);
+    frame.sound_envelope_count = Some(3);
+    frame.sound_envelope = Some(ContentsByteSpan {
+        start: c_start,
+        end: stream.original_bytes.len(),
+    });
+    frame.sound_in_point = Some(1_000);
+    let custom = context
+        .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
+        .unwrap();
+    assert_eq!(custom.effect, SoundEffect::None);
+    assert_eq!(context.report.diagnostics.len(), 2);
+    assert!(
+        context
+            .report
+            .diagnostics
+            .iter()
+            .all(|d| d.code == "fla_frame_sound")
+    );
+
+    // Missing/unimported sound media ID emits fla_frame_sound warning and returns None:
+    frame.sound_media_id = Some(99);
+    assert!(
+        context
+            .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
+            .is_none()
+    );
+    assert_eq!(context.report.diagnostics.len(), 3);
 }

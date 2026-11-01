@@ -1,6 +1,7 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
 mod legacy;
 mod source;
+mod swf;
 mod xfl;
 
 pub use legacy::contents::*;
@@ -12,6 +13,7 @@ pub use legacy::{
     BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument, RecordCounts,
     read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
+pub use swf::{SwfCompression, SwfInspection, SwfTagCounts};
 
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
@@ -64,6 +66,9 @@ pub struct ImportReport {
     /// Structural inspection, not an editable conversion or a completeness claim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_fla: Option<BinaryFlaInspection>,
+    /// Bounded read-only SWF header and tag inspection, without bytecode execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swf: Option<SwfInspection>,
 }
 
 #[derive(Debug, Error)]
@@ -135,6 +140,7 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         statistics: Statistics::default(),
         diagnostics: vec![],
         binary_fla: None,
+        swf: None,
     };
     let project = match source.format {
         ImportFormat::XflDirectory | ImportFormat::XflArchive => {
@@ -145,7 +151,16 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
             .as_ref()
             .and_then(|binary| legacy::convert::convert(binary, &mut report)),
         ImportFormat::Swf => {
-            report.error("swf_not_implemented",path.display().to_string(),"SWF header inspected only. Playback, bytecode import and editable source recovery are not implemented.");
+            let location = path.display().to_string();
+            if let Some(container) = source.swf.as_ref() {
+                swf::inspect(container, &location, &mut report);
+            } else {
+                report.error(
+                    "swf_not_implemented",
+                    location,
+                    "SWF container inspected read-only. Playback, bytecode execution/decompilation and editable source recovery are not implemented.",
+                );
+            }
             None
         }
         ImportFormat::Unknown => {

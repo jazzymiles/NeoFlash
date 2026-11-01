@@ -759,7 +759,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       }
@@ -781,7 +781,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       }
@@ -805,7 +805,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       }

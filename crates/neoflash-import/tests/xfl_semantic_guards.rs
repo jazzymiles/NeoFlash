@@ -181,15 +181,27 @@ fn empty_editor_containers_are_audited_and_warned() {
 
 #[test]
 fn nonempty_editor_containers_cannot_hide_nested_semantics() {
+    let source = Source::new();
+    source.replace(
+        "</DOMDocument>",
+        "<folders><DOMFolderItem name=\"UI/Buttons\"/></folders></DOMDocument>",
+    );
+    let imported = import_project(&source.0).unwrap();
+    assert_eq!(imported.library_folders, ["UI/Buttons"]);
+
     for tag in ["folders", "swatchLists", "swatches"] {
-        for child in [
-            "<DOMFolderItem name=\"Folder\"/>",
-            "<Unknown><Actionscript><script>play();</script></Actionscript></Unknown>",
-        ] {
+        let child = "<Unknown><Actionscript><script>play();</script></Actionscript></Unknown>";
+        let source = Source::new();
+        source.replace(
+            "</DOMDocument>",
+            &format!("<{tag}>{child}</{tag}></DOMDocument>"),
+        );
+        source.blocked("unsupported_element");
+        if tag != "folders" {
             let source = Source::new();
             source.replace(
                 "</DOMDocument>",
-                &format!("<{tag}>{child}</{tag}></DOMDocument>"),
+                &format!("<{tag}><DOMFolderItem name=\"Folder\"/></{tag}></DOMDocument>"),
             );
             source.blocked("unsupported_element");
         }

@@ -18,6 +18,25 @@ type Point = [i32; 2];
 type Segment = (Point, Point);
 type Result<T> = std::result::Result<T, ShapeError>;
 
+#[derive(Clone, Copy)]
+enum StrokeEdge {
+    Line(Point, Point),
+    Quad(Point, Point, Point),
+}
+impl StrokeEdge {
+    fn endpoints(self) -> (Point, Point) {
+        match self {
+            Self::Line(a, b) | Self::Quad(a, _, b) => (a, b),
+        }
+    }
+    fn reversed(self) -> Self {
+        match self {
+            Self::Line(a, b) => Self::Line(b, a),
+            Self::Quad(a, c, b) => Self::Quad(b, c, a),
+        }
+    }
+}
+
 struct ShapeError(&'static str, &'static str);
 
 impl Parser<'_> {
@@ -69,25 +88,6 @@ impl Parser<'_> {
                 "Floating/drawing-object shape authoring semantics are not supported yet.",
             ));
         }
-        let fills = child(node, "fills").ok_or(ShapeError(
-            "xfl_shape_fill",
-            "A polygon requires exactly one solid fill; unfilled shapes need a stroke-only adapter.",
-        ))?;
-        self.audit(fills, file, &[], &["FillStyle"]);
-        let fill_styles: Vec<_> = elements(fills)
-            .filter(|n| n.has_tag_name("FillStyle"))
-            .collect();
-        if fill_styles.len() != 1 {
-            return Err(ShapeError(
-                "xfl_shape_fill",
-                "Exactly one fill style is supported; multiple/empty fill tables are not discarded.",
-            ));
-        }
-        let fill_style = fill_styles[0];
-        self.audit(fill_style, file, &["index"], &["SolidColor"]);
-        let fill_index = style_index(fill_style, "index", false)?;
-        let fill = self.shape_color(fill_style, file)?;
-
         let mut stroke_index = 0;
         let mut stroke = [0; 4];
         let mut stroke_width = 0.;
@@ -149,11 +149,50 @@ impl Parser<'_> {
             }
         }
 
+        let fill_info = if let Some(fills) = child(node, "fills") {
+            self.audit(fills, file, &[], &["FillStyle"]);
+            let fill_styles: Vec<_> = elements(fills)
+                .filter(|n| n.has_tag_name("FillStyle"))
+                .collect();
+            if fill_styles.is_empty() && stroke_index > 0 {
+                None
+            } else if fill_styles.len() != 1 {
+                return Err(ShapeError(
+                    "xfl_shape_fill",
+                    "Exactly one fill style is supported; multiple/empty fill tables are not discarded.",
+                ));
+            } else {
+                let fill_style = fill_styles[0];
+                self.audit(fill_style, file, &["index"], &["SolidColor"]);
+                let fill_index = style_index(fill_style, "index", false)?;
+                let fill = self.shape_color(fill_style, file)?;
+                Some((fill_index, fill))
+            }
+        } else if stroke_index > 0 {
+            None
+        } else {
+            return Err(ShapeError(
+                "xfl_shape_fill",
+                "A polygon requires exactly one solid fill; unfilled shapes require a declared solid stroke.",
+            ));
+        };
+
         let edges_node = child(node, "edges").ok_or(ShapeError(
             "xfl_shape_edges",
             "Shape has no edges container.",
         ))?;
         self.audit(edges_node, file, &[], &["Edge"]);
+
+        let Some((fill_index, fill)) = fill_info else {
+            return self.stroke_only_path(
+                node,
+                edges_node,
+                stroke_index,
+                stroke,
+                stroke_width,
+                file,
+            );
+        };
         let mut segments = vec![];
         let mut text_bytes = 0usize;
         let mut selected = false;
@@ -246,6 +285,325 @@ impl Parser<'_> {
             &self.location(solid, file),
         ))
     }
+
+    fn stroke_only_path(
+        &mut self,
+        node: Node<'_, '_>,
+        edges_node: Node<'_, '_>,
+        stroke_index: u32,
+        stroke: Color,
+        stroke_width: f64,
+        file: &str,
+    ) -> Result<ElementKind> {
+        let mut edges = vec![];
+        let mut text_bytes = 0usize;
+        let mut selected = false;
+        for edge in elements(edges_node).filter(|n| n.has_tag_name("Edge")) {
+            self.audit(
+                edge,
+                file,
+                &["fillStyle0", "fillStyle1", "strokeStyle", "edges"],
+                &[],
+            );
+            let left = style_index(edge, "fillStyle0", true)?;
+            let right = style_index(edge, "fillStyle1", true)?;
+            let line = style_index(edge, "strokeStyle", true)?;
+            if left != 0 || right != 0 {
+                return Err(ShapeError(
+                    "xfl_shape_style_reference",
+                    "Unfilled stroke-only shapes cannot reference fill styles.",
+                ));
+            }
+            if line != stroke_index {
+                return Err(ShapeError(
+                    "xfl_shape_stroke_topology",
+                    "Every edge of a stroke-only shape must reference the declared stroke style.",
+                ));
+            }
+            let text = edge.attribute("edges").ok_or(ShapeError(
+                "xfl_shape_edges",
+                "Edge has no edge command string.",
+            ))?;
+            text_bytes = text_bytes.checked_add(text.len()).ok_or(ShapeError(
+                "xfl_shape_limit",
+                "Shape edge text exceeds 65536 bytes.",
+            ))?;
+            if text_bytes > MAX_EDGE_TEXT {
+                return Err(ShapeError(
+                    "xfl_shape_limit",
+                    "Shape edge text exceeds 65536 bytes.",
+                ));
+            }
+            let (parsed, has_selection) = parse_stroke_edges(text, MAX_EDGES - edges.len())?;
+            selected |= has_selection;
+            edges.extend(parsed);
+        }
+        let (ordered, closed) = order_stroke_chain(&edges)?;
+        let (start, _) = ordered[0].endpoints();
+        let mut commands = vec![PathCommand::MoveTo {
+            x: pixel(start[0]),
+            y: pixel(start[1]),
+        }];
+        for seg in &ordered {
+            match *seg {
+                StrokeEdge::Line(_, b) => commands.push(PathCommand::LineTo {
+                    x: pixel(b[0]),
+                    y: pixel(b[1]),
+                }),
+                StrokeEdge::Quad(_, c, b) => commands.push(PathCommand::QuadraticTo {
+                    cx: pixel(c[0]),
+                    cy: pixel(c[1]),
+                    x: pixel(b[0]),
+                    y: pixel(b[1]),
+                }),
+            }
+        }
+        if closed {
+            commands.push(PathCommand::Close);
+        }
+        if selected {
+            self.report.warning(
+                "xfl_shape_selection",
+                self.location(node, file),
+                "XFL edge selection bits are editor metadata and are not retained; stroke geometry is retained.",
+            );
+        }
+        Ok(ElementKind::Path {
+            commands,
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke,
+            stroke_width,
+        })
+    }
+}
+
+fn parse_stroke_edges(text: &str, limit: usize) -> Result<(Vec<StrokeEdge>, bool)> {
+    let bytes = text.as_bytes();
+    let mut cursor = 0;
+    let mut current = None;
+    let mut pending_move = false;
+    let mut selected = false;
+    let mut result = vec![];
+    while {
+        whitespace(bytes, &mut cursor);
+        cursor < bytes.len()
+    } {
+        let command = bytes[cursor];
+        cursor += 1;
+        match command {
+            b'!' => {
+                if pending_move {
+                    return Err(ShapeError(
+                        "xfl_shape_edges",
+                        "A move command has no following edge.",
+                    ));
+                }
+                current = Some([
+                    coordinate(bytes, &mut cursor)?,
+                    coordinate(bytes, &mut cursor)?,
+                ]);
+                pending_move = true;
+                whitespace(bytes, &mut cursor);
+                if bytes.get(cursor) == Some(&b'S') {
+                    cursor += 1;
+                    match bytes.get(cursor) {
+                        Some(b'1'..=b'7') => {
+                            cursor += 1;
+                            selected = true;
+                        }
+                        _ => {
+                            return Err(ShapeError(
+                                "xfl_shape_selection",
+                                "Selection metadata must be S1 through S7 immediately after a move.",
+                            ));
+                        }
+                    }
+                    if bytes.get(cursor).is_some_and(u8::is_ascii_digit) {
+                        return Err(ShapeError(
+                            "xfl_shape_selection",
+                            "Selection metadata is a three-bit mask, not a style index.",
+                        ));
+                    }
+                }
+            }
+            b'|' | b'/' => {
+                let start = current.ok_or(ShapeError(
+                    "xfl_shape_edges",
+                    "Line command must follow an explicit move.",
+                ))?;
+                let end = [
+                    coordinate(bytes, &mut cursor)?,
+                    coordinate(bytes, &mut cursor)?,
+                ];
+                if start == end {
+                    return Err(ShapeError(
+                        "xfl_shape_topology",
+                        "Zero-length stroke segments are unsupported.",
+                    ));
+                }
+                if result.len() == limit {
+                    return Err(ShapeError(
+                        "xfl_shape_limit",
+                        "Shape exceeds 512 edges; simplify the source contour.",
+                    ));
+                }
+                result.push(StrokeEdge::Line(start, end));
+                current = Some(end);
+                pending_move = false;
+            }
+            b'[' | b']' => {
+                let start = current.ok_or(ShapeError(
+                    "xfl_shape_edges",
+                    "Quadratic curve command must follow an explicit move.",
+                ))?;
+                let control = [
+                    coordinate(bytes, &mut cursor)?,
+                    coordinate(bytes, &mut cursor)?,
+                ];
+                let end = [
+                    coordinate(bytes, &mut cursor)?,
+                    coordinate(bytes, &mut cursor)?,
+                ];
+                if start == end && start == control {
+                    return Err(ShapeError(
+                        "xfl_shape_topology",
+                        "Zero-length stroke segments are unsupported.",
+                    ));
+                }
+                if result.len() == limit {
+                    return Err(ShapeError(
+                        "xfl_shape_limit",
+                        "Shape exceeds 512 edges; simplify the source contour.",
+                    ));
+                }
+                result.push(StrokeEdge::Quad(start, control, end));
+                current = Some(end);
+                pending_move = false;
+            }
+            b'(' | b')' => {
+                return Err(ShapeError(
+                    "xfl_shape_curve_unsupported",
+                    "Cubic XFL edit-hint edges are not converted by the stroke adapter.",
+                ));
+            }
+            _ => {
+                return Err(ShapeError(
+                    "xfl_shape_edge_syntax",
+                    "Unknown edge token in stroke-only shape.",
+                ));
+            }
+        }
+    }
+    if pending_move || result.is_empty() {
+        return Err(ShapeError(
+            "xfl_shape_edges",
+            "An edge command string must contain drawing segments and cannot end with an unused move.",
+        ));
+    }
+    Ok((result, selected))
+}
+
+fn order_stroke_chain(edges: &[StrokeEdge]) -> Result<(Vec<StrokeEdge>, bool)> {
+    if edges.is_empty() {
+        return Err(ShapeError(
+            "xfl_shape_edges",
+            "Stroke shape has no segments.",
+        ));
+    }
+    // Check if the authored sequence is already contiguous in order.
+    let mut contiguous = true;
+    for pair in edges.windows(2) {
+        if pair[0].endpoints().1 != pair[1].endpoints().0 {
+            contiguous = false;
+            break;
+        }
+    }
+    let candidate = if contiguous {
+        edges.to_vec()
+    } else {
+        // Reassemble a single undirected non-branching chain starting from the first
+        // endpoint of degree 1 (or edges[0] for a closed loop).
+        let mut adj: BTreeMap<Point, Vec<usize>> = BTreeMap::new();
+        for (i, e) in edges.iter().enumerate() {
+            let (a, b) = e.endpoints();
+            if a == b {
+                return Err(ShapeError(
+                    "xfl_shape_topology",
+                    "Self-loop stroke segments are unsupported.",
+                ));
+            }
+            adj.entry(a).or_default().push(i);
+            adj.entry(b).or_default().push(i);
+        }
+        if adj.values().any(|list| list.len() > 2) {
+            return Err(ShapeError(
+                "xfl_shape_topology",
+                "Branching stroke graphs are not supported by the single-path stroke adapter.",
+            ));
+        }
+        let degree_one: Vec<Point> = adj
+            .iter()
+            .filter_map(|(&pt, list)| (list.len() == 1).then_some(pt))
+            .collect();
+        let start = match degree_one.len() {
+            0 => edges[0].endpoints().0,
+            2 => {
+                let first_start = edges[0].endpoints().0;
+                if degree_one.contains(&first_start) {
+                    first_start
+                } else {
+                    degree_one[0]
+                }
+            }
+            _ => {
+                return Err(ShapeError(
+                    "xfl_shape_topology",
+                    "Disconnected multi-stroke shapes are not supported by the single-path stroke adapter.",
+                ));
+            }
+        };
+        let mut used = vec![false; edges.len()];
+        let mut chain = Vec::with_capacity(edges.len());
+        let mut cursor = start;
+        for _ in 0..edges.len() {
+            let next_idx = adj
+                .get(&cursor)
+                .and_then(|list| list.iter().copied().find(|&idx| !used[idx]))
+                .ok_or(ShapeError(
+                    "xfl_shape_topology",
+                    "Disconnected stroke components are not supported.",
+                ))?;
+            used[next_idx] = true;
+            let seg = edges[next_idx];
+            let oriented = if seg.endpoints().0 == cursor {
+                seg
+            } else {
+                seg.reversed()
+            };
+            cursor = oriented.endpoints().1;
+            chain.push(oriented);
+        }
+        chain
+    };
+    // Verify no branching/self-touching interior vertices on the assembled chain.
+    let first_pt = candidate[0].endpoints().0;
+    let last_pt = candidate.last().unwrap().endpoints().1;
+    let closed = candidate.len() >= 2 && first_pt == last_pt;
+    let mut visited = BTreeSet::from([first_pt]);
+    for (idx, seg) in candidate.iter().enumerate() {
+        let end = seg.endpoints().1;
+        if closed && idx + 1 == candidate.len() {
+            continue;
+        }
+        if !visited.insert(end) {
+            return Err(ShapeError(
+                "xfl_shape_topology",
+                "Self-intersecting or multi-loop stroke topologies are not supported.",
+            ));
+        }
+    }
+    Ok((candidate, closed))
 }
 
 fn pixel(twips: i32) -> f64 {
