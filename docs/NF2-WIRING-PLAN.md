@@ -109,8 +109,8 @@ if the preview frame differs from the modal frame in any visible way, file a req
 
 | Needed by | Request |
 | --- | --- |
-| W0.4 rulers/grid, W1.2 guides | `NF2/Stage Ruler`, `NF2/Ruler Corner`, `NF2/Guide`, `NF2/Stage Grid` painters in `neoflash-ui` (tokens `color/guide`, `color/stage-grid` exist; components do not). |
-| W1.3 snapping | `NF2/Snap Ring` painter. |
+| W0.4 rulers/grid, W1.2 guides | Resolved: painters exist in `neoflash-ui/components/canvas.rs`; open follow-ups R-001 (ruler pointer marker), R-002 (exact guide position), R-004. |
+| W1.3 snapping | Resolved: `paint_snap_ring`; open follow-up R-003 (Snapping submenu, object/pixel snapping). |
 | W1.6 gradients, W0.9 colour, W3.4 envelope | `NF2/Gradient Bar` + `Gradient Stop`, `NF2/Color Picker`, `NF2/Anchor Point` + envelope lane: being added by the design track (`components/{gradient, color_picker, envelope}.rs`, uncommitted on 2026-11-01). Use them once the design lock is re-pinned; request only what is still missing. |
 | W0.8 toasts | Toast placement/stacking and auto-dismiss timing (not specified in §4). |
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
@@ -153,7 +153,9 @@ Format: **UI** → panel file/function · **Engine** → crate/module · **API**
   > 1 for Back preset.
 - Registry: `animation-easing`. Acceptance: spec PP-01.
 
-**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — blocked on design request §4
+**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — **done**; see
+[NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). View settings live in `stage_view.rs` (`ViewPrefs`), defaults in
+`WorkspacePrefs::view_defaults`; the popover is `panels/view_settings.rs`. Original plan:
 - UI: `shell.rs › stage_chrome` (pass `Some(..)` to `ZoomControl`, handle `ZoomAction::{Rulers, Grid, ViewSettings}`),
   `panels/menu.rs` View items, new `panels/view_settings.rs` from `planned_panels::view_settings`
   (`ViewSettings` + `ViewSettingsState` + `ViewSettingsResponse`), stage painting in `stage.rs`.
@@ -246,14 +248,17 @@ no preview exists in code, the panel body must be built from NF2 components per 
 - Tests: core — labels follow undo/redo/capacity eviction; editor — click step 3 back == 3 × undo.
 - Registry: `platform-undo`. Acceptance: spec PP-09.
 
-**W1.2 · Guides (ST-02)** — E-04; blocked on design request §4
+**W1.2 · Guides (ST-02)** — **done** (E-04): `Timeline::guides`, format version 6, export strips guides; see
+[NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). Original plan:
 - UI: `stage.rs` guide painting/drag, ruler drag-out, View ▸ Guides items, View settings guide section.
 - Engine: `model.rs` NEW `Timeline.guides: Vec<Guide { id, axis, position }>` (authoring-only, serde default,
   format version bump), validation (finite, bounded count), export ignores.
 - Tests: save/open round-trip; export JSON contains no guides; Undo per move.
 - Registry: `editor-advanced-drawing` (snapping/guides). Acceptance: spec ST-02.
 
-**W1.3 · Snapping (ST-04, TO-06, Preferences ▸ Drawing snapping)** — E-05
+**W1.3 · Snapping (ST-04, TO-06, Preferences ▸ Drawing snapping)** — E-05; **partial**: grid and guide snapping
+with the snap ring are done (`snapping.rs`, NF2-RULERS-GUIDES-GRID.md); object/pixel snapping, the tools-rail toggle,
+View ▸ Snapping and ⌘-suspend remain (R-003). Original plan:
 - UI: tools rail snap toggle (if present in composition; else request), View ▸ Snapping, zoom-control Snap toggle,
   stage drag/transform/draw code paths (`stage_selection.rs`, `transform_geometry.rs`, `vector.rs`).
 - Engine: none required (geometry in editor); optional shared `neoflash-core::geometry` helper for bounds/anchor
@@ -450,7 +455,7 @@ Each card is one delivery. Do not change visuals (§1); file a request when the 
 | --- | --- | --- | --- |
 | T1 · Ease panel | PP-01, TL-06 | W0.3 as written; then enable the Ease button and Frame menu ▸ Ease… for any tween kind. | Motion tweens use `Keyframe.tween` of the span start. |
 | T2 · Scene panel | PP-08 | Turn `planned_panels::scene` into `panels/scene.rs` (§3.2): list from `Editor::scene_list`, Add = `new_scene`, Delete = `delete_scene` (exists, tested), Duplicate (clone symbol with fresh IDs), rename inline (symbol name), drag reorder (`Project.scenes` order; keep `root == scenes[0]`). | One Undo per action. |
-| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path drawing waits for R-001. |
+| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path drawing waits for R-005. |
 | T4 · Orient to path / Snap | PR-10, TL-01 | `Keyframe.orient_to_path: bool` (format 6, serde default); in `sample_layer_in` set rotation from the path tangent. | Properties classic-tween section already exists. |
 | T5 · Edit multiple frames, rest | TL-08 | Selection of objects that exist only on other keyframes; scale/rotate across frames. | `move_on_other_keyframes` is the pattern. |
 | T6 · Timeline sound | TL-07, W2.6 | Largest remaining item; needs E-18 audio sync. | |

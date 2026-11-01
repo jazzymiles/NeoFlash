@@ -202,6 +202,22 @@ fn compile_scripts(
     }
 }
 
+/// Authoring-only data that never reaches the published bundle: ruler guides. Returns a stripped
+/// copy only when there is something to strip, so ordinary exports do not clone the project.
+fn publishable(project: &Project) -> Option<Project> {
+    let has_guides = project
+        .symbols
+        .iter()
+        .any(|symbol| !symbol.timeline.guides.is_empty());
+    has_guides.then(|| {
+        let mut copy = project.clone();
+        for symbol in &mut copy.symbols {
+            symbol.timeline.guides.clear();
+        }
+        copy
+    })
+}
+
 /// Export an entirely local package that also works when index.html is opened directly.
 /// `runtime_dir` contains wasm-bindgen's `--target no-modules` output, global `NeoFlashWasm`.
 /// Existing unrelated directories are never overwritten.
@@ -244,6 +260,7 @@ pub fn export_project(
         ));
     }
     let warnings = export_warnings(project);
+    let published = publishable(&published).unwrap_or(published);
     let bundle = Bundle {
         project: &published,
         scenes,
@@ -607,6 +624,32 @@ mod tests {
                 .unwrap()
                 .starts_with("Scene 2 / frame 2"),
             "diagnostics keep the authored scene frame"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn export_strips_authoring_guides() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+        let mut project = Project::blank();
+        project.format_version = neoflash_core::Guide::FORMAT_VERSION;
+        project.symbols[0]
+            .timeline
+            .guides
+            .push(neoflash_core::Guide {
+                axis: neoflash_core::GuideAxis::Vertical,
+                position: 123.,
+            });
+        let output = dir.join("output");
+        export_project(&project, &output, &rt).unwrap();
+        let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
+        assert!(bundle.contains("NeoFlashBundle"));
+        assert!(!bundle.contains("\"guides\""), "guides are authoring-only");
+        assert_eq!(
+            project.symbols[0].timeline.guides.len(),
+            1,
+            "source untouched"
         );
         fs::remove_dir_all(dir).unwrap();
     }

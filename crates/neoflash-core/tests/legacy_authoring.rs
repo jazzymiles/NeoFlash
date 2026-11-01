@@ -308,6 +308,7 @@ fn authored_playback_advances_independent_clips_without_scripts_or_editor_outlin
             folder: String::new(),
             kind: SymbolKind::MovieClip,
             timeline: Timeline {
+                guides: vec![],
                 frame_count: count,
                 layers: vec![Layer {
                     id: format!("{id}-layer"),

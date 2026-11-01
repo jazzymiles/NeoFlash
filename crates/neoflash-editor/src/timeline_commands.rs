@@ -427,6 +427,7 @@ impl Editor {
                     properties: Default::default(),
                 }],
                 scripts: vec![],
+                guides: vec![],
             },
             class_name: None,
             linkage_id: None,

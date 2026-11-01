@@ -152,6 +152,36 @@ pub struct Timeline {
     pub layers: Vec<Layer>,
     #[serde(default)]
     pub scripts: Vec<FrameScript>,
+    /// Authoring-only ruler guides of this timeline (document version 6). Never evaluated or
+    /// published; HTML5 export strips them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guides: Vec<Guide>,
+}
+
+/// Direction of a ruler guide. A horizontal guide is a line at `y = position`, a vertical guide a
+/// line at `x = position`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuideAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// A ruler guide in timeline coordinates (stage pixels from the scene's top-left corner, or from a
+/// symbol's registration point).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Guide {
+    pub axis: GuideAxis,
+    pub position: f64,
+}
+
+impl Guide {
+    /// Largest number of guides one timeline may hold.
+    pub const LIMIT: usize = 1000;
+    /// Largest absolute guide position in stage pixels.
+    pub const MAX_POSITION: f64 = 1.0e6;
+    /// First document version that may contain guides.
+    pub const FORMAT_VERSION: u32 = 6;
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -234,9 +264,10 @@ impl Project {
     }
 }
 impl Project {
-    /// Document features introduced with format 6.
+    /// Document features introduced with format 6 (scenes, tween kinds, motion and ruler guides).
     pub fn uses_format_6(&self) -> bool {
         !self.scenes.is_empty()
+            || self.symbols.iter().any(|s| !s.timeline.guides.is_empty())
             || self
                 .symbols
                 .iter()

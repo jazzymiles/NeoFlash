@@ -50,6 +50,7 @@ fn project(frame_count: u32, layers: Vec<Layer>) -> Project {
         frame_count,
         layers,
         scripts: vec![],
+        guides: vec![],
     };
     project.format_version = 6;
     project
@@ -304,7 +305,8 @@ fn timeline_example_document_is_valid() {
 
 #[test]
 fn imported_fla_corpus_plays_through_the_timeline_engine() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus/imported");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus/imported");
     let mut files = 0;
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();

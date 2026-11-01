@@ -46,6 +46,7 @@ fn symbol(id: &str, frames: u32, keys: Vec<Keyframe>) -> Symbol {
         name: id.into(),
         kind: SymbolKind::MovieClip,
         timeline: Timeline {
+            guides: vec![],
             frame_count: frames,
             layers: vec![Layer {
                 properties: Default::default(),
@@ -670,4 +671,76 @@ fn recreated_instances_have_fresh_script_lifetimes() {
     assert_ne!(player.lifetime_id(&path), Some(first));
     player.reset(&p);
     assert_ne!(player.lifetime_id(&[]), Some(root));
+}
+
+#[test]
+fn ruler_guides_round_trip_and_migrate_older_documents() {
+    // Version 5 documents have no `guides` key; they open with an empty guide list and are not
+    // rewritten until a guide is added.
+    let old = Project::blank().to_json().unwrap();
+    assert!(!old.contains("\"guides\""));
+    let opened = Project::from_json(&old).unwrap();
+    assert!(opened.symbols.iter().all(|s| s.timeline.guides.is_empty()));
+
+    let mut project = Project::blank();
+    project.format_version = Guide::FORMAT_VERSION;
+    project.symbols[0].timeline.guides = vec![
+        Guide {
+            axis: GuideAxis::Vertical,
+            position: 120.,
+        },
+        Guide {
+            axis: GuideAxis::Horizontal,
+            position: -40.5,
+        },
+    ];
+    let json = project.to_json().unwrap();
+    assert!(json.contains("\"axis\": \"vertical\"") || json.contains("\"axis\":\"vertical\""));
+    assert_eq!(Project::from_json(&json).unwrap(), project);
+}
+
+#[test]
+fn ruler_guides_are_validated() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.guides.push(Guide {
+        axis: GuideAxis::Horizontal,
+        position: 10.,
+    });
+    let issues = validate(&project);
+    assert!(
+        issues.iter().any(|i| i.message.contains("version 6")),
+        "{issues:?}"
+    );
+    project.format_version = Guide::FORMAT_VERSION;
+    assert!(validate(&project).is_empty());
+    project.symbols[0].timeline.guides[0].position = f64::NAN;
+    assert!(
+        validate(&project)
+            .iter()
+            .any(|i| i.path.ends_with("position"))
+    );
+    project.symbols[0].timeline.guides[0].position = 2.0e6;
+    assert!(
+        validate(&project)
+            .iter()
+            .any(|i| i.path.ends_with("position"))
+    );
+    project.symbols[0].timeline.guides = vec![
+        Guide {
+            axis: GuideAxis::Vertical,
+            position: 0.,
+        };
+        Guide::LIMIT + 1
+    ];
+    assert!(
+        validate(&project)
+            .iter()
+            .any(|i| i.message.contains("guide count"))
+    );
+    project.format_version = 7;
+    assert!(
+        validate(&project)
+            .iter()
+            .any(|i| i.message.contains("unsupported version 7"))
+    );
 }

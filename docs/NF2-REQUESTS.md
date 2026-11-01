@@ -27,7 +27,43 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 ## Open requests
 
-### R-001 · Motion path on the stage
+### R-001 · Ruler pointer-position marker
+- **Status:** open
+- **Requested by / for:** Claude · W0.4 rulers (ST-01 "pointer position marker")
+- **Where:** `stage_view.rs › stage_rulers`, `NF2/Stage Ruler`
+- **Need:** a marker state of `NF2/Stage Ruler` showing the pointer's position on both rulers (colour, length).
+- **Why:** spec ST-01 lists it; the ruler shelf has no marker variant.
+- **Checked:** `docs-rulers-guides-grid.txt`, `editor-main.png` (no marker shown).
+- **Proposal (optional):** 1 pt `color/guide` tick across the ruler.
+
+### R-002 · Exact guide position (Move guide)
+- **Status:** open
+- **Requested by / for:** Claude · W1.2 guides (ST-02 "double-click → exact position")
+- **Where:** guide double-click on the stage
+- **Need:** a small popover or dialog with an axis-labelled position field and Remove / Cancel / OK.
+- **Why:** dragging is limited to whole pixels at the current zoom; Flash offers a Move Guide dialog.
+- **Checked:** reference §3, §6 "View settings", panels exports — no such dialog.
+
+### R-003 · View ▸ Snapping submenu and object / pixel snapping
+- **Status:** open
+- **Requested by / for:** Claude · W1.3 snapping (ST-04, TO-06, MN-03)
+- **Where:** `panels/menu.rs › view_menu` (Snapping is a disabled submenu), tools rail snap toggle
+- **Need:** the Snapping submenu items (order, labels, shortcuts) and whether Snap to grid / guides repeat there;
+  the tools-rail snap toggle placement.
+- **Why:** guide and grid snapping work through Grid ▸ / Guides ▸; object and pixel snapping have no entry point.
+- **Checked:** `panels-menus.txt` (Snapping row only, no submenu frame), §8.
+
+### R-004 · Lock guides shortcut and View settings colour swatch
+- **Status:** open
+- **Requested by / for:** Claude · W1.2 guides
+- **Where:** View ▸ Guides ▸ Lock guides; `NF2/View Settings` colour fields
+- **Need:** confirm ⌥⌘; (spec ST-02; implemented, not shown on the menu row) and which picker the colour-field
+  swatch opens (hex and alpha are editable today; the swatch also shows the alpha checkerboard where the reference
+  draws the colour opaque).
+- **Why:** the menu row shows no shortcut; clicking the swatch does nothing yet.
+- **Checked:** `panels-menus.txt`, `view-settings.png`.
+
+### R-005 · Motion path on the stage
 - **Status:** open
 - **Requested by / for:** Claude (implementation) · TL-05 Motion tween, PR-10
 - **Where:** `crates/neoflash-editor/src/stage.rs` overlay for the selected motion-tweened instance

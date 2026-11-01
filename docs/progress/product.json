@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
       "items": [
         {
@@ -95,6 +95,11 @@
           "id": "timeline-thumbnails",
           "title": "Timeline frame preview thumbnails",
           "status": "planned"
+        },
+        {
+          "id": "stage-rulers-guides-grid",
+          "title": "Stage rulers, ruler guides and grid",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -123,7 +128,10 @@
         "crates/neoflash-editor/src/ui_icons.rs",
         "crates/neoflash-editor/src/shell.rs",
         "crates/neoflash-ui/src/components/mod.rs",
-        "crates/neoflash-editor/src/timeline_commands_tests.rs"
+        "crates/neoflash-editor/src/timeline_commands_tests.rs",
+        "crates/neoflash-editor/src/panels/view_settings.rs",
+        "crates/neoflash-editor/src/stage_view.rs",
+        "crates/neoflash-editor/src/stage_view_tests.rs"
       ]
     },
     {
@@ -555,8 +563,8 @@
       "category": "editor",
       "title": "Advanced vector tools",
       "status": "partial",
-      "scope": "Line, round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and existing fill gradient transform. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart, transforms and group-aware alignment/distribution with exact gaps.",
-      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, point insertion/deletion, general shape splitting/merging, snapping and nested group editing remain unfinished.",
+      "scope": "Line, round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and existing fill gradient transform. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart, transforms and group-aware alignment/distribution with exact gaps. Stage rulers (units, Auto/fixed labels, movable zero point), per-timeline ruler guides (drag out, move, select, lock, hide, delete, clear; saved in document format 6, stripped from HTML5) and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides and grid with a snap ring and configurable accuracy.",
+      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, point insertion/deletion, general shape splitting/merging, object/pixel snapping, the View ▸ Snapping submenu and nested group editing remain unfinished.",
       "items": [
         {
           "id": "line-brush",
@@ -605,7 +613,12 @@
         },
         {
           "id": "snapping",
-          "title": "Snapping",
+          "title": "Snapping to grid and guides",
+          "status": "working"
+        },
+        {
+          "id": "object-pixel-snapping",
+          "title": "Snapping to objects and pixels",
           "status": "planned"
         }
       ],
@@ -616,7 +629,11 @@
         "crates/neoflash-editor/src/authoring_modify.rs",
         "crates/neoflash-editor/src/vector_gesture_tests.rs",
         "crates/neoflash-editor/src/selection_tests.rs",
-        "docs/WORKSPACE.md"
+        "docs/WORKSPACE.md",
+        "crates/neoflash-editor/src/stage_view.rs",
+        "crates/neoflash-editor/src/snapping.rs",
+        "crates/neoflash-editor/src/stage_view_tests.rs",
+        "docs/NF2-RULERS-GUIDES-GRID.md"
       ]
     },
     {

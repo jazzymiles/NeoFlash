@@ -24,6 +24,7 @@ impl Project {
                 name: "Scene 1".into(),
                 kind: SymbolKind::MovieClip,
                 timeline: Timeline {
+                    guides: vec![],
                     frame_count: 120,
                     layers: vec![Layer {
                         properties: Default::default(),
@@ -64,6 +65,7 @@ impl Project {
             name: "Spark".into(),
             kind: SymbolKind::Graphic,
             timeline: Timeline {
+                guides: vec![],
                 frame_count: 1,
                 layers: vec![layer("Shape", vec![key(0, vec![dot], None)])],
                 scripts: vec![],
@@ -135,6 +137,7 @@ impl Project {
             name: "Orbit".into(),
             kind: SymbolKind::MovieClip,
             timeline: Timeline {
+                guides: vec![],
                 frame_count: 61,
                 layers: vec![
                     layer(

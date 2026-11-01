@@ -650,6 +650,7 @@ impl Parser<'_> {
             &["layers"],
         );
         let mut timeline = Timeline {
+            guides: vec![],
             frame_count: 1,
             layers: vec![],
             scripts: vec![],

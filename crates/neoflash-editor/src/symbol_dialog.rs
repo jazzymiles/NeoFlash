@@ -488,6 +488,7 @@ fn symbol_from_draft(
             .then(|| draft.class_name.trim().to_owned()),
         linkage_id: export.then(|| draft.linkage_id.trim().to_owned()),
         timeline: Timeline {
+            guides: vec![],
             frame_count: if draft.kind == SymbolKind::Button {
                 4
             } else {

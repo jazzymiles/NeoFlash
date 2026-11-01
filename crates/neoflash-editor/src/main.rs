@@ -20,11 +20,13 @@ mod resources;
 mod script_api;
 mod selection;
 mod shell;
+mod snapping;
 mod sources;
 mod stage;
 mod stage_clipping;
 mod stage_primitives;
 mod stage_selection;
+mod stage_view;
 mod svg_graphics;
 mod symbol_dialog;
 mod text_boxes;
@@ -45,6 +47,8 @@ mod detached_tests;
 mod panel_tests;
 #[cfg(test)]
 mod selection_tests;
+#[cfg(test)]
+mod stage_view_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

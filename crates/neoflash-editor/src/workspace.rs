@@ -1162,6 +1162,9 @@ pub struct WorkspacePrefs {
     pub template: WorkspaceTemplate,
     /// Timeline frame view and playback options (Frame view ⋯, Control menu).
     pub timeline: TimelineView,
+    /// Rulers, guides & grid settings saved with "Save as default" (View settings popover); every
+    /// session starts from them. `None` = NF2 defaults.
+    pub view_defaults: Option<crate::stage_view::ViewPrefs>,
 }
 
 /// Presentation and playback options of the Timeline. Workspace-only, never in the document.
@@ -1214,6 +1217,7 @@ impl Default for WorkspacePrefs {
             floating: Vec::new(),
             template: WorkspaceTemplate::Classic,
             timeline: TimelineView::default(),
+            view_defaults: None,
         }
     }
 }
@@ -1439,6 +1443,9 @@ impl WorkspacePrefs {
     }
     pub fn sanitize(&mut self) {
         self.version = VERSION;
+        if let Some(view) = &mut self.view_defaults {
+            view.sanitize();
+        }
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
@@ -1519,6 +1526,7 @@ impl WorkspacePrefs {
         let (dock, panels, active_bottom) = template.layout();
         *self = Self {
             theme: self.theme,
+            view_defaults: self.view_defaults.take(),
             dock,
             panels,
             active_bottom,

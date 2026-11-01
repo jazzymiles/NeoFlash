@@ -63,6 +63,7 @@ fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {
         name: format!("Library {id}"),
         kind,
         timeline: Timeline {
+            guides: vec![],
             frame_count: 24,
             layers: vec![Layer {
                 properties: Default::default(),

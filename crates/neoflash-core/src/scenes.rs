@@ -160,6 +160,8 @@ pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange
             frame_count: offset.max(1),
             layers,
             scripts,
+            // Ruler guides are authoring-only and never published.
+            guides: vec![],
         };
     }
     flat.scenes.clear();
@@ -436,6 +438,7 @@ mod tests {
                 frame_count,
                 layers,
                 scripts: vec![],
+                guides: vec![],
             },
             class_name: None,
             linkage_id: None,

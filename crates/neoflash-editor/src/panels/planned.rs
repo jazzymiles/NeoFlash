@@ -9,7 +9,7 @@
 //! document or the workspace prefs.
 //!
 //! Bodies: `planned_motion.rs` (Motion editor, Motion tween properties, Ease), `planned_panels.rs` (Scene,
-//! History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets, View settings, Sound and
+//! History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets, Sound and
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
@@ -35,7 +35,6 @@ pub(crate) enum PlannedPanel {
     History,
     Swatches,
     Info,
-    ViewSettings,
     PropertiesSound,
     PropertiesFilters,
     Preferences,
@@ -82,7 +81,7 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 39] = [
+    pub(crate) const ALL: [Self; 38] = [
         Self::MotionEditor,
         Self::MotionTween,
         Self::Ease,
@@ -94,7 +93,6 @@ impl PlannedPanel {
         Self::History,
         Self::Swatches,
         Self::Info,
-        Self::ViewSettings,
         Self::PropertiesSound,
         Self::PropertiesFilters,
         Self::Preferences,
@@ -138,7 +136,6 @@ impl PlannedPanel {
             Self::History => "History",
             Self::Swatches => "Swatches",
             Self::Info => "Info",
-            Self::ViewSettings => "Rulers, guides & grid",
             Self::PropertiesSound => "Properties — Sound",
             Self::PropertiesFilters => "Properties — Display & filters",
             Self::Preferences => "Preferences",
@@ -178,7 +175,6 @@ impl PlannedPanel {
             Self::CompilerErrors | Self::Info => "panels-more-2.png",
             Self::Scene | Self::History => "panels-more.png",
             Self::Swatches => "swatches-popover.png, panels-more.png",
-            Self::ViewSettings => "view-settings.png",
             Self::PropertiesSound => "panel-properties-sound.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
             Self::Preferences => "dialog-preferences-*.png",
@@ -216,7 +212,6 @@ impl PlannedPanel {
             Self::History => Chrome::Panel(&["History"]),
             Self::Swatches => Chrome::Panel(&["Swatches"]),
             Self::Info => Chrome::Panel(&["Info"]),
-            Self::ViewSettings => Chrome::Panel(&["View settings"]),
             Self::ColorGradient | Self::BitmapFill => Chrome::Panel(&["Color", "Swatches"]),
             Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => {
                 Chrome::Panel(&["Properties", "Filters"])
@@ -259,7 +254,6 @@ impl PlannedPanel {
             Self::Ease => 376.,
             Self::CodeSnippets => 340.,
             Self::Swatches
-            | Self::ViewSettings
             | Self::MotionTween
             | Self::PropertiesSound
             | Self::PropertiesFilters => 324.,
@@ -644,7 +638,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
             P::History => super::planned_panels::history(ui),
             P::Swatches => super::planned_panels::swatches(ui),
             P::Info => super::planned_panels::info(ui),
-            P::ViewSettings => super::planned_panels::view_settings(ui),
             P::PropertiesSound => super::planned_panels::properties_sound(ui),
             P::PropertiesFilters => super::planned_panels::properties_filters(ui),
             P::DocumentSettings => super::planned_dialogs::document_settings(ui),

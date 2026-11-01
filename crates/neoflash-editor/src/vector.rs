@@ -436,6 +436,7 @@ impl Editor {
         self.cancel_vector();
         self.shape_draft = None;
         self.timeline_key_drag = None;
+        self.cancel_guide_drag();
     }
     pub(crate) fn set_playing(&mut self, playing: bool) {
         self.finish_edits();
@@ -575,7 +576,12 @@ impl Editor {
                             .is_none_or(|layer| layer == response.layer_id) =>
                     {
                         self.playing = false;
-                        let position = local(pos);
+                        // Pen anchors snap to guides and grid (ST-04); pencil strokes are freehand.
+                        let position = if self.tool == Tool::Pen {
+                            local(self.snap_screen(origin, pos))
+                        } else {
+                            local(pos)
+                        };
                         let symbol = self.symbol_id().to_owned();
                         let layer_id = self.symbol().timeline.layers[self.layer].id.clone();
                         let draft = self.vector.draft.get_or_insert_with(|| PathDraft {
@@ -862,6 +868,9 @@ impl Editor {
             self.vector.point_drag = Some(drag);
             return;
         }
+        // The dragged anchor or control point snaps to guides and grid (ST-04).
+        let anchor = crate::stage::affine(drag.inverse, drag.handle.point);
+        let pos = self.snap_drag(drag.origin, drag.press, pos, anchor);
         let local = |point| {
             crate::stage::inverse(drag.inverse, Pos2::ZERO + (point - drag.origin) / drag.zoom)
         };

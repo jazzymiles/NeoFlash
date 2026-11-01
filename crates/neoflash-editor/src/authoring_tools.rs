@@ -458,6 +458,12 @@ impl Editor {
                     }
                     self.playing = false;
                     let local = Pos2::ZERO + (pos - origin) / self.zoom;
+                    // Line ends snap to guides and grid (ST-04).
+                    let local = if tool == Tool::Line {
+                        Pos2::ZERO + (self.snap_screen(origin, pos) - origin) / self.zoom
+                    } else {
+                        local
+                    };
                     if matches!(tool, Tool::Bucket | Tool::Ink | Tool::Eyedropper) {
                         self.paint_tool_click(scene, p, local, modifiers.alt);
                         continue;
@@ -589,6 +595,9 @@ impl Editor {
         };
         g.latest = pos;
         let mut point = g.local(pos);
+        if g.tool == Tool::Line && !g.shift {
+            point = g.local(self.snap_screen(g.origin, pos));
+        }
         if g.tool == Tool::Line && g.shift {
             let vector = point - g.points[0];
             let angle = (vector.angle() / std::f32::consts::FRAC_PI_4).round()
