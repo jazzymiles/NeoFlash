@@ -74,6 +74,26 @@ pub enum DisplayMutation {
     },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StageMutation {
+    Add {
+        child: ObjectRef,
+        index: Option<usize>,
+    },
+    Remove {
+        child: ObjectRef,
+    },
+    SetIndex {
+        child: ObjectRef,
+        index: usize,
+    },
+    Swap {
+        first: ObjectRef,
+        second: ObjectRef,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DisplayEvent {
     pub kind: String,
@@ -120,6 +140,7 @@ pub struct RuntimeObject {
 }
 
 /// Runtime pixels have their own identity; authoring resource IDs remain immutable.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeDrawKind {
@@ -138,6 +159,8 @@ pub enum RuntimeDrawKind {
         stroke_gradient: Option<GradientPaint>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill_bitmap: Option<crate::BitmapPaint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stroke_bitmap: Option<Box<crate::BitmapPaint>>,
         stroke_width: f64,
     },
     TextField {
@@ -257,6 +280,7 @@ pub(crate) struct RuntimeGraph {
     suffix: HashMap<ObjectRef, Vec<ObjectRef>>,
     parent_overrides: HashMap<ObjectRef, Option<ObjectRef>>,
     child_order: HashMap<ObjectRef, Vec<ObjectRef>>,
+    stage_order: Vec<ObjectRef>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
     as2_settings: as2_input::As2Settings,
@@ -303,6 +327,7 @@ impl RuntimeGraph {
         self.suffix.clear();
         self.parent_overrides.clear();
         self.child_order.clear();
+        self.stage_order.clear();
         self.dynamic.clear();
         self.as2_depths.clear();
         self.as2_settings = as2_input::As2Settings::default();
@@ -439,10 +464,33 @@ impl RuntimeGraph {
         }
         route
     }
+    fn is_stage_root(&self, root: &ObjectRef) -> bool {
+        self.paths.get(root).is_some_and(Vec::is_empty)
+            || (self.alive(root) && self.parent(root).is_none() && self.stage_order.contains(root))
+    }
+    fn stage_children(&self) -> Vec<ObjectRef> {
+        let root = self
+            .authored
+            .get(&[][..])
+            .map(|node| node.reference.clone());
+        let mut seen = BTreeSet::new();
+        let mut out: Vec<ObjectRef> = self
+            .stage_order
+            .iter()
+            .filter(|id| self.alive(id) && self.parent(id).is_none() && seen.insert((*id).clone()))
+            .cloned()
+            .collect();
+        if let Some(root) = root
+            && !seen.contains(&root)
+        {
+            out.insert(0, root);
+        }
+        out
+    }
     fn on_stage(&self, id: &ObjectRef) -> bool {
         self.route(id)
             .last()
-            .is_some_and(|root| self.paths.get(root).is_some_and(Vec::is_empty))
+            .is_some_and(|root| self.is_stage_root(root))
     }
     fn subtree(&self, id: &ObjectRef) -> Vec<ObjectRef> {
         let mut result = vec![];
@@ -635,8 +683,9 @@ impl Player {
         }
         let mut result = RuntimeSnapshot::default();
         let root = self.object_ref(&[]);
+        let stage_roots = self.graph.stage_children();
         let mut roots: Vec<_> = capture.map_or_else(
-            || root.iter().cloned().collect(),
+            || stage_roots.clone(),
             |(source, _, _)| vec![source.clone()],
         );
         if capture.is_none() {
@@ -644,7 +693,7 @@ impl Player {
                 self.graph
                     .dynamic
                     .iter()
-                    .filter(|(_, node)| node.parent.is_none())
+                    .filter(|(id, node)| node.parent.is_none() && !stage_roots.contains(id))
                     .map(|(id, _)| id.clone()),
             );
             roots.extend(
@@ -652,7 +701,7 @@ impl Player {
                     .parent_overrides
                     .iter()
                     .filter(|(id, parent)| {
-                        parent.is_none() && self.graph.alive(id) && root.as_ref() != Some(*id)
+                        parent.is_none() && self.graph.alive(id) && !stage_roots.contains(id)
                     })
                     .map(|(id, _)| id.clone()),
             );
@@ -791,7 +840,7 @@ impl Player {
             display.effective_visible =
                 parent_visible && (capture_root.is_some() || display.visible);
             let on_stage =
-                capture_root.is_some() || parent_attached || root.as_ref() == Some(&reference);
+                capture_root.is_some() || parent_attached || self.graph.is_stage_root(&reference);
             let singular = parent_singular
                 || local_matrix[0] * local_matrix[3] - local_matrix[1] * local_matrix[2] == 0.;
             let acc_override = self.graph.as2_accessibility.get(&reference);
@@ -1123,6 +1172,7 @@ impl Player {
                     fill_gradient,
                     stroke_gradient,
                     fill_bitmap,
+                    stroke_bitmap,
                     stroke_width,
                     ..
                 } => {
@@ -1133,9 +1183,12 @@ impl Player {
                             .as_ref()
                             .map_or(fill[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0))
                         || (*stroke_width > 0.
-                            && stroke_gradient
+                            && (stroke_bitmap
                                 .as_ref()
-                                .map_or(stroke[3] > 0, |g| g.stops.iter().any(|s| s.color[3] > 0)))
+                                .is_some_and(|b| b.color_transform.can_be_visible())
+                                || stroke_gradient.as_ref().map_or(stroke[3] > 0, |g| {
+                                    g.stops.iter().any(|s| s.color[3] > 0)
+                                })))
                 }
                 RuntimeDrawKind::Element(ElementKind::PaintedPath {
                     fill,
@@ -1273,9 +1326,10 @@ impl Player {
                     self.graph.set_child_order(&parent, siblings);
                     return Ok(result);
                 }
+                let was_stage_child = self.graph.stage_order.contains(&child);
                 let was_stage = self.graph.on_stage(&child);
                 let will_stage = self.graph.on_stage(&parent);
-                let count = usize::from(old_parent.is_some())
+                let count = usize::from(old_parent.is_some() || was_stage_child)
                     + 1
                     + if was_stage != will_stage {
                         subtree.len()
@@ -1285,7 +1339,7 @@ impl Player {
                 if count > MAX_DISPLAY_EVENTS {
                     return Err(error("Display mutation exceeds its lifecycle event budget"));
                 }
-                if old_parent.is_some() {
+                if old_parent.is_some() || was_stage_child {
                     result.events.push(DisplayEvent {
                         kind: "removed".into(),
                         target_ref: child.clone(),
@@ -1381,6 +1435,187 @@ impl Player {
                 let mut siblings = current;
                 siblings.swap(a, b);
                 self.graph.set_child_order(&parent, siblings);
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn stage_children(&self) -> Vec<ObjectRef> {
+        self.graph.stage_children()
+    }
+
+    pub fn stage_mutate(
+        &mut self,
+        project: &Project,
+        mutation: StageMutation,
+    ) -> Result<MutationResult, DisplayError> {
+        let child = match &mutation {
+            StageMutation::Add { child, .. }
+            | StageMutation::Remove { child }
+            | StageMutation::SetIndex { child, .. } => child,
+            StageMutation::Swap { first, .. } => first,
+        };
+        if !self.graph.alive(child) {
+            return Err(error(
+                "Display reference is stale or belongs to another player",
+            ));
+        }
+        if self
+            .graph
+            .loaders
+            .values()
+            .any(|s| s.content.as_ref() == Some(child))
+        {
+            return Err(error(
+                "Loader owns its content child; use load/unload instead of child-list mutation",
+            ));
+        }
+        if !self.graph.paths.get(child).is_some_and(Vec::is_empty) {
+            self.validate_authored_hierarchy_change(project, child)?;
+        }
+        let current = self.graph.stage_children();
+        let mut result = MutationResult::default();
+        match mutation {
+            StageMutation::Add { child, index } => {
+                let same = current.contains(&child);
+                let length = current.len();
+                let maximum = if same {
+                    length.saturating_sub(1)
+                } else {
+                    length
+                };
+                let index = index.unwrap_or(maximum);
+                if index > maximum {
+                    return Err(error("Child index is outside the container"));
+                }
+                if same {
+                    let mut siblings = current;
+                    let old = siblings
+                        .iter()
+                        .position(|id| id == &child)
+                        .expect("same stage");
+                    siblings.remove(old);
+                    siblings.insert(index, child);
+                    self.graph.stage_order = siblings;
+                    return Ok(result);
+                }
+                let subtree = self.graph.subtree(&child);
+                let height = subtree
+                    .iter()
+                    .map(|id| {
+                        self.graph.route(id).len() - self.graph.route(&child).len()
+                            + self.graph.namespaces.get(id).map_or(1, |scope| scope.depth)
+                    })
+                    .max()
+                    .unwrap_or(1);
+                if height > MAX_GRAPH_DEPTH {
+                    return Err(error("Display graph nesting exceeds 64 objects"));
+                }
+                let old_parent = self.graph.parent(&child);
+                let was_stage = self.graph.on_stage(&child);
+                let count = usize::from(old_parent.is_some())
+                    + 1
+                    + if !was_stage { subtree.len() } else { 0 };
+                if count > MAX_DISPLAY_EVENTS {
+                    return Err(error("Display mutation exceeds its lifecycle event budget"));
+                }
+                if old_parent.is_some() {
+                    result.events.push(DisplayEvent {
+                        kind: "removed".into(),
+                        target_ref: child.clone(),
+                        route: self.graph.route(&child),
+                    });
+                }
+                self.graph.detach_child(&child);
+                let mut siblings = self.graph.stage_children();
+                siblings.insert(index, child.clone());
+                self.graph.stage_order = siblings;
+                result.events.push(DisplayEvent {
+                    kind: "added".into(),
+                    target_ref: child.clone(),
+                    route: vec![child.clone()],
+                });
+                if !was_stage {
+                    for id in subtree {
+                        result.events.push(DisplayEvent {
+                            kind: "added_to_stage".into(),
+                            target_ref: id.clone(),
+                            route: self.graph.route(&id),
+                        });
+                    }
+                }
+            }
+            StageMutation::Remove { child } => {
+                if self.graph.paths.get(&child).is_some_and(Vec::is_empty) {
+                    return Err(error("The source root cannot be moved or removed"));
+                }
+                if !current.contains(&child) {
+                    return Err(error("Object is not a child of this container"));
+                }
+                let subtree = self.graph.subtree(&child);
+                if 1 + subtree.len() > MAX_DISPLAY_EVENTS {
+                    return Err(error("Display mutation exceeds its lifecycle event budget"));
+                }
+                result.events.push(DisplayEvent {
+                    kind: "removed".into(),
+                    target_ref: child.clone(),
+                    route: vec![child.clone()],
+                });
+                for id in subtree {
+                    result.events.push(DisplayEvent {
+                        kind: "removed_from_stage".into(),
+                        target_ref: id.clone(),
+                        route: self.graph.route(&id),
+                    });
+                }
+                let mut siblings = current;
+                siblings.retain(|id| id != &child);
+                self.graph.stage_order = siblings;
+                self.graph.detach_child(&child);
+            }
+            StageMutation::SetIndex { child, index } => {
+                let position = current
+                    .iter()
+                    .position(|id| id == &child)
+                    .ok_or_else(|| error("Object is not a child of this container"))?;
+                if index >= current.len() {
+                    return Err(error("Child index is outside the container"));
+                }
+                let mut siblings = current;
+                siblings.remove(position);
+                siblings.insert(index, child);
+                self.graph.stage_order = siblings;
+            }
+            StageMutation::Swap { first, second } => {
+                if !self.graph.alive(&second) {
+                    return Err(error(
+                        "Display reference is stale or belongs to another player",
+                    ));
+                }
+                if self
+                    .graph
+                    .loaders
+                    .values()
+                    .any(|s| s.content.as_ref() == Some(&second))
+                {
+                    return Err(error(
+                        "Loader owns its content child; use load/unload instead of child-list mutation",
+                    ));
+                }
+                if !self.graph.paths.get(&second).is_some_and(Vec::is_empty) {
+                    self.validate_authored_hierarchy_change(project, &second)?;
+                }
+                let a = current
+                    .iter()
+                    .position(|id| id == &first)
+                    .ok_or_else(|| error("First object is not a child"))?;
+                let b = current
+                    .iter()
+                    .position(|id| id == &second)
+                    .ok_or_else(|| error("Second object is not a child"))?;
+                let mut siblings = current;
+                siblings.swap(a, b);
+                self.graph.stage_order = siblings;
             }
         }
         Ok(result)

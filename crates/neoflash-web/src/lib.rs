@@ -37,7 +37,7 @@ pub use as2_strings::{as2_string_json, legacy_case_name_json};
 use neoflash_core::{
     ColorTransform, DisplayMutation, DynamicKind, GotoRequest, GraphicsOp, ObjectRef, PixelRef,
     PixelSnapping, PlaybackCommand, Player, Project, RuntimeScriptDispatch, SceneRange,
-    ScriptDispatch, ScrollRect,
+    ScriptDispatch, ScrollRect, StageMutation,
 };
 use neoflash_core::{
     TextError, TextFieldState, TextInputEdit, TextPatch, TextQuery, layout_text, query_text,
@@ -973,6 +973,20 @@ impl WebPlayer {
             )
             .map_err(display_error)
     }
+    pub fn bitmap_histogram_json(&self, target: &str, rect: &str) -> Result<String, JsValue> {
+        if rect.len() > 4096 {
+            return Err(JsValue::from_str("Histogram rect exceeds 4096 bytes"));
+        }
+        let rect: Option<neoflash_core::BitmapRect> =
+            serde_json::from_str(rect).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .bitmap_histogram(&pixel_ref(target)?, rect)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
     pub fn bitmap_clone(&mut self, target: &str) -> Result<String, JsValue> {
         serde_json::to_string(
             &self
@@ -1089,6 +1103,22 @@ impl WebPlayer {
         };
         serde_json::to_string(&self.player.create_display(kind).map_err(display_error)?)
             .map_err(display_error)
+    }
+    pub fn stage_children_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.stage_children()).map_err(display_error)
+    }
+    pub fn stage_mutate(&mut self, json: &str) -> Result<String, JsValue> {
+        if json.len() > 4096 {
+            return Err(JsValue::from_str("Stage mutation input exceeds its limit"));
+        }
+        let mutation: StageMutation = serde_json::from_str(json).map_err(display_error)?;
+        serde_json::to_string(
+            &self
+                .player
+                .stage_mutate(&self.project, mutation)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
     }
     pub fn display_mutate(&mut self, json: &str) -> Result<String, JsValue> {
         if json.len() > 4096 {

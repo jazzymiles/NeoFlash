@@ -24,7 +24,13 @@
   class BitmapDataChannel {constructor(){throw new TypeError('BitmapDataChannel supplies ALPHA, BLUE, GREEN and RED constants.');}}
   Object.assign(BitmapDataChannel,{ALPHA:8,BLUE:4,GREEN:2,RED:1});
   Object.freeze(BitmapDataChannel);
-  const encoderOptions=new WeakMap(),jpegEncoderOptions=new WeakMap();
+  class BitmapEncodingColorSpace {constructor(){throw new TypeError('BitmapEncodingColorSpace supplies COLORSPACE_AUTO, COLORSPACE_4_4_4, COLORSPACE_4_2_2 and COLORSPACE_4_2_0 constants.');}}
+  Object.assign(BitmapEncodingColorSpace,{COLORSPACE_AUTO:'auto',COLORSPACE_4_4_4:'4:4:4',COLORSPACE_4_2_2:'4:2:2',COLORSPACE_4_2_0:'4:2:0'});
+  Object.defineProperties(BitmapEncodingColorSpace,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('BitmapEncodingColorSpace cannot be instantiated or subclassed.');}}});
+  Object.freeze(BitmapEncodingColorSpace);
+  const VALID_COLORSPACES=new Set(['auto','4:4:4','4:2:2','4:2:0']);
+  const VALID_DRAW_QUALITIES=new Set(['low','medium','high','best','8x8','8x8linear','16x16','16x16linear']);
+  const encoderOptions=new WeakMap(),jpegEncoderOptions=new WeakMap(),jpegxrEncoderOptions=new WeakMap();
   class PNGEncoderOptions {
     constructor(fastCompression=false){encoderOptions.set(this,false);this.fastCompression=fastCompression;Object.seal(this);}
     get fastCompression(){if(!encoderOptions.has(this))throw new TypeError('Expected PNGEncoderOptions.');return encoderOptions.get(this);}
@@ -42,6 +48,35 @@
     }
   }
   Object.defineProperties(JPEGEncoderOptions,{__nfIs:{value:value=>jpegEncoderOptions.has(value)},__nfInitialize:{value:()=>unsupported('JPEGEncoderOptions subclassing')},[Symbol.hasInstance]:{value:value=>jpegEncoderOptions.has(value)}});
+  class JPEGXREncoderOptions {
+    constructor(quantization=20,colorSpace='auto',trimFlexBits=0){
+      jpegxrEncoderOptions.set(this,{quantization:20,colorSpace:'auto',trimFlexBits:0});
+      this.quantization=quantization;this.colorSpace=colorSpace;this.trimFlexBits=trimFlexBits;
+      Object.seal(this);
+    }
+    get quantization(){if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');return jpegxrEncoderOptions.get(this).quantization;}
+    set quantization(value){
+      if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');
+      const n=Number(value),q=n>>>0;
+      if(!Number.isFinite(n)||n<0||q>255)throw new RangeError('JPEGXREncoderOptions.quantization requires an integer from 0 through 255.');
+      jpegxrEncoderOptions.get(this).quantization=q;
+    }
+    get colorSpace(){if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');return jpegxrEncoderOptions.get(this).colorSpace;}
+    set colorSpace(value){
+      if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');
+      const next=String(value);
+      if(!VALID_COLORSPACES.has(next)){const err=new RangeError(`JPEGXREncoderOptions.colorSpace is invalid: '${next}'.`);err.name='ArgumentError';throw err;}
+      jpegxrEncoderOptions.get(this).colorSpace=next;
+    }
+    get trimFlexBits(){if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');return jpegxrEncoderOptions.get(this).trimFlexBits;}
+    set trimFlexBits(value){
+      if(!jpegxrEncoderOptions.has(this))throw new TypeError('Expected JPEGXREncoderOptions.');
+      const n=Number(value),t=n>>>0;
+      if(!Number.isFinite(n)||n<0||t>15)throw new RangeError('JPEGXREncoderOptions.trimFlexBits requires an integer from 0 through 15.');
+      jpegxrEncoderOptions.get(this).trimFlexBits=t;
+    }
+  }
+  Object.defineProperties(JPEGXREncoderOptions,{__nfIs:{value:value=>jpegxrEncoderOptions.has(value)},__nfInitialize:{value:()=>unsupported('JPEGXREncoderOptions subclassing')},[Symbol.hasInstance]:{value:value=>jpegxrEncoderOptions.has(value)}});
   function snapped(matrix,mode='auto'){
     const [a,b,c,d,e,f]=matrix;
     if(mode==='always')return [a,b,c,d,Math.round(e),Math.round(f)];
@@ -54,7 +89,9 @@
     const references=new WeakMap(),facades=new Map(),uploads=new Map();
     let generation=1,disposed=false,used=new Set(),cacheBytes=0;
     let uintVector=values=>Array.from(values,v=>v>>>0),hasUintVector=false;
+    let histogramVector=channels=>channels.map(ch=>Array.from(ch,Number));
     function setUintVectorFactory(fn){if(typeof fn==='function'){uintVector=fn;hasUintVector=true;}}
+    function setHistogramVectorFactory(fn){if(typeof fn==='function')histogramVector=fn;}
     const identityColor={multipliers:[1,1,1,1],offsets:[0,0,0,0]};
     function native(name,...args){
       try{return player[name](...args);}catch(error){
@@ -98,7 +135,7 @@
             const result=method(...args);return name==='applyFilter'?0:result;
           });
         }
-        for(const name of ['getPixels','setPixels','copyPixelsToByteArray','encode','getVector','setVector','lock','unlock']){
+        for(const name of ['getPixels','setPixels','copyPixelsToByteArray','encode','getVector','setVector','lock','unlock','histogram','drawWithQuality']){
           const method=BitmapData.prototype[name].bind(facade);Object.defineProperty(facade,name,{value:method});
           as2.register(method,facade,name,()=>{throw new TypeError(`BitmapData.${name} requires AS3; this API is not part of the AS2 BitmapData profile.`);});
         }
@@ -262,10 +299,32 @@
           const sourceRef=displayRef?.(source);if(!sourceRef)throw new TypeError('BitmapData.draw requires BitmapData or a live DisplayObject from this publication.');
           snapshot=JSON.parse(native('bitmap_draw_snapshot',key(sourceRef),JSON.stringify(m),JSON.stringify(ct)));
         }
+        let surface=null;try{surface=canvas(info.width,info.height);}catch(_){surface=null;}
+        const target=surface?.getContext?.('2d');
+        if(references.has(source)&&(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function')){
+          const input=descriptor(source),src=player.bitmap_pixels(key(reference(source)));
+          const [a,b,c,d,tx,ty]=m,det=a*d-b*c,rgba=new Uint8Array(info.width*info.height*4);
+          if(Number.isFinite(det)&&Math.abs(det)>=1e-12){
+            const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
+            for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+              const dx=x+0.5-tx,dy=y+0.5-ty;
+              const sx=Math.floor((d*dx-c*dy)/det),sy=Math.floor((-b*dx+a*dy)/det);
+              if(sx<0||sy<0||sx>=input.width||sy>=input.height)continue;
+              const si=(sy*input.width+sx)*4,di=(y*info.width+x)*4;
+              rgba[di]=clampByte(src[si]*ct.multipliers[0]+ct.offsets[0]);
+              rgba[di+1]=clampByte(src[si+1]*ct.multipliers[1]+ct.offsets[1]);
+              rgba[di+2]=clampByte(src[si+2]*ct.multipliers[2]+ct.offsets[2]);
+              rgba[di+3]=clampByte(src[si+3]*ct.multipliers[3]+ct.offsets[3]);
+            }
+          }
+          native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
+          if(surface)surface.width=surface.height=0;
+          return;
+        }
         if(typeof paintScene!=='function')throw new Error('BitmapData.draw requires the shared scene painter.');
-        const surface=canvas(info.width,info.height);
+        if(!surface)surface=canvas(info.width,info.height);
         try{
-          const target=surface.getContext('2d');if(!target)throw new Error('BitmapData.draw requires Canvas 2D.');
+          if(!target)throw new Error('BitmapData.draw requires Canvas 2D.');
           target.setTransform(1,0,0,1,0,0);target.globalAlpha=1;target.globalCompositeOperation='source-over';target.clearRect(0,0,info.width,info.height);
           paintScene(target,snapshot);
           // Read an immutable full source before changing destination, including
@@ -274,12 +333,24 @@
           native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
         }finally{surface.width=surface.height=0;}
       }
+      histogram(hRect=null){
+        const info=descriptor(this),ref=key(reference(this));
+        const rect=hRect===null?{x:0,y:0,width:info.width,height:info.height}:(()=>{const [x,y,width,height]=rectangle(hRect);return {x,y,width,height};})();
+        const channels=JSON.parse(native('bitmap_histogram_json',ref,JSON.stringify(rect)));
+        return histogramVector(channels);
+      }
+      drawWithQuality(source,matrix=null,transform=null,blendMode=null,clipRect=null,smoothing=false,quality=null){
+        if(quality!==null&&quality!==undefined){
+          const q=String(quality).toLowerCase();
+          if(!VALID_DRAW_QUALITIES.has(q)){const err=new RangeError(`BitmapData.drawWithQuality quality is invalid: '${quality}'.`);err.name='ArgumentError';throw err;}
+        }
+        this.draw(source,matrix,transform,blendMode,clipRect,smoothing);
+      }
       dispose(){const ref=reference(this),id=key(ref);player.bitmap_dispose(id);for(const [entry,record]of uploads)if(record.pixelKey===id)drop(entry);}
     }
     Object.defineProperties(BitmapData,{__nfIs:{value:value=>references.has(value)},__nfInitialize:{value:()=>unsupported('native subclassing')},loadBitmap:{value:()=>unsupported('loadBitmap library linkage')}});
     Object.defineProperty(BitmapData,Symbol.hasInstance,{value:BitmapData.__nfIs});
     if(as2)as2.register(BitmapData.loadBitmap,BitmapData,'loadBitmap',id=>{if(typeof id!=='string')throw new TypeError('BitmapData.loadBitmap requires an exact bundled image resource ID.');const reference=JSON.parse(native('as2_bitmap_load',id));return reference===null?null:fromRef({id:reference.id,generation:reference.generation});});
-    for(const name of ['drawWithQuality','histogram'])Object.defineProperty(BitmapData.prototype,name,{value(){unsupported(name);}});
     function release(record){record.canvas.width=0;record.canvas.height=0;}
     function drop(id){const record=uploads.get(id);if(!record)return;release(record);cacheBytes-=record.cost;uploads.delete(id);}
     function canvas(width,height){
@@ -327,7 +398,15 @@
           finally {context.restore();}
         });
       },
-      hit(kind,x,y){if(x<0||y<0||x>=kind.width||y>=kind.height)return false;return consume(kind,record=>record.bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0);},
+      hit(kind,x,y){
+        if(x<0||y<0||x>=kind.width||y>=kind.height)return false;
+        if(!createCanvas&&typeof global.OffscreenCanvas!=='function'&&!global.document){
+          const pixelKey=key(kind.pixel_ref),ct=kind.color_transform;
+          const bytes=ct?native('bitmap_pixels_transformed',pixelKey,JSON.stringify({multipliers:ct.multipliers,offsets:ct.offsets})):native('bitmap_pixels',pixelKey);
+          return bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0;
+        }
+        return consume(kind,record=>record.bytes[(Math.floor(y)*kind.width+Math.floor(x))*4+3]>0);
+      },
       bounds(kind){return consume(kind,record=>record.alphaBounds);},
       stats(){return {entries:uploads.size,bytes:cacheBytes,maxBytes:maxCacheBytes,maxEntries:maxCacheEntries};},
       endFrame(){for(const id of uploads.keys())if(!used.has(id))drop(id);},
@@ -335,7 +414,7 @@
     });
     function reset(){active();cache.clear();facades.clear();generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({BitmapData,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,setUintVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
+    return Object.freeze({BitmapData,BitmapDataChannel,BitmapEncodingColorSpace,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,JPEGXREncoderOptions,setUintVectorFactory,setHistogramVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
   }
-  const api=Object.freeze({create,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
+  const api=Object.freeze({create,BitmapDataChannel,BitmapEncodingColorSpace,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,JPEGXREncoderOptions});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
 })(globalThis);

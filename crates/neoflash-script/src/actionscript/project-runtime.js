@@ -11,7 +11,7 @@ const __nfProgram = (() => {
     const objectDefaults = {toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString};
     const classDefaultString = Function.prototype.toString;
     let nativeTypeNames = [];
-    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfBuiltins };
+    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfFlashErrors, ...__nfBuiltins };
     function resolveIntrinsic(name) {
         let cur = __nfLegacy?._global;
         for (const part of name.split('.')) {
@@ -482,6 +482,7 @@ const __nfProgram = (() => {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
     return Object.freeze({ type, is, cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
+        instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });
 })();

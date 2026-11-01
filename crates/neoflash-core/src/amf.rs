@@ -28,6 +28,8 @@ pub enum AmfValue {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AmfNode {
     Object {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        class_name: Option<String>,
         entries: Vec<(String, AmfValue)>,
     },
     Array {
@@ -137,7 +139,18 @@ impl AmfGraph {
         val(&self.root, &mut b)?;
         for node in &self.nodes {
             let entries = match node {
-                AmfNode::Object { entries } => entries,
+                AmfNode::Object {
+                    class_name,
+                    entries,
+                } => {
+                    if let Some(name) = class_name {
+                        if name.is_empty() {
+                            return Err(fail("class_name cannot be empty"));
+                        }
+                        b.bytes(name.len())?;
+                    }
+                    entries
+                }
                 AmfNode::Array { dense, entries } => {
                     if dense.len() > MAX_ITEMS {
                         return Err(fail("array length exceeds budget"));
@@ -198,7 +211,7 @@ pub fn amf_encode(format: u8, graph: &AmfGraph) -> Result<Vec<u8>, AmfError> {
         refs0: HashMap::new(),
         refs3: HashMap::new(),
         strings: HashMap::new(),
-        trait_written: false,
+        traits: HashMap::new(),
     };
     w.value(&graph.root, format, 0)?;
     Ok(w.out)
@@ -209,7 +222,7 @@ struct Writer<'a> {
     refs0: HashMap<usize, usize>,
     refs3: HashMap<usize, usize>,
     strings: HashMap<String, usize>,
-    trait_written: bool,
+    traits: HashMap<String, usize>,
 }
 impl Writer<'_> {
     fn put(&mut self, v: &[u8]) -> Result<(), AmfError> {
@@ -327,8 +340,16 @@ impl Writer<'_> {
             }
             self.refs0.insert(id, self.refs0.len());
             match node {
-                AmfNode::Object { entries } => {
-                    self.byte(3)?;
+                AmfNode::Object {
+                    class_name,
+                    entries,
+                } => {
+                    if let Some(class) = class_name {
+                        self.byte(16)?;
+                        self.name0(class)?;
+                    } else {
+                        self.byte(3)?;
+                    }
                     self.entries0(entries, depth)?;
                     self.put(&[0, 0, 9])
                 }
@@ -362,13 +383,18 @@ impl Writer<'_> {
             }
             self.refs3.insert(id, self.refs3.len());
             match node {
-                AmfNode::Object { entries } => {
-                    if self.trait_written {
-                        self.u29(1)?;
+                AmfNode::Object {
+                    class_name,
+                    entries,
+                } => {
+                    let class = class_name.as_deref().unwrap_or("");
+                    if let Some(&trait_index) = self.traits.get(class) {
+                        self.u29(((trait_index as u32) << 2) | 1)?;
                     } else {
+                        let next = self.traits.len();
+                        self.traits.insert(class.to_owned(), next);
                         self.u29(11)?;
-                        self.string3("")?;
-                        self.trait_written = true;
+                        self.string3(class)?;
                     }
                     self.entries3(entries, depth)?;
                     self.string3("")
@@ -419,6 +445,7 @@ impl Writer<'_> {
 
 #[derive(Clone)]
 struct Trait {
+    class_name: Option<String>,
     dynamic: bool,
     names: Vec<String>,
 }
@@ -525,7 +552,10 @@ impl Reader<'_> {
     fn node(&mut self, format: u8) -> Result<usize, AmfError> {
         self.budget.items(1)?;
         let id = self.nodes.len();
-        self.nodes.push(AmfNode::Object { entries: vec![] });
+        self.nodes.push(AmfNode::Object {
+            class_name: None,
+            entries: vec![],
+        });
         if format == 0 {
             self.refs0.push(id);
         } else {
@@ -565,7 +595,7 @@ impl Reader<'_> {
                             .ok_or_else(|| fail("invalid AMF0 object reference"))?,
                     ))
                 }
-                3 | 8 | 10 => {
+                3 | 8 | 10 | 16 => {
                     let id = self.node(0)?;
                     let node = if marker == 10 {
                         let count = self.u32()? as usize;
@@ -578,6 +608,14 @@ impl Reader<'_> {
                             dense,
                             entries: vec![],
                         }
+                    } else if marker == 16 {
+                        let n = self.u16()? as usize;
+                        let class = self.text(n)?;
+                        let entries = self.entries0(depth)?;
+                        AmfNode::Object {
+                            class_name: (!class.is_empty()).then_some(class),
+                            entries,
+                        }
                     } else {
                         if marker == 8 {
                             self.u32()?;
@@ -586,7 +624,10 @@ impl Reader<'_> {
                         if marker == 8 {
                             self.array(vec![], entries)?
                         } else {
-                            AmfNode::Object { entries }
+                            AmfNode::Object {
+                                class_name: None,
+                                entries,
+                            }
                         }
                     };
                     self.nodes[id] = node;
@@ -763,9 +804,6 @@ impl Reader<'_> {
                     let count = (h >> 4) as usize;
                     self.count(count)?;
                     let class = self.string3()?;
-                    if !class.is_empty() {
-                        return Err(fail("registered class aliases are not supported"));
-                    }
                     let mut names = Vec::with_capacity(count);
                     let mut seen = HashSet::new();
                     for _ in 0..count {
@@ -777,6 +815,7 @@ impl Reader<'_> {
                         names.push(name);
                     }
                     let t = Trait {
+                        class_name: (!class.is_empty()).then_some(class),
                         dynamic: h & 8 != 0,
                         names,
                     };
@@ -794,7 +833,10 @@ impl Reader<'_> {
                 if traits.dynamic {
                     entries.extend(self.entries3(depth, &mut seen)?);
                 }
-                AmfNode::Object { entries }
+                AmfNode::Object {
+                    class_name: traits.class_name,
+                    entries,
+                }
             }
             _ => unreachable!(),
         };

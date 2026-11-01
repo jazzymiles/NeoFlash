@@ -5,7 +5,16 @@
   function create(wasm,{getPoint=()=>null}={}){
     if(typeof wasm?.Geom3dValue!=='function')throw new Error('Rust geometry bindings are missing; rebuild and re-export this project.');
     const native=new WeakMap();
-    let numberVector=values=>values;
+    let numberVector=values=>values,vector3DVector=values=>values;
+    function Orientation3D(){throw new TypeError('Orientation3D supplies orientation style constants and cannot be constructed.');}
+    Object.defineProperties(Orientation3D,{
+      AXIS_ANGLE:{value:'axisAngle',enumerable:true},
+      EULER_ANGLES:{value:'eulerAngles',enumerable:true},
+      QUATERNION:{value:'quaternion',enumerable:true},
+      __nfIs:{value:()=>false},
+      __nfInitialize:{value:()=>{throw new TypeError('Orientation3D cannot be extended.');}},
+    });
+    Object.freeze(Orientation3D);
     function array(value){
       if(value==null)return null;
       if(!Number.isInteger(value.length)||value.length<0||value.length>12288)throw new RangeError('Geometry arrays require 0 through 12288 components.');
@@ -24,6 +33,7 @@
     }
     function result(value){
       if(value?.type==='Vector3D')return new Vector3D(...value.data);
+      if(value?.type==='Vector3DList')return vector3DVector(value.data.map(item=>new Vector3D(...item)));
       if(value?.type==='Matrix3D')return new Matrix3D(value.data);
       if(value?.type==='Point'){const Point=getPoint();if(typeof Point!=='function')throw new Error('PerspectiveProjection requires the publication Point constructor.');return new Point(...value.data);}
       return value;
@@ -67,7 +77,14 @@
       copyRawDataFrom(source,index=0,transpose=false){invoke(this,'copyRawDataFrom',[array(source),Number(index),Boolean(transpose)]);}
       copyRawDataTo(destination,index=0,transpose=false){const output=invoke(this,'copyRawDataTo',[array(destination),Number(index),Boolean(transpose)]);copyArray(destination,output);}
       transformVectors(input,output){copyArray(output,invoke(this,'transformVectors',[array(input),array(output)]));}
-      static interpolate(){throw new Error('Matrix3D.interpolate is unsupported in the current Rust profile.');}
+      decompose(orientationStyle='eulerAngles'){return result(invoke(this,'decompose',[String(orientationStyle)]));}
+      recompose(components,orientationStyle='eulerAngles'){
+        if(components==null||typeof components.length!=='number'||components.length<3||!Vector3D.__nfIs(components[0])||!Vector3D.__nfIs(components[1])||!Vector3D.__nfIs(components[2]))throw new TypeError('Matrix3D.recompose requires three Vector3D components.');
+        return invoke(this,'recompose',[components[0],components[1],components[2],String(orientationStyle)]);
+      }
+      interpolateTo(toMat,percent){invoke(this,'interpolateTo',[toMat,Number(percent)]);}
+      pointAt(pos,at=null,up=null){invoke(this,'pointAt',[pos,at,up]);}
+      static interpolate(thisMat,toMat,percent){return result(invoke(thisMat,'interpolate',[toMat,Number(percent)]));}
     }
     class PerspectiveProjection {
       constructor(){native.set(this,new wasm.Geom3dValue('PerspectiveProjection','null'));Object.preventExtensions(this);}
@@ -91,14 +108,22 @@
         const output=invoke(matrix,'projectVectors',[array(vertices),array(projected),array(uvts)]);
         copyArray(projected,output.projected);copyArray(uvts,output.uvts);
       }
-      static pointTowards(){throw new Error('Utils3D.pointTowards is unsupported in the current Rust profile.');}
+      static pointTowards(percent,mat,pos,at=null,up=null){return result(invoke(mat,'pointTowards',[Number(percent),pos,at,up]));}
     }
     function copyArray(destination,values){if(destination.length<values.length)destination.length=values.length;for(let i=0;i<values.length;i++)destination[i]=values[i];}
     for(const name of ['appendTranslation','prependTranslation','appendScale','prependScale'])Matrix3D.prototype[name]=function(x,y,z){invoke(this,name,[Number(x),Number(y),Number(z)]);};
     for(const name of ['append','prepend','copyFrom','transformVector','deltaTransformVector'])Matrix3D.prototype[name]=function(value){return result(invoke(this,name,[value]));};
-    for(const name of ['identity','transpose','invert','clone','decompose','recompose','interpolateTo','pointAt'])Matrix3D.prototype[name]=function(){return result(invoke(this,name));};
+    for(const name of ['identity','transpose','invert','clone'])Matrix3D.prototype[name]=function(){return result(invoke(this,name));};
     for(const Type of [Vector3D,Matrix3D,PerspectiveProjection])Object.defineProperty(Type,'__nfIs',{value:value=>value instanceof Type&&native.has(value)});
-    return {Vector3D,Matrix3D,Utils3D,PerspectiveProjection,setNumberVectorFactory(factory){if(typeof factory!=='function')throw new TypeError('Number Vector factory must be callable.');numberVector=factory;}};
+    return {
+      Vector3D,
+      Matrix3D,
+      Orientation3D,
+      Utils3D,
+      PerspectiveProjection,
+      setNumberVectorFactory(factory){if(typeof factory!=='function')throw new TypeError('Number Vector factory must be callable.');numberVector=factory;},
+      setVector3DVectorFactory(factory){if(typeof factory!=='function')throw new TypeError('Vector3D Vector factory must be callable.');vector3DVector=factory;},
+    };
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.NeoFlashGeom3D=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

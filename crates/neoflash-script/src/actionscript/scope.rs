@@ -542,6 +542,7 @@ impl<'a> Analysis<'a> {
             Expr::NewClass(name, _, offset) if matches!(name.as_str(),"flash.net.URLRequestMethod"|"flash.net.URLLoaderDataFormat"|"flash.net.ObjectEncoding"|"flash.net.SharedObjectFlushStatus") => return Err(self.error(*offset,"Network/persistence method, encoding and status facades provide constants and cannot be constructed.")),
             Expr::NewClass(name, _, offset) if self.context.interfaces.contains(name) => return Err(self.error(*offset,"An interface is a nominal contract and cannot be constructed. Instantiate an implementing project class.")),
             Expr::NewClass(name, _, offset) if name == "flash.utils.Endian" => return Err(self.error(*offset,"Endian contains byte-order constants and is not constructible.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(), "flash.geom.Orientation3D" | "flash.xml.XMLNodeType") => return Err(self.error(*offset,"Orientation3D and XMLNodeType contain constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.Graphics" => return Err(self.error(*offset,"Graphics is supplied by a compatible display object's graphics property and is not directly constructible.")),
             Expr::NewClass(name, args, offset) if name == "flash.utils.ByteArray" && !args.is_empty() => return Err(self.error(*offset,"ByteArray construction takes no arguments in the bounded binary-buffer profile.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.resolve(scope, name).is_none() && self.as2_catch_names.contains_key(name) && !is_global(name) => return Err(self.error(self.as2_catch_names[name], "AS2 catch parameters used outside their catch need verified variable/register scope semantics; this form is unsupported.")),
@@ -634,6 +635,36 @@ impl<'a> Analysis<'a> {
                                         | "registerFont"
                                         | "hasGlyphs"
                                         | "setAdvancedAntiAliasingTable"
+                                        | "decompose"
+                                        | "recompose"
+                                        | "interpolate"
+                                        | "interpolateTo"
+                                        | "pointAt"
+                                        | "pointTowards"
+                                        | "getObjectsUnderPoint"
+                                        | "areInaccessibleObjectsUnderPoint"
+                                        | "startTouchDrag"
+                                        | "stopTouchDrag"
+                                        | "assignFocus"
+                                        | "isFocusInaccessible"
+                                        | "drawGraphicsData"
+                                        | "readGraphicsData"
+                                        | "lineBitmapStyle"
+                                        | "drawTriangles"
+                                        | "wideLineTo"
+                                        | "wideMoveTo"
+                                        | "histogram"
+                                        | "drawWithQuality"
+                                        | "isFontCompatible"
+                                        | "findText"
+                                        | "getSelected"
+                                        | "getSelectedText"
+                                        | "getText"
+                                        | "getTextRunInfo"
+                                        | "hitTestTextNearPos"
+                                        | "setSelectColor"
+                                        | "setSelected"
+                                        | "getStackTrace"
                                 )
                         ));
                 if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {

@@ -25,7 +25,8 @@
   const CapsStyle=graphicsConstants('CapsStyle',{NONE:'none',ROUND:'round',SQUARE:'square'});
   const JointStyle=graphicsConstants('JointStyle',{BEVEL:'bevel',MITER:'miter',ROUND:'round'});
   const LineScaleMode=graphicsConstants('LineScaleMode',{HORIZONTAL:'horizontal',NONE:'none',NORMAL:'normal',VERTICAL:'vertical'});
-  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding,BlendMode,CapsStyle,JointStyle,LineScaleMode};
+  const TriangleCulling=graphicsConstants('TriangleCulling',{NONE:'none',POSITIVE:'positive',NEGATIVE:'negative'});
+  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding,BlendMode,CapsStyle,JointStyle,LineScaleMode,TriangleCulling};
   const vectorBrand=Symbol.for('neoflash.as3.vector.instance.v1');
   function graphicsNumbers(value,name,limit,allowVector=false) {
     const tag=value!=null&&(typeof value==='object'||typeof value==='function')?Object.getOwnPropertyDescriptor(value,vectorBrand):null;
@@ -58,16 +59,34 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
-    let accProps = new WeakMap();
+    const staticTextLifetimes = new Map();
+    let accProps = new WeakMap(), spriteSoundTransforms = new WeakMap();
+    let touchDragId = null;
+    let graphicsVectors = {
+      intVector: values => Array.from(values, v => v | 0),
+      numberVector: values => Array.from(values, Number),
+      dataVector: values => Array.from(values),
+    };
+    function setGraphicsVectorFactories(factories = {}) {
+      if (typeof factories.intVector === 'function') graphicsVectors.intVector = factories.intVector;
+      if (typeof factories.numberVector === 'function') graphicsVectors.numberVector = factories.numberVector;
+      if (typeof factories.dataVector === 'function') graphicsVectors.dataVector = factories.dataVector;
+    }
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
     const nodeKey=node=>graph?refKey(node.object_ref):JSON.stringify(node.path);
     const nodeProxy=node=>graph?proxyForRef(node.object_ref):proxyFor(node.path);
     const invoke=(target,name,...args)=>player[(graph?'object_':'')+name](referenceOf(target).key,...args);
+    function isStaticTextNode(node) {
+      if (!node || node.owner !== 'text' || node.kind?.type !== 'text') return false;
+      const id = node.lifetime_id || nodeKey(node);
+      if (!staticTextLifetimes.has(id)) staticTextLifetimes.set(id, !node.name);
+      return staticTextLifetimes.get(id);
+    }
     function nodes() { return graph?JSON.parse(player.runtime_snapshot_json()).objects:JSON.parse(player.display_nodes_json()); }
     function descriptor(target, list=nodes()) {
       const ref=referenceOf(target);
@@ -261,9 +280,21 @@
         },
         beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
         lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
+        lineBitmapStyle:(bitmap,matrix=null,repeat=true,smooth=false)=>{
+          const bitmapHost=getBitmap();if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
+          const pixelRef=bitmapHost.refOf(bitmap);
+          if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('Graphics.lineBitmapStyle matrix requires flash.geom.Matrix or null.');
+          if(typeof repeat!=='boolean'||typeof smooth!=='boolean')throw new TypeError('Graphics.lineBitmapStyle repeat and smooth require Booleans.');
+          const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+          apply({op:'line_bitmap_style',bitmap:{pixel_ref:pixelRef,matrix:components,repeat,smoothing:smooth}});
+        },
         endFill:()=>apply({op:'end_fill'}),
         lineStyle:(width=NaN,color=0,alpha=1,pixelHinting=false,scaleMode='normal',caps=null,joints=null,miterLimit=3)=>{
-          if(pixelHinting!==false||scaleMode!=='normal'||(caps!==null&&caps!=='round')||(joints!==null&&joints!=='round')||miterLimit!==3)throw new TypeError('Graphics.lineStyle currently supports scaling strokes with round caps/joins, no pixel hinting, and default miterLimit.');
+          if(typeof pixelHinting!=='boolean')throw new TypeError('Graphics.lineStyle pixelHinting requires a Boolean.');
+          if(scaleMode!==null&&!['normal','none','vertical','horizontal'].includes(scaleMode)){const err=new RangeError(`Graphics.lineStyle scaleMode is invalid: '${scaleMode}'.`);err.name='ArgumentError';throw err;}
+          if(caps!==null&&!['none','round','square'].includes(caps)){const err=new RangeError(`Graphics.lineStyle caps is invalid: '${caps}'.`);err.name='ArgumentError';throw err;}
+          if(joints!==null&&!['round','bevel','miter'].includes(joints)){const err=new RangeError(`Graphics.lineStyle joints is invalid: '${joints}'.`);err.name='ArgumentError';throw err;}
+          number(miterLimit,'miterLimit');if(miterLimit<1||miterLimit>255)throw new RangeError('Graphics.lineStyle miterLimit must be from 1 through 255.');
           if(width!==undefined&&!Number.isNaN(width)){number(width,'thickness');if(width<=0||width>255)throw new RangeError('Graphics thickness currently requires greater than 0 through 255; hairlines are pending.');}
           apply({op:'line_style',width:width===undefined||Number.isNaN(width)?null:width,color:rgb(color),alpha:opacity(alpha)});
         },
@@ -277,6 +308,121 @@
         // four corner radii in the Flex/OpenFL ordering (bottom-left before right).
         drawRoundRectComplex:(x,y,width,height,topLeftRadius,topRightRadius,bottomLeftRadius,bottomRightRadius)=>apply({op:'draw_round_rect_complex',x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height'),top_left_radius:number(topLeftRadius,'topLeftRadius'),top_right_radius:number(topRightRadius,'topRightRadius'),bottom_left_radius:number(bottomLeftRadius,'bottomLeftRadius'),bottom_right_radius:number(bottomRightRadius,'bottomRightRadius')}),
         drawPath,
+        drawTriangles:(vertices,indices=null,uvtData=null,culling='none')=>{
+          if(!['none','positive','negative'].includes(culling)){const err=new RangeError(`Graphics.drawTriangles culling is invalid: '${culling}'.`);err.name='ArgumentError';throw err;}
+          const verts=graphicsNumbers(vertices,'vertices',600000,true);
+          if(verts.length%2!==0){const err=new RangeError('Graphics.drawTriangles vertices length must be even.');err.name='ArgumentError';throw err;}
+          const vertCount=verts.length>>>1;
+          let inds;
+          if(indices===null||indices===undefined){
+            if(vertCount%3!==0){const err=new RangeError('Graphics.drawTriangles unindexed vertices must be a multiple of 3 points.');err.name='ArgumentError';throw err;}
+            inds=Array.from({length:vertCount},(_,i)=>i);
+          }else{
+            inds=graphicsNumbers(indices,'indices',300000,true);
+            if(inds.length%3!==0){const err=new RangeError('Graphics.drawTriangles indices length must be a multiple of 3.');err.name='ArgumentError';throw err;}
+            for(let i=0;i<inds.length;i++)if(!Number.isInteger(inds[i])||inds[i]<0||inds[i]>=vertCount)throw new RangeError(`Graphics.drawTriangles index ${inds[i]} is out of bounds.`);
+          }
+          if(uvtData!==null&&uvtData!==undefined){
+            const uvts=graphicsNumbers(uvtData,'uvtData',900000,true);
+            if(uvts.length!==vertCount*2&&uvts.length!==vertCount*3){const err=new RangeError('Graphics.drawTriangles uvtData must supply 2 or 3 numbers per vertex.');err.name='ArgumentError';throw err;}
+          }
+          const triCommands=[];
+          for(let i=0;i<inds.length;i+=3){
+            const i0=inds[i]*2,i1=inds[i+1]*2,i2=inds[i+2]*2;
+            const x0=verts[i0],y0=verts[i0+1],x1=verts[i1],y1=verts[i1+1],x2=verts[i2],y2=verts[i2+1];
+            const cross=(x1-x0)*(y2-y0)-(y1-y0)*(x2-x0);
+            if(culling==='positive'&&cross<=0)continue;
+            if(culling==='negative'&&cross>=0)continue;
+            triCommands.push({op:'move_to',x:x0,y:y0},{op:'line_to',x:x1,y:y1},{op:'line_to',x:x2,y:y2},{op:'line_to',x:x0,y:y0});
+          }
+          if(triCommands.length)apply({op:'draw_path',commands:triCommands,fill_rule:'nonzero'});
+        },
+        drawGraphicsData:graphicsData=>{
+          descriptor(target);
+          if(!graphicsData||typeof graphicsData[Symbol.iterator]!=='function')throw new TypeError('Graphics.drawGraphicsData requires a Vector.<IGraphicsData>.');
+          for(const item of graphicsData){
+            if(!IGraphicsData.__nfIs(item))throw new TypeError('Graphics.drawGraphicsData elements must implement IGraphicsData.');
+            if(GraphicsSolidFill.__nfIs(item))methods.beginFill(item.color,item.alpha);
+            else if(GraphicsGradientFill.__nfIs(item))methods.beginGradientFill(item.type,item.colors,item.alphas,item.ratios,item.matrix,item.spreadMethod,item.interpolationMethod,item.focalPointRatio);
+            else if(GraphicsBitmapFill.__nfIs(item))methods.beginBitmapFill(item.bitmapData,item.matrix,item.repeat,item.smooth);
+            else if(GraphicsEndFill.__nfIs(item))methods.endFill();
+            else if(GraphicsStroke.__nfIs(item)){
+              if(item.fill===null||item.fill===undefined||Number.isNaN(item.thickness)){
+                methods.lineStyle(NaN);
+              }else if(GraphicsSolidFill.__nfIs(item.fill)){
+                methods.lineStyle(item.thickness,item.fill.color,item.fill.alpha,item.pixelHinting,item.scaleMode,item.caps,item.joints,item.miterLimit);
+              }else if(GraphicsGradientFill.__nfIs(item.fill)){
+                methods.lineStyle(item.thickness,0,1,item.pixelHinting,item.scaleMode,item.caps,item.joints,item.miterLimit);
+                methods.lineGradientStyle(item.fill.type,item.fill.colors,item.fill.alphas,item.fill.ratios,item.fill.matrix,item.fill.spreadMethod,item.fill.interpolationMethod,item.fill.focalPointRatio);
+              }else if(GraphicsBitmapFill.__nfIs(item.fill)){
+                methods.lineStyle(item.thickness,0,1,item.pixelHinting,item.scaleMode,item.caps,item.joints,item.miterLimit);
+                methods.lineBitmapStyle(item.fill.bitmapData,item.fill.matrix,item.fill.repeat,item.fill.smooth);
+              }else{
+                throw new TypeError('GraphicsStroke.fill must implement IGraphicsFill or be null.');
+              }
+            }else if(GraphicsPath.__nfIs(item)){
+              if(item.commands&&item.data)methods.drawPath(item.commands,item.data,item.winding);
+            }else if(GraphicsTrianglePath.__nfIs(item)){
+              if(item.vertices)methods.drawTriangles(item.vertices,item.indices,item.uvtData,item.culling);
+            }
+          }
+        },
+        readGraphicsData:(recurse=true)=>{
+          const list=nodes(),source=descriptor(target,list),items=[];
+          const toFill=(rgbaArr,grad,bmp)=>{
+            if(bmp&&getBitmap())return new GraphicsBitmapFill(getBitmap().fromRef(bmp.pixel_ref),new Matrix(...bmp.matrix),Boolean(bmp.repeat),Boolean(bmp.smoothing));
+            if(grad){
+              const colors=grad.stops.map(s=>((s.color[0]<<16)|(s.color[1]<<8)|s.color[2])>>>0);
+              const alphas=grad.stops.map(s=>s.color[3]/255);
+              const ratios=grad.stops.map(s=>s.ratio);
+              return new GraphicsGradientFill(grad.kind,colors,alphas,ratios,new Matrix(...grad.matrix),'pad','rgb',grad.focal_point_ratio||0);
+            }
+            if(rgbaArr&&rgbaArr[3]>0)return new GraphicsSolidFill(((rgbaArr[0]<<16)|(rgbaArr[1]<<8)|rgbaArr[2])>>>0,rgbaArr[3]/255);
+            return null;
+          };
+          for(const leaf of list){
+            if(recurse?!descendant(leaf,source,list):nodeKey(leaf)!==nodeKey(source))continue;
+            const m=nodeKey(leaf)===nodeKey(source)?identity:relative(leaf,source,list);
+            const tx=(x,y)=>{const p=point(m,x,y);return [p.x,p.y];};
+            const shapes=[...(leaf.kind?[leaf.kind]:[]),...(leaf.graphics||[])];
+            for(const kind of shapes){
+              if(!['rectangle','ellipse','path','gradient_path'].includes(kind.type))continue;
+              const cmds=[],coords=[];
+              if(kind.type==='rectangle'){
+                const [x0,y0]=tx(0,0),[x1,y1]=tx(kind.width,0),[x2,y2]=tx(kind.width,kind.height),[x3,y3]=tx(0,kind.height);
+                cmds.push(1,2,2,2,2);coords.push(x0,y0,x1,y1,x2,y2,x3,y3,x0,y0);
+              }else if(kind.type==='ellipse'){
+                const rx=kind.width/2,ry=kind.height/2,cx=rx,cy=ry,k=0.5522847498307936;
+                const p0=tx(cx+rx,cy),c1=tx(cx+rx,cy+k*ry),c2=tx(cx+k*rx,cy+ry),p1=tx(cx,cy+ry);
+                const c3=tx(cx-k*rx,cy+ry),c4=tx(cx-rx,cy+k*ry),p2=tx(cx-rx,cy);
+                const c5=tx(cx-rx,cy-k*ry),c6=tx(cx-k*rx,cy-ry),p3=tx(cx,cy-ry);
+                const c7=tx(cx+k*rx,cy-ry),c8=tx(cx+rx,cy-k*ry);
+                cmds.push(1,6,6,6,6);
+                coords.push(...p0,...c1,...c2,...p1,...c3,...c4,...p2,...c5,...c6,...p3,...c7,...c8,...p0);
+              }else{
+                let start=[0,0];
+                for(const c of kind.commands||[]){
+                  if(c.op==='move_to'){const p=tx(c.x,c.y);start=p;cmds.push(1);coords.push(p[0],p[1]);}
+                  else if(c.op==='line_to'){const p=tx(c.x,c.y);cmds.push(2);coords.push(p[0],p[1]);}
+                  else if(c.op==='quadratic_to'){const cp=tx(c.cx,c.cy),p=tx(c.x,c.y);cmds.push(3);coords.push(cp[0],cp[1],p[0],p[1]);}
+                  else if(c.op==='cubic_to'){const c1=tx(c.cx1,c.cy1),c2=tx(c.cx2,c.cy2),p=tx(c.x,c.y);cmds.push(6);coords.push(c1[0],c1[1],c2[0],c2[1],p[0],p[1]);}
+                  else if(c.op==='close'){cmds.push(2);coords.push(start[0],start[1]);}
+                }
+              }
+              if(!cmds.length)continue;
+              const hasStroke=kind.stroke_width>0;
+              const strokeFill=hasStroke?toFill(kind.stroke,kind.stroke_gradient,kind.stroke_bitmap):null;
+              const fillObj=toFill(kind.fill,kind.fill_gradient,kind.fill_bitmap);
+              if(strokeFill)items.push(new GraphicsStroke(kind.stroke_width,false,'normal','round','round',3,strokeFill));
+              if(fillObj)items.push(fillObj);
+              const winding=kind.fill_rule==='evenodd'?'evenOdd':'nonZero';
+              items.push(new GraphicsPath(graphicsVectors.intVector(cmds),graphicsVectors.numberVector(coords),winding));
+              if(fillObj)items.push(new GraphicsEndFill());
+              if(strokeFill)items.push(new GraphicsStroke(NaN));
+            }
+          }
+          return graphicsVectors.dataVector(items);
+        },
         copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');descriptor(target);descriptor(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
         drawEllipse:(x,y,width,height)=>rectangle('draw_ellipse',x,y,width,height),
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
@@ -322,6 +468,82 @@
         swapChildrenAt:(first,second)=>{const api=methods(target);mutate({op:'swap',parent:ref(),first:childRef(api.getChildAt(first)),second:childRef(api.getChildAt(second))});},
       };
     }
+    const stageRefs=()=>graph&&typeof player.stage_children_json==='function'?JSON.parse(player.stage_children_json()):[];
+    function stageMutate(operation){
+      if(!graph||typeof player.stage_mutate!=='function')throw new Error('Stage display-list mutation requires the shared runtime graph.');
+      let packet;
+      try{packet=JSON.parse(player.stage_mutate(JSON.stringify(operation)));}
+      catch(error){
+        const err=error instanceof Error?error:new RangeError(String(error));
+        if(/not a direct child|cannot be added/i.test(err.message))err.name='ArgumentError';
+        throw err;
+      }
+      onMutation(packet.events);
+      return packet.events;
+    }
+    const stageContainer={
+      numChildren:()=>stageRefs().length,
+      addChild(child){
+        if(child===getStage()){const err=new RangeError('Stage cannot be added as a child of itself.');err.name='ArgumentError';throw err;}
+        descriptor(child);stageMutate({op:'add',child:referenceOf(child).objectRef,index:null});return child;
+      },
+      addChildAt(child,index){
+        if(child===getStage()){const err=new RangeError('Stage cannot be added as a child of itself.');err.name='ArgumentError';throw err;}
+        if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');
+        descriptor(child);stageMutate({op:'add',child:referenceOf(child).objectRef,index});return child;
+      },
+      removeChild(child){
+        descriptor(child);stageMutate({op:'remove',child:referenceOf(child).objectRef});return child;
+      },
+      removeChildAt(index){
+        const child=stageContainer.getChildAt(index);stageMutate({op:'remove',child:referenceOf(child).objectRef});return child;
+      },
+      getChildAt(index){
+        const refs=stageRefs();
+        if(!Number.isInteger(index)||index<0||index>=refs.length)throw new RangeError('Child index is outside Stage.');
+        return proxyForRef(refs[index]);
+      },
+      getChildByName(name){
+        const wanted=String(name),list=nodes();
+        for(const ref of stageRefs()){
+          const k=refKey(ref),node=list.find(n=>nodeKey(n)===k);
+          if(node&&node.name===wanted)return proxyForRef(ref);
+        }
+        return null;
+      },
+      getChildIndex(child){
+        descriptor(child);
+        const k=referenceOf(child).key,idx=stageRefs().findIndex(ref=>refKey(ref)===k);
+        if(idx<0){const err=new RangeError('Object is not a direct child of Stage.');err.name='ArgumentError';throw err;}
+        return idx;
+      },
+      setChildIndex(child,index){
+        if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');
+        descriptor(child);stageMutate({op:'set_index',child:referenceOf(child).objectRef,index});
+      },
+      swapChildren(first,second){
+        descriptor(first);descriptor(second);
+        stageMutate({op:'swap',first:referenceOf(first).objectRef,second:referenceOf(second).objectRef});
+      },
+      swapChildrenAt(first,second){
+        const a=stageContainer.getChildAt(first),b=stageContainer.getChildAt(second);
+        stageMutate({op:'swap',first:referenceOf(a).objectRef,second:referenceOf(b).objectRef});
+      },
+      contains(child){
+        if(child===getStage())return true;
+        return descriptor(child).on_stage!==false;
+      },
+      contentSize(){
+        let box=null;
+        for(const ref of stageRefs()){
+          const r=bounds(proxyForRef(ref),null,true);
+          if(r.width<=0&&r.height<=0)continue;
+          const next={left:r.x,top:r.y,right:r.x+r.width,bottom:r.y+r.height};
+          box=box?{left:Math.min(box.left,next.left),top:Math.min(box.top,next.top),right:Math.max(box.right,next.right),bottom:Math.max(box.bottom,next.bottom)}:next;
+        }
+        return box?{width:box.right-box.left,height:box.bottom-box.top}:{width:0,height:0};
+      },
+    };
     function legacyDepth(value) {
       if(!Number.isInteger(value)||value<0||value>1048575)throw new RangeError('AS2 runtime depth requires an integer from 0 through 1048575.');
       return value;
@@ -642,7 +864,13 @@
         if(type==='mouseUp'&&(event.button===undefined||event.button===0)){buttonState(buttonPressed,buttonPressed===next?1:0);buttonPressed=null;}
         buttonState(next,buttonPressed===next?2:buttonPressed?0:1);
       }
-      if(type==='click'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.link(referenceOf(target).key,mousePoint(target),event);return;}
+      if(type==='click'&&target&&target!==getStage()&&descriptor(target).owner==='text'){
+        if(!isStaticTextNode(descriptor(target))){
+          const pt=mousePoint(target),hit=getText()?.linkAt?.(referenceOf(target).key,pt);
+          if(hit&&/^event:/i.test(hit.url)){onTextLink?.(target,hit.url.slice(6));return;}
+        }
+        getAS2Text()?.link(referenceOf(target).key,mousePoint(target),event);return;
+      }
       if(type==='mouseWheel'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.wheel(referenceOf(target).key,event);return;}
       if(type==='keyDown' ||type==='keyUp'){
         if(target&&target!==getStage())callLegacy(target,type==='keyDown'?'onKeyDown':'onKeyUp');
@@ -681,6 +909,25 @@
         getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
+        getObjectsUnderPoint: pt=>{
+          requireContainer(target);
+          if(!Point.__nfIs(pt))throw new TypeError('DisplayObjectContainer.getObjectsUnderPoint requires a flash.geom.Point.');
+          const px=Number(pt.x),py=Number(pt.y);
+          if(!Number.isFinite(px)||!Number.isFinite(py))return [];
+          const snapshot=graph?JSON.parse(player.runtime_snapshot_json()):{objects:nodes(),draws:[],clips:[]};
+          const list=snapshot.objects,source=descriptor(target,list),matches=[];
+          for(const node of list){
+            if(!descendant(node,source,list)||node.effective_visible===false)continue;
+            if(node.clip_ids?.length&&clipsContain&&!clipsContain(snapshot,node.clip_ids,px,py))continue;
+            if(leafHit(node,px,py))matches.push(nodeProxy(node));
+          }
+          return matches;
+        },
+        areInaccessibleObjectsUnderPoint: pt=>{
+          requireContainer(target);
+          if(!Point.__nfIs(pt))throw new TypeError('DisplayObjectContainer.areInaccessibleObjectsUnderPoint requires a flash.geom.Point.');
+          return false;
+        },
       });
       if(as2) {
         for(const name of ['getBounds','getRect'])as2.register(result[name],target,name,space=>{
@@ -693,13 +940,26 @@
           const position=convert(target,value,name==='localToGlobal');value.x=position.x;value.y=position.y;
         });
       }
-      if(dragOwners.has(descriptor(target).owner)){result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);result.stopDrag=()=>stopDrag(target);if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});}
+      if(dragOwners.has(descriptor(target).owner)){
+        result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);
+        result.stopDrag=()=>stopDrag(target);
+        result.startTouchDrag=(touchPointID,lockCenter=false,bounds=null)=>{
+          if(!Number.isInteger(Number(touchPointID)))throw new TypeError('Sprite.startTouchDrag requires an integer touchPointID.');
+          touchDragId=Number(touchPointID)|0;
+          startDrag(target,lockCenter,bounds);
+        };
+        result.stopTouchDrag=touchPointID=>{
+          if(!Number.isInteger(Number(touchPointID)))throw new TypeError('Sprite.stopTouchDrag requires an integer touchPointID.');
+          if(touchDragId===null||touchDragId===(Number(touchPointID)|0)){touchDragId=null;stopDrag(target);}
+        };
+        if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});
+      }
       if(graph&&containerOwners.includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
-      if(descriptor(target).owner==='text'&&getText()){
+      if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target))&&getText()){
         Object.assign(result,getText().methods(referenceOf(target).key));
         result.replaceSel=result.replaceSelectedText;
         result.removeTextField=()=>{
@@ -710,7 +970,7 @@
           else throw new TypeError('removeTextField requires an attached runtime-created TextField; authored fields cannot be removed.');
         };
       }
-      else if(descriptor(target).owner==='text')Object.assign(result,{
+      else if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target)))Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
         replaceText:(begin,end,value)=>{
           const text=textValue(textKind(target).text);
@@ -728,10 +988,20 @@
       if(name==='_framesloaded')return descriptor(target).total_frames;
       if(name==='_url'){descriptor(target);if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
 
-      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
-      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(!interactiveOwners.includes(node.owner))return UNHANDLED;return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
+      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
       if(name==='enabled'&&descriptor(target).owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
+      if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip')return Boolean(nativeInput(target).track_as_menu);
+      if(name==='soundTransform'&&spriteOwners.includes(descriptor(target).owner)){
+        const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('Sprite.soundTransform requires the audio host.');
+        const rec=spriteSoundTransforms.get(target)||{volume:1,pan:0};
+        return new ST(rec.volume,rec.pan);
+      }
+      if(name==='textSnapshot'&&containerOwners.includes(descriptor(target).owner)){
+        const text=getText();if(!text?.snapshotFor)throw new Error('DisplayObjectContainer.textSnapshot requires the shared text service.');
+        return text.snapshotFor(referenceOf(target).key);
+      }
       if(descriptor(target).owner==='button'){
         if(name==='enabled')return nativeInput(target).button_enabled!==false;
         if(name==='trackAsMenu')return Boolean(nativeInput(target).track_as_menu);
@@ -749,6 +1019,12 @@
         if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
         return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
       }
+      if(name==='scale9Grid'){
+        descriptor(target);
+        if(typeof player.as2_render_command!=='function')return null;
+        const grid=JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true}))).scale9Grid;
+        return grid?new Rectangle(grid[0],grid[1],grid[2],grid[3]):null;
+      }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
       if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
@@ -760,7 +1036,9 @@
         descriptor(target);const value=JSON.parse(player.object_scroll_rect(referenceOf(target).key));
         return value===null?null:new Rectangle(value.x,value.y,value.width,value.height);
       }
-      if(getText()&&descriptor(target).owner==='text'){
+      if(descriptor(target).owner==='text'&&isStaticTextNode(descriptor(target))){
+        if(name==='text')return textValue(descriptor(target).kind.text);
+      }else if(getText()&&descriptor(target).owner==='text'){
         const text=getText(),value=text.get(referenceOf(target).key,name);if(value!==text.UNHANDLED)return value;
       }
       if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
@@ -770,7 +1048,7 @@
       }
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
-        if(node.owner==='text') {
+        if(node.owner==='text'&&!isStaticTextNode(node)) {
           if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           const kind=node.kind,text=textValue(kind.text),lines=text.split('\r');
           if(name==='text')return text;
@@ -793,14 +1071,20 @@
     }
     function set(target,name,value) {
       if(name==='enabled'&&descriptor(target).owner==='movie_clip'){inputWrite(target,name,value);return true;}
+      if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip'){inputWrite(target,'track_as_menu',value);return true;}
+      if(name==='soundTransform'&&spriteOwners.includes(descriptor(target).owner)){
+        const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('Sprite.soundTransform requires a SoundTransform.');
+        spriteSoundTransforms.set(target,{volume:value.volume,pan:value.pan});return true;
+      }
+      if(name==='textSnapshot'&&containerOwners.includes(descriptor(target).owner))throw new TypeError('DisplayObjectContainer.textSnapshot is read-only.');
       if(descriptor(target).owner==='button'){
         if(name==='enabled'){inputWrite(target,'button_enabled',value);return true;}
         if(name==='trackAsMenu'){inputWrite(target,'track_as_menu',value);return true;}
         if(['upState','overState','downState','hitTestState'].includes(name)){validateButtonState(value);buttonRecord(target)[name]=value;return true;}
         if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
       }
-      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
-      if(Object.hasOwn(inputNames,name)){if(!ownsInputProperty(descriptor(target).owner,name))return false;inputWrite(target,name,value);return true;}
+      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
+      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
@@ -819,6 +1103,15 @@
         catch(error){throw error instanceof Error?error:new TypeError(String(error));}
         if(next.isolated)beforeRaster(target);
         player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name,value}));
+        return true;
+      }
+      if(name==='scale9Grid'){
+        descriptor(target);
+        if(value!==null&&!Rectangle.__nfIs(value))throw new TypeError('DisplayObject.scale9Grid requires a native Rectangle or null.');
+        if(typeof player.as2_render_command!=='function')throw new Error('Display scale9Grid requires the shared Rust render state.');
+        const payload=value===null?null:{x:value.x,y:value.y,width:value.width,height:value.height};
+        try{player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'set',as3:true,name:'scale9Grid',value:payload}));}
+        catch(error){const err=new RangeError(String(error));err.name='ArgumentError';throw err;}
         return true;
       }
       if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
@@ -840,7 +1133,9 @@
         // mutating either the assigned Rectangle or a prior read has no effect.
         player.object_set_scroll_rect(referenceOf(target).key,JSON.stringify(rect));return true;
       }
-      if(getText()&&descriptor(target).owner==='text'){
+      if(descriptor(target).owner==='text'&&isStaticTextNode(descriptor(target))){
+        if(name==='text')throw new TypeError('StaticText.text is read-only.');
+      }else if(getText()&&descriptor(target).owner==='text'){
         if(['width','height','_width','_height'].includes(name)&&nonAxisAligned(descriptor(target)))throw new RangeError('Setting dimensions of a rotated TextField or skewed TextField is not supported yet. Set its logical box before applying the matrix.');
         if(getText().set(referenceOf(target).key,name,value))return true;
       }
@@ -853,7 +1148,7 @@
       }
       if(textProperties.has(name)||unsupportedText.has(name)) {
         const node=descriptor(target);
-        if(node.owner==='text') {
+        if(node.owner==='text'&&!isStaticTextNode(node)) {
           if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           if(name==='text'){writeText(target,value);return true;}
           if(name==='textColor'){
@@ -931,24 +1226,168 @@
       rec.upState=upState;rec.overState=overState;rec.downState=downState;rec.hitTestState=hitTestState;
       refreshLegacyCallbacks(receiver);
     }
-    const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
+    const solidFillSet=new WeakSet(),gradientFillMap=new WeakMap(),bitmapFillSet=new WeakSet(),endFillSet=new WeakSet(),strokeMap=new WeakMap(),pathMap=new WeakMap(),triPathMap=new WeakMap();
+    function finalizeGraphicsType(Type,check){
+      Type.__nfIs=check;
+      Type.__nfInitialize=()=>{throw new TypeError(`${Type.name} is final and cannot be subclassed.`);};
+      Object.defineProperty(Type,Symbol.hasInstance,{value:check});
+      return Type;
+    }
+    class GraphicsSolidFill {
+      constructor(color=0,alpha=1.0){
+        if(new.target!==GraphicsSolidFill)throw new TypeError('GraphicsSolidFill is final and cannot be subclassed.');
+        this.color=Number(color)>>>0;this.alpha=Number(alpha);
+        solidFillSet.add(this);return Object.seal(this);
+      }
+    }
+    finalizeGraphicsType(GraphicsSolidFill,v=>solidFillSet.has(v));
+    class GraphicsGradientFill {
+      constructor(type='linear',colors=null,alphas=null,ratios=null,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0.0){
+        if(new.target!==GraphicsGradientFill)throw new TypeError('GraphicsGradientFill is final and cannot be subclassed.');
+        gradientFillMap.set(this,{type:'linear',spreadMethod:'pad',interpolationMethod:'rgb'});
+        this.type=type;this.colors=colors;this.alphas=alphas;this.ratios=ratios;this.matrix=matrix;
+        this.spreadMethod=spreadMethod;this.interpolationMethod=interpolationMethod;this.focalPointRatio=Number(focalPointRatio);
+        return Object.seal(this);
+      }
+      get type(){return gradientFillMap.get(this).type;}
+      set type(value){const next=String(value);if(next!=='linear'&&next!=='radial'){const err=new RangeError(`GraphicsGradientFill.type is invalid: '${next}'.`);err.name='ArgumentError';throw err;}gradientFillMap.get(this).type=next;}
+      get spreadMethod(){return gradientFillMap.get(this).spreadMethod;}
+      set spreadMethod(value){const next=String(value);if(!['pad','reflect','repeat'].includes(next)){const err=new RangeError(`GraphicsGradientFill.spreadMethod is invalid: '${next}'.`);err.name='ArgumentError';throw err;}gradientFillMap.get(this).spreadMethod=next;}
+      get interpolationMethod(){return gradientFillMap.get(this).interpolationMethod;}
+      set interpolationMethod(value){const next=String(value);if(next!=='rgb'&&next!=='linearRGB'){const err=new RangeError(`GraphicsGradientFill.interpolationMethod is invalid: '${next}'.`);err.name='ArgumentError';throw err;}gradientFillMap.get(this).interpolationMethod=next;}
+    }
+    finalizeGraphicsType(GraphicsGradientFill,v=>gradientFillMap.has(v));
+    class GraphicsBitmapFill {
+      constructor(bitmapData=null,matrix=null,repeat=true,smooth=false){
+        if(new.target!==GraphicsBitmapFill)throw new TypeError('GraphicsBitmapFill is final and cannot be subclassed.');
+        if(bitmapData!==null&&!getBitmap()?.BitmapData.__nfIs(bitmapData))throw new TypeError('GraphicsBitmapFill.bitmapData requires BitmapData or null.');
+        if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('GraphicsBitmapFill.matrix requires Matrix or null.');
+        this.bitmapData=bitmapData;this.matrix=matrix;this.repeat=Boolean(repeat);this.smooth=Boolean(smooth);
+        bitmapFillSet.add(this);return Object.seal(this);
+      }
+    }
+    finalizeGraphicsType(GraphicsBitmapFill,v=>bitmapFillSet.has(v));
+    class GraphicsEndFill {
+      constructor(){
+        if(new.target!==GraphicsEndFill)throw new TypeError('GraphicsEndFill is final and cannot be subclassed.');
+        endFillSet.add(this);return Object.seal(this);
+      }
+    }
+    finalizeGraphicsType(GraphicsEndFill,v=>endFillSet.has(v));
+    class GraphicsStroke {
+      constructor(thickness=NaN,pixelHinting=false,scaleMode='normal',caps='none',joints='round',miterLimit=3.0,fill=null){
+        if(new.target!==GraphicsStroke)throw new TypeError('GraphicsStroke is final and cannot be subclassed.');
+        strokeMap.set(this,{scaleMode:'normal',caps:'none',joints:'round'});
+        this.thickness=Number(thickness);this.pixelHinting=Boolean(pixelHinting);
+        this.scaleMode=scaleMode;this.caps=caps;this.joints=joints;
+        this.miterLimit=Number(miterLimit);
+        if(fill!==null&&!IGraphicsFill.__nfIs(fill))throw new TypeError('GraphicsStroke.fill requires an IGraphicsFill or null.');
+        this.fill=fill;
+        return Object.seal(this);
+      }
+      get scaleMode(){return strokeMap.get(this).scaleMode;}
+      set scaleMode(value){const next=String(value);if(!['normal','none','vertical','horizontal'].includes(next)){const err=new RangeError(`GraphicsStroke.scaleMode is invalid: '${next}'.`);err.name='ArgumentError';throw err;}strokeMap.get(this).scaleMode=next;}
+      get caps(){return strokeMap.get(this).caps;}
+      set caps(value){const next=String(value);if(!['none','round','square'].includes(next)){const err=new RangeError(`GraphicsStroke.caps is invalid: '${next}'.`);err.name='ArgumentError';throw err;}strokeMap.get(this).caps=next;}
+      get joints(){return strokeMap.get(this).joints;}
+      set joints(value){const next=String(value);if(!['round','bevel','miter'].includes(next)){const err=new RangeError(`GraphicsStroke.joints is invalid: '${next}'.`);err.name='ArgumentError';throw err;}strokeMap.get(this).joints=next;}
+    }
+    finalizeGraphicsType(GraphicsStroke,v=>strokeMap.has(v));
+    class GraphicsPath {
+      constructor(commands=null,data=null,winding='evenOdd'){
+        if(new.target!==GraphicsPath)throw new TypeError('GraphicsPath is final and cannot be subclassed.');
+        pathMap.set(this,{winding:'evenOdd'});
+        this.commands=commands;this.data=data;this.winding=winding;
+        return Object.seal(this);
+      }
+      get winding(){return pathMap.get(this).winding;}
+      set winding(value){const next=String(value);if(next!=='evenOdd'&&next!=='nonZero'){const err=new RangeError(`GraphicsPath.winding must be 'evenOdd' or 'nonZero'; got '${next}'.`);err.name='ArgumentError';throw err;}pathMap.get(this).winding=next;}
+      moveTo(x,y){this.#ensure();this.commands.push(1);this.data.push(Number(x),Number(y));}
+      lineTo(x,y){this.#ensure();this.commands.push(2);this.data.push(Number(x),Number(y));}
+      curveTo(controlX,controlY,anchorX,anchorY){this.#ensure();this.commands.push(3);this.data.push(Number(controlX),Number(controlY),Number(anchorX),Number(anchorY));}
+      wideMoveTo(x,y){this.#ensure();this.commands.push(4);this.data.push(0,0,Number(x),Number(y));}
+      wideLineTo(x,y){this.#ensure();this.commands.push(5);this.data.push(0,0,Number(x),Number(y));}
+      cubicCurveTo(cx1,cy1,cx2,cy2,ax,ay){this.#ensure();this.commands.push(6);this.data.push(Number(cx1),Number(cy1),Number(cx2),Number(cy2),Number(ax),Number(ay));}
+      #ensure(){
+        if(this.commands===null||this.commands===undefined)this.commands=graphicsVectors.intVector([]);
+        if(this.data===null||this.data===undefined)this.data=graphicsVectors.numberVector([]);
+      }
+    }
+    finalizeGraphicsType(GraphicsPath,v=>pathMap.has(v));
+    class GraphicsTrianglePath {
+      constructor(vertices=null,indices=null,uvtData=null,culling='none'){
+        if(new.target!==GraphicsTrianglePath)throw new TypeError('GraphicsTrianglePath is final and cannot be subclassed.');
+        triPathMap.set(this,{culling:'none'});
+        this.vertices=vertices;this.indices=indices;this.uvtData=uvtData;this.culling=culling;
+        return Object.seal(this);
+      }
+      get culling(){return triPathMap.get(this).culling;}
+      set culling(value){const next=String(value);if(!['none','positive','negative'].includes(next)){const err=new RangeError(`GraphicsTrianglePath.culling is invalid: '${next}'.`);err.name='ArgumentError';throw err;}triPathMap.get(this).culling=next;}
+    }
+    finalizeGraphicsType(GraphicsTrianglePath,v=>triPathMap.has(v));
+    function makeGraphicsInterface(name,check){
+      const Iface=function(){throw new TypeError(`${name} is an interface and cannot be instantiated.`);};
+      Object.defineProperty(Iface,'name',{value:name});
+      Iface.__nfIs=check;
+      Object.defineProperty(Iface,Symbol.hasInstance,{value:check});
+      return Iface;
+    }
+    const IGraphicsFill=makeGraphicsInterface('IGraphicsFill',v=>GraphicsSolidFill.__nfIs(v)||GraphicsGradientFill.__nfIs(v)||GraphicsBitmapFill.__nfIs(v)||GraphicsEndFill.__nfIs(v));
+    const IGraphicsPath=makeGraphicsInterface('IGraphicsPath',v=>GraphicsPath.__nfIs(v)||GraphicsTrianglePath.__nfIs(v));
+    const IGraphicsStroke=makeGraphicsInterface('IGraphicsStroke',v=>GraphicsStroke.__nfIs(v));
+    const IGraphicsData=makeGraphicsInterface('IGraphicsData',v=>IGraphicsFill.__nfIs(v)||IGraphicsPath.__nfIs(v)||IGraphicsStroke.__nfIs(v));
+    const IBitmapDrawable=makeGraphicsInterface('IBitmapDrawable',v=>Boolean(builtins['flash.display.DisplayObject']?.__nfIs(v)||getBitmap()?.BitmapData?.__nfIs(v)));
+    const builtins={
+      'flash.display.Graphics':Graphics,
+      'flash.display.IBitmapDrawable':IBitmapDrawable,
+      'flash.display.IGraphicsData':IGraphicsData,
+      'flash.display.IGraphicsFill':IGraphicsFill,
+      'flash.display.IGraphicsPath':IGraphicsPath,
+      'flash.display.IGraphicsStroke':IGraphicsStroke,
+      'flash.display.GraphicsSolidFill':GraphicsSolidFill,
+      'flash.display.GraphicsGradientFill':GraphicsGradientFill,
+      'flash.display.GraphicsBitmapFill':GraphicsBitmapFill,
+      'flash.display.GraphicsEndFill':GraphicsEndFill,
+      'flash.display.GraphicsStroke':GraphicsStroke,
+      'flash.display.GraphicsPath':GraphicsPath,
+      'flash.display.GraphicsTrianglePath':GraphicsTrianglePath,
+      'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform
+    };
     for(const[name,type]of Object.entries(graphicsEnums))builtins['flash.display.'+name]=type;
-    for(const[name,owners]of Object.entries({DisplayObject:null,InteractiveObject:interactiveOwners,DisplayObjectContainer:containerOwners,MovieClip:['movie_clip'],SimpleButton:['button'],Sprite:spriteOwners,Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
+    for(const[name,owners]of Object.entries({DisplayObject:null,InteractiveObject:interactiveOwners,DisplayObjectContainer:containerOwners,MovieClip:['movie_clip'],SimpleButton:['button'],Sprite:spriteOwners,Shape:['shape'],Bitmap:['bitmap'],TextField:['text'],StaticText:['text']})) {
       const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field',SimpleButton:'button'}[name];
-      function allocate(){if(name==='DisplayObject'||name==='InteractiveObject'||name==='DisplayObjectContainer')throw new TypeError(`ArgumentError: Error #2012: ${name}$ class cannot be instantiated.`);if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
-      function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(name==='SimpleButton'){simpleButtonArguments(args);const receiver=allocate();initializeSimpleButton(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
+      function allocate(){
+        if(name==='StaticText'){const err=new RangeError('Error #2012: StaticText$ class cannot be instantiated.');err.name='ArgumentError';err.errorID=2012;throw err;}
+        if(name==='DisplayObject'||name==='InteractiveObject'||name==='DisplayObjectContainer')throw new TypeError(`ArgumentError: Error #2012: ${name}$ class cannot be instantiated.`);
+        if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);
+        return proxyForRef(JSON.parse(player.create_display(allocation)));
+      }
+      function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(name==='SimpleButton'){simpleButtonArguments(args);const receiver=allocate();initializeSimpleButton(receiver,args);return receiver;}if(name==='StaticText')return allocate();if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
       if((allocation||name==='SimpleButton')&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
         const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
         if(!symbol)return allocate();
         const receiver=proxyForRef(JSON.parse(player.create_linked(symbol.linkage_id)));
         prepareLinked(receiver,true);return receiver;
       };
-      NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return ['DisplayObject','InteractiveObject','DisplayObjectContainer'].includes(name);try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
+      NativeDisplay.__nfIs=value=>{
+        if(value&&value===getStage())return ['DisplayObject','InteractiveObject','DisplayObjectContainer'].includes(name);
+        try{
+          const node=descriptor(value);
+          if(name==='StaticText')return isStaticTextNode(node);
+          if((name==='InteractiveObject'||name==='TextField')&&isStaticTextNode(node))return false;
+          return owners===null||owners.includes(node.owner);
+        }catch(_){return false;}
+      };
       NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(name==='SimpleButton'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('SimpleButton base initialization requires a SimpleButton display object.');initializeSimpleButton(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
-      builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
+      builtins[(name==='TextField'||name==='StaticText'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    builtins['flash.text.TextField'].isFontCompatible=(fontName,fontStyle)=>{
+      const text=getText();
+      if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
+      return text.isFontCompatible(fontName,fontStyle);
+    };
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

@@ -117,6 +117,21 @@ const BUILTINS: &[&str] = &[
     "flash.display.PixelSnapping",
     "flash.display.PNGEncoderOptions",
     "flash.display.JPEGEncoderOptions",
+    "flash.display.BitmapEncodingColorSpace",
+    "flash.display.JPEGXREncoderOptions",
+    "flash.display.IBitmapDrawable",
+    "flash.display.IGraphicsData",
+    "flash.display.IGraphicsFill",
+    "flash.display.IGraphicsPath",
+    "flash.display.IGraphicsStroke",
+    "flash.display.TriangleCulling",
+    "flash.display.GraphicsSolidFill",
+    "flash.display.GraphicsGradientFill",
+    "flash.display.GraphicsBitmapFill",
+    "flash.display.GraphicsEndFill",
+    "flash.display.GraphicsStroke",
+    "flash.display.GraphicsPath",
+    "flash.display.GraphicsTrianglePath",
     "flash.display.Loader",
     "flash.display.LoaderInfo",
     "flash.display.Stage",
@@ -125,6 +140,8 @@ const BUILTINS: &[&str] = &[
     "flash.display.StageDisplayState",
     "flash.display.StageQuality",
     "flash.text.TextField",
+    "flash.text.StaticText",
+    "flash.text.TextSnapshot",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
     "flash.text.TextFieldType",
@@ -146,6 +163,7 @@ const BUILTINS: &[&str] = &[
     "flash.ui.KeyboardType",
     "flash.ui.Mouse",
     "flash.ui.MouseCursor",
+    "flash.ui.MouseCursorData",
     "flash.media.Video",
     "flash.net.NetConnection",
     "flash.net.NetStream",
@@ -201,9 +219,20 @@ const BUILTINS: &[&str] = &[
     "flash.geom.Matrix",
     "flash.geom.Vector3D",
     "flash.geom.Matrix3D",
+    "flash.geom.Orientation3D",
     "flash.geom.Utils3D",
     "flash.geom.PerspectiveProjection",
     "flash.geom.Transform",
+    "flash.errors.IOError",
+    "flash.errors.EOFError",
+    "flash.errors.IllegalOperationError",
+    "flash.errors.InvalidSWFError",
+    "flash.errors.MemoryError",
+    "flash.errors.ScriptTimeoutError",
+    "flash.errors.StackOverflowError",
+    "flash.xml.XMLNodeType",
+    "flash.xml.XMLNode",
+    "flash.xml.XMLDocument",
     "flash.globalization.DateTimeFormatter",
     "flash.globalization.DateTimeStyle",
     "flash.globalization.DateTimeNameStyle",
@@ -280,6 +309,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.clearTimeout",
     "flash.net.navigateToURL",
     "flash.net.sendToURL",
+    "flash.net.registerClassAlias",
+    "flash.net.getClassByAlias",
 ];
 pub(super) fn is_graphics_constants(name: &str) -> bool {
     matches!(
@@ -289,6 +320,8 @@ pub(super) fn is_graphics_constants(name: &str) -> bool {
             | "flash.display.InterpolationMethod"
             | "flash.display.GraphicsPathCommand"
             | "flash.display.GraphicsPathWinding"
+            | "flash.display.TriangleCulling"
+            | "flash.display.BitmapEncodingColorSpace"
             | "flash.display.BlendMode"
             | "flash.display.CapsStyle"
             | "flash.display.JointStyle"
@@ -512,6 +545,81 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "hasGlyphs"
                 | "setAdvancedAntiAliasingTable"
                 | "setAdvancedAntialiasingTable"
+                | "decompose"
+                | "recompose"
+                | "interpolate"
+                | "interpolateTo"
+                | "pointAt"
+                | "pointTowards"
+                | "projectVector"
+                | "projectVectors"
+                | "transformVector"
+                | "deltaTransformVector"
+                | "transformVectors"
+                | "append"
+                | "prepend"
+                | "appendRotation"
+                | "prependRotation"
+                | "appendScale"
+                | "prependScale"
+                | "appendTranslation"
+                | "prependTranslation"
+                | "copyColumnFrom"
+                | "copyColumnTo"
+                | "copyRowFrom"
+                | "copyRowTo"
+                | "copyRawDataFrom"
+                | "copyRawDataTo"
+                | "copyToMatrix3D"
+                | "transpose"
+                | "toMatrix3D"
+                | "addToOutput"
+                | "subtractToOutput"
+                | "crossProduct"
+                | "crossProductToOutput"
+                | "dotProduct"
+                | "incrementBy"
+                | "decrementBy"
+                | "nearEquals"
+                | "negate"
+                | "project"
+                | "scaleBy"
+                | "angleBetween"
+                | "distance"
+                | "appendChild"
+                | "cloneNode"
+                | "getNamespaceForPrefix"
+                | "getPrefixForNamespace"
+                | "hasChildNodes"
+                | "insertBefore"
+                | "removeNode"
+                | "createElement"
+                | "createTextNode"
+                | "parseXML"
+                | "getObjectsUnderPoint"
+                | "areInaccessibleObjectsUnderPoint"
+                | "startTouchDrag"
+                | "stopTouchDrag"
+                | "assignFocus"
+                | "isFocusInaccessible"
+                | "drawGraphicsData"
+                | "readGraphicsData"
+                | "lineBitmapStyle"
+                | "drawTriangles"
+                | "wideLineTo"
+                | "wideMoveTo"
+                | "histogram"
+                | "drawWithQuality"
+                | "isFontCompatible"
+                | "findText"
+                | "getSelected"
+                | "getSelectedText"
+                | "getText"
+                | "getTextRunInfo"
+                | "hitTestTextNearPos"
+                | "setSelectColor"
+                | "setSelected"
+                | "getStackTrace"
         )
 }
 
@@ -630,7 +738,9 @@ fn visible_names(
                         || (language == ScriptLanguage::ActionScript2
                             && (name.starts_with("mx.transitions.")
                                 || AS2_BUILTINS.contains(&name.as_str())))
-                        || name.starts_with("flash.geom.")
+                        || (name.starts_with("flash.geom.")
+                            && (language == ScriptLanguage::ActionScript3
+                                || *name != "flash.geom.Orientation3D"))
                         || (name.starts_with("flash.filters.")
                             && !matches!(
                                 name.as_str(),
@@ -1114,6 +1224,7 @@ fn parse_class(
                 | "flash.geom.ColorTransform"
                 | "flash.geom.Vector3D"
                 | "flash.geom.Matrix3D"
+                | "flash.geom.Orientation3D"
                 | "flash.geom.Utils3D"
                 | "flash.geom.PerspectiveProjection"
                 | "fl.motion.MatrixTransformer"
@@ -1159,6 +1270,14 @@ fn parse_class(
                 | "flash.display.PixelSnapping"
                 | "flash.display.PNGEncoderOptions"
                 | "flash.display.JPEGEncoderOptions"
+                | "flash.display.JPEGXREncoderOptions"
+                | "flash.display.GraphicsSolidFill"
+                | "flash.display.GraphicsGradientFill"
+                | "flash.display.GraphicsBitmapFill"
+                | "flash.display.GraphicsEndFill"
+                | "flash.display.GraphicsStroke"
+                | "flash.display.GraphicsPath"
+                | "flash.display.GraphicsTrianglePath"
                 | "flash.display.Stage"
                 | "flash.display.StageScaleMode"
                 | "flash.display.StageAlign"
@@ -1169,7 +1288,17 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; PNGEncoderOptions and JPEGEncoderOptions are final.",
+            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; encoder options and IGraphicsData command classes are final.",
+        ));
+    }
+    if base
+        .as_ref()
+        .is_some_and(|base| base.starts_with("flash.xml."))
+    {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "flash.xml XMLNode, XMLDocument and XMLNodeType native subclass initialization is outside this profile; construct XMLNode or XMLDocument and use composition.",
         ));
     }
     if base
@@ -1977,6 +2106,11 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                 ),
             ]),
         ),
+        ("flash.display.IBitmapDrawable".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsData".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsFill".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsPath".to_owned(), BTreeMap::new()),
+        ("flash.display.IGraphicsStroke".to_owned(), BTreeMap::new()),
     ])
 }
 
@@ -2605,7 +2739,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

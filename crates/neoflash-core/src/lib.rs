@@ -97,7 +97,7 @@ pub use runtime_graph::{
     DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS,
     MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem,
     RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
-    ScrollRect, VideoState,
+    ScrollRect, StageMutation, VideoState,
 };
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientStop,

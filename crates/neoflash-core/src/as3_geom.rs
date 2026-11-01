@@ -641,9 +641,78 @@ impl GeometryValue {
                         return Ok(json!(values));
                     }
                 }
+                "decompose" => {
+                    let style = if a(0).is_null() {
+                        "eulerAngles"
+                    } else {
+                        a(0).as_str()
+                            .ok_or("Matrix3D.decompose orientationStyle must be a String")?
+                    };
+                    let [pos, rot, scale] = decompose_matrix(m, style)?;
+                    return Ok(json!({
+                        "type": "Vector3DList",
+                        "data": [pos, rot, scale]
+                    }));
+                }
+                "recompose" => {
+                    let pos = vector(a(0))?;
+                    let rot = vector(a(1))?;
+                    let scale = vector(a(2))?;
+                    let style = if a(3).is_null() {
+                        "eulerAngles"
+                    } else {
+                        a(3).as_str()
+                            .ok_or("Matrix3D.recompose orientationStyle must be a String")?
+                    };
+                    if let Some(recomposed) = recompose_matrix(pos, rot, scale, style)? {
+                        *m = recomposed;
+                        return Ok(json!(true));
+                    }
+                    return Ok(json!(false));
+                }
+                "interpolate" => {
+                    let target = matrix(a(0))?;
+                    let percent = number(a(1))?;
+                    return matrix_output(interpolate_matrices(m, &target, percent));
+                }
+                "interpolateTo" => {
+                    let target = matrix(a(0))?;
+                    let percent = number(a(1))?;
+                    *m = interpolate_matrices(m, &target, percent);
+                }
+                "pointAt" => {
+                    let pos = vector(a(0))?;
+                    let at = if a(1).is_null() {
+                        [0.0, 0.0, -1.0, 0.0]
+                    } else {
+                        vector(a(1))?
+                    };
+                    let up = if a(2).is_null() {
+                        [0.0, -1.0, 0.0, 0.0]
+                    } else {
+                        vector(a(2))?
+                    };
+                    *m = point_at_matrix(pos, at, up);
+                }
+                "pointTowards" => {
+                    let percent = number(a(0))?;
+                    let pos = vector(a(1))?;
+                    let at = if a(2).is_null() {
+                        [0.0, 0.0, -1.0, 0.0]
+                    } else {
+                        vector(a(2))?
+                    };
+                    let up = if a(3).is_null() {
+                        [0.0, -1.0, 0.0, 0.0]
+                    } else {
+                        vector(a(3))?
+                    };
+                    let target = point_at_matrix(pos, at, up);
+                    return matrix_output(interpolate_matrices(m, &target, percent));
+                }
                 _ => {
                     return Err(format!(
-                        "Matrix3D.{op} is unsupported in the current Rust profile; decomposition, recomposition, interpolation and pointAt remain pending"
+                        "Matrix3D.{op} is unsupported in the current Rust profile"
                     ));
                 }
             },
@@ -707,6 +776,288 @@ fn rotation(degrees: f64, axis: [f64; 4], pivot: [f64; 4]) -> Matrix3D {
             1.0,
         ]
         .map(|f| f as f32),
+    }
+}
+
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn norm3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+fn normalize3(v: [f64; 3]) -> Option<[f64; 3]> {
+    let len = norm3(v);
+    (len > 1e-12).then(|| [v[0] / len, v[1] / len, v[2] / len])
+}
+
+fn matrix_to_quaternion(r: [[f64; 3]; 3]) -> [f64; 4] {
+    // r[col][row] holds orthonormal basis columns X, Y, Z.
+    let (r00, r10, r20) = (r[0][0], r[0][1], r[0][2]);
+    let (r01, r11, r21) = (r[1][0], r[1][1], r[1][2]);
+    let (r02, r12, r22) = (r[2][0], r[2][1], r[2][2]);
+    let trace = r00 + r11 + r22;
+    let mut q = if trace > 0.0 {
+        let s = (trace + 1.0).max(0.0).sqrt() * 2.0;
+        [(r21 - r12) / s, (r02 - r20) / s, (r10 - r01) / s, 0.25 * s]
+    } else if r00 > r11 && r00 > r22 {
+        let s = (1.0 + r00 - r11 - r22).max(0.0).sqrt() * 2.0;
+        [0.25 * s, (r01 + r10) / s, (r02 + r20) / s, (r21 - r12) / s]
+    } else if r11 > r22 {
+        let s = (1.0 + r11 - r00 - r22).max(0.0).sqrt() * 2.0;
+        [(r01 + r10) / s, 0.25 * s, (r12 + r21) / s, (r02 - r20) / s]
+    } else {
+        let s = (1.0 + r22 - r00 - r11).max(0.0).sqrt() * 2.0;
+        [(r02 + r20) / s, (r12 + r21) / s, 0.25 * s, (r10 - r01) / s]
+    };
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    if n > 1e-12 {
+        for item in &mut q {
+            *item /= n;
+        }
+    } else {
+        q = [0.0, 0.0, 0.0, 1.0];
+    }
+    q
+}
+
+fn quaternion_to_basis(q: [f64; 4]) -> [[f64; 3]; 3] {
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    let [x, y, z, w] = if n > 1e-12 {
+        [q[0] / n, q[1] / n, q[2] / n, q[3] / n]
+    } else {
+        [0.0, 0.0, 0.0, 1.0]
+    };
+    [
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y + w * z),
+            2.0 * (x * z - w * y),
+        ],
+        [
+            2.0 * (x * y - w * z),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z + w * x),
+        ],
+        [
+            2.0 * (x * z + w * y),
+            2.0 * (y * z - w * x),
+            1.0 - 2.0 * (x * x + y * y),
+        ],
+    ]
+}
+
+fn decompose_matrix(m: &Matrix3D, style: &str) -> Result<[[f64; 4]; 3], String> {
+    if !matches!(style, "eulerAngles" | "axisAngle" | "quaternion") {
+        return Err(format!(
+            "Invalid Orientation3D style '{style}'; expected eulerAngles, axisAngle or quaternion"
+        ));
+    }
+    let d = m.raw_data.map(|v| v as f64);
+    let pos = [d[12], d[13], d[14], 0.0];
+    let mut c0 = [d[0], d[1], d[2]];
+    let mut c1 = [d[4], d[5], d[6]];
+    let mut c2 = [d[8], d[9], d[10]];
+    let sx = norm3(c0);
+    let sy = norm3(c1);
+    let mut sz = norm3(c2);
+    let det3 = c0[0] * (c1[1] * c2[2] - c2[1] * c1[2]) - c1[0] * (c0[1] * c2[2] - c2[1] * c0[2])
+        + c2[0] * (c0[1] * c1[2] - c1[1] * c0[2]);
+    if det3 < 0.0 {
+        sz = -sz;
+    }
+    if sx != 0.0 {
+        c0 = [c0[0] / sx, c0[1] / sx, c0[2] / sx];
+    }
+    if sy != 0.0 {
+        c1 = [c1[0] / sy, c1[1] / sy, c1[2] / sy];
+    }
+    if sz != 0.0 {
+        c2 = [c2[0] / sz, c2[1] / sz, c2[2] / sz];
+    }
+    let basis = [c0, c1, c2];
+    let rot = match style {
+        "eulerAngles" => {
+            let ry = (-c0[2]).clamp(-1.0, 1.0).asin();
+            let cy = ry.cos();
+            let (rx, rz) = if cy.abs() > 1e-6 {
+                (c1[2].atan2(c2[2]), c0[1].atan2(c0[0]))
+            } else {
+                ((-c2[1]).atan2(c1[1]), 0.0)
+            };
+            [rx, ry, rz, 0.0]
+        }
+        "quaternion" => matrix_to_quaternion(basis),
+        "axisAngle" => {
+            let mut q = matrix_to_quaternion(basis);
+            if q[3] < 0.0 {
+                q = [-q[0], -q[1], -q[2], -q[3]];
+            }
+            let angle = 2.0 * q[3].clamp(-1.0, 1.0).acos();
+            let sin_half = (1.0 - q[3] * q[3]).max(0.0).sqrt();
+            if sin_half > 1e-6 {
+                [q[0] / sin_half, q[1] / sin_half, q[2] / sin_half, angle]
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
+            }
+        }
+        _ => unreachable!(),
+    };
+    let scale = [sx, sy, sz, 0.0];
+    if [pos, rot, scale].iter().flatten().any(|v| !v.is_finite()) {
+        return Err("Matrix3D.decompose produced non-finite components".into());
+    }
+    Ok([pos, rot, scale])
+}
+
+fn recompose_matrix(
+    pos: [f64; 4],
+    rot: [f64; 4],
+    scale: [f64; 4],
+    style: &str,
+) -> Result<Option<Matrix3D>, String> {
+    if !matches!(style, "eulerAngles" | "axisAngle" | "quaternion") {
+        return Err(format!(
+            "Invalid Orientation3D style '{style}'; expected eulerAngles, axisAngle or quaternion"
+        ));
+    }
+    if scale[0] == 0.0 || scale[1] == 0.0 || scale[2] == 0.0 {
+        return Ok(None);
+    }
+    let basis = match style {
+        "eulerAngles" => {
+            let (sx, cx) = rot[0].sin_cos();
+            let (sy, cy) = rot[1].sin_cos();
+            let (sz, cz) = rot[2].sin_cos();
+            [
+                [cz * cy, sz * cy, -sy],
+                [cz * sy * sx - sz * cx, sz * sy * sx + cz * cx, cy * sx],
+                [cz * sy * cx + sz * sx, sz * sy * cx - cz * sx, cy * cx],
+            ]
+        }
+        "quaternion" => quaternion_to_basis(rot),
+        "axisAngle" => {
+            let half = rot[3] * 0.5;
+            let (sh, ch) = half.sin_cos();
+            let q = if let Some([ax, ay, az]) = normalize3([rot[0], rot[1], rot[2]]) {
+                [ax * sh, ay * sh, az * sh, ch]
+            } else {
+                [0.0, 0.0, 0.0, 1.0]
+            };
+            quaternion_to_basis(q)
+        }
+        _ => unreachable!(),
+    };
+    let raw = [
+        basis[0][0] * scale[0],
+        basis[0][1] * scale[0],
+        basis[0][2] * scale[0],
+        0.0,
+        basis[1][0] * scale[1],
+        basis[1][1] * scale[1],
+        basis[1][2] * scale[1],
+        0.0,
+        basis[2][0] * scale[2],
+        basis[2][1] * scale[2],
+        basis[2][2] * scale[2],
+        0.0,
+        pos[0],
+        pos[1],
+        pos[2],
+        1.0,
+    ]
+    .map(|v| v as f32);
+    if raw.iter().any(|v| !v.is_finite()) {
+        return Err("Matrix3D.recompose produced non-finite matrix components".into());
+    }
+    Ok(Some(Matrix3D { raw_data: raw }))
+}
+
+fn slerp_quat(a: [f64; 4], mut b: [f64; 4], t: f64) -> [f64; 4] {
+    let mut cos = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    if cos < 0.0 {
+        cos = -cos;
+        b = [-b[0], -b[1], -b[2], -b[3]];
+    }
+    let (w0, w1) = if cos > 0.9995 {
+        (1.0 - t, t)
+    } else {
+        let omega = cos.clamp(-1.0, 1.0).acos();
+        let sin = omega.sin();
+        (((1.0 - t) * omega).sin() / sin, (t * omega).sin() / sin)
+    };
+    let mut out = [
+        a[0] * w0 + b[0] * w1,
+        a[1] * w0 + b[1] * w1,
+        a[2] * w0 + b[2] * w1,
+        a[3] * w0 + b[3] * w1,
+    ];
+    let n = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]).sqrt();
+    if n > 1e-12 {
+        for item in &mut out {
+            *item /= n;
+        }
+    }
+    out
+}
+
+fn interpolate_matrices(from: &Matrix3D, to: &Matrix3D, percent: f64) -> Matrix3D {
+    if let (Ok([p0, q0, s0]), Ok([p1, q1, s1])) = (
+        decompose_matrix(from, "quaternion"),
+        decompose_matrix(to, "quaternion"),
+    ) {
+        let pos = [
+            p0[0] + (p1[0] - p0[0]) * percent,
+            p0[1] + (p1[1] - p0[1]) * percent,
+            p0[2] + (p1[2] - p0[2]) * percent,
+            0.0,
+        ];
+        let scale = [
+            s0[0] + (s1[0] - s0[0]) * percent,
+            s0[1] + (s1[1] - s0[1]) * percent,
+            s0[2] + (s1[2] - s0[2]) * percent,
+            0.0,
+        ];
+        let quat = slerp_quat(q0, q1, percent);
+        if let Ok(Some(recomposed)) = recompose_matrix(pos, quat, scale, "quaternion") {
+            return recomposed;
+        }
+    }
+    Matrix3D {
+        raw_data: std::array::from_fn(|i| {
+            let a = from.raw_data[i] as f64;
+            let b = to.raw_data[i] as f64;
+            (a + (b - a) * percent) as f32
+        }),
+    }
+}
+
+fn point_at_matrix(pos: [f64; 4], at: [f64; 4], up: [f64; 4]) -> Matrix3D {
+    let z_axis =
+        normalize3([pos[0] - at[0], pos[1] - at[1], pos[2] - at[2]]).unwrap_or([0.0, 0.0, 1.0]);
+    let up_neg = normalize3([-up[0], -up[1], -up[2]]).unwrap_or([0.0, 1.0, 0.0]);
+    let x_axis = normalize3(cross3(up_neg, z_axis)).unwrap_or_else(|| {
+        let fallback = if z_axis[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        normalize3(cross3(fallback, z_axis)).unwrap_or([1.0, 0.0, 0.0])
+    });
+    let y_axis = normalize3(cross3(z_axis, x_axis)).unwrap_or([0.0, 1.0, 0.0]);
+    Matrix3D {
+        raw_data: [
+            x_axis[0], x_axis[1], x_axis[2], 0.0, //
+            y_axis[0], y_axis[1], y_axis[2], 0.0, //
+            z_axis[0], z_axis[1], z_axis[2], 0.0, //
+            pos[0], pos[1], pos[2], 1.0,
+        ]
+        .map(|v| v as f32),
     }
 }
 
@@ -780,10 +1131,49 @@ mod tests {
         assert_eq!(projected["uvts"][0], json!(0.1));
         assert_eq!(projected["uvts"][2], json!(0.5));
         assert!((projected["uvts"][5].as_f64().unwrap() - 1.0 / 3.0).abs() < 1e-10);
-        assert!(
-            m.call("decompose", &json!([]))
-                .unwrap_err()
-                .contains("unsupported")
-        );
+        m.call("identity", &json!([])).unwrap();
+        m.call("appendScale", &json!([2, 3, 4])).unwrap();
+        m.call("appendRotation", &json!([30, [1, 0, 0, 0], null]))
+            .unwrap();
+        m.call("appendRotation", &json!([20, [0, 1, 0, 0], null]))
+            .unwrap();
+        m.call("appendRotation", &json!([45, [0, 0, 1, 0], null]))
+            .unwrap();
+        m.call("appendTranslation", &json!([10, 20, 30])).unwrap();
+        for style in ["eulerAngles", "axisAngle", "quaternion"] {
+            let parts = m.call("decompose", &json!([style])).unwrap();
+            let mut copy = GeometryValue::new("Matrix3D", &Value::Null).unwrap();
+            assert_eq!(
+                copy.call(
+                    "recompose",
+                    &json!([parts["data"][0], parts["data"][1], parts["data"][2], style])
+                )
+                .unwrap(),
+                json!(true)
+            );
+            for (a, b) in m
+                .snapshot()
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(copy.snapshot().as_array().unwrap())
+            {
+                assert!(
+                    (a.as_f64().unwrap() - b.as_f64().unwrap()).abs() < 1e-4,
+                    "style {style}"
+                );
+            }
+        }
+        let mut ident = GeometryValue::new("Matrix3D", &Value::Null).unwrap();
+        ident
+            .call("pointAt", &json!([[0, 0, 0, 0], null, null]))
+            .unwrap();
+        assert_eq!(ident.snapshot(), json!(Matrix3D::IDENTITY.raw_data));
+        let mid = ident
+            .call("interpolate", &json!([m.snapshot(), 0.5]))
+            .unwrap();
+        assert_eq!(mid["data"][12], json!(5.0));
+        assert_eq!(mid["data"][13], json!(10.0));
+        assert_eq!(mid["data"][14], json!(15.0));
     }
 }

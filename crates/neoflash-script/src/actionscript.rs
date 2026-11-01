@@ -892,7 +892,13 @@ impl<'a> Frontend<'a> {
                     let ty = if self.eat("*") {
                         "*".into()
                     } else {
-                        self.ident()?
+                        let mut name = self.ident()?;
+                        while self.script.language == ScriptLanguage::ActionScript3 && self.eat(".")
+                        {
+                            name.push('.');
+                            name.push_str(&self.ident()?);
+                        }
+                        name
                     };
                     let supported = if self.script.language == ScriptLanguage::ActionScript3 {
                         is_error_type(&ty)
@@ -906,6 +912,7 @@ impl<'a> Frontend<'a> {
                                     | "int"
                                     | "uint"
                             )
+                            || (self.context.project && self.context.types.contains_key(&ty))
                     } else {
                         ty == "Error"
                     };
@@ -4091,7 +4098,27 @@ impl Emitter<'_> {
                         };
                         let condition = catch.ty.as_deref().filter(|t| *t != "*").map_or_else(
                             || "true".into(),
-                            |ty| format!("__nfCatchType({value}, {ty:?})"),
+                            |ty| {
+                                if self.as3
+                                    && self.analysis.context.project
+                                    && !is_error_type(ty)
+                                    && !matches!(
+                                        ty,
+                                        "Object"
+                                            | "Number"
+                                            | "String"
+                                            | "Boolean"
+                                            | "Function"
+                                            | "int"
+                                            | "uint"
+                                    )
+                                    && let Some(qname) = self.analysis.context.types.get(ty)
+                                {
+                                    format!("__nfProgram.is({value}, {qname:?})")
+                                } else {
+                                    format!("__nfCatchType({value}, {ty:?})")
+                                }
+                            },
                         );
                         out.push_str(&format!(
                             "{}if ({condition}) {{ let {} = {value};\n{}\n}} ",
