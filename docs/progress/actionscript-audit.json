@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "5952b06357f0411bed1d8047c3f760934acd5a9ceb830cb9dd29e24c3b003a74",
+  "catalogSha256": "950c7f69e0f92cf7bb9ef5e37fb52b1d6df71d150f24af98e2a6491974977314",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1289,6 +1289,15 @@
           "AS3-SCENES-20261101",
           "AS2-SCENES-20261101"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-timeline-sound.json",
+        "sha256": "06710d4e90cb3f9cd5d637e4b4553eabc476192a9c8c468991a4f426531a5a4b",
+        "baseCatalogSha256": "5952b06357f0411bed1d8047c3f760934acd5a9ceb830cb9dd29e24c3b003a74",
+        "reviewIds": [
+          "AS3-TIMELINE-SOUND-20261101",
+          "AS2-TIMELINE-SOUND-20261101"
+        ]
       }
     ],
     "statusReviews": [
@@ -1319,29 +1328,48 @@
         "changes": {
           "partial": 2
         }
+      },
+      {
+        "id": "AS3-TIMELINE-SOUND-20261101",
+        "date": "2026-11-01",
+        "commit": "feb7cea5cad568a9b35ad36e7fb82447cb813bfd",
+        "path": "docs/progress/reviews/2026-11-01-timeline-sound.json",
+        "changes": {
+          "partial": 1,
+          "working": 1
+        }
+      },
+      {
+        "id": "AS2-TIMELINE-SOUND-20261101",
+        "date": "2026-11-01",
+        "commit": "feb7cea5cad568a9b35ad36e7fb82447cb813bfd",
+        "path": "docs/progress/reviews/2026-11-01-timeline-sound.json",
+        "changes": {
+          "working": 1
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 71,
+      "implemented_subset": 73,
       "partial": 2998,
-      "missing": 42845,
+      "missing": 42843,
       "needs_review": 133,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 15,
-        "partial": 1520,
+        "implemented_subset": 16,
+        "partial": 1519,
         "missing": 737,
         "needs_review": 35,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 56,
-        "partial": 1478,
-        "missing": 42108,
+        "implemented_subset": 57,
+        "partial": 1479,
+        "missing": 42106,
         "needs_review": 98,
         "total": 43740
       }
@@ -1369,8 +1397,8 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 28,
-        "partial": 237,
+        "implemented_subset": 29,
+        "partial": 236,
         "missing": 16,
         "needs_review": 28,
         "total": 309
@@ -1383,9 +1411,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 41,
-        "partial": 1793,
-        "missing": 4321,
+        "implemented_subset": 42,
+        "partial": 1794,
+        "missing": 4319,
         "needs_review": 3,
         "total": 6158
       }
@@ -1414,8 +1442,8 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 14,
-          "partial": 143,
+          "implemented_subset": 15,
+          "partial": 142,
           "missing": 3,
           "needs_review": 25,
           "total": 185
@@ -1472,9 +1500,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 40,
-          "partial": 983,
-          "missing": 4225,
+          "implemented_subset": 41,
+          "partial": 984,
+          "missing": 4223,
           "needs_review": 2,
           "total": 5250
         }
@@ -48927,6 +48955,83 @@
           "status": "needs_review",
           "ruleId": "U01",
           "evidenceKind": "unassessed_individually"
+        }
+      ]
+    },
+    {
+      "id": "AS3-TIMELINE-SOUND-20261101",
+      "title": "SoundMixer.stopAll stops timeline and scripted sounds",
+      "reason": "SoundMixer.stopAll() stops timeline frame sounds and AS3 Sound channels in the shared runtime and the HTML5 host, proven by the sound-playback family through the shipped host and a compiled AS3 project.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/sound-playback.mjs",
+          "sha256": "08a83508d8940500d0e02f3c00be805cdd1e4cc4c63fa0279141882e7816afba"
+        },
+        {
+          "path": "crates/neoflash-core/tests/timeline_sound.rs",
+          "sha256": "bfc418a2c53d6478d5ebc30975c099c4d3968cfe964838c0ce903e68aff0d1c3"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "e73cd1c5c3d4ca59c52fbae53a75df01dd45a0deafabc41190641bc1e93888cc"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/media/SoundMixer.html#stopAll()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/SoundMixer.html#",
+          "status": "partial",
+          "scopeNote": "Only stopAll(); soundTransform, bufferTime, computeSpectrum, areSoundsInaccessible and audioPlaybackMode are missing."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/media/SoundMixer.html#stopAll()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/SoundMixer.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS2-TIMELINE-SOUND-20261101",
+      "title": "stopAllSounds stops timeline sounds",
+      "reason": "stopAllSounds() stops every playing timeline frame sound and scripted Sound, and streams resume at their timeline position on the next frame, proven by the sound-playback family through the shipped HTML5 host.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/sound-playback.mjs",
+          "sha256": "08a83508d8940500d0e02f3c00be805cdd1e4cc4c63fa0279141882e7816afba"
+        },
+        {
+          "path": "crates/neoflash-core/tests/timeline_sound.rs",
+          "sha256": "bfc418a2c53d6478d5ebc30975c099c4d3968cfe964838c0ce903e68aff0d1c3"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:global_functions.html#stopAllSounds()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:global_functions.html#stopAllSounds()",
+          "status": "partial",
+          "ruleId": "COORD-AS2-HOUR-20261028-PLATFORM",
+          "evidenceKind": "source_review_with_family_html5_not_individual_conformance"
         }
       ]
     }

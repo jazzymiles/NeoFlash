@@ -25,10 +25,10 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
 | 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
 | 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
-| 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | 0.0% | 38.5% |
+| 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
 | **Now: areas 1–6** | 1,939 | 56 | 927 | 861 | 95 | 2.9% | 50.7% |
-| **All Flash Player areas** | 4,164 | 56 | 1,321 | 2,690 | 97 | 1.3% | 33.1% |
+| **All Flash Player areas** | 4,164 | 57 | 1,322 | 2,688 | 97 | 1.4% | 33.1% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -42,10 +42,10 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
 | 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
 | 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
-| 7. File audio and video playback | 83 | 0 | 66 | 16 | 1 | 0.0% | 79.5% |
+| 7. File audio and video playback | 83 | 1 | 65 | 16 | 1 | 1.2% | 79.5% |
 | 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
 | **Now: areas 1–6** | 925 | 15 | 860 | 29 | 21 | 1.6% | 94.6% |
-| **All Flash Player areas** | 1,238 | 15 | 1,089 | 99 | 35 | 1.2% | 89.2% |
+| **All Flash Player areas** | 1,238 | 16 | 1,088 | 99 | 35 | 1.3% | 89.2% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 68 of 98 | 7 | 23 | 4 / 8 / 0 |
-| Timelines and animation | 50 of 66 | 6 | 10 | 4 / 5 / 1 |
+| Editor and graphics | 69 of 99 | 8 | 22 | 4 / 8 / 0 |
+| Timelines and animation | 55 of 71 | 8 | 8 | 4 / 6 / 0 |
 | HTML5 and interactivity | 46 of 73 | 4 | 23 | 5 / 5 / 2 |
 | Import and file compatibility | 38 of 65 | 10 | 17 | 1 / 7 / 2 |
 | Platform and quality | 28 of 46 | 0 | 18 | 4 / 5 / 1 |
-| **All areas** | 230 of 348 | 27 | 91 | 18 / 30 / 6 |
+| **All areas** | 236 of 354 | 30 | 88 | 18 / 31 / 5 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

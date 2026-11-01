@@ -18,10 +18,10 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 4. Display, events and basic input | 678 | 24 | 183 | 471 | 0 | 3.5% | 30.5% |
 | 5. Graphics, bitmaps and filters | 313 | 3 | 151 | 159 | 0 | 1.0% | 49.2% |
 | 6. Text and fonts | 174 | 3 | 58 | 113 | 0 | 1.7% | 35.1% |
-| 7. File audio and video playback | 91 | 0 | 35 | 54 | 2 | 0.0% | 38.5% |
+| 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
 | **Now: areas 1–6** | 1,939 | 56 | 927 | 861 | 95 | 2.9% | 50.7% |
-| **All Flash Player areas** | 4,164 | 56 | 1,321 | 2,690 | 97 | 1.3% | 33.1% |
+| **All Flash Player areas** | 4,164 | 57 | 1,322 | 2,688 | 97 | 1.4% | 33.1% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -35,10 +35,10 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | 4. Display, events and basic input | 130 | 0 | 122 | 6 | 2 | 0.0% | 93.8% |
 | 5. Graphics, bitmaps and filters | 145 | 0 | 141 | 0 | 4 | 0.0% | 97.2% |
 | 6. Text and fonts | 118 | 0 | 103 | 13 | 2 | 0.0% | 87.3% |
-| 7. File audio and video playback | 83 | 0 | 66 | 16 | 1 | 0.0% | 79.5% |
+| 7. File audio and video playback | 83 | 1 | 65 | 16 | 1 | 1.2% | 79.5% |
 | 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
 | **Now: areas 1–6** | 925 | 15 | 860 | 29 | 21 | 1.6% | 94.6% |
-| **All Flash Player areas** | 1,238 | 15 | 1,089 | 99 | 35 | 1.2% | 89.2% |
+| **All Flash Player areas** | 1,238 | 16 | 1,088 | 99 | 35 | 1.3% | 89.2% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -51,7 +51,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
 | AS2 | core | 145 | 0 | 136 | 0 | 9 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 14 | 143 | 3 | 25 |
+| AS2 | language | 185 | 15 | 142 | 3 | 25 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
 | AS2 | runtime | 908 | 1 | 810 | 96 | 1 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 14 | 94 | 13 | 3 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 40 | 983 | 4,225 | 2 |
+| AS3 | runtime | 5,250 | 41 | 984 | 4,223 | 2 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS2-TIMELINE-SOUND-20261101` | 2026-11-01 | `feb7cea5cad5` | 1 → working |
+| `AS3-TIMELINE-SOUND-20261101` | 2026-11-01 | `feb7cea5cad5` | 1 → partial, 1 → working |
 | `AS2-SCENES-20261101` | 2026-11-01 | `b2bd864fe2e3` | 2 → partial |
 | `AS3-SCENES-20261101` | 2026-11-01 | `b2bd864fe2e3` | 8 → working |
 | `AS3-CORE-SURFACE-20261101` | 2026-11-01 | `85bc957d8b6b` | 190 → partial, 33 → working |
@@ -4035,3 +4037,24 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `as2:global_functions.html#prevScene()` — **partial**: Acts on the timeline it is called from, not always _root.
 
 Evidence: [web/tests/as2-timeline.test.cjs](../../web/tests/as2-timeline.test.cjs), [crates/neoflash-core/tests/frame_labels.rs](../../crates/neoflash-core/tests/frame_labels.rs)
+
+### AS3-TIMELINE-SOUND-20261101 — SoundMixer.stopAll stops timeline and scripted sounds
+
+SoundMixer.stopAll() stops timeline frame sounds and AS3 Sound channels in the shared runtime and the HTML5 host, proven by the sound-playback family through the shipped host and a compiled AS3 project.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/media/SoundMixer.html#stopAll()` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/media/SoundMixer.html#` — **partial**: Only stopAll(); soundTransform, bufferTime, computeSpectrum, areSoundsInaccessible and audioPlaybackMode are missing.
+
+Evidence: [crates/neoflash-script/tests/sound-playback.mjs](../../crates/neoflash-script/tests/sound-playback.mjs), [crates/neoflash-core/tests/timeline_sound.rs](../../crates/neoflash-core/tests/timeline_sound.rs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs)
+
+### AS2-TIMELINE-SOUND-20261101 — stopAllSounds stops timeline sounds
+
+stopAllSounds() stops every playing timeline frame sound and scripted Sound, and streams resume at their timeline position on the next frame, proven by the sound-playback family through the shipped HTML5 host.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:global_functions.html#stopAllSounds()` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-script/tests/sound-playback.mjs](../../crates/neoflash-script/tests/sound-playback.mjs), [crates/neoflash-core/tests/timeline_sound.rs](../../crates/neoflash-core/tests/timeline_sound.rs)

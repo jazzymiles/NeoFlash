@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "5952b06357f0411bed1d8047c3f760934acd5a9ceb830cb9dd29e24c3b003a74",
+  "reviews": [
+    {
+      "id": "AS3-TIMELINE-SOUND-20261101",
+      "date": "2026-11-01",
+      "commit": "feb7cea5cad568a9b35ad36e7fb82447cb813bfd",
+      "title": "SoundMixer.stopAll stops timeline and scripted sounds",
+      "summary": "SoundMixer.stopAll() stops timeline frame sounds and AS3 Sound channels in the shared runtime and the HTML5 host, proven by the sound-playback family through the shipped host and a compiled AS3 project.",
+      "tests": [
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-core/tests/timeline_sound.rs",
+        "crates/neoflash-script/tests/project.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/media/SoundMixer.html#stopAll()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/SoundMixer.html#",
+          "status": "partial",
+          "note": "Only stopAll(); soundTransform, bufferTime, computeSpectrum, areSoundsInaccessible and audioPlaybackMode are missing."
+        }
+      ]
+    },
+    {
+      "id": "AS2-TIMELINE-SOUND-20261101",
+      "date": "2026-11-01",
+      "commit": "feb7cea5cad568a9b35ad36e7fb82447cb813bfd",
+      "title": "stopAllSounds stops timeline sounds",
+      "summary": "stopAllSounds() stops every playing timeline frame sound and scripted Sound, and streams resume at their timeline position on the next frame, proven by the sound-playback family through the shipped HTML5 host.",
+      "tests": [
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-core/tests/timeline_sound.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:global_functions.html#stopAllSounds()",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}
