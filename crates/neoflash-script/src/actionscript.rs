@@ -1896,6 +1896,13 @@ fn is_timeline_method(name: &str) -> bool {
     )
 }
 
+fn is_as2_global_prop(name: &str) -> bool {
+    matches!(
+        name,
+        "_quality" | "_highquality" | "_focusrect" | "_soundbuftime"
+    )
+}
+
 fn is_family_method(name: &str) -> bool {
     matches!(
         name,
@@ -1961,6 +1968,7 @@ fn is_family_method(name: &str) -> bool {
             | "getUTCMinutes"
             | "getUTCMonth"
             | "getUTCSeconds"
+            | "getUTCYear"
             | "getYear"
             | "setDate"
             | "setFullYear"
@@ -2361,6 +2369,12 @@ impl Emitter<'_> {
         }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
+            && is_as2_global_prop(name)
+        {
+            return format!("__nfLegacy.globalPropRef({name:?}).get()");
+        }
+        if !self.as3
+            && self.analysis.resolve(self.scope, name).is_none()
             && (matches!(
                 name,
                 "Key"
@@ -2379,13 +2393,17 @@ impl Emitter<'_> {
                     | "getVersion"
                     | "updateAfterEvent"
                     | "stopAllSounds"
+                    | "toggleHighQuality"
+                    | "showRedrawRegions"
                     | "duplicateMovieClip"
                     | "removeMovieClip"
                     | "startDrag"
                     | "stopDrag"
             ) || (matches!(
                 name,
-                "MovieClipLoader"
+                "MovieClip"
+                    | "Button"
+                    | "MovieClipLoader"
                     | "AsBroadcaster"
                     | "Color"
                     | "SharedObject"
@@ -2689,6 +2707,13 @@ impl Emitter<'_> {
             return Some(reference);
         }
         match expr {
+            Expr::Name(name)
+                if !self.as3
+                    && self.analysis.resolve(self.scope, name).is_none()
+                    && is_as2_global_prop(name) =>
+            {
+                Some(format!("__nfLegacy.globalPropRef({name:?})"))
+            }
             Expr::Name(name) => self.bare_member_receiver(name).map(|receiver| {
                 format!(
                     "__nfContainerRef({receiver}, {name:?}, {}{})",
@@ -2771,6 +2796,7 @@ impl Emitter<'_> {
         if self.analysis.context.project
             && let Some(name) = qualified_name(expr)
             && !matches!(name.as_str(), "Array" | "String")
+            && !(!self.as3 && name == "Object")
             && !self.analysis.context.intrinsic_type(&name, self.as3)
             && self
                 .analysis
@@ -3462,6 +3488,8 @@ impl Emitter<'_> {
                                         | "getVersion"
                                         | "updateAfterEvent"
                                         | "stopAllSounds"
+                                        | "toggleHighQuality"
+                                        | "showRedrawRegions"
                                         | "duplicateMovieClip"
                                         | "removeMovieClip"
                                         | "startDrag"

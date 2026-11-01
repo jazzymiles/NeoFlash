@@ -72,25 +72,36 @@ function __nfContainerRef(receiver,key,as3,caller){
             const name=__nfLegacyKey(receiver,key,as3);
             const arrayMember=as3&&__nfArrayIsArray(receiver),arrayPresent=arrayMember&&(name in object);
             if(as3&&name==='setPropertyIsEnumerable'&&!(name in object))return __nfObjectPropertyMethod(receiver,name);
-            const scoped=scopedRef(name),read=()=>scoped?scoped.get():receiver[name];
-            const value=legacy?.objects?legacy.objects.get(receiver,name,read,()=>scoped?scoped.has():Reflect.has(object,name)):read();
+            const scoped=scopedRef(name),legacyProto=!as3&&!scoped&&name==='__proto__'&&(typeof receiver==='object'||typeof receiver==='function')&&receiver!==null&&!Object.hasOwn(receiver,'__proto__');
+            const read=()=>scoped?scoped.get():legacyProto?(Object.getPrototypeOf(receiver)??undefined):receiver[name];
+            const value=legacy?.objects?legacy.objects.get(receiver,name,read,()=>scoped?scoped.has():legacyProto?true:Reflect.has(object,name)):read();
             if(arrayMember){const reference=__nfArrayReference(receiver,name,value,true,arrayPresent);if(reference!==value)return reference;}
             if(as3&&typeof receiver==='number')return __nfNumericMethodValue(receiver,value);
             if(as3&&Object.hasOwn(__nfObjectPropertyMethods,name)&&value===__nfObjectPropertyMethods[name])return __nfObjectPropertyMethod(receiver,name);
             if(as3){const method=__nfObjectDefaultMethod(receiver,name,value,program);if(method)return method;}
+            if(!as3&&name==='constructor'&&value===Object)return __nfObjectClass(false);
             // AVM1 exposes an absent native scrollRect as undefined; AS3 and
             // the public JS facade use null. Never rewrite ordinary user fields.
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
         },
         set(value){
             const name=__nfLegacyKey(receiver,key,as3);
-            const scoped=scopedRef(name);
+            const scoped=scopedRef(name),legacyProto=!as3&&!scoped&&name==='__proto__'&&(typeof receiver==='object'||typeof receiver==='function')&&receiver!==null&&!Object.hasOwn(receiver,'__proto__');
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);
                 else if(/^(?:0|[1-9]\d*)$/.test(name)&&Number(name)<4294967295&&Number(name)>=__nfArrayLimit)throw new __nfTypeError('Array index exceeds the 1000000-element profile.');
             }
-            const write=next=>{if(scoped)return scoped.set(next);if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,next,receiver))throw new __nfTypeError('Cannot write this property.');return next;};
-            return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():receiver[name],write):write(value);
+            const write=next=>{
+                if(scoped)return scoped.set(next);
+                if(legacyProto){
+                    if(next!==null&&typeof next!=='object'&&typeof next!=='function')throw new __nfTypeError('AS2 __proto__ requires an object, function or null.');
+                    Object.setPrototypeOf(receiver,next);
+                    return next;
+                }
+                if((typeof receiver!=='object'&&typeof receiver!=='function')||!Reflect.set(object,name,next,receiver))throw new __nfTypeError('Cannot write this property.');
+                return next;
+            };
+            return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():legacyProto?(Object.getPrototypeOf(receiver)??undefined):receiver[name],write):write(value);
         },
         delete(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
         has(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},

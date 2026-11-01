@@ -1,6 +1,70 @@
-//! AS2-only interaction preferences and deterministic tab order.
+//! AS2-only interaction preferences, publication settings and deterministic tab order.
 use super::*;
-use serde_json::Value;
+use serde_json::{Value, json};
+
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct As2Settings {
+    pub quality: String,
+    pub sound_buf_time: i32,
+    pub focus_rect: bool,
+    pub redraw_regions: bool,
+    pub redraw_region_color: u32,
+}
+impl Default for As2Settings {
+    fn default() -> Self {
+        Self {
+            quality: "HIGH".into(),
+            sound_buf_time: 5,
+            focus_rect: true,
+            redraw_regions: false,
+            redraw_region_color: 0xff0000,
+        }
+    }
+}
+impl As2Settings {
+    fn high_quality(&self) -> i32 {
+        match self.quality.as_str() {
+            "BEST" => 2,
+            "LOW" => 0,
+            _ => 1,
+        }
+    }
+    fn snapshot(&self) -> Value {
+        json!({
+            "quality": self.quality,
+            "high_quality": self.high_quality(),
+            "sound_buf_time": self.sound_buf_time,
+            "focus_rect": self.focus_rect,
+            "redraw_regions": self.redraw_regions,
+            "redraw_region_color": self.redraw_region_color,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum SettingsCommand {
+    Get,
+    SetQuality {
+        value: String,
+    },
+    SetHighQuality {
+        value: f64,
+    },
+    ToggleHighQuality,
+    SetSoundBufTime {
+        value: f64,
+    },
+    SetFocusRect {
+        value: bool,
+    },
+    ShowRedrawRegions {
+        enable: bool,
+        #[serde(default)]
+        color: Option<u64>,
+    },
+}
+
 #[derive(Clone, Debug, Serialize, Default)]
 pub(super) struct As2Input {
     pub enabled: Option<bool>,
@@ -11,6 +75,7 @@ pub(super) struct As2Input {
     pub track_as_menu: Option<bool>,
     pub focus_rect: Option<bool>,
     pub force_smoothing: Option<bool>,
+    pub lock_root: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
@@ -22,7 +87,7 @@ enum Command {
     MenuTransfer { target: ObjectRef },
 }
 impl RuntimeGraph {
-    fn as2_input(&self, target: &ObjectRef) -> As2Input {
+    pub(super) fn as2_input(&self, target: &ObjectRef) -> As2Input {
         self.as2_input_states
             .get(target)
             .cloned()
@@ -30,6 +95,76 @@ impl RuntimeGraph {
     }
 }
 impl Player {
+    pub fn as2_root(&self, target: &ObjectRef) -> Result<ObjectRef, DisplayError> {
+        if !self.graph.alive(target) {
+            return Err(error("AS2 target is stale or foreign"));
+        }
+        for reference in self.graph.route(target) {
+            if self.graph.as2_input(&reference).lock_root.unwrap_or(false) {
+                return Ok(reference);
+            }
+        }
+        self.object_ref(&[])
+            .ok_or_else(|| error("Publication root is unavailable"))
+    }
+    pub fn as2_settings_command(&mut self, request: Value) -> Result<String, DisplayError> {
+        let command: SettingsCommand = serde_json::from_value(request)
+            .map_err(|e| error(&format!("Invalid AS2 settings request: {e}")))?;
+        match command {
+            SettingsCommand::Get => {}
+            SettingsCommand::SetQuality { value } => {
+                let normalized = value.to_ascii_uppercase();
+                if matches!(normalized.as_str(), "LOW" | "MEDIUM" | "HIGH" | "BEST") {
+                    self.graph.as2_settings.quality = normalized;
+                }
+            }
+            SettingsCommand::SetHighQuality { value } => {
+                if value.is_finite() && value >= 0.0 {
+                    let level = value as i64;
+                    self.graph.as2_settings.quality = match level {
+                        0 => "LOW",
+                        1 => "HIGH",
+                        _ => "BEST",
+                    }
+                    .into();
+                }
+            }
+            SettingsCommand::ToggleHighQuality => {
+                self.graph.as2_settings.quality = if self.graph.as2_settings.quality == "LOW" {
+                    "HIGH"
+                } else {
+                    "LOW"
+                }
+                .into();
+            }
+            SettingsCommand::SetSoundBufTime { value } => {
+                if !value.is_finite() || value < i32::MIN as f64 || value > i32::MAX as f64 {
+                    return Err(error(
+                        "AS2 _soundbuftime requires a finite 32-bit integer value",
+                    ));
+                }
+                self.graph.as2_settings.sound_buf_time = value as i32;
+            }
+            SettingsCommand::SetFocusRect { value } => {
+                self.graph.as2_settings.focus_rect = value;
+            }
+            SettingsCommand::ShowRedrawRegions { enable, color } => {
+                if let Some(color) = color {
+                    if color > 0xffffff {
+                        return Err(error(
+                            "showRedrawRegions color requires a 24-bit RGB integer",
+                        ));
+                    }
+                    self.graph.as2_settings.redraw_region_color = color as u32;
+                } else if enable {
+                    self.graph.as2_settings.redraw_region_color = 0xff0000;
+                }
+                self.graph.as2_settings.redraw_regions = enable;
+            }
+        }
+        serde_json::to_string(&self.graph.as2_settings.snapshot())
+            .map_err(|e| error(&e.to_string()))
+    }
     pub fn as2_input_command(
         &mut self,
         project: &Project,
@@ -50,6 +185,7 @@ impl Player {
                 state.tab_children = Some(state.tab_children.unwrap_or(true));
                 state.track_as_menu = Some(state.track_as_menu.unwrap_or(false));
                 state.force_smoothing = Some(state.force_smoothing.unwrap_or(false));
+                state.lock_root = Some(state.lock_root.unwrap_or(false));
                 serde_json::to_string(&state).map_err(|e| error(&e.to_string()))
             }
             Command::Set { name, value } => {
@@ -76,6 +212,9 @@ impl Player {
                 if name == "forceSmoothing" && node.display.owner != "movie_clip" {
                     return Err(error("forceSmoothing belongs to MovieClip"));
                 }
+                if name == "_lockroot" && node.display.owner != "movie_clip" {
+                    return Err(error("_lockroot belongs to MovieClip"));
+                }
                 if name == "enabled" && node.display.owner == "text" {
                     return Err(error(
                         "AS2 TextField has no enabled switch; use type/selectable",
@@ -98,7 +237,7 @@ impl Player {
                         };
                     }
                     "enabled" | "tabEnabled" | "focusEnabled" | "tabChildren" | "trackAsMenu"
-                    | "_focusrect" | "forceSmoothing" => {
+                    | "_focusrect" | "forceSmoothing" | "_lockroot" => {
                         let value = if value.is_null() {
                             None
                         } else {
@@ -113,6 +252,7 @@ impl Player {
                             "trackAsMenu" => state.track_as_menu = value,
                             "_focusrect" => state.focus_rect = value,
                             "forceSmoothing" => state.force_smoothing = value,
+                            "_lockroot" => state.lock_root = value,
                             _ => state.tab_children = value,
                         }
                     }

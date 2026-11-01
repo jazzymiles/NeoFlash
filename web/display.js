@@ -407,7 +407,7 @@
           const clip=proxyForRef(JSON.parse(player.create_linked(identifier)));clip.name=name;
           initializeLegacy(clip,values);
           const events=placeAtDepth(target,clip,depth,false);
-          prepareLinked(clip,false);onMutation(events);return clip;
+          prepareLinked(clip,false,identifier);onMutation(events);return clip;
         },
       };
     }
@@ -418,32 +418,77 @@
     const existingCallbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
     const buttonCallbacks=new Set(['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut']);
     const callbackNames=new Set([...existingCallbackNames,'onMouseDown','onMouseMove','onMouseUp','onKeyDown','onKeyUp','onSetFocus','onKillFocus','onDragOver','onDragOut','onUnload']);
-    const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children',trackAsMenu:'track_as_menu',_focusrect:'focus_rect',forceSmoothing:'force_smoothing'};
+    const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children',trackAsMenu:'track_as_menu',_focusrect:'focus_rect',forceSmoothing:'force_smoothing',_lockroot:'lock_root'};
     let as2TabActive=false,pressedInside=false;
+    function as2Settings(request={op:'get'}){return JSON.parse(player.as2_settings_command(JSON.stringify(request)));}
+    function as2GlobalPropRef(name,check=null){
+      if(!['_quality','_highquality','_focusrect','_soundbuftime'].includes(name))return null;
+      return {
+        has:()=>true,
+        delete:()=>false,
+        get:()=>{
+          check?.();
+          const current=as2Settings();
+          return name==='_quality'?current.quality:name==='_highquality'?current.high_quality:name==='_soundbuftime'?current.sound_buf_time:current.focus_rect;
+        },
+        set:value=>{
+          check?.();
+          if(name==='_quality')as2Settings({op:'set_quality',value:String(value)});
+          else if(name==='_highquality')as2Settings({op:'set_high_quality',value:Number(value)});
+          else if(name==='_soundbuftime')as2Settings({op:'set_sound_buf_time',value:Number(value)});
+          else as2Settings({op:'set_focus_rect',value:Boolean(value)});
+          return value;
+        },
+      };
+    }
+    function toggleHighQuality(){return as2Settings({op:'toggle_high_quality'}).high_quality;}
+    function showRedrawRegions(enable,color){
+      const request={op:'show_redraw_regions',enable:Boolean(enable)};
+      if(color!==undefined){
+        const numeric=Number(color);
+        if(!Number.isInteger(numeric)||numeric<0||numeric>0xffffff)throw new RangeError('showRedrawRegions color requires a 24-bit RGB integer.');
+        request.color=numeric;
+      }
+      as2Settings(request);
+    }
     function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>callback(record,name));}
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
       if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
+      if(name==='getSWFVersion'&&descriptor(target).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>()=>{descriptor(target);return 8;},set:()=>{throw new TypeError('MovieClip.getSWFVersion is read-only.');}};
+      if(['_quality','_highquality','_soundbuftime'].includes(name)&&['movie_clip','button','text'].includes(descriptor(target).owner))return as2GlobalPropRef(name,()=>descriptor(target));
       if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&descriptor(target).owner==='movie_clip'){
         const method=()=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name];};
         return {has:()=>true,delete:()=>false,get:method,set:()=>{throw new TypeError('MovieClip image methods are read-only.');}};
       }
-      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+      if(['blendMode','cacheAsBitmap','opaqueBackground','scale9Grid'].includes(name)){
         const owner=descriptor(target).owner;if(!['movie_clip','button'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip'))return null;
         const call=request=>JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify(request)));
+        if(name==='scale9Grid'){
+          return {
+            has:()=>true,
+            delete:()=>{call({op:'set',name,value:null});return true;},
+            get:()=>{const grid=call({op:'get'}).scale9Grid;return grid?new Rectangle(grid[0],grid[1],grid[2],grid[3]):undefined;},
+            set:value=>{
+              if(value!==null&&value!==undefined&&!Rectangle.__nfIs(value))throw new TypeError('scale9Grid requires a flash.geom.Rectangle, null or undefined.');
+              call({op:'set',name,value:value==null?null:{x:value.x,y:value.y,width:value.width,height:value.height}});
+              return value;
+            },
+          };
+        }
         return {has:()=>true,delete:()=>false,get:()=>call({op:'get'})[name],set:value=>{const next=call({op:'prepare',name,value});if(next.isolated)beforeRaster(target);call({op:'set',name,value});return value;}};
       }
       if(!Object.hasOwn(as2InputNames,name)&&!callbackNames.has(name))return null;
       const owner=descriptor(target).owner;if(!['movie_clip','button','text'].includes(owner))return null;
-      if(name==='forceSmoothing'&&owner!=='movie_clip')return null;
+      if((name==='forceSmoothing'||name==='_lockroot')&&owner!=='movie_clip')return null;
       if(callbackNames.has(name)){
         if(owner==='text')return null;
         return {has:()=>true,delete:()=>{setLegacyCallback(target,name,null);return true;},get:()=>target[name],set:value=>{setLegacyCallback(target,name,value);return value;}};
       }
       if((owner==='text'&&['enabled','focusEnabled','tabChildren','trackAsMenu','_focusrect'].includes(name))||(name==='focusEnabled'&&owner!=='movie_clip'))return null;
-      return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{as2Input(target,{op:'set',name,value:value===undefined?null:value});as2TabActive=true;return value;}};
+      return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{const payload=name==='_lockroot'?Boolean(value):(value===undefined?null:value);as2Input(target,{op:'set',name,value:payload});if(name!=='_lockroot')as2TabActive=true;return value;}};
     }
     function as2Tab(event={}){
       if(!as2TabActive||event.defaultPrevented)return false;
@@ -572,7 +617,7 @@
       if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
     function cancelPointer(){const changed=movieClipPointer('cancel',null);buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;return changed;}
-    function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner)||as2Input(target).focus_rect!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
+    function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner))return null;const pref=as2Input(target).focus_rect,globalPref=as2TabActive&&typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;if((pref??globalPref)!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>callback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
@@ -810,7 +855,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

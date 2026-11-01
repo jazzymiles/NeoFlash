@@ -156,7 +156,8 @@ function __nfDateMethod(receiver, name, as3) {
     // Resolve exactly once, before argument expressions. A user-defined method
     // retains its normal receiver and is never selected merely by its name.
     const method = receiver[name];
-    if (!__nfDateIs(receiver) || method !== __nfDateMethods[name]) {
+    const legacyUtcYear = !as3 && name === 'getUTCYear' && __nfDateIs(receiver) && method === undefined;
+    if (!legacyUtcYear && (!__nfDateIs(receiver) || method !== __nfDateMethods[name])) {
         return (...args) => __nfDateApply(method, receiver, args);
     }
     return (...args) => {
@@ -164,7 +165,7 @@ function __nfDateMethod(receiver, name, as3) {
             if (!as3) __nfDateUnsupported('toJSON is an AS3 Date method.');
             return __nfDateApply(__nfDateJSON, receiver, args);
         }
-        if (__nfDateGetters.has(name) || (!as3 && name === 'getYear')) {
+        if (__nfDateGetters.has(name) || (!as3 && (name === 'getYear' || name === 'getUTCYear'))) {
             if (args.length) __nfDateUnsupported(__nfDateString(name) + ' arguments are outside this profile.');
             return __nfDateService().get(receiver, name);
         }

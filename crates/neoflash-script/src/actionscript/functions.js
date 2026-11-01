@@ -17,6 +17,10 @@ const __nfNativeFunctionBind=Function.prototype.bind;
 const __nfFunctionArrayIsArray=Array.isArray;
 const __nfFunctionSlice=Array.prototype.slice;
 const __nfFunctionLimit=16384;
+const __nfLocalCallStack=[];
+function __nfCallerStack(){
+    return typeof __nfLegacy!=='undefined'&&__nfFunctionArrayIsArray(__nfLegacy?.__nfCallStack)?__nfLegacy.__nfCallStack:__nfLocalCallStack;
+}
 function __nfFunctionArity(message){throw __nfMakeError('ArgumentError',true,[message]);}
 function __nfFunctionCount(length){
     if(!Number.isSafeInteger(length)||length<0||length>__nfFunctionLimit)throw new __nfTypeError('Function argument count exceeds the 16384-value profile.');
@@ -45,7 +49,12 @@ function __nfSourceFunction(body,configuration){
             const actual=isBound?receiver:this==null?defaultReceiver:this;
             if(actual==null)throw new __nfTypeError('This unbound source function has no source-frame receiver. Supply an explicit object to call/apply.');
             if(typeof actual!=='object'&&typeof actual!=='function')throw new __nfTypeError('Source Function.call/apply currently requires an object receiver; primitive receiver boxing is not supported.');
-            return __nfApply(body,actual,[{values,callee:callable}]);
+            const stack=__nfCallerStack(),caller=stack.length?stack[stack.length-1]:null;
+            if(stack.length>=1024)throw new RangeError('Source function call stack exceeds 1024 frames.');
+            const selfFn=!as3&&callable.__nfPublicFunction?callable.__nfPublicFunction:callable;
+            stack.push(selfFn);
+            try{return __nfApply(body,actual,[{values,callee:selfFn,caller,as3}]);}
+            finally{stack.pop();}
         };
         __nfDefineProperty(callable,'length',{value:length,writable:false,configurable:false});
         __nfDefineProperty(callable,__nfSourceFunctionBrand,{value:Object.freeze({
@@ -71,7 +80,11 @@ function __nfFunctionArguments(activation,normalizedPrefix=[]){
     const length=__nfFunctionCount(activation.values.length),result=new Array(length);
     for(let i=0;i<length;i++)result[i]=i<normalizedPrefix.length?normalizedPrefix[i]:activation.values[i];
     __nfDefineProperty(result,'callee',{value:activation.callee,writable:true,configurable:true,enumerable:false});
-    __nfDefineProperty(result,'caller',{enumerable:false,configurable:false,get(){throw new __nfTypeError('arguments.caller is not supported. Pass the calling function explicitly.');}});
+    if(activation.as3){
+        __nfDefineProperty(result,'caller',{enumerable:false,configurable:false,get(){throw new __nfTypeError('arguments.caller is not supported. Pass the calling function explicitly.');}});
+    }else{
+        __nfDefineProperty(result,'caller',{value:activation.caller??null,writable:true,configurable:true,enumerable:false});
+    }
     return result;
 }
 function __nfFunctionMethod(receiver,key,as3,resolvedMethod){

@@ -279,6 +279,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
+    const registeredClasses = new Map();
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let frameLabelType = null, sceneValueFactory = null;
@@ -367,7 +368,7 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
-      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent});
+      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
@@ -414,18 +415,39 @@
       function legacyProperty(target, index) {
         if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>21)throw new RangeError('AS2 property index must be between 0 and 21.');
         const receiver=display.resolveTarget(target,proxyFor([])),name=wasm.as2_property_name(Number(index));
+        const native=legacyGlobals.nativeRef?.(receiver,name);
+        if(native)return {receiver,name,native};
         if(!references.get(receiver)?.nativeHas(name))throw new Error('AS2 getProperty/setProperty does not yet support '+name+'.');
         return {receiver,name};
       }
       const legacyDisplayCall=(target,method,args)=>as2.method(display.resolveTarget(target,proxyFor([])),method)(...args);
       legacyGlobals=Object.freeze({...legacyGlobals,
+        __nfCallStack:[],
+        MovieClip:display.builtins['flash.display.MovieClip'],
+        Button:display.builtins['flash.display.SimpleButton'],
+        globalPropRef:name=>{const ref=display.as2GlobalPropRef(name);if(!ref)throw new ReferenceError(`Unknown AS2 global property ${name}.`);return ref;},
+        toggleHighQuality:display.toggleHighQuality,
+        showRedrawRegions:display.showRedrawRegions,
+        registerClass(id,ctor){
+          if(typeof id!=='string'||!id.length||id.length>1024)return false;
+          if(ctor===null||ctor===undefined){registeredClasses.set(id,null);return true;}
+          if(typeof ctor!=='function')return false;
+          const name=program?.className?.(ctor);
+          if(name){
+            if(program.dialect?.(name)!=='as2')throw new TypeError(`Object.registerClass requires an AS2 class or constructor function; ${name} is not an AS2 class.`);
+            registeredClasses.set(id,{kind:'project',name,ctor});
+            return true;
+          }
+          registeredClasses.set(id,{kind:'function',ctor});
+          return true;
+        },
         duplicateMovieClip:(target,name,depth)=>legacyDisplayCall(target,'duplicateMovieClip',[name,depth]),
         removeMovieClip:target=>legacyDisplayCall(target,'removeMovieClip',[]),
         startDrag:(target,...args)=>legacyDisplayCall(target,'startDrag',args),
         stopDrag:()=>legacyDisplayCall(proxyFor([]),'stopDrag',[]),
         targetPath:target=>display.targetPath(display.resolveTarget(target,proxyFor([]))),
-        getProperty:(target,index)=>{const {receiver,name}=legacyProperty(target,index);return receiver[name];},
-        setProperty:(target,index,value)=>{const {receiver,name}=legacyProperty(target,index);receiver[name]=value;}});
+        getProperty:(target,index)=>{const {receiver,name,native}=legacyProperty(target,index);return native?native.get():receiver[name];},
+        setProperty:(target,index,value)=>{const {receiver,name,native}=legacyProperty(target,index);if(native)native.set(value);else receiver[name]=value;}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
@@ -489,7 +511,9 @@
       if(as2TextHost){
         const LegacyTextField=function(){throw new TypeError('Create an AS2 TextField with MovieClip.createTextField.');};
         LegacyTextField.StyleSheet=as2TextHost.StyleSheet;
+        LegacyTextField.getFontList=as2TextHost.getFontList;
         legacyGlobals=Object.freeze({...legacyGlobals,TextField:LegacyTextField,nativeRef:(receiver,name)=>{
+          if(name==='getFontList'&&(receiver===LegacyTextField||receiver===display.builtins['flash.text.TextField']))return {has:()=>true,delete:()=>false,get:()=>as2TextHost.getFontList,set:()=>{throw new TypeError('TextField.getFontList is read-only.');}};
           const menu=as2StageHost?.menuRef(receiver,name);if(menu)return menu;
           const geometry=geometryHost.as2Ref?.(receiver,name);if(geometry)return geometry;
           const ref=references.get(receiver);if(!ref)return null;const input=display.as2Ref?.(receiver,name);if(input)return input;
@@ -503,7 +527,7 @@
           return property;
         }});
       }
-      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),globals:()=>({_root:proxyFor([]),_level0:proxyFor([]),_global:legacyGlobals._global}),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
+      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),globals:frame=>({_root:as2RootFor(frame),_level0:proxyFor([]),_global:legacyGlobals._global}),globalProp:name=>display.as2GlobalPropRef(name),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
       if(global.NeoFlashAS2Binding)as2BindingHost=global.NeoFlashAS2Binding.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Data)as2DataHost=global.NeoFlashAS2Data.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Services&&netHost&&xmlHost)as2ServicesHost=global.NeoFlashAS2Services.create({wasm,net:netHost,LegacyXML:xmlHost.LegacyXML,EventDispatcher:as2PlatformHost.EventDispatcher,ComponentMixins:as2BindingHost?.builtins["mx.data.binding.ComponentMixins"],onError:netFailure,afterEvent:afterTimerEvent});
@@ -576,7 +600,7 @@
       if(as2BindingHost)Object.assign(builtins,as2BindingHost.builtins);
       if(as2LocaleHost)Object.assign(builtins,as2LocaleHost.builtins);
       if(as2FilesHost){builtins['flash.net.FileReference']=as2FilesHost.FileReference;builtins['flash.net.FileReferenceList']=as2FilesHost.FileReferenceList;}
-      if(as2TextHost){builtins['TextField.StyleSheet']=as2TextHost.StyleSheet;builtins.TextSnapshot=as2TextHost.TextSnapshot;}
+      if(as2TextHost){builtins['TextField.StyleSheet']=as2TextHost.StyleSheet;builtins['flash.text.TextRenderer']=as2TextHost.TextRenderer;builtins.TextSnapshot=as2TextHost.TextSnapshot;}
       if(filterHost?.DisplacementMapFilter)builtins['flash.filters.DisplacementMapFilter']=filterHost.DisplacementMapFilter;
       if(as2PlatformHost){builtins['mx.utils.Delegate']=as2PlatformHost.Delegate;builtins['mx.events.EventDispatcher']=as2PlatformHost.EventDispatcher;}
       builtins.__nfAs2Method=as2.method;builtins.__nfAs2Value=as2.value;
@@ -634,7 +658,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear();display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
+      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
       soundsPreloaded=false;
       player.reset();
       initializeProgram();
@@ -646,12 +670,28 @@
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
       externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      registeredClasses.clear();if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
-    function prepareLinked(receiver,allocatedByProgram) {
-      if(!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
-      if(allocatedByProgram){const ref=references.get(receiver);attachedClasses.set(ref.key,ref.lifetime);}
+    function as2RootFor(target) {
+      const ref=references.get(target);
+      return graphMode&&ref?.objectRef&&typeof player.as2_root==='function'?proxyForRef(JSON.parse(player.as2_root(ref.key))):proxyFor([]);
+    }
+    function prepareLinked(receiver,allocatedByProgram,linkageId=null) {
+      const hasRegistered=linkageId!==null&&registeredClasses.has(linkageId);
+      const registered=hasRegistered?registeredClasses.get(linkageId):undefined;
+      if(!hasRegistered&&!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
+      if(allocatedByProgram||hasRegistered){const ref=references.get(receiver);attachedClasses.set(ref.key,ref.lifetime);}
       attachNewInstances(receiver);
+      if(hasRegistered&&registered!==null){
+        if(registered.kind==='project')program.attach(registered.name,receiver);
+        else{
+          if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
+          Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
+          Reflect.apply(registered.ctor,receiver,[]);
+        }
+        display.refreshLegacyCallbacks(receiver,true);
+      }
     }
     function attachNewInstances(scope=null) {
       if(!display)return;
@@ -898,7 +938,7 @@
           if (name === 'toString') return () => `[NeoFlash ${key}]`;
           if (name === 'toJSON') return () => objectRef?({object_ref:objectRef}):({path});
           if (typeof name !== 'string') return undefined;
-          if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:proxyFor([]);}
+          if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:name==='_root'?as2RootFor(proxy):proxyFor([]);}
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
           if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
           if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
@@ -976,7 +1016,8 @@
             currentTarget: scope,
           });
           try {
-            compiled.fn.call(scope, event, proxyFor([]), scope._parent, trace,
+            const scriptRoot = item.script.language === 'ActionScript2' ? as2RootFor(scope) : proxyFor([]);
+            compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
               scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display,
               legacyGlobals,xmlHost);
           } catch (error) {
@@ -1019,6 +1060,11 @@
       assertUnfilteredEditing(stageHost?.stage.focus);
       if(snapshot)textInputHost?.update(snapshot);
       const [width,height]=logicalSize();
+      if(typeof player.as2_settings_command==='function'&&display){
+        const quality=display.as2GlobalPropRef('_quality').get();
+        context.imageSmoothingEnabled=quality!=='LOW';
+        if('imageSmoothingQuality' in context)context.imageSmoothingQuality=quality==='BEST'?'high':quality==='MEDIUM'?'low':'medium';
+      }
       context.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
       context.clearRect(0, 0, width, height);
       context.fillStyle = color(project.background);

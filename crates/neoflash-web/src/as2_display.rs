@@ -27,6 +27,26 @@ impl WebPlayer {
             .map_err(display_error)
     }
 
+    pub fn as2_settings_command(&mut self, request: &str) -> Result<String, JsValue> {
+        if request.len() > 4096 {
+            return Err(JsValue::from_str("AS2 settings request exceeds 4096 bytes"));
+        }
+        let request = serde_json::from_str(request).map_err(display_error)?;
+        self.player
+            .as2_settings_command(request)
+            .map_err(display_error)
+    }
+
+    pub fn as2_root(&self, target: &str) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .as2_root(&object_ref(target)?)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+
     pub fn as2_get_depth(&self, reference: &str) -> Result<i32, JsValue> {
         self.player
             .as2_get_depth(&object_ref(reference)?)

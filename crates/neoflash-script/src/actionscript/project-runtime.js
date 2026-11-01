@@ -266,8 +266,10 @@ const __nfProgram = (() => {
         }
         identities.set(receiver, name);
         try {
-            if (definitions.get(name).dialect === 'as2') Object.setPrototypeOf(receiver, type(name).prototype);
-            else {
+            if (definitions.get(name).dialect === 'as2') {
+                Object.setPrototypeOf(receiver, type(name).prototype);
+                Object.defineProperty(receiver, '__constructor__', { configurable: true, writable: true, enumerable: false, value: type(name) });
+            } else {
                 for (const definition of chain(name)) installFields(receiver, definition, false);
                 for (const definition of chain(name)) installMethods(receiver, definition, false);
                 for (const definition of chain(name)) installAccessors(receiver, definition, false);
@@ -346,16 +348,22 @@ const __nfProgram = (() => {
             prototypeOwners.set(facade.prototype,name);
         }
         if (dialect === 'as2') {
-            const parent = base ? type(base) : Object;
-            facade.prototype = Object.create(parent.prototype || Object.prototype);
-            // AVM1 ActionExtends exposes the superclass constructor on the
-            // subclass prototype, and creates the chain without invoking it.
-            Object.defineProperty(facade.prototype, 'constructor', { configurable: true, writable: true, value: parent });
-            Object.defineProperty(facade.prototype, '__constructor__', { configurable: true, writable: true, value: parent });
+            if (ctor) Object.defineProperty(ctor, '__nfPublicFunction', { value: facade });
+            if (base && base !== 'Object') {
+                const parent = type(base);
+                facade.prototype = Object.create(parent.prototype || Object.prototype);
+                // AVM1 ActionExtends exposes the superclass constructor on the
+                // subclass prototype, and creates the chain without invoking it.
+                Object.defineProperty(facade.prototype, 'constructor', { configurable: true, writable: true, value: parent });
+                Object.defineProperty(facade.prototype, '__constructor__', { configurable: true, writable: true, value: parent });
+                if (definitions.has(base)) Object.setPrototypeOf(facade, parent);
+            } else {
+                facade.prototype = Object.create(Object.prototype);
+                Object.defineProperty(facade.prototype, 'constructor', { configurable: true, writable: true, value: facade });
+            }
             installFields(facade.prototype, definition, false);
             installMethods(facade.prototype, definition, false);
             installAccessors(facade.prototype, definition, false);
-            if (definitions.has(base)) Object.setPrototypeOf(facade, parent);
         }
     }
     function initializeStatics() {
@@ -450,7 +458,7 @@ const __nfProgram = (() => {
         return result;
     }
     for(const name of ['getQualifiedClassName','getQualifiedSuperclassName','getDefinitionByName','describeType'])builtins['flash.utils.'+name]=(...args)=>reflect(name,args);
-    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, reflect, defaultObjectMethod,
+    return Object.freeze({ type, is, cast, define, defineInterface, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });
 })();

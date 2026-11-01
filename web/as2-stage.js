@@ -93,6 +93,7 @@ function create(options={}){
  function menu(event){if(!disposed&&!state().showMenu)event.preventDefault();}
  const Stage={get width(){active();return last?.logicalWidth??legacy.Stage.width;},get height(){active();return last?.logicalHeight??legacy.Stage.height;},addListener:listener=>legacy.Stage.addListener(listener),removeListener:listener=>legacy.Stage.removeListener(listener),get displayState(){active();return ownsFullscreen()?'fullScreen':'normal';},set displayState(value){display(value);},get fullScreenWidth(){return screenSize('width');},get fullScreenHeight(){return screenSize('height');}};
  for(const name of ['align','scaleMode','showMenu','fullScreenSourceRect'])Object.defineProperty(Stage,name,{enumerable:true,get(){const value=state()[name];return name==='fullScreenSourceRect'&&value?new geometry.Rectangle(value.x,value.y,value.width,value.height):value;},set(value){change(name,value);}});
+ Object.defineProperty(Stage,'wmodeGPU',{enumerable:true,get(){return Boolean(state().wmodeGPU);},set(){throw new TypeError('Stage.wmodeGPU is read-only.');}});
  Object.freeze(Stage);
  const onFullscreen=()=>{try{fullScreenChanged();}catch(error){report(error);}};
  doc?.addEventListener?.('fullscreenchange',onFullscreen);canvas?.addEventListener?.('contextmenu',menu);
