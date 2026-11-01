@@ -45,6 +45,8 @@ pub struct DisplayNode {
     pub lifetime_id: String,
     pub name: String,
     pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_id: Option<Id>,
     pub class_name: Option<String>,
     pub transform: Transform,
     pub world: [f64; 6],
@@ -362,11 +364,17 @@ impl Player {
                 } else {
                     symbol.and_then(|s| s.class_name.clone())
                 };
+                let symbol_id = if node.path.is_empty() && self.source_root.is_none() {
+                    None
+                } else {
+                    node.symbol_id
+                };
                 Some(DisplayNode {
                     path: node.path,
                     lifetime_id,
                     name: node.name,
                     owner: owner.into(),
+                    symbol_id,
                     class_name,
                     transform: node.transform,
                     world: node.world,
@@ -1035,6 +1043,20 @@ impl Player {
     fn live_timeline<'a>(&self, project: &'a Project, path: &[Id]) -> Option<(&'a Symbol, u32)> {
         let node = self.previous.get(path)?;
         Some((project.symbol(node.symbol_id.as_ref()?)?, node.frame))
+    }
+
+    /// Authored timeline scripts at zero-based `frame` for the live symbol at `path`.
+    pub fn frame_scripts(&self, project: &Project, path: &[Id], frame: u32) -> Vec<Script> {
+        let Some((symbol, _)) = self.live_timeline(project, path) else {
+            return Vec::new();
+        };
+        symbol
+            .timeline
+            .scripts
+            .iter()
+            .filter(|entry| entry.frame == frame)
+            .map(|entry| entry.script.clone())
+            .collect()
     }
 
     /// Number of scenes of the live timeline at `path` (one for ordinary clips).

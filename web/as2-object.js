@@ -89,12 +89,35 @@
       },has:()=>true,delete:()=>false};
     }
     function textChanged(field){const id=ids.get(field),record=textFields.get(id);if(record){synchronizeText(record,true);syncTextVariables();}}
+    function parseLevel(name){
+      if(typeof name!=='string'||!name.startsWith('_level'))return null;
+      const rest=name.slice(6);if(rest==='0')return 0;
+      if(!rest||rest.startsWith('0')||!/^\d+$/.test(rest))return null;
+      return Number(rest);
+    }
+    function variableScrollRef(owner,varName,prop){
+      if(owner==null||(prop!=='scroll'&&prop!=='maxscroll'))return null;
+      syncTextVariables();
+      for(const record of textFields.values()){
+        if(record.generation!==generation||!textVariable?.alive(record.field))continue;
+        const ref=textOwner(record);
+        if(ref.owner===owner&&ref.name===varName)return nativeRef(record.field,prop);
+      }
+      return null;
+    }
     function resolve(frame,path,lexical,writing,value){
       if(!writing&&object(path))return path;
       if(typeof path!=='string')throw new TypeError('AS2 eval/set requires a variable path string or an object reference for eval.');
       const parts=JSON.parse(wasm.as2_reference_path_json(path));if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
-      const first=parts.shift(),known=lexical?.(first),environment=globals(frame);
-      const root=first==='this'?{get:()=>frame}:known??globalProp(first)??(Object.hasOwn(environment,first)?{get:()=>environment[first]}:null);
+      const first=parts.shift(),known=lexical?.(first),environment=globals(frame),level=parseLevel(first);
+      const root=first==='this'?{get:()=>frame}:known??(level!==null?{get:()=>level===0?environment._level0:undefined}:null)??globalProp(first)??(Object.hasOwn(environment,first)?{get:()=>environment[first]}:null);
+      if(parts.length&&(parts.at(-1)==='scroll'||parts.at(-1)==='maxscroll')){
+        const prop=parts.at(-1),varPath=[first,...parts.slice(0,-1)],varFound=namedOwner(frame,varPath,root);
+        if(varFound.owner!=null){
+          const current=varPath.length===1&&root?root.get():namedGet(varFound.owner,varFound.name);
+          if(!object(current)){const scrollRef=variableScrollRef(varFound.owner,varFound.name,prop);if(scrollRef){if(writing){scrollRef.set(value);return undefined;}return scrollRef.get();}}
+        }
+      }
       let owner=frame,name=first;
       if(parts.length){const found=namedOwner(frame,[first,...parts],root);owner=found.owner;name=found.name;if(owner==null){if(writing)throw new TypeError('AS2 set target does not exist.');return undefined;}}
       if(writing){
@@ -104,7 +127,7 @@
       }
       return !parts.length&&root?root.get():owner==null?undefined:namedGet(owner,name);
     }
-    return {get,set,deleted,resolve,variableRef,textChanged,syncTextVariables,reset(){kernel.reset();generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;},dispose(){kernel?.free();kernel=null;generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;}};
+    return {get,set,deleted,resolve,variableRef,variableScrollRef,textChanged,syncTextVariables,reset(){kernel.reset();generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;},dispose(){kernel?.free();kernel=null;generation++;ids=new WeakMap();callbacks.clear();textFields.clear();syncingText=false;}};
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Object=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

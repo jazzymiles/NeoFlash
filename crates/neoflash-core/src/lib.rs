@@ -93,14 +93,15 @@ pub use runtime::{
     TimelineMetadata,
 };
 pub use runtime_graph::{
-    ClipComponent, ColorTransform, DisplayError, DisplayEvent, DisplayInputState, DisplayMutation,
-    DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS, MutationResult, ObjectRef,
-    RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup,
-    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, VideoState,
+    As2AccProps, As2AccUpdateEntry, ClipComponent, ColorTransform, DisplayError, DisplayEvent,
+    DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation, MAX_DYNAMIC_OBJECTS,
+    MutationResult, ObjectRef, RuntimeAccessibleNode, RuntimeClip, RuntimeDrawItem,
+    RuntimeDrawKind, RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot,
+    ScrollRect, VideoState,
 };
 pub use runtime_graphics::{
-    GradientKind, GradientPaint, GradientSpec, GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS,
-    MAX_GRAPHICS_OPS,
+    BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientStop,
+    GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
 };
 pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,
@@ -108,9 +109,9 @@ pub use scenes::{
 };
 pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{
-    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFieldType, TextFormat,
-    TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextReplacement,
-    TextRestrictPatch, TextSelection, layout_text,
+    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
+    TextFormat, TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery,
+    TextReplacement, TextRestrictPatch, TextSelection, layout_text, query_text,
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,

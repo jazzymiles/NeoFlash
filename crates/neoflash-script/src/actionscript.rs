@@ -236,6 +236,28 @@ impl<'a> Lexer<'a> {
                     return Err(self.error(start, "Unterminated string literal."));
                 }
                 Kind::String(self.script.source[start..self.offset].into())
+            } else if c == '#' && self.rest().starts_with(|ch: char| ch.is_ascii_alphabetic()) {
+                while self.rest().starts_with(|ch: char| ch.is_ascii_alphabetic()) {
+                    self.bump();
+                }
+                match &self.script.source[start..self.offset] {
+                    "#initclip" => Kind::Punct("#initclip"),
+                    "#endinitclip" => Kind::Punct("#endinitclip"),
+                    "#include" => {
+                        return Err(self.error(
+                            start,
+                            "#include requires compile_with_program and bundled .as project resources.",
+                        ));
+                    }
+                    directive => {
+                        return Err(self.error(
+                            start,
+                            format!(
+                                "Unsupported compiler directive '{directive}' in ActionScript."
+                            ),
+                        ));
+                    }
+                }
             } else {
                 self.offset = start;
                 const OPERATORS: &[&str] = &[
@@ -485,6 +507,9 @@ enum Stmt {
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     With(Expr, Box<Stmt>, usize),
+    TellTarget(Expr, Box<Stmt>, usize),
+    IfFrameLoaded(Vec<Expr>, Box<Stmt>),
+    InitClip(Option<u32>, Vec<Stmt>, usize),
     For(Box<Stmt>, Option<Expr>, Option<Expr>, Box<Stmt>),
     ForIn(Box<Stmt>, Expr, bool, Box<Stmt>),
     DoWhile(Box<Stmt>, Expr),
@@ -509,6 +534,7 @@ struct Frontend<'a> {
     context: CompileContext,
     no_in: bool,
     with_depth: usize,
+    in_initclip: bool,
 }
 
 impl<'a> Frontend<'a> {
@@ -594,7 +620,112 @@ impl<'a> Frontend<'a> {
         self.depth -= 1;
         Ok(statement)
     }
+    #[inline(never)]
+    fn parse_initclip(&mut self) -> Result<Stmt, Diagnostic> {
+        let offset = self.token().offset;
+        if self.script.language != ScriptLanguage::ActionScript2 {
+            return Err(self.error("#initclip is supported only in ActionScript 2."));
+        }
+        if self.function_depth != 0
+            || self.context.class_name.is_some()
+            || self.depth != 1
+            || self.with_depth != 0
+            || self.in_initclip
+        {
+            return Err(
+                self.error("#initclip is allowed only at the top level of an AS2 frame script.")
+            );
+        }
+        self.expect("#initclip")?;
+        let order = if !self.line_break_before_token()
+            && let Kind::Number(raw) = &self.token().kind
+        {
+            let raw = raw.clone();
+            let order = raw.parse::<u32>().map_err(|_| {
+                self.error("#initclip order requires a non-negative 32-bit integer.")
+            })?;
+            self.pos += 1;
+            Some(order)
+        } else {
+            None
+        };
+        if !self.eat(";") && !self.is("#endinitclip") && !self.line_break_before_token() {
+            return Err(self.error("Expected a line break or ';' after #initclip."));
+        }
+        self.in_initclip = true;
+        let mut body = Vec::new();
+        while self.token().kind != Kind::End && !self.is("#endinitclip") {
+            body.push(self.statement()?);
+        }
+        self.in_initclip = false;
+        if !self.eat("#endinitclip") {
+            return Err(Diagnostic::at(
+                self.script,
+                offset,
+                "Unterminated #initclip block; expected #endinitclip.",
+            ));
+        }
+        let _ = self.eat(";");
+        Ok(Stmt::InitClip(order, body, offset))
+    }
+    #[inline(never)]
+    fn parse_tell_target(&mut self) -> Result<Stmt, Diagnostic> {
+        let offset = self.token().offset;
+        self.expect("tellTarget")?;
+        self.expect("(")?;
+        let target = self.expression(0)?;
+        self.expect(")")?;
+        self.with_depth += 1;
+        let body = self.statement()?;
+        self.with_depth -= 1;
+        if !scope::with_body_supported(&body) {
+            return Err(self.error("Function definitions and eval/set calls inside tellTarget require captured/dynamic scope-chain semantics outside this profile."));
+        }
+        Ok(Stmt::TellTarget(target, Box::new(body), offset))
+    }
+    #[inline(never)]
+    fn parse_if_frame_loaded(&mut self) -> Result<Stmt, Diagnostic> {
+        self.expect("ifFrameLoaded")?;
+        self.expect("(")?;
+        if self.is(")") {
+            return Err(self.error("ifFrameLoaded requires (frame) or (scene, frame)."));
+        }
+        let mut args = vec![self.expression(0)?];
+        if self.eat(",") {
+            args.push(self.expression(0)?);
+        }
+        if self.eat(",") {
+            return Err(self.error("ifFrameLoaded accepts (frame) or (scene, frame)."));
+        }
+        self.expect(")")?;
+        let body = self.statement()?;
+        Ok(Stmt::IfFrameLoaded(args, Box::new(body)))
+    }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+        if self.is("#endinitclip") {
+            return Err(self.error("Unexpected #endinitclip without a matching #initclip."));
+        }
+        if self.is("#initclip") {
+            return self.parse_initclip();
+        }
+        if self.script.language == ScriptLanguage::ActionScript2
+            && self.is("tellTarget")
+            && matches!(
+                self.peek(self.pos + 1).map(|t| t.kind),
+                Some(Kind::Punct("("))
+            )
+        {
+            return self.parse_tell_target();
+        }
+        if self.script.language == ScriptLanguage::ActionScript2
+            && self.is("ifFrameLoaded")
+            && matches!(
+                self.peek(self.pos + 1).map(|t| t.kind),
+                Some(Kind::Punct("("))
+            )
+        {
+            return self.parse_if_frame_loaded();
+        }
         if self.is("with") {
             let offset = self.token().offset;
             if self.script.language != ScriptLanguage::ActionScript2 {
@@ -618,6 +749,7 @@ impl<'a> Frontend<'a> {
             if self.script.language != ScriptLanguage::ActionScript2
                 || self.function_depth != 0
                 || self.context.class_name.is_some()
+                || self.in_initclip
             {
                 return Err(self.error(
                     "Legacy on/onClipEvent blocks belong at the top level of an AS2 object script.",
@@ -1164,7 +1296,7 @@ impl<'a> Frontend<'a> {
         supported && !(matches!(name, "JSON" | "Vector") && self.context.intrinsic_type(name, as3))
     }
     fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
-        self.project_function(declaration, false, false)
+        self.project_function(declaration, false, false, false)
             .map(|(function, _)| function)
     }
     fn project_function(
@@ -1172,6 +1304,7 @@ impl<'a> Frontend<'a> {
         declaration: bool,
         member: bool,
         signature_only: bool,
+        allow_as2_signature_accessor: bool,
     ) -> Result<(Function, Option<String>), Diagnostic> {
         let offset = self.token().offset;
         self.expect("function")?;
@@ -1182,7 +1315,10 @@ impl<'a> Frontend<'a> {
                 Some(Kind::Ident(_))
             ) {
             let kind = self.ident()?;
-            if signature_only && self.script.language == ScriptLanguage::ActionScript2 {
+            if signature_only
+                && !allow_as2_signature_accessor
+                && self.script.language == ScriptLanguage::ActionScript2
+            {
                 return Err(self.error("AS2 interface accessor signatures are outside this profile; declare get/set accessors in a concrete source class."));
             }
             Some(kind)
@@ -1903,6 +2039,26 @@ fn is_as2_global_prop(name: &str) -> bool {
     )
 }
 
+pub(super) fn parse_as2_level(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix("_level")?;
+    if rest == "0" {
+        return Some(0);
+    }
+    if rest.is_empty() || rest.starts_with('0') || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse::<u32>().ok()
+}
+
+pub(super) fn fnv1a64(text: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn is_family_method(name: &str) -> bool {
     matches!(
         name,
@@ -2169,12 +2325,18 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
 
 struct Emitter<'a> {
     with_targets: Vec<String>,
+    tell_target: Option<String>,
     as3: bool,
     analysis: &'a scope::Analysis<'a>,
     scope: usize,
 }
 
 impl Emitter<'_> {
+    fn active_timeline(&self) -> &str {
+        self.tell_target
+            .as_deref()
+            .unwrap_or(if self.scope == 0 { "this" } else { "__nfFrame" })
+    }
     fn coerce(&self, name: &str, value: String) -> String {
         self.coerce_type(
             self.analysis
@@ -2272,23 +2434,24 @@ impl Emitter<'_> {
             analysis: self.analysis,
             scope: self.scope,
             with_targets: Vec::new(),
+            tell_target: self.tell_target.clone(),
         }
     }
     fn with_reference(&self, name: &str) -> Option<String> {
         if self.as3
             || self.with_targets.is_empty()
             || matches!(name, "this" | "super" | "eval" | "set")
+            || parse_as2_level(name).is_some()
         {
             return None;
         }
         let plain = self.without_with();
+        let timeline = plain.active_timeline().to_owned();
         let expression = Expr::Name(name.to_owned());
         let receiver = plain.bare_member_receiver(name).or_else(|| {
             let raw = plain.unscoped_name(name);
-            if raw == format!("this.{name}") {
-                Some("this".into())
-            } else if raw == format!("__nfFrame.{name}") {
-                Some("__nfFrame".into())
+            if raw == format!("{timeline}.{name}") {
+                Some(timeline)
             } else {
                 None
             }
@@ -2369,6 +2532,12 @@ impl Emitter<'_> {
         }
         if !self.as3
             && self.analysis.resolve(self.scope, name).is_none()
+            && let Some(level) = parse_as2_level(name)
+        {
+            return format!("__nfLegacy.level({level})");
+        }
+        if !self.as3
+            && self.analysis.resolve(self.scope, name).is_none()
             && is_as2_global_prop(name)
         {
             return format!("__nfLegacy.globalPropRef({name:?}).get()");
@@ -2383,6 +2552,7 @@ impl Emitter<'_> {
                     | "LoadVars"
                     | "TextFormat"
                     | "TextField"
+                    | "Accessibility"
                     | "_global"
                     | "newline"
                     | "Sound"
@@ -2403,6 +2573,7 @@ impl Emitter<'_> {
                 name,
                 "MovieClip"
                     | "Button"
+                    | "Video"
                     | "MovieClipLoader"
                     | "AsBroadcaster"
                     | "Color"
@@ -2507,10 +2678,7 @@ impl Emitter<'_> {
         } else if name == "trace" {
             "__nfTrace".into()
         } else {
-            format!(
-                "{}.{name}",
-                if self.scope == 0 { "this" } else { "__nfFrame" }
-            )
+            format!("{}.{name}", self.active_timeline())
         }
     }
     /// Lexical access travels with emitted code, never with an ambient runtime
@@ -2548,11 +2716,10 @@ impl Emitter<'_> {
         }
         // Unqualified dynamic/native members also need the sealed-object gate.
         // Locals, built-in globals and type names retain their existing binding.
+        let timeline = self.active_timeline();
         let raw = self.unscoped_name(name);
-        if raw == format!("this.{name}") {
-            Some("this".into())
-        } else if raw == format!("__nfFrame.{name}") {
-            Some("__nfFrame".into())
+        if raw == format!("{timeline}.{name}") {
+            Some(timeline.into())
         } else {
             None
         }
@@ -2604,6 +2771,7 @@ impl Emitter<'_> {
             analysis: self.analysis,
             scope: f.id,
             with_targets: Vec::new(),
+            tell_target: None,
         };
         let mut prologue = String::new();
         if self.analysis.context.method_id == Some(f.id) {
@@ -2700,6 +2868,53 @@ impl Emitter<'_> {
             _ => unreachable!("The parser only accepts assignable expression targets"),
         }
     }
+    fn as2_var_scroll_ref(&self, base: &Expr, prop: &str) -> Option<String> {
+        if self.as3 || !matches!(prop, "scroll" | "maxscroll") {
+            return None;
+        }
+        let caller = self.caller_argument();
+        match base {
+            Expr::Name(var_name)
+                if !is_global(var_name)
+                    && parse_as2_level(var_name).is_none()
+                    && !is_as2_global_prop(var_name)
+                    && self
+                        .analysis
+                        .resolve(self.scope, var_name)
+                        .is_none_or(|(id, b)| {
+                            id == 0
+                                && (b.kind != scope::BindingKind::Field
+                                    || !self.analysis.context.static_members.contains_key(var_name))
+                        }) =>
+            {
+                let is_instance_field = self
+                    .analysis
+                    .resolve(self.scope, var_name)
+                    .is_some_and(|(id, b)| id == 0 && b.kind == scope::BindingKind::Field);
+                if is_instance_field {
+                    Some(format!(
+                        "__nfVarScrollRef({}, this, {var_name:?}, {prop:?}{caller})",
+                        self.name(var_name)
+                    ))
+                } else if let Some(wref) = self.with_reference(var_name) {
+                    Some(format!(
+                        "((__nfRef)=>__nfVarScrollRef(__nfRef.get(),__nfRef.receiver,{var_name:?},{prop:?}{caller}))({wref})"
+                    ))
+                } else {
+                    Some(format!(
+                        "__nfVarScrollRef({}, {}, {var_name:?}, {prop:?}{caller})",
+                        self.unscoped_name(var_name),
+                        self.active_timeline()
+                    ))
+                }
+            }
+            Expr::Member(owner_expr, var_name) => Some(format!(
+                "((__nfOwner)=>__nfVarScrollRef(__nfFamilyPropertyValue(__nfOwner,{var_name:?},false{caller}),__nfOwner,{var_name:?},{prop:?}{caller}))({})",
+                self.expression(owner_expr)
+            )),
+            _ => None,
+        }
+    }
     fn reference(&self, expr: &Expr) -> Option<String> {
         if let Expr::Name(name) = expr
             && let Some(reference) = self.with_reference(name)
@@ -2707,6 +2922,13 @@ impl Emitter<'_> {
             return Some(reference);
         }
         match expr {
+            Expr::Name(name)
+                if !self.as3
+                    && self.analysis.resolve(self.scope, name).is_none()
+                    && let Some(level) = parse_as2_level(name) =>
+            {
+                Some(format!("__nfLegacy.levelRef({level})"))
+            }
             Expr::Name(name)
                 if !self.as3
                     && self.analysis.resolve(self.scope, name).is_none()
@@ -2721,12 +2943,14 @@ impl Emitter<'_> {
                     self.caller_argument()
                 )
             }),
-            Expr::Member(base, name) => Some(format!(
-                "__nfContainerRef({}, {name:?}, {}{})",
-                self.expression(base),
-                self.as3,
-                self.caller_argument()
-            )),
+            Expr::Member(base, name) => self.as2_var_scroll_ref(base, name).or_else(|| {
+                Some(format!(
+                    "__nfContainerRef({}, {name:?}, {}{})",
+                    self.expression(base),
+                    self.as3,
+                    self.caller_argument()
+                ))
+            }),
             Expr::XmlSelect {
                 base,
                 local,
@@ -2967,6 +3191,9 @@ impl Emitter<'_> {
                 if name == "String" { ", true" } else { "" }
             ),
             Expr::Member(base, name) => {
+                if let Some(reference) = self.as2_var_scroll_ref(base, name) {
+                    return format!("({reference}).get()");
+                }
                 format!(
                     "__nfFamilyPropertyValue({}, {name:?}, {}{})",
                     self.expression(base),
@@ -3238,6 +3465,17 @@ impl Emitter<'_> {
                 self.expression(no)
             ),
             Expr::Call(callee, args, _) => {
+                if !self.as3
+                    && let Expr::Name(name) = callee.as_ref()
+                    && name == "call"
+                    && self.analysis.resolve(self.scope, name).is_none()
+                {
+                    return format!(
+                        "__nfLegacy.callFrame({}, {})",
+                        self.active_timeline(),
+                        self.expression(&args[0])
+                    );
+                }
                 if let Expr::Name(name) = callee.as_ref()
                     && let Some(reference) = self.with_reference(name)
                 {
@@ -3498,14 +3736,7 @@ impl Emitter<'_> {
                                 && (!is_global(name)
                                     || matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")) =>
                         {
-                            Some((
-                                if self.scope == 0 {
-                                    "this".into()
-                                } else {
-                                    "__nfFrame".into()
-                                },
-                                name,
-                            ))
+                            Some((self.active_timeline().to_owned(), name))
                         }
                         Expr::Member(base, name) => Some((self.expression(base), name)),
                         Expr::Index(_, _) => member
@@ -3612,11 +3843,53 @@ impl Emitter<'_> {
                     analysis: self.analysis,
                     scope: self.scope,
                     with_targets: targets,
+                    tell_target: self.tell_target.clone(),
                 };
                 format!(
                     "{{const {name}=__nfWithTarget({});\n{}\n}}",
                     self.expression(target),
                     inner.statement(body)
+                )
+            }
+            Stmt::TellTarget(target, body, id) => {
+                let name = format!("__nfWith{id}");
+                let mut targets = self.with_targets.clone();
+                targets.push(name.clone());
+                let inner = Emitter {
+                    as3: self.as3,
+                    analysis: self.analysis,
+                    scope: self.scope,
+                    with_targets: targets,
+                    tell_target: Some(name.clone()),
+                };
+                format!(
+                    "{{const {name}=__nfTellTarget({}, {}, __nfFrame);\n{}\n}}",
+                    self.active_timeline(),
+                    self.expression(target),
+                    inner.statement(body)
+                )
+            }
+            Stmt::IfFrameLoaded(args, body) => format!(
+                "if (__nfLegacy.isFrameLoaded({}, [{}])) {{\n{}\n}}",
+                self.active_timeline(),
+                args.iter()
+                    .map(|arg| self.expression(arg))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.statement(body)
+            ),
+            Stmt::InitClip(_, body, id) => {
+                let key = format!("{:016x}:{id}", fnv1a64(&self.analysis.script.source));
+                let clean = Emitter {
+                    as3: false,
+                    analysis: self.analysis,
+                    scope: 0,
+                    with_targets: Vec::new(),
+                    tell_target: None,
+                };
+                format!(
+                    "__nfRunInitClip({key:?}, (__nfLegacy?.level?.(0) ?? (typeof _root !== 'undefined' ? _root : this)), function(__nfInitRoot){{ const __nfFrame = __nfInitRoot;\n(function(){{\n{}\n}}).call(__nfInitRoot);\n}});",
+                    clean.body(body)
                 )
             }
             Stmt::Block(body) => format!("{{\n{}\n}}", self.statements(body)),
@@ -3737,6 +4010,7 @@ impl Emitter<'_> {
                             analysis: self.analysis,
                             scope: catch.id,
                             with_targets: self.with_targets.clone(),
+                            tell_target: self.tell_target.clone(),
                         };
                         let condition = catch.ty.as_deref().filter(|t| *t != "*").map_or_else(
                             || "true".into(),
@@ -3899,6 +4173,7 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         context: context.clone(),
         no_in: false,
         with_depth: 0,
+        in_initclip: false,
     };
     let statements = parser.statements(false)?;
     let analysis = scope::Analysis::with_context(script, &statements, context)?;
@@ -3907,6 +4182,7 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         analysis: &analysis,
         scope: 0,
         with_targets: Vec::new(),
+        tell_target: None,
     }
     .body(&statements);
     let output = format!(

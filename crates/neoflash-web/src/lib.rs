@@ -39,7 +39,9 @@ use neoflash_core::{
     PixelSnapping, PlaybackCommand, Player, Project, RuntimeScriptDispatch, SceneRange,
     ScriptDispatch, ScrollRect,
 };
-use neoflash_core::{TextError, TextFieldState, TextInputEdit, TextPatch, layout_text};
+use neoflash_core::{
+    TextError, TextFieldState, TextInputEdit, TextPatch, TextQuery, layout_text, query_text,
+};
 use wasm_bindgen::prelude::*;
 
 /// Pure, bounded XML fragment parsing. No Player borrow or host callback occurs.
@@ -164,6 +166,35 @@ fn command(name: &str, frame: u32) -> Result<PlaybackCommand, JsValue> {
     }
 }
 
+fn invoke_text_measure(
+    measure: &js_sys::Function,
+    strings: &[String],
+    format: &neoflash_core::TextFormat,
+) -> Result<Vec<f64>, TextError> {
+    let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
+    let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
+    let result = measure
+        .call2(
+            &JsValue::NULL,
+            &JsValue::from_str(&strings),
+            &JsValue::from_str(&format),
+        )
+        .map_err(|e| {
+            TextError(format!(
+                "font measurement failed: {}",
+                e.as_string()
+                    .unwrap_or_else(|| "host callback error".into())
+            ))
+        })?;
+    let json = result
+        .as_string()
+        .ok_or_else(|| TextError("font measurement must return JSON widths".into()))?;
+    if json.len() > 4 * 1024 * 1024 {
+        return Err(TextError("font measurement result exceeds 4 MiB".into()));
+    }
+    serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
+}
+
 #[wasm_bindgen]
 pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<String, JsValue> {
     if field_json.len() > 8 * 1024 * 1024 {
@@ -171,31 +202,28 @@ pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<
     }
     let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
     let layout = layout_text(&field, |strings, format| {
-        let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
-        let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
-        let result = measure
-            .call2(
-                &JsValue::NULL,
-                &JsValue::from_str(&strings),
-                &JsValue::from_str(&format),
-            )
-            .map_err(|e| {
-                TextError(format!(
-                    "font measurement failed: {}",
-                    e.as_string()
-                        .unwrap_or_else(|| "host callback error".into())
-                ))
-            })?;
-        let json = result
-            .as_string()
-            .ok_or_else(|| TextError("font measurement must return JSON widths".into()))?;
-        if json.len() > 4 * 1024 * 1024 {
-            return Err(TextError("font measurement result exceeds 4 MiB".into()));
-        }
-        serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
+        invoke_text_measure(measure, strings, format)
     })
     .map_err(display_error)?;
     serde_json::to_string(&layout).map_err(display_error)
+}
+
+#[wasm_bindgen]
+pub fn text_query_json(
+    field_json: &str,
+    query_json: &str,
+    measure: &js_sys::Function,
+) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024 || query_json.len() > 64 * 1024 {
+        return Err(JsValue::from_str("Text query input exceeds size budget"));
+    }
+    let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    let query: TextQuery = serde_json::from_str(query_json).map_err(display_error)?;
+    let result = query_text(&field, &query, |strings, format| {
+        invoke_text_measure(measure, strings, format)
+    })
+    .map_err(display_error)?;
+    serde_json::to_string(&result).map_err(display_error)
 }
 
 #[wasm_bindgen]
@@ -578,6 +606,14 @@ impl WebPlayer {
         measure: &js_sys::Function,
     ) -> Result<String, JsValue> {
         text_layout_json(field_json, measure)
+    }
+    pub fn text_query_json(
+        &self,
+        field_json: &str,
+        query_json: &str,
+        measure: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        text_query_json(field_json, query_json, measure)
     }
     pub fn pixel_decode(&mut self, encoded: &[u8]) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.pixel_decode(encoded).map_err(display_error)?)

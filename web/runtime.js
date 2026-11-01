@@ -135,7 +135,7 @@
             context.stroke();
           }
         } else if (kind.type === 'path' || kind.type === 'gradient_path') {
-          gradients.draw(context,kind,paths.get(kind.commands));
+          gradients.draw(context,kind,paths.get(kind.commands),bitmapHost?.cache);
         } else if (kind.type === 'bitmap_pixels') {
           if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
           bitmapHost.cache.draw(context,snapBitmaps?kind:{...kind,pixel_snapping:'never'});
@@ -280,6 +280,8 @@
     const references = new WeakMap();
     const attachedClasses = new Map();
     const registeredClasses = new Map();
+    const executedInitClips = new Set();
+    let callFrameDepth = 0, inDispatch = false;
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null;
     let frameLabelType = null, sceneValueFactory = null;
@@ -377,7 +379,7 @@
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
-      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
@@ -434,11 +436,72 @@
         if(!references.get(receiver)?.nativeHas(name))throw new Error('AS2 getProperty/setProperty does not yet support '+name+'.');
         return {receiver,name};
       }
+      function updateAs2Accessibility(){
+        if(typeof player.as2_accessibility_update!=='function'||!display)return;
+        const entries=[];
+        for(const node of display.nodes()){
+          if(!['movie_clip','button','text'].includes(node.owner))continue;
+          const cached=proxies.get(JSON.stringify(node.object_ref));if(!cached)continue;
+          const p=cached.proxy,acc=display.readAccProps?.(p);
+          if(!acc||typeof acc!=='object')continue;
+          const interactive=node.owner==='button'||['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut'].some(k=>typeof p[k]==='function');
+          entries.push({object_ref:node.object_ref,props:{silent:Boolean(acc.silent),force_simple:Boolean(acc.forceSimple),name:typeof acc.name==='string'?acc.name:null,description:typeof acc.description==='string'?acc.description:null,interactive}});
+        }
+        player.as2_accessibility_update(JSON.stringify(entries));
+        if(typeof semanticLayer!=='undefined'&&semanticLayer?.update&&graphMode){
+          const snap=JSON.parse(player.runtime_snapshot_json()),byRef=new Map(snap.objects.map(n=>[JSON.stringify(n.object_ref),n]));
+          const semScene=snap.draws.map(item=>{const ancestry_refs=[];for(let n=byRef.get(JSON.stringify(item.owner_ref));n;n=byRef.get(JSON.stringify(n.parent_ref)))ancestry_refs.push(n.object_ref);return {...item,ancestry_refs,kind:item.kind.type==='text_field'&&textHost?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};});
+          const [w,h]=logicalSize(),sc=typeof preview==='undefined'?1:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale};
+          semanticLayer.update(snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects))),semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;});
+        }
+        if(!inDispatch&&typeof context!=='undefined')render();
+      }
       const legacyDisplayCall=(target,method,args)=>as2.method(display.resolveTarget(target,proxyFor([])),method)(...args);
       legacyGlobals=Object.freeze({...legacyGlobals,
         __nfCallStack:[],
         MovieClip:display.builtins['flash.display.MovieClip'],
         Button:display.builtins['flash.display.SimpleButton'],
+        Accessibility:Object.freeze({
+          isActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),
+          updateProperties:()=>updateAs2Accessibility(),
+        }),
+        level:n=>n===0?proxyFor([]):undefined,
+        levelRef:n=>({has:()=>n===0,delete:()=>false,get:()=>n===0?proxyFor([]):undefined,set:()=>{throw new TypeError('AS2 _level references are read-only.');}}),
+        resolveTarget:(value,relative)=>display.resolveTarget(value,relative??proxyFor([])),
+        runInitClip:(key,root,fn)=>{if(executedInitClips.has(key))return;executedInitClips.add(key);fn(root);},
+        callFrame(target,spec){
+          const ref=references.get(target);
+          if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip'||spec===null||spec===undefined)return undefined;
+          let normalized;
+          if(typeof spec==='number'){if(!Number.isFinite(spec))return undefined;normalized=Math.trunc(spec);}
+          else normalized=String(spec);
+          if(callFrameDepth>=64)throw new RangeError('AS2 call() recursion limit exceeded.');
+          const packet=JSON.parse(player.as2_call_frame_scripts(ref.key,JSON.stringify(normalized)));
+          if(!packet||!packet.scripts?.length)return undefined;
+          const scope=proxyForRef(packet.target_ref);
+          callFrameDepth++;
+          try{
+            for(const script of packet.scripts){
+              if(!script.source.trim())continue;
+              const compiled=functions.get(sourceKey(script));
+              if(!compiled)throw new Error('A script is missing from the compiled export. Re-export the project.');
+              const event=Object.freeze({type:'frame',target:scope,currentTarget:scope});
+              const scriptRoot=script.language==='ActionScript2'?as2RootFor(scope):proxyFor([]);
+              compiled.fn.call(scope,event,scriptRoot,scope._parent,trace,scope.play,scope.stop,scope.gotoAndPlay,scope.gotoAndStop,scope.nextFrame,scope.prevFrame,as2.method,as2.value,program,display,legacyGlobals,xmlHost);
+            }
+          }finally{callFrameDepth--;}
+          return undefined;
+        },
+        isFrameLoaded(target,args=[]){
+          const ref=references.get(target);
+          if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')return false;
+          const hasScene=args.length>=2,scene=hasScene?(args[0]==null?null:String(args[0])):null,raw=hasScene?args[1]:args[0];
+          let frame;
+          if(typeof raw==='number'){if(!Number.isFinite(raw)||!Number.isInteger(raw))return false;frame=raw;}
+          else if(typeof raw==='string')frame=raw;
+          else return false;
+          return Boolean(player.as2_is_frame_loaded(ref.key,JSON.stringify({scene,frame})));
+        },
         globalPropRef:name=>{const ref=display.as2GlobalPropRef(name);if(!ref)throw new ReferenceError(`Unknown AS2 global property ${name}.`);return ref;},
         toggleHighQuality:display.toggleHighQuality,
         showRedrawRegions:display.showRedrawRegions,
@@ -512,7 +575,9 @@
       if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
         videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
-        legacyGlobals=Object.freeze({...legacyGlobals,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
+        const LegacyVideo=function(){throw new TypeError('AS2 Video must be an authored Video placement; new Video() is not available.');};
+        Object.defineProperties(LegacyVideo,{__nfIs:{value:videoHost.Video.__nfIs},[Symbol.hasInstance]:{value:videoHost.Video.__nfIs}});
+        legacyGlobals=Object.freeze({...legacyGlobals,Video:LegacyVideo,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
       }
       if(global.NeoFlashAS2DepthManager&&typeof player.as2_depth_manager==='function')as2DepthManagerHost=global.NeoFlashAS2DepthManager.create({player,referenceOf:target=>references.get(target),display,getRoot:()=>proxyFor([]),afterEvent:afterTimerEvent});
       if(global.NeoFlashAS2Transitions&&easingHost)as2TransitionsHost=global.NeoFlashAS2Transitions.create({wasm,timers:timerHost,easing:easingHost,EventDispatcher:as2PlatformHost.EventDispatcher,stage:stageHost.stage,getFrameRate:()=>runtimeFrameRate,isMovieClip:target=>display.alive(target)&&display.descriptor(target).owner==='movie_clip',afterEvent:afterTimerEvent,onError:timerFailure});
@@ -652,7 +717,7 @@
       }
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(timerHost)for(const name of ['setInterval','setTimeout','clearInterval','clearTimeout'])builtins['flash.utils.'+name]=timerHost[name];
-      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.BitmapDataChannel']=bitmapHost.BitmapDataChannel;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;}
+      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.BitmapDataChannel']=bitmapHost.BitmapDataChannel;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;builtins.__nfBitmapUintVector=bitmapHost.setUintVectorFactory;}
       else if(global.NeoFlashBitmap?.BitmapDataChannel)builtins['flash.display.BitmapDataChannel']=global.NeoFlashBitmap.BitmapDataChannel;
       const textSource=textHost||global.NeoFlashText;
       if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','TextLineMetrics'])if(textSource[name])builtins['flash.text.'+name]=textSource[name];
@@ -679,7 +744,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
+      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); executedInitClips.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
       soundsPreloaded=false;
       player.reset();
       initializeProgram();
@@ -691,7 +756,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
       externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
-      registeredClasses.clear();if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
+      registeredClasses.clear();executedInitClips.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function as2RootFor(target) {
@@ -729,14 +794,28 @@
       // container constructor. Native allocation reserves its own root first.
       for(const node of nodes.sort((a,b)=>graphMode?depth(b)-depth(a):b.path.length-a.path.length)) {
         if(graphMode&&!withinScope(node))continue;
-        if(graphMode&&node.authored_path===null&&!node.class_name)continue;
+        const symbolId=node.symbol_id||node.kind?.symbol_id;
+        const symLinkage=symbolId&&typeof project!=='undefined'?project?.symbols?.find(s=>s.id===symbolId)?.linkage_id:null;
+        const hasRegistered=Boolean(symLinkage&&registeredClasses.has(symLinkage));
+        if(graphMode&&node.authored_path===null&&!node.class_name&&!hasRegistered)continue;
         const key=graphMode?JSON.stringify(node.object_ref):JSON.stringify(node.path),previous=attachedClasses.get(key);
         const lifetime=graphMode?node.object_ref.generation:node.lifetime_id;
         if(graphMode?!player.object_alive(key):player.lifetime_id(key)!==lifetime)continue;
         if(previous===lifetime)continue;
         attachedClasses.set(key,lifetime);
         const receiver=graphMode?proxyForRef(node.object_ref):proxyFor(node.path);
-        if(node.class_name){
+        const registered=hasRegistered?registeredClasses.get(symLinkage):undefined;
+        if(hasRegistered){
+          if(registered!==null){
+            if(registered.kind==='project')program.attach(registered.name,receiver);
+            else{
+              if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
+              Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
+              Reflect.apply(registered.ctor,receiver,[]);
+            }
+            display.refreshLegacyCallbacks(receiver,true);
+          }
+        }else if(node.class_name){
           if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
           program.attach(node.class_name,receiver);
           if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver,true);
@@ -1019,6 +1098,10 @@
       lastTrace = values.map(value => typeof value === 'string' ? value : String(value)).join(' ').slice(0, 160);
     }
     function dispatchScripts(clickTarget = null) {
+      const wasInDispatch = inDispatch;
+      inDispatch = true;
+      try {
+      program?.runInitClips?.(proxyFor([]));
       attachNewInstances();
       const clickTargetScope = clickTarget ? references.has(clickTarget)?clickTarget:proxyFor(clickTarget) : null;
       let count = 0;
@@ -1051,6 +1134,9 @@
       if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
       as2ObjectHost?.syncTextVariables();
       drainSounds();
+      } finally {
+        inDispatch = wasInDispatch;
+      }
     }
     // Timeline sounds: the Rust Player queues SoundCommands as frames are entered; the audio
     // service schedules them. Resources are decoded once per session before their keyframe.

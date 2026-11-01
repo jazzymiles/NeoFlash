@@ -245,6 +245,12 @@ pub enum TextFieldType {
 fn selectable_default() -> bool {
     true
 }
+fn anti_alias_default() -> String {
+    "normal".into()
+}
+fn grid_fit_default() -> String {
+    "pixel".into()
+}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextSelection {
@@ -324,6 +330,20 @@ pub struct TextFieldState {
     pub selection_end: u32,
     #[serde(default)]
     pub caret: u32,
+    #[serde(default = "anti_alias_default")]
+    pub anti_alias_type: String,
+    #[serde(default = "grid_fit_default")]
+    pub grid_fit_type: String,
+    #[serde(default)]
+    pub sharpness: f64,
+    #[serde(default)]
+    pub thickness: f64,
+    #[serde(default)]
+    pub embed_fonts: bool,
+    #[serde(default)]
+    pub condense_white: bool,
+    #[serde(default)]
+    pub always_show_selection: bool,
 }
 impl Default for TextFieldState {
     fn default() -> Self {
@@ -348,6 +368,13 @@ impl Default for TextFieldState {
             selection_begin: 0,
             selection_end: 0,
             caret: 0,
+            anti_alias_type: anti_alias_default(),
+            grid_fit_type: grid_fit_default(),
+            sharpness: 0.,
+            thickness: 0.,
+            embed_fonts: false,
+            condense_white: false,
+            always_show_selection: false,
         }
     }
 }
@@ -416,6 +443,18 @@ impl TextFieldState {
             "none" | "left" | "center" | "right"
         ) {
             return Err(error("autoSize requires none, left, center or right"));
+        }
+        if !matches!(self.anti_alias_type.as_str(), "normal" | "advanced") {
+            return Err(error("antiAliasType requires normal or advanced"));
+        }
+        if !matches!(self.grid_fit_type.as_str(), "none" | "pixel" | "subpixel") {
+            return Err(error("gridFitType requires none, pixel or subpixel"));
+        }
+        if !self.sharpness.is_finite() || !(-400.0..=400.0).contains(&self.sharpness) {
+            return Err(error("sharpness requires a finite number in -400..=400"));
+        }
+        if !self.thickness.is_finite() || !(-200.0..=200.0).contains(&self.thickness) {
+            return Err(error("thickness requires a finite number in -200..=200"));
         }
         if self.as2_viewport.background_color > 0xffffff
             || self.as2_viewport.border_color > 0xffffff
@@ -497,6 +536,33 @@ impl TextFieldState {
         }
         if let Some(value) = &patch.restrict {
             next.restrict = value.value.clone();
+        }
+        if let Some(value) = &patch.anti_alias_type {
+            next.anti_alias_type = value.clone();
+        }
+        if let Some(value) = &patch.grid_fit_type {
+            next.grid_fit_type = value.clone();
+        }
+        if let Some(value) = patch.sharpness {
+            if !value.is_finite() {
+                return Err(error("sharpness requires a finite number"));
+            }
+            next.sharpness = value.clamp(-400.0, 400.0);
+        }
+        if let Some(value) = patch.thickness {
+            if !value.is_finite() {
+                return Err(error("thickness requires a finite number"));
+            }
+            next.thickness = value.clamp(-200.0, 200.0);
+        }
+        if let Some(value) = patch.embed_fonts {
+            next.embed_fonts = value;
+        }
+        if let Some(value) = patch.condense_white {
+            next.condense_white = value;
+        }
+        if let Some(value) = patch.always_show_selection {
+            next.always_show_selection = value;
         }
 
         if let Some(format) = &patch.default_format {
@@ -687,6 +753,13 @@ pub struct TextPatch {
     pub word_wrap: Option<bool>,
     pub format: Option<TextFormatPatch>,
     pub default_format: Option<TextFormatPatch>,
+    pub anti_alias_type: Option<String>,
+    pub grid_fit_type: Option<String>,
+    pub sharpness: Option<f64>,
+    pub thickness: Option<f64>,
+    pub embed_fonts: Option<bool>,
+    pub condense_white: Option<bool>,
+    pub always_show_selection: Option<bool>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1250,4 +1323,424 @@ where
         viewport,
         surface,
     })
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TextQuery {
+    FirstCharInParagraph { char_index: i64 },
+    ParagraphLength { char_index: i64 },
+    LineIndexAtPoint { x: f64, y: f64 },
+    CharBoundaries { char_index: i64 },
+    CharIndexAtPoint { x: f64, y: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextCharBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+fn paragraph_range(text: &str, char_index: i64) -> Option<(u32, u32)> {
+    if char_index < 0 {
+        return None;
+    }
+    let wanted = char_index as u64;
+    let mut para_start = 0u32;
+    let mut offset = 0u32;
+    for ch in text.chars() {
+        offset += ch.len_utf16() as u32;
+        if ch == '\n' {
+            if wanted < u64::from(offset) {
+                return Some((para_start, offset - para_start));
+            }
+            para_start = offset;
+        }
+    }
+    if wanted < u64::from(offset) {
+        Some((para_start, offset - para_start))
+    } else {
+        None
+    }
+}
+
+struct LineCharSpan {
+    start: u32,
+    end: u32,
+    glyph_x: f64,
+    glyph_width: f64,
+    cell_left: f64,
+    cell_right: f64,
+}
+
+fn line_char_spans<M>(
+    field: &TextFieldState,
+    line: &TextLine,
+    measure: &mut M,
+) -> Result<Vec<LineCharSpan>, TextError>
+where
+    M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+{
+    if line.text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let source_slice = {
+        let start_byte = utf16_byte(&field.text, line.start)?;
+        let end_byte = utf16_byte(&field.text, line.end)?;
+        &field.text[start_byte..end_byte]
+    };
+    let source_chars: Vec<char> = source_slice
+        .chars()
+        .filter(|ch| !(field.multiline && *ch == '\n'))
+        .collect();
+    if field.format.tab_stops.is_empty() {
+        let mut prefixes = Vec::new();
+        let mut current = String::new();
+        for ch in &source_chars {
+            if field.display_as_password {
+                for _ in 0..ch.len_utf16() {
+                    current.push('*');
+                }
+            } else {
+                current.push(*ch);
+            }
+            prefixes.push(current.clone());
+        }
+        let widths = measured(&prefixes, &field.format, measure)?;
+        let mut spans = Vec::with_capacity(source_chars.len());
+        let mut offset = line.start;
+        for (idx, ch) in source_chars.iter().enumerate() {
+            let len = ch.len_utf16() as u32;
+            let prev = if idx == 0 { 0.0 } else { widths[idx - 1] };
+            let next = widths[idx];
+            let gap = if idx == 0 {
+                0.0
+            } else {
+                field.format.letter_spacing
+            };
+            let glyph_left = (prev + gap).clamp(0.0, next);
+            spans.push(LineCharSpan {
+                start: offset,
+                end: offset + len,
+                glyph_x: line.x + glyph_left,
+                glyph_width: (next - glyph_left).max(0.0),
+                cell_left: line.x + prev.min(next),
+                cell_right: line.x + next.max(prev),
+            });
+            offset += len;
+        }
+        return Ok(spans);
+    }
+    // Custom tabStops: measure cumulative prefixes within each non-tab run.
+    let mut prefixes = Vec::new();
+    let mut run_prefix_counts = Vec::new();
+    let mut run_chars: Vec<Vec<char>> = vec![Vec::new()];
+    for ch in &source_chars {
+        if *ch == '\t' {
+            run_chars.push(Vec::new());
+        } else {
+            run_chars.last_mut().expect("active run").push(*ch);
+        }
+    }
+    for chars in &run_chars {
+        let mut current = String::new();
+        for ch in chars {
+            if field.display_as_password {
+                for _ in 0..ch.len_utf16() {
+                    current.push('*');
+                }
+            } else {
+                current.push(*ch);
+            }
+            prefixes.push(current.clone());
+        }
+        run_prefix_counts.push(chars.len());
+    }
+    let widths = if prefixes.is_empty() {
+        Vec::new()
+    } else {
+        measured(&prefixes, &field.format, measure)?
+    };
+    let mut spans = Vec::with_capacity(source_chars.len());
+    let mut offset = line.start;
+    let mut width_cursor = 0usize;
+    let mut x = 0.0_f64;
+    for (run_idx, chars) in run_chars.iter().enumerate() {
+        let count = run_prefix_counts[run_idx];
+        let slice = &widths[width_cursor..width_cursor + count];
+        width_cursor += count;
+        for (idx, ch) in chars.iter().enumerate() {
+            let len = ch.len_utf16() as u32;
+            let prev = if idx == 0 { 0.0 } else { slice[idx - 1] };
+            let next = slice[idx];
+            let gap = if idx == 0 {
+                0.0
+            } else {
+                field.format.letter_spacing
+            };
+            let glyph_left = (prev + gap).clamp(0.0, next);
+            spans.push(LineCharSpan {
+                start: offset,
+                end: offset + len,
+                glyph_x: line.x + x + glyph_left,
+                glyph_width: (next - glyph_left).max(0.0),
+                cell_left: line.x + x + prev.min(next),
+                cell_right: line.x + x + next.max(prev),
+            });
+            offset += len;
+        }
+        if let Some(&last_w) = slice.last() {
+            x += last_w;
+        }
+        if run_idx + 1 < run_chars.len() {
+            let next_stop = field
+                .format
+                .tab_stops
+                .iter()
+                .copied()
+                .find(|stop| *stop > x)
+                .unwrap_or_else(|| {
+                    let origin = field.format.tab_stops.last().copied().unwrap_or(0.);
+                    let step = field.format.size * 4.;
+                    origin + ((x - origin) / step).floor().max(0.) * step + step
+                });
+            spans.push(LineCharSpan {
+                start: offset,
+                end: offset + 1,
+                glyph_x: line.x + x,
+                glyph_width: (next_stop - x).max(0.0),
+                cell_left: line.x + x,
+                cell_right: line.x + next_stop.max(x),
+            });
+            offset += 1;
+            x = next_stop;
+        }
+    }
+    Ok(spans)
+}
+
+pub fn query_text<M>(
+    field: &TextFieldState,
+    query: &TextQuery,
+    mut measure: M,
+) -> Result<serde_json::Value, TextError>
+where
+    M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+{
+    field.validate()?;
+    match *query {
+        TextQuery::FirstCharInParagraph { char_index } => Ok(serde_json::json!(
+            paragraph_range(&field.text, char_index).map_or(-1, |(start, _)| start as i32)
+        )),
+        TextQuery::ParagraphLength { char_index } => Ok(serde_json::json!(
+            paragraph_range(&field.text, char_index).map_or(-1, |(_, len)| len as i32)
+        )),
+        TextQuery::LineIndexAtPoint { x, y } => {
+            if !x.is_finite() || !y.is_finite() || field.text.is_empty() {
+                return Ok(serde_json::json!(-1));
+            }
+            if let Some(box_size) = field.box_size
+                && (x < 0.0 || y < 0.0 || x > box_size.width || y > box_size.height)
+            {
+                return Ok(serde_json::json!(-1));
+            }
+            let layout = layout_text(field, &mut measure)?;
+            let row_advance = layout.line_height.max(0.0);
+            for (idx, line) in layout.lines.iter().enumerate() {
+                let bottom = line.y + row_advance.max(line.height);
+                let left = field
+                    .box_size
+                    .map_or(line.x, |_| 2.0_f64.min(line.x));
+                let right = field
+                    .box_size
+                    .map_or(line.x + line.width, |b| (b.width - 2.0).max(line.x + line.width));
+                if y >= line.y && y < bottom && x >= left && x <= right {
+                    return Ok(serde_json::json!(idx as i32));
+                }
+            }
+            Ok(serde_json::json!(-1))
+        }
+        TextQuery::CharBoundaries { char_index } => {
+            let total_utf16 = field.text.encode_utf16().count() as i64;
+            if char_index < 0 || char_index >= total_utf16 {
+                return Ok(serde_json::Value::Null);
+            }
+            let target = char_index as u32;
+            let layout = layout_text(field, &mut measure)?;
+            let Some(line) = layout
+                .lines
+                .iter()
+                .find(|line| target >= line.start && target < line.end)
+            else {
+                return Ok(serde_json::Value::Null);
+            };
+            let spans = line_char_spans(field, line, &mut measure)?;
+            if let Some(span) = spans
+                .iter()
+                .find(|span| target >= span.start && target < span.end)
+            {
+                return Ok(serde_json::json!(TextCharBox {
+                    x: span.glyph_x,
+                    y: line.y,
+                    width: span.glyph_width,
+                    height: line.height,
+                }));
+            }
+            // Trailing newline character on a multiline line.
+            Ok(serde_json::json!(TextCharBox {
+                x: line.x + line.width,
+                y: line.y,
+                width: 0.0,
+                height: line.height,
+            }))
+        }
+        TextQuery::CharIndexAtPoint { x, y } => {
+            if !x.is_finite() || !y.is_finite() || field.text.is_empty() {
+                return Ok(serde_json::json!(-1));
+            }
+            if let Some(box_size) = field.box_size
+                && (x < 0.0 || y < 0.0 || x > box_size.width || y > box_size.height)
+            {
+                return Ok(serde_json::json!(-1));
+            }
+            let layout = layout_text(field, &mut measure)?;
+            let row_advance = layout.line_height.max(0.0);
+            for line in &layout.lines {
+                let bottom = line.y + row_advance.max(line.height);
+                if y >= line.y && y < bottom {
+                    let spans = line_char_spans(field, line, &mut measure)?;
+                    for (idx, span) in spans.iter().enumerate() {
+                        let hit = if idx + 1 == spans.len() {
+                            x >= span.cell_left && x <= span.cell_right
+                        } else {
+                            x >= span.cell_left && x < span.cell_right
+                        };
+                        if hit {
+                            return Ok(serde_json::json!(span.start as i32));
+                        }
+                    }
+                    return Ok(serde_json::json!(-1));
+                }
+            }
+            Ok(serde_json::json!(-1))
+        }
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::*;
+
+    fn fixed_measure(strings: &[String], _format: &TextFormat) -> Result<Vec<f64>, TextError> {
+        Ok(strings.iter().map(|s| s.chars().count() as f64 * 10.0).collect())
+    }
+
+    #[test]
+    fn paragraph_and_char_queries_respect_utf16_and_scroll() {
+        let mut field = TextFieldState {
+            text: "Hello\nWorld!".into(),
+            multiline: true,
+            box_size: Some(TextBoxSize {
+                width: 200.0,
+                height: 100.0,
+            }),
+            ..TextFieldState::default()
+        };
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::FirstCharInParagraph { char_index: 0 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(0)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::ParagraphLength { char_index: 4 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::FirstCharInParagraph { char_index: 6 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::ParagraphLength { char_index: 8 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::FirstCharInParagraph { char_index: 99 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(-1)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::CharBoundaries { char_index: 1 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!({"x": 12.0, "y": 2.0, "width": 10.0, "height": 12.0 * 1.2})
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::CharBoundaries { char_index: -1 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::CharIndexAtPoint { x: 15.0, y: 8.0 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(1)
+        );
+        assert_eq!(
+            query_text(
+                &field,
+                &TextQuery::LineIndexAtPoint { x: 15.0, y: 20.0 },
+                fixed_measure
+            )
+            .unwrap(),
+            serde_json::json!(1)
+        );
+        field
+            .apply(&TextPatch {
+                sharpness: Some(999.0),
+                thickness: Some(-500.0),
+                anti_alias_type: Some("advanced".into()),
+                grid_fit_type: Some("subpixel".into()),
+                ..TextPatch::default()
+            })
+            .unwrap();
+        assert_eq!(field.sharpness, 400.0);
+        assert_eq!(field.thickness, -200.0);
+        assert_eq!(field.anti_alias_type, "advanced");
+        assert_eq!(field.grid_fit_type, "subpixel");
+    }
 }

@@ -958,8 +958,21 @@ fn video_viewports_share_display_state_and_lifetimes() {
         width: 80.,
         height: 45.,
         smoothing: true,
+        deblocking: 4,
     };
     player.object_video_update(&project, &video, state).unwrap();
+    assert!(
+        player
+            .object_video_update(
+                &project,
+                &video,
+                VideoState {
+                    deblocking: 6,
+                    ..state
+                }
+            )
+            .is_err()
+    );
     assert!(
         player
             .object_video_update(

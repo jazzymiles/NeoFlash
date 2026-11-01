@@ -149,6 +149,14 @@ fn class_syntax_outside_profile_is_never_erased() {
         "package { import flash.display.PixelSnapping; public class A { public function A(){new PixelSnapping();} } }",
         "package { import flash.display.BitmapDataChannel; public class A extends BitmapDataChannel {} }",
         "package { import flash.display.BitmapDataChannel; public class A { public function A(){new BitmapDataChannel();} } }",
+        "package { import flash.display.BlendMode; public class A extends BlendMode {} }",
+        "package { import flash.display.BlendMode; public class A { public function A(){new BlendMode();} } }",
+        "package { import flash.display.CapsStyle; public class A extends CapsStyle {} }",
+        "package { import flash.display.CapsStyle; public class A { public function A(){new CapsStyle();} } }",
+        "package { import flash.display.JointStyle; public class A extends JointStyle {} }",
+        "package { import flash.display.JointStyle; public class A { public function A(){new JointStyle();} } }",
+        "package { import flash.display.LineScaleMode; public class A extends LineScaleMode {} }",
+        "package { import flash.display.LineScaleMode; public class A { public function A(){new LineScaleMode();} } }",
         "package { import flash.display.Stage; public class A extends Stage {} }",
         "package { import flash.display.Stage; public class A { public function A(){new Stage();} } }",
         "package { import flash.display.StageScaleMode; public class A extends StageScaleMode {} }",
@@ -889,4 +897,107 @@ fn linked_classes_are_resolved_before_publication() {
             }
         }"#.into();
     assert!(neoflash_script::compile_project(&p).is_ok());
+}
+
+#[test]
+fn as2_initclip_intrinsic_legacy_statements_and_video_types_compile_and_diagnose() {
+    let mut intrinsic_proj = project(&[
+        (
+            "ext/IWidget.as",
+            "intrinsic interface ext.IWidget { function render():String; }",
+        ),
+        (
+            "ext/Widget.as",
+            "import ext.IWidget; intrinsic class ext.Widget implements IWidget { public var label:String; public static var version:Number; public function Widget(name:String); public function render():String; public function get count():Number; public function set count(v:Number):Void; public static function create(name:String):Widget; }",
+        ),
+        (
+            "app/Screen.as",
+            "import ext.Widget; import flash.display.BitmapData; import flash.geom.Matrix; class app.Screen extends MovieClip { public var playerView:Video; public function drawTile(bmp:BitmapData, m:Matrix):String { this.beginBitmapFill(bmp, m, false, true); this.lineTo(10, 10); this.endFill(); if (Accessibility.isActive()) { Accessibility.updateProperties(); } playerView.deblocking = 2; var w:Widget = Widget.create(\"ok\"); w.count = 3; return w.render(); } }",
+        ),
+    ]);
+    for source in &mut intrinsic_proj.sources {
+        source.language = ScriptLanguage::ActionScript2;
+    }
+    intrinsic_proj.symbols[0].timeline.scripts = vec![neoflash_core::FrameScript {
+        frame: 0,
+        script: neoflash_core::Script {
+            language: ScriptLanguage::ActionScript2,
+            source: [
+                "#initclip 20",
+                "trace(\"init-order-20\");",
+                "#endinitclip",
+                "#initclip",
+                "trace(\"init-order-0\");",
+                "#endinitclip",
+                "#initclip 5",
+                "trace(\"init-order-5\");",
+                "#endinitclip",
+                "tellTarget(\"/child\") { gotoAndStop(1); }",
+                "ifFrameLoaded(1) { call(\"setup\"); }",
+                "ifFrameLoaded(\"Scene 1\", \"ready\") { var rootRef:MovieClip = _level0; var missing:Object = _level1; }",
+            ]
+            .join("\n"),
+        },
+    }];
+    let compiled = neoflash_script::compile_project(&intrinsic_proj);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    let output = compiled.unwrap();
+    let idx0 = output.code.find("init-order-0").unwrap();
+    let idx5 = output.code.find("init-order-5").unwrap();
+    let idx20 = output.code.find("init-order-20").unwrap();
+    assert!(
+        idx0 < idx5 && idx5 < idx20,
+        "unordered #initclip must register before ordered blocks in ascending order"
+    );
+    let frame_compiled = neoflash_script::compile_with_program(
+        &intrinsic_proj.symbols[0].timeline.scripts[0].script,
+        &output,
+    );
+    assert!(frame_compiled.is_ok(), "{:?}", frame_compiled.err());
+
+    // Invalid intrinsic declarations and AS3 intrinsic rejection.
+    let as3_intrinsic = project(&[(
+        "Widget.as",
+        "package { public intrinsic class Widget { public function Widget(); } }",
+    )]);
+    assert!(neoflash_script::compile_project(&as3_intrinsic).is_err());
+
+    for bad_intrinsic in [
+        "intrinsic class Bad { public var x:Number = 1; }",
+        "intrinsic class Bad { public function run():Void {} }",
+        "intrinsic class Bad { public function get v():Number { return 1; } }",
+    ] {
+        let mut bad = project(&[("Bad.as", bad_intrinsic)]);
+        bad.sources[0].language = ScriptLanguage::ActionScript2;
+        assert!(
+            neoflash_script::compile_project(&bad).is_err(),
+            "{bad_intrinsic}"
+        );
+    }
+
+    // Invalid #initclip / #endinitclip / _level assignments.
+    for (lang, bad_frame) in [
+        (ScriptLanguage::ActionScript2, "#endinitclip"),
+        (ScriptLanguage::ActionScript2, "#initclip\ntrace(1);"),
+        (
+            ScriptLanguage::ActionScript2,
+            "#initclip\n#initclip\n#endinitclip\n#endinitclip",
+        ),
+        (
+            ScriptLanguage::ActionScript2,
+            "function f():Void { #initclip\n#endinitclip }",
+        ),
+        (
+            ScriptLanguage::ActionScript3,
+            "#initclip\ntrace(1);\n#endinitclip",
+        ),
+        (ScriptLanguage::ActionScript2, "_level0 = this;"),
+        (ScriptLanguage::ActionScript2, "_level2 = this;"),
+    ] {
+        let script = neoflash_core::Script {
+            language: lang,
+            source: bad_frame.into(),
+        };
+        assert!(neoflash_script::compile(&script).is_err(), "{bad_frame}");
+    }
 }

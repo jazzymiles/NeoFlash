@@ -108,8 +108,13 @@ fn statement(stmt: &Stmt) -> Exits {
             }
         }
         Stmt::Empty | Stmt::Function(_) => one(Exit::Normal),
-        Stmt::With(_, body, _) => {
+        Stmt::With(_, body, _) | Stmt::TellTarget(_, body, _) | Stmt::IfFrameLoaded(_, body) => {
             let mut exits = statement(body);
+            exits.insert(Exit::Throw);
+            exits
+        }
+        Stmt::InitClip(_, body, _) => {
+            let mut exits = sequence(body);
             exits.insert(Exit::Throw);
             exits
         }

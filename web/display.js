@@ -21,7 +21,11 @@
   const InterpolationMethod=graphicsConstants('InterpolationMethod',{RGB:'rgb',LINEAR_RGB:'linearRGB'});
   const GraphicsPathCommand=graphicsConstants('GraphicsPathCommand',{NO_OP:0,MOVE_TO:1,LINE_TO:2,CURVE_TO:3,WIDE_MOVE_TO:4,WIDE_LINE_TO:5,CUBIC_CURVE_TO:6});
   const GraphicsPathWinding=graphicsConstants('GraphicsPathWinding',{EVEN_ODD:'evenOdd',NON_ZERO:'nonZero'});
-  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding};
+  const BlendMode=graphicsConstants('BlendMode',{ADD:'add',ALPHA:'alpha',DARKEN:'darken',DIFFERENCE:'difference',ERASE:'erase',HARDLIGHT:'hardlight',INVERT:'invert',LAYER:'layer',LIGHTEN:'lighten',MULTIPLY:'multiply',NORMAL:'normal',OVERLAY:'overlay',SCREEN:'screen',SHADER:'shader',SUBTRACT:'subtract'});
+  const CapsStyle=graphicsConstants('CapsStyle',{NONE:'none',ROUND:'round',SQUARE:'square'});
+  const JointStyle=graphicsConstants('JointStyle',{BEVEL:'bevel',MITER:'miter',ROUND:'round'});
+  const LineScaleMode=graphicsConstants('LineScaleMode',{HORIZONTAL:'horizontal',NONE:'none',NORMAL:'normal',VERTICAL:'vertical'});
+  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding,BlendMode,CapsStyle,JointStyle,LineScaleMode};
   const vectorBrand=Symbol.for('neoflash.as3.vector.instance.v1');
   function graphicsNumbers(value,name,limit,allowVector=false) {
     const tag=value!=null&&(typeof value==='object'||typeof value==='function')?Object.getOwnPropertyDescriptor(value,vectorBrand):null;
@@ -51,13 +55,14 @@
   function normalizedRotation(value) { const r=value%360;return r>180?r-360:r< -180?r+360:r; }
   function nonAxisAligned(node){const m=node.local_matrix||matrix(node.transform);return Math.abs(m[1])>1e-10||Math.abs(m[2])>1e-10;}
   const textProperties=new Set(['text','textColor','length','numLines','textWidth','textHeight']);
-  const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
+  const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
   function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
+    let accProps = new WeakMap();
     const graph=typeof player.runtime_snapshot_json==='function';
     const refKey=ref=>JSON.stringify(ref);
     const nodeKey=node=>graph?refKey(node.object_ref):JSON.stringify(node.path);
@@ -243,6 +248,14 @@
       const methods={
         clear:()=>apply({op:'clear'}),
         beginFill:(color,alpha=1)=>apply({op:'begin_fill',color:rgb(color),alpha:opacity(alpha)}),
+        beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>{
+          const bitmapHost=getBitmap();if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
+          const pixelRef=bitmapHost.refOf(bitmap);
+          if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('Graphics.beginBitmapFill matrix requires flash.geom.Matrix or null.');
+          if(typeof repeat!=='boolean'||typeof smoothing!=='boolean')throw new TypeError('Graphics.beginBitmapFill repeat and smoothing require Booleans.');
+          const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+          apply({op:'begin_bitmap_fill',bitmap:{pixel_ref:pixelRef,matrix:components,repeat,smoothing}});
+        },
         beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
         lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
         endFill:()=>apply({op:'end_fill'}),
@@ -351,6 +364,7 @@
           set(target,'mask',mask==null?null:mask);return true;
         },
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
+        beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>drawing.beginBitmapFill(bitmap,matrix??null,Boolean(repeat),Boolean(smoothing)),
         beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.beginGradientFill(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
@@ -456,6 +470,7 @@
     function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
+      if(name==='_accProps'&&['movie_clip','button','text'].includes(descriptor(target).owner))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
       if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
       if(name==='getSWFVersion'&&descriptor(target).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>()=>{descriptor(target);return 8;},set:()=>{throw new TypeError('MovieClip.getSWFVersion is read-only.');}};
       if(['_quality','_highquality','_soundbuftime'].includes(name)&&['movie_clip','button','text'].includes(descriptor(target).owner))return as2GlobalPropRef(name,()=>descriptor(target));
@@ -689,6 +704,11 @@
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         return host.fromSpecs(JSON.parse(player.object_filters(referenceOf(target).key)));
       }
+      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+        descriptor(target);
+        if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
+        return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
+      }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
       if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
@@ -742,6 +762,17 @@
         const specs=host.toSpecs(value);beforeFilters(target,specs);
         try{player.object_set_filters(referenceOf(target).key,JSON.stringify(specs));}
         catch(error){throw error instanceof Error?error:new RangeError(String(error));}
+        return true;
+      }
+      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+        descriptor(target);
+        if(typeof player.as2_render_command!=='function')throw new Error('Display compositing requires the shared Rust render state.');
+        const key=referenceOf(target).key;
+        let next;
+        try{next=JSON.parse(player.as2_render_command(key,JSON.stringify({op:'prepare',as3:true,name,value})));}
+        catch(error){throw error instanceof Error?error:new TypeError(String(error));}
+        if(next.isolated)beforeRaster(target);
+        player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name,value}));
         return true;
       }
       if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
@@ -855,7 +886,7 @@
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;
