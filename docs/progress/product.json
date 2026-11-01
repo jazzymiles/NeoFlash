@@ -2553,8 +2553,8 @@
       "category": "imports",
       "title": "SWF inspection",
       "status": "partial",
-      "scope": "Recognizes FWS/CWS/ZWS signatures, validates container bounds, streams bounded `CWS` zlib decompression (≤ 64 MiB), parses stage `RECT` bounds, 8.8 fixed-point frame rate and frame count, and walks `FWS`/`CWS` tag headers (including one-level `DefineSprite` control tags) to report character/placement/frame/script tag counts, `SetBackgroundColor`, `FileAttributes` AS3 flag and `DoAction`/`DoABC` presence (`ImportReport.swf`).",
-      "limitations": "`ZWS` LZMA payload decompression, deep tag-payload decoding, AVM1/AVM2 execution and editable source reconstruction remain absent (`can_import: false`).",
+      "scope": "Recognizes FWS/CWS/ZWS signatures, validates container bounds, decompresses `CWS` zlib and `ZWS` LZMA1 (SWF 13+) streams up to 64 MiB, parses stage `RECT` bounds, 8.8 fixed-point frame rate and frame count, decodes dictionary/display/media/font/button/scene tags into a validated NeoFlash `Project` (and `.fla` XFL 2.2 archive via `export_fla`), and statically decompiles AVM1 (`DoAction`, `DoInitAction`, button and clip actions → AS1/AS2) and AVM2 (`DoABC`/`DoABC2` → AS3 `.as` classes and `addFrameScript` timeline frame scripts) without executing bytecode (`ImportReport.swf`).",
+      "limitations": "Direct AVM1/AVM2 bytecode execution is intentionally not performed by the importer; filters, blend modes, non-quad bitmap fills, dynamic/non-vector `clip_depth` masks, Nellymoser/Speex audio and video streams are approximated or represented as reported placeholders.",
       "items": [
         {
           "id": "signatures",
@@ -2569,12 +2569,12 @@
         {
           "id": "decompression",
           "title": "Decompress SWF files",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "tag-parsing",
           "title": "Parse SWF tags",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "avm-execution",
@@ -2584,12 +2584,20 @@
         {
           "id": "source-reconstruction",
           "title": "Reconstruct source from SWF",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-import/src/lib.rs",
-        "crates/neoflash-import/src/swf.rs",
+        "crates/neoflash-import/src/swf/mod.rs",
+        "crates/neoflash-import/src/swf/lzma.rs",
+        "crates/neoflash-import/src/swf/shape.rs",
+        "crates/neoflash-import/src/swf/media.rs",
+        "crates/neoflash-import/src/swf/text.rs",
+        "crates/neoflash-import/src/swf/avm1.rs",
+        "crates/neoflash-import/src/swf/avm2.rs",
+        "crates/neoflash-import/src/swf/timeline.rs",
+        "crates/neoflash-import/src/xfl_export.rs",
         "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/import.rs",
         "docs/IMPORTS.md"
@@ -2599,9 +2607,9 @@
       "id": "imports-swf-playback",
       "category": "imports",
       "title": "SWF playback and import",
-      "status": "planned",
-      "scope": "A separate architecture for legacy playback and structured import; evaluation of Ruffle integration.",
-      "limitations": "Ruffle is not integrated; SWF playback alone does not recover layers, source scripts or tween intent.",
+      "status": "partial",
+      "scope": "Structured SWF (`FWS`/`CWS`/`ZWS`) import into an editable NeoFlash project (`.nflash`) and `.fla` (XFL 2.2 ZIP archive) via `File ▸ Open…`, `File ▸ Import ▸ Import legacy Flash…`, `File ▸ Save as…` and `neoflash-import`, recovering nested timelines, depth-track layers, pure-vector masks, 101-frame `DefineMorphShape` shape tweens, 1-frame classic pose continuity, bitmaps, PCM/ADPCM/MP3/stream audio, static/dynamic text, 4-frame buttons, scenes and decompiled AVM1/AVM2 scripts.",
+      "limitations": "An embedded legacy SWF bytecode player (such as Ruffle) is not integrated; multi-frame eased tween curve fitting, motion guides, original authoring layer names stripped at SWF compile time, filters and blend modes remain approximated.",
       "items": [
         {
           "id": "legacy-playback",
@@ -2611,15 +2619,20 @@
         {
           "id": "structured-import",
           "title": "Structured SWF import into a project",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "recover-intent",
           "title": "Recover layers, scripts and tween intent from SWF",
-          "status": "planned"
+          "status": "partial"
         }
       ],
       "evidence": [
+        "crates/neoflash-import/src/swf/timeline.rs",
+        "crates/neoflash-import/src/swf/avm1.rs",
+        "crates/neoflash-import/src/swf/avm2.rs",
+        "crates/neoflash-import/src/xfl_export.rs",
+        "crates/neoflash-editor/src/app.rs",
         "docs/IMPORTS.md",
         "docs/ROADMAP.md"
       ]
@@ -2778,12 +2791,17 @@
       "category": "platform",
       "title": "Save and open projects",
       "status": "implemented",
-      "scope": "The editor saves and opens .nflash through serialization and validation, without tying the document to absolute paths.",
+      "scope": "The editor saves and opens .nflash through serialization and validation without tying the document to absolute paths, opens .swf/.fla/.xfl directly into an editable project, and saves/exports .fla (XFL 2.2 ZIP archive) via File ▸ Save as… and neoflash-import.",
       "limitations": "Autosave, recovery and multiple documents are tracked separately.",
       "items": [
         {
           "id": "save",
           "title": "Save .nflash projects",
+          "status": "working"
+        },
+        {
+          "id": "save-fla",
+          "title": "Export projects as Flash FLA (XFL archive)",
           "status": "working"
         },
         {
@@ -2799,6 +2817,7 @@
       ],
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
+        "crates/neoflash-import/src/xfl_export.rs",
         "crates/neoflash-core/src/lib.rs",
         "README.md"
       ]

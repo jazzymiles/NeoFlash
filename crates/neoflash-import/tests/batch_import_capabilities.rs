@@ -3,10 +3,13 @@
 //! All synthetic fixtures are generated inline; no private corpus data is used.
 
 use neoflash_core::{
-    Easing, ElementKind, InstancePlayback, LayerRole, PathCommand, Player, SoundCommand,
-    SoundEffect, SoundSync, TweenKind, evaluate, flatten_scenes_with_ranges,
+    Easing, ElementKind, InstancePlayback, LayerRole, PathCommand, Player, ScriptLanguage,
+    SoundCommand, SoundEffect, SoundSync, SymbolKind, TweenKind, evaluate,
+    flatten_scenes_with_ranges,
 };
-use neoflash_import::{ImportFormat, Severity, SwfCompression, import_project, inspect};
+use neoflash_import::{
+    ImportFormat, Severity, SwfCompression, export_fla, import_project, inspect,
+};
 use std::{
     fs,
     io::{Cursor, Write},
@@ -699,18 +702,13 @@ fn xfl_imports_multi_scenes_tweens_guides_masks_folders_skew_and_graphic_offsets
 fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
     let corpus =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus/upstream/ruffle");
+    let temp = TempDir::new();
 
     // 1. Companion AVM1 CWS SWF with nested sprite DoAction scripts:
     let avm1_path = corpus.join("avm1-frame-labels/test.swf");
     let avm1 = inspect(&avm1_path).unwrap();
     assert_eq!(avm1.format, ImportFormat::Swf);
-    assert!(!avm1.can_import);
-    assert!(
-        avm1.diagnostics
-            .iter()
-            .any(|d| d.code == "swf_not_implemented")
-    );
-    assert!(import_project(&avm1_path).is_err());
+    assert!(avm1.can_import, "{:?}", avm1.diagnostics);
     let avm1_swf = avm1.swf.as_ref().unwrap();
     assert_eq!(avm1_swf.compression, SwfCompression::Zlib);
     assert_eq!(
@@ -726,10 +724,65 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
     assert_eq!(avm1_swf.tags.do_action, 9);
     assert_eq!(avm1_swf.tags.define_sprite, 1);
 
-    // 2. Companion AVM2 CWS SWF with FileAttributes AS3 flag and DoABC2:
+    let avm1_proj = import_project(&avm1_path).unwrap();
+    avm1_proj.validate().unwrap();
+    let all_avm1_scripts: String = avm1_proj
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.scripts)
+        .map(|fs| {
+            assert_eq!(fs.script.language, ScriptLanguage::ActionScript2);
+            fs.script.source.as_str()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        all_avm1_scripts.contains("trace("),
+        "expected decompiled trace() in AVM1 frame scripts:\n{all_avm1_scripts}"
+    );
+    assert!(
+        all_avm1_scripts.contains("gotoAnd"),
+        "expected decompiled gotoAndPlay/gotoAndStop in AVM1 frame scripts:\n{all_avm1_scripts}"
+    );
+    let avm1_fla = temp.0.join("avm1_labels.fla");
+    export_fla(&avm1_proj, &avm1_fla).unwrap();
+    let avm1_roundtrip = import_project(&avm1_fla).unwrap();
+    avm1_roundtrip.validate().unwrap();
+
+    // 1b. Companion AVM1 clip-events and nested button/text SWFs:
+    let clip_ev_path = corpus.join("avm1-clip-events/test.swf");
+    assert!(inspect(&clip_ev_path).unwrap().can_import);
+    let clip_ev_proj = import_project(&clip_ev_path).unwrap();
+    clip_ev_proj.validate().unwrap();
+    let has_clip_obj_scripts = clip_ev_proj
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .any(|el| !el.scripts.is_empty());
+    assert!(
+        has_clip_obj_scripts,
+        "expected PlaceObject2 CLIPACTIONS recovered as instance ObjectScripts"
+    );
+    let clip_ev_fla = temp.0.join("avm1_clip_events.fla");
+    export_fla(&clip_ev_proj, &clip_ev_fla).unwrap();
+
+    let btn_txt_path = corpus.join("avm1-nested-button-text/test.swf");
+    let btn_txt_proj = import_project(&btn_txt_path).unwrap();
+    btn_txt_proj.validate().unwrap();
+    assert!(
+        btn_txt_proj
+            .symbols
+            .iter()
+            .any(|s| s.kind == SymbolKind::Button)
+    );
+    export_fla(&btn_txt_proj, &temp.0.join("avm1_btn_txt.fla")).unwrap();
+
+    // 2. Companion AVM2 CWS SWFs with FileAttributes AS3 flag and DoABC2:
     let avm2_path = corpus.join("avm2-nested-construction/test.swf");
     let avm2 = inspect(&avm2_path).unwrap();
-    assert!(!avm2.can_import);
+    assert!(avm2.can_import, "{:?}", avm2.diagnostics);
     let avm2_swf = avm2.swf.as_ref().unwrap();
     assert_eq!(avm2_swf.compression, SwfCompression::Zlib);
     assert!(avm2_swf.as3_flag);
@@ -738,6 +791,66 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
     assert!(avm2_swf.end_tag_reached);
     assert!(avm2_swf.tags.define_sprite >= 5);
     assert!(avm2_swf.tags.buttons >= 1);
+
+    let avm2_proj = import_project(&avm2_path).unwrap();
+    avm2_proj.validate().unwrap();
+    assert_eq!(avm2_proj.document_class, None);
+    let container_src = avm2_proj
+        .sources
+        .iter()
+        .find(|s| s.language == ScriptLanguage::ActionScript3 && s.path.ends_with("Container.as"))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected decompiled Container.as in sources: {:?}",
+                avm2_proj
+                    .sources
+                    .iter()
+                    .map(|s| &s.path)
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert!(
+        container_src.source.contains("class Container")
+            && container_src.source.contains("Calling Container super()")
+            && container_src
+                .source
+                .contains("Running Container framescript"),
+        "unexpected decompiled Container.as:\n{}",
+        container_src.source
+    );
+    assert!(
+        avm2_proj
+            .symbols
+            .iter()
+            .any(|s| s.class_name.as_deref() == Some("Container")),
+        "expected SymbolClass binding for Container symbol"
+    );
+    let avm2_fla = temp.0.join("avm2_nested.fla");
+    export_fla(&avm2_proj, &avm2_fla).unwrap();
+    let avm2_zip = zip::ZipArchive::new(fs::File::open(&avm2_fla).unwrap()).unwrap();
+    assert!(
+        avm2_zip.file_names().any(|n| n.ends_with("Container.as")),
+        "expected Container.as in exported .fla archive"
+    );
+
+    let avm2_btn_path = corpus.join("avm2-button-frame-scripts/test.swf");
+    let avm2_btn_proj = import_project(&avm2_btn_path).unwrap();
+    avm2_btn_proj.validate().unwrap();
+    assert_eq!(avm2_btn_proj.document_class.as_deref(), Some("Main"));
+    let main_src = avm2_btn_proj
+        .sources
+        .iter()
+        .find(|s| s.language == ScriptLanguage::ActionScript3 && s.path.ends_with("Main.as"))
+        .expect("expected decompiled Main.as in avm2-button-frame-scripts");
+    assert!(
+        main_src.source.contains("class Main")
+            && main_src.source.contains("Main framescript 1")
+            && main_src.source.contains("Main framescript 2")
+            && main_src.source.contains("buttonHolder"),
+        "unexpected decompiled Main.as:\n{}",
+        main_src.source
+    );
+    export_fla(&avm2_btn_proj, &temp.0.join("avm2_btn_frames.fla")).unwrap();
 
     // 3. Companion MX FWS SWFs (button, morph shape, static text):
     for (rel, expect_buttons, expect_shapes, expect_texts, expect_frames) in [
@@ -751,8 +864,9 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
         ("mx-shape-tween/DefineMorphShape-MX.swf", 0, 2, 0, 30),
         ("mx-static-text/DefineText2-MX.swf", 0, 0, 1, 1),
     ] {
-        let rep = inspect(&corpus.join(rel)).unwrap();
-        assert!(!rep.can_import);
+        let swf_path = corpus.join(rel);
+        let rep = inspect(&swf_path).unwrap();
+        assert!(rep.can_import, "{rel}: {:?}", rep.diagnostics);
         let swf = rep.swf.unwrap();
         assert_eq!(swf.compression, SwfCompression::Uncompressed);
         assert_eq!((swf.width_px, swf.height_px), (Some(550.0), Some(400.0)));
@@ -762,28 +876,80 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
         assert_eq!(swf.tags.shapes, expect_shapes);
         assert_eq!(swf.tags.texts, expect_texts);
         assert!(swf.end_tag_reached);
+
+        let proj = import_project(&swf_path).unwrap();
+        proj.validate().unwrap();
+        if expect_buttons > 0 {
+            assert!(proj.symbols.iter().any(|s| s.kind == SymbolKind::Button));
+        }
+        if rel.contains("MorphShape") {
+            let has_shape_tween = proj
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .flat_map(|l| &l.keyframes)
+                .any(|k| k.tween.is_some() && k.tween_kind == TweenKind::Shape);
+            assert!(
+                has_shape_tween,
+                "expected shape tween symbol from DefineMorphShape"
+            );
+        }
+        if expect_texts > 0 {
+            let has_text = proj
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|k| &k.elements)
+                .any(
+                    |el| matches!(&el.kind, ElementKind::TextBox { text, .. } if !text.is_empty()),
+                );
+            assert!(has_text, "expected static TextBox from DefineText2");
+        }
+        let fla_out = temp.0.join(format!(
+            "{}.fla",
+            Path::new(rel).file_stem().unwrap().to_string_lossy()
+        ));
+        export_fla(&proj, &fla_out).unwrap();
+        let reimported = import_project(&fla_out).unwrap();
+        reimported.validate().unwrap();
     }
 
-    // 4. Valid & truncated ZWS headers:
-    let temp = TempDir::new();
+    // 4. Valid LZMA1 ZWS SWF, corrupt ZWS payload, and truncated ZWS header:
     let zws_path = temp.0.join("lzma.swf");
-    let mut zws = Vec::from(*b"ZWS\x0d");
-    zws.extend_from_slice(&128_u32.to_le_bytes()); // declared uncompressed length
-    zws.extend_from_slice(&4_u32.to_le_bytes()); // compressed payload length
-    zws.extend_from_slice(&[0x5d, 0, 0, 0x10, 0]); // 5-byte LZMA properties
-    zws.extend_from_slice(&[1, 2, 3, 4]); // 4 compressed bytes
-    fs::write(&zws_path, &zws).unwrap();
+    let lzma_props = [93_u8, 0, 0, 128, 0];
+    let lzma_payload = [
+        0_u8, 0, 96, 94, 129, 15, 18, 253, 175, 223, 253, 199, 255, 255, 226, 51, 128, 0,
+    ];
+    let mut valid_zws = Vec::from(*b"ZWS\x0d");
+    valid_zws.extend_from_slice(&17_u32.to_le_bytes()); // 8 + 9 uncompressed bytes
+    valid_zws.extend_from_slice(&(lzma_payload.len() as u32).to_le_bytes());
+    valid_zws.extend_from_slice(&lzma_props);
+    valid_zws.extend_from_slice(&lzma_payload);
+    fs::write(&zws_path, &valid_zws).unwrap();
+    let valid_zws_rep = inspect(&zws_path).unwrap();
+    assert!(valid_zws_rep.can_import, "{:?}", valid_zws_rep.diagnostics);
+    assert_eq!(valid_zws_rep.swf.unwrap().compression, SwfCompression::Lzma);
+    let zws_proj = import_project(&zws_path).unwrap();
+    zws_proj.validate().unwrap();
+
+    let mut bad_zws = Vec::from(*b"ZWS\x0d");
+    bad_zws.extend_from_slice(&128_u32.to_le_bytes()); // declared uncompressed length
+    bad_zws.extend_from_slice(&4_u32.to_le_bytes()); // compressed payload length
+    bad_zws.extend_from_slice(&[0x5d, 0, 0, 0x10, 0]); // 5-byte LZMA properties
+    bad_zws.extend_from_slice(&[1, 2, 3, 4]); // 4 corrupt compressed bytes
+    fs::write(&zws_path, &bad_zws).unwrap();
     let zws_rep = inspect(&zws_path).unwrap();
     assert!(!zws_rep.can_import);
     assert!(
         zws_rep
             .diagnostics
             .iter()
-            .any(|d| d.code == "swf_lzma_unsupported")
+            .any(|d| d.code == "swf_lzma_corrupt")
     );
     assert_eq!(zws_rep.swf.unwrap().compression, SwfCompression::Lzma);
 
-    fs::write(&zws_path, &zws[..12]).unwrap();
+    fs::write(&zws_path, &bad_zws[..12]).unwrap();
     assert!(inspect(&zws_path).is_err());
 
     // 5. Truncated CWS, length-mismatch CWS, trailing-byte CWS, and >64 MiB CWS bomb rejection:

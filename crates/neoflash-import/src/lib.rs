@@ -3,6 +3,7 @@ mod legacy;
 mod source;
 mod swf;
 mod xfl;
+mod xfl_export;
 
 pub use legacy::contents::*;
 pub use legacy::contours::*;
@@ -14,6 +15,7 @@ pub use legacy::{
     read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
 pub use swf::{SwfCompression, SwfInspection, SwfTagCounts};
+pub use xfl_export::{export_fla, export_fla_bytes};
 
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
@@ -153,15 +155,15 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         ImportFormat::Swf => {
             let location = path.display().to_string();
             if let Some(container) = source.swf.as_ref() {
-                swf::inspect(container, &location, &mut report);
+                swf::convert(container, &location, &mut report)
             } else {
                 report.error(
-                    "swf_not_implemented",
+                    "swf_invalid_container",
                     location,
-                    "SWF container inspected read-only. Playback, bytecode execution/decompilation and editable source recovery are not implemented.",
+                    "SWF container could not be loaded for conversion.",
                 );
+                None
             }
-            None
         }
         ImportFormat::Unknown => {
             report.error(

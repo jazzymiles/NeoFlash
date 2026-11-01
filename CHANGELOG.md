@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — SWF import and FLA archive export
+
+- SWF files (`FWS` uncompressed, `CWS` zlib and `ZWS` LZMA1 SWF 13+, up to 64 MiB decompressed) now open directly as editable NeoFlash projects via `File ▸ Open…`, `File ▸ Import ▸ Import legacy Flash…` and `neoflash-import import`: vector shapes (solid, linear/radial/focal-radial gradients and bitmap-quad fills), 101-frame `DefineMorphShape` shape tweens, JPEG/alpha and lossless PNG bitmaps, PCM/Flash ADPCM/MP3 and timeline stream sounds with format-7 stereo envelopes, embedded fonts with static/dynamic text and vector glyph-outline fallback, 4-frame `Button` symbols, nested `DefineSprite` MovieClips, multi-scene root timelines, pure-vector `clip_depth` mask layers and `ExportAssets`/`SymbolClass` linkage are reconstructed into the native project model, with `legacy/swf-provenance.json` and bounded `legacy/source.swf` embedding.
+- Static AVM1 and AVM2 ActionScript recovery (never executing bytecode during import): AVM1 `DoAction`, `DoInitAction`, `DefineButton2` button conditions and `PlaceObject2`/`PlaceObject3` clip events decompile to structured ActionScript 1/2 (`if`/`else`, `while`, functions/preload registers, `with`, `try`/`catch`/`finally`, `tellTarget`, `gotoAndPlay`/`gotoAndStop`); AVM2 `DoABC`/`DoABC2` tags decompile to ActionScript 3 `.as` classes in `Project.sources` (packages, imports, fields, methods/accessors, closures and `newactivation` slots) and extract auto-generated Flash IDE timeline classes (`*_fla.MainTimeline` / `addFrameScript`) onto timeline frame scripts.
+- Projects (including imported SWF and binary FLA documents) can now be saved or exported as Adobe XFL 2.2 `.fla` ZIP archives via `File ▸ Save as…` (`Flash FLA (XFL archive)`), `neoflash-import import <input> <new.fla>` and `neoflash-import export-fla <input> <new.fla>`.
+
 ## Unreleased — Preferences
 
 - Edit ▸ Preferences… (⌘U) is a real dialog. Choosing Dark or Light previews the theme immediately (also from Light to Dark); Save keeps it, Cancel, Esc or ✕ restores the previous theme.

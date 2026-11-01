@@ -1,8 +1,20 @@
-//! Bounded, read-only SWF container decompression and tag header inspection.
+//! Bounded SWF (`FWS` uncompressed, `CWS` zlib, `ZWS` LZMA SWF 13+) container
+//! decompression, structural tag inspection, and editable NeoFlash `Project` recovery.
 //!
-//! Never executes AVM1/AVM2 bytecode or claims editable source recovery.
+//! Never executes AVM1/AVM2 bytecode during import; bytecode is statically decoded
+//! into editable ActionScript 1/2/3 source.
+
+mod avm1;
+mod avm2;
+mod bits;
+mod lzma;
+mod media;
+mod shape;
+mod text;
+mod timeline;
 
 use crate::{ImportError, ImportReport};
+use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
@@ -71,7 +83,9 @@ pub(crate) struct SwfContainer {
     pub swf_version: u8,
     pub declared_file_length: u32,
     pub compressed_bytes: Option<usize>,
+    pub raw_bytes: Vec<u8>,
     pub body: Option<Vec<u8>>,
+    pub zws_error: Option<String>,
 }
 
 pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer, ImportError> {
@@ -115,12 +129,15 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
                     "uncompressed SWF length does not match its header".into(),
                 ));
             }
+            let body = raw[8..].to_vec();
             Ok(SwfContainer {
                 compression: SwfCompression::Uncompressed,
                 swf_version,
                 declared_file_length: declared,
                 compressed_bytes: None,
-                body: Some(raw[8..].to_vec()),
+                raw_bytes: raw,
+                body: Some(body),
+                zws_error: None,
             })
         }
         b"CWS" => {
@@ -132,12 +149,15 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
             }
             let expected_body = (declared as usize) - 8;
             let body = decompress_cws_bounded(compressed, expected_body)?;
+            let compressed_len = compressed.len();
             Ok(SwfContainer {
                 compression: SwfCompression::Zlib,
                 swf_version,
                 declared_file_length: declared,
-                compressed_bytes: Some(compressed.len()),
+                compressed_bytes: Some(compressed_len),
+                raw_bytes: raw,
                 body: Some(body),
+                zws_error: None,
             })
         }
         b"ZWS" => {
@@ -150,13 +170,28 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
                     "ZWS compressed payload length does not match container size".into(),
                 ));
             }
-            Ok(SwfContainer {
-                compression: SwfCompression::Lzma,
-                swf_version,
-                declared_file_length: declared,
-                compressed_bytes: Some(compressed_len),
-                body: None,
-            })
+            let props: [u8; 5] = raw[12..17].try_into().unwrap();
+            let expected_body = (declared as usize) - 8;
+            match lzma::decompress_zws(props, &raw[17..], expected_body, MAX_SWF_BYTES - 8) {
+                Ok(body) => Ok(SwfContainer {
+                    compression: SwfCompression::Lzma,
+                    swf_version,
+                    declared_file_length: declared,
+                    compressed_bytes: Some(compressed_len),
+                    raw_bytes: raw,
+                    body: Some(body),
+                    zws_error: None,
+                }),
+                Err(err) => Ok(SwfContainer {
+                    compression: SwfCompression::Lzma,
+                    swf_version,
+                    declared_file_length: declared,
+                    compressed_bytes: Some(compressed_len),
+                    raw_bytes: raw,
+                    body: None,
+                    zws_error: Some(err),
+                }),
+            }
         }
         _ => Err(ImportError::Container("unrecognized SWF signature".into())),
     }
@@ -220,18 +255,20 @@ fn decompress_cws_bounded(compressed: &[u8], expected_body: usize) -> Result<Vec
     Ok(body)
 }
 
-pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut ImportReport) {
-    report.error(
-        "swf_not_implemented",
-        location,
-        "SWF container inspected read-only. Playback, bytecode execution/decompilation and editable source recovery are not implemented.",
-    );
-
+pub(crate) fn convert(
+    container: &SwfContainer,
+    location: &str,
+    report: &mut ImportReport,
+) -> Option<Project> {
     let Some(body) = container.body.as_deref() else {
-        report.warning(
-            "swf_lzma_unsupported",
+        let msg = container
+            .zws_error
+            .as_deref()
+            .unwrap_or("ZWS LZMA stream could not be decompressed");
+        report.error(
+            "swf_lzma_corrupt",
             location,
-            "ZWS (LZMA-compressed SWF 13+) header validated; tag payload is not decompressed because no offline LZMA decoder is bundled.",
+            format!("Invalid or corrupt ZWS LZMA payload: {msg}."),
         );
         report.swf = Some(SwfInspection {
             compression: container.compression,
@@ -251,7 +288,7 @@ pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut Imp
             end_tag_reached: false,
             tags: SwfTagCounts::default(),
         });
-        return;
+        return None;
     };
 
     let decompressed_bytes = Some(body.len() + 8);
@@ -279,11 +316,13 @@ pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut Imp
             end_tag_reached: false,
             tags: SwfTagCounts::default(),
         });
-        return;
+        return None;
     };
 
     let [xmin, xmax, ymin, ymax] = bounds;
+    let mut invalid_rect = false;
     if xmax < xmin || ymax < ymin {
+        invalid_rect = true;
         report.error(
             "swf_invalid_rect",
             format!("{location}#header"),
@@ -317,7 +356,7 @@ pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut Imp
             end_tag_reached: false,
             tags: SwfTagCounts::default(),
         });
-        return;
+        return None;
     }
 
     let frame_rate_raw = u16::from_le_bytes(body[rect_bytes..rect_bytes + 2].try_into().unwrap());
@@ -327,12 +366,7 @@ pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut Imp
     let mut state = TagWalkState::default();
     let end_tag_reached = walk_tags(&body[rect_bytes + 4..], 0, location, &mut state, report);
 
-    report.statistics.symbols = state.tags.define_sprite + state.tags.buttons;
-    report.statistics.keyframes = state.tags.show_frame;
-    report.statistics.elements = state.tags.shapes + state.tags.bitmaps + state.tags.texts;
-    report.statistics.scripts = state.tags.do_action + state.tags.do_abc;
-
-    report.swf = Some(SwfInspection {
+    let inspection = SwfInspection {
         compression: container.compression,
         swf_version: container.swf_version,
         declared_file_length: container.declared_file_length,
@@ -349,7 +383,21 @@ pub(crate) fn inspect(container: &SwfContainer, location: &str, report: &mut Imp
         has_do_abc: state.tags.do_abc > 0,
         end_tag_reached,
         tags: state.tags,
-    });
+    };
+    report.swf = Some(inspection.clone());
+
+    if invalid_rect || state.budget_exceeded {
+        return None;
+    }
+
+    timeline::build_project_from_swf(
+        container,
+        &inspection,
+        body,
+        rect_bytes + 4,
+        location,
+        report,
+    )
 }
 
 #[derive(Default)]
@@ -382,10 +430,10 @@ fn walk_tags(
         }
         let tag_offset = pos;
         if pos + 2 > bytes.len() {
-            report.error(
-                "swf_truncated",
+            report.warning(
+                "swf_truncated_tag_stream",
                 format!("{location}#tag@{tag_offset}"),
-                "Truncated 2-byte SWF tag header.",
+                "Truncated 2-byte SWF tag header; earlier complete records were retained.",
             );
             return false;
         }
@@ -395,10 +443,12 @@ fn walk_tags(
         let short_len = usize::from(raw_hdr & 0x3f);
         let tag_len = if short_len == 0x3f {
             if pos + 4 > bytes.len() {
-                report.error(
-                    "swf_truncated",
+                report.warning(
+                    "swf_truncated_tag_stream",
                     format!("{location}#tag@{tag_offset}"),
-                    format!("Truncated 4-byte extended length on SWF tag {tag_code}."),
+                    format!(
+                        "Truncated 4-byte extended length on SWF tag {tag_code}; earlier complete records were retained."
+                    ),
                 );
                 return false;
             }
@@ -409,19 +459,19 @@ fn walk_tags(
             short_len
         };
         let Some(end) = pos.checked_add(tag_len) else {
-            report.error(
-                "swf_truncated",
+            report.warning(
+                "swf_truncated_tag_stream",
                 format!("{location}#tag@{tag_offset}"),
-                format!("Overflowing length on SWF tag {tag_code}."),
+                format!("Overflowing length on SWF tag {tag_code}; earlier complete records were retained."),
             );
             return false;
         };
         if end > bytes.len() {
-            report.error(
-                "swf_truncated",
+            report.warning(
+                "swf_truncated_tag_stream",
                 format!("{location}#tag@{tag_offset}"),
                 format!(
-                    "SWF tag {tag_code} declares {tag_len} bytes, exceeding remaining {} stream bytes.",
+                    "SWF tag {tag_code} declares {tag_len} bytes, exceeding remaining {} stream bytes; earlier complete records were retained.",
                     bytes.len() - pos
                 ),
             );
@@ -443,15 +493,10 @@ fn walk_tags(
                 return true;
             }
             1 => state.tags.show_frame += 1,
-            // DefineShape, DefineShape2, DefineShape3, DefineMorphShape, DefineShape4, DefineMorphShape2
             2 | 22 | 32 | 46 | 83 | 84 => state.tags.shapes += 1,
-            // PlaceObject, PlaceObject2, PlaceObject3
             4 | 26 | 70 => state.tags.placements += 1,
-            // DefineBits, DefineBitsLossless, DefineBitsJPEG2, DefineBitsJPEG3, DefineBitsLossless2, DefineBitsJPEG4
             6 | 20 | 21 | 35 | 36 | 90 => state.tags.bitmaps += 1,
-            // DefineButton, DefineButton2
             7 | 34 => state.tags.buttons += 1,
-            // SetBackgroundColor
             9 => {
                 if depth == 0 && state.background_color.is_none() && payload.len() >= 3 {
                     state.background_color = Some(format!(
@@ -460,15 +505,10 @@ fn walk_tags(
                     ));
                 }
             }
-            // DefineFont, DefineFont2, DefineFont3, DefineFont4
             10 | 48 | 75 | 91 => state.tags.fonts += 1,
-            // DefineText, DefineText2, DefineEditText
             11 | 33 | 37 => state.tags.texts += 1,
-            // DoAction, DoInitAction
             12 | 59 => state.tags.do_action += 1,
-            // DefineSound, SoundStreamHead, SoundStreamHead2
             14 | 18 | 45 => state.tags.sounds += 1,
-            // DefineSprite (only top-level sprites may define nested control tags)
             39 => {
                 state.tags.define_sprite += 1;
                 if depth > 0 {
@@ -478,8 +518,8 @@ fn walk_tags(
                         "Nested DefineSprite inside DefineSprite is not walked recursively.",
                     );
                 } else if payload.len() < 4 {
-                    report.error(
-                        "swf_truncated",
+                    report.warning(
+                        "swf_truncated_tag_stream",
                         format!("{location}#sprite@{tag_offset}"),
                         "DefineSprite payload is shorter than its 4-byte SpriteID/FrameCount header.",
                     );
@@ -489,7 +529,6 @@ fn walk_tags(
                     let _ = walk_tags(&payload[4..], depth + 1, &sprite_loc, state, report);
                 }
             }
-            // FileAttributes
             69 => {
                 state.tags.file_attributes += 1;
                 if let Some(&flags) = payload.first()
@@ -498,16 +537,15 @@ fn walk_tags(
                     state.as3_flag = true;
                 }
             }
-            // DoABC, DoABC2
             72 | 82 => state.tags.do_abc += 1,
             _ => {}
         }
     }
 
-    report.error(
-        "swf_truncated",
+    report.warning(
+        "swf_truncated_tag_stream",
         format!("{location}#tags"),
-        "SWF tag stream ended without a terminating End (0) tag.",
+        "SWF tag stream ended without a terminating End (0) tag; complete records were retained.",
     );
     false
 }

@@ -1396,3 +1396,45 @@ fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or
     );
     assert!(!editor.dirty());
 }
+
+#[test]
+fn open_path_imports_swf_and_save_to_path_exports_fla_and_nflash() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let swf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/fla-corpus/upstream/ruffle/avm1-frame-labels/test.swf");
+    editor.open_path(swf_path, &ctx);
+    editor.project.validate().unwrap();
+    assert!(editor.path.is_none());
+    assert!(editor.dirty());
+    assert_eq!(editor.project.width, 550);
+    assert_eq!(editor.project.height, 400);
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "neoflash-editor-swf-fla-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let fla_path = temp_dir.join("recovered.fla");
+    assert!(editor.save_to_path(fla_path.clone()));
+    assert!(!editor.dirty());
+    assert_eq!(editor.path.as_deref(), Some(fla_path.as_path()));
+
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    reopened.open_path(fla_path, &ctx);
+    reopened.project.validate().unwrap();
+    assert_eq!(reopened.project.width, 550);
+
+    let nflash_path = temp_dir.join("recovered.nflash");
+    assert!(reopened.save_to_path(nflash_path.clone()));
+    assert!(!reopened.dirty());
+    let loaded = Project::from_json(&std::fs::read_to_string(&nflash_path).unwrap()).unwrap();
+    loaded.validate().unwrap();
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

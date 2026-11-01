@@ -639,7 +639,12 @@ impl Editor {
             }
             Pending::Open => {
                 if let Some(path) = rfd::FileDialog::new()
+                    .add_filter(
+                        "NeoFlash or Flash project",
+                        &["nflash", "json", "fla", "xfl", "swf"],
+                    )
                     .add_filter("NeoFlash project", &["nflash", "json"])
+                    .add_filter("Flash source or movie", &["fla", "xfl", "xml", "swf"])
                     .pick_file()
                 {
                     self.open_path(path, ctx)
@@ -659,7 +664,40 @@ impl Editor {
             }
         }
     }
+
+    fn is_legacy_flash_path(path: &std::path::Path) -> bool {
+        if path.is_dir() {
+            return true;
+        }
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "fla" | "xfl" | "swf" | "xml"
+                )
+            })
+        {
+            return true;
+        }
+        let mut magic = [0u8; 8];
+        if let Ok(mut file) = std::fs::File::open(path)
+            && let Ok(n) = std::io::Read::read(&mut file, &mut magic)
+            && n >= 4
+        {
+            return matches!(&magic[..3], b"FWS" | b"CWS" | b"ZWS")
+                || magic.starts_with(b"PK\x03\x04")
+                || (n >= 8 && magic == [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+        }
+        false
+    }
+
     pub fn open_path(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if Self::is_legacy_flash_path(&path) {
+            self.import_legacy(path, ctx);
+            return;
+        }
         self.cancel_edits();
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
@@ -731,9 +769,18 @@ impl Editor {
                             self.history = History::new(self.workspace.undo_levels as usize);
                             self.playing = false;
                             self.load_project_fonts(ctx);
-                            self.message(
-                                "Imported supported XFL content. Save as a NeoFlash project.",
-                            );
+                            let label = match report.format {
+                                neoflash_import::ImportFormat::Swf => "SWF movie",
+                                neoflash_import::ImportFormat::LegacyBinaryFla => {
+                                    "binary FLA document"
+                                }
+                                neoflash_import::ImportFormat::XflArchive
+                                | neoflash_import::ImportFormat::XflDirectory => "XFL document",
+                                neoflash_import::ImportFormat::Unknown => "Flash document",
+                            };
+                            self.message(format!(
+                                "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                            ));
                         }
                         Err(e) => self.message(e.to_string()),
                     }
@@ -747,10 +794,30 @@ impl Editor {
     }
 
     pub fn save(&mut self, save_as: bool) -> bool {
+        let default_name = self
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                let stem: String = self
+                    .project
+                    .name
+                    .chars()
+                    .filter(|c| !matches!(c, '/' | '\\' | ':' | '\0'))
+                    .collect();
+                let stem = stem.trim();
+                if stem.is_empty() {
+                    "Untitled.nflash".into()
+                } else {
+                    format!("{stem}.nflash")
+                }
+            });
         let path = if save_as || self.path.is_none() {
             rfd::FileDialog::new()
                 .add_filter("NeoFlash project", &["nflash"])
-                .set_file_name("Untitled.nflash")
+                .add_filter("Flash FLA (XFL archive)", &["fla"])
+                .set_file_name(&default_name)
                 .save_file()
         } else {
             self.path.clone()
@@ -758,22 +825,44 @@ impl Editor {
         let Some(path) = path else {
             return false;
         };
+        self.save_to_path(path)
+    }
+
+    pub(crate) fn save_to_path(&mut self, path: PathBuf) -> bool {
         self.finish_edits();
-        let result = self
-            .project
-            .to_json()
-            .map_err(|e| e.to_string())
-            .and_then(|json| {
-                let tmp = path.with_extension("nflash.tmp");
-                std::fs::write(&tmp, json)
-                    .and_then(|_| std::fs::rename(&tmp, &path))
-                    .map_err(|e| e.to_string())
-            });
+        let is_fla = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"));
+        let result = if is_fla {
+            neoflash_import::export_fla_bytes(&self.project)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| {
+                    let tmp = path.with_extension("fla.tmp");
+                    std::fs::write(&tmp, bytes)
+                        .and_then(|_| std::fs::rename(&tmp, &path))
+                        .map_err(|e| e.to_string())
+                })
+        } else {
+            self.project
+                .to_json()
+                .map_err(|e| e.to_string())
+                .and_then(|json| {
+                    let tmp = path.with_extension("nflash.tmp");
+                    std::fs::write(&tmp, json)
+                        .and_then(|_| std::fs::rename(&tmp, &path))
+                        .map_err(|e| e.to_string())
+                })
+        };
         match result {
             Ok(()) => {
                 self.saved_project = Some(self.project.clone());
                 self.path = Some(path);
-                self.message("Project saved.");
+                self.message(if is_fla {
+                    "FLA archive saved."
+                } else {
+                    "Project saved."
+                });
                 true
             }
             Err(e) => {
