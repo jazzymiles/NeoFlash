@@ -13,7 +13,30 @@ This page keeps tested behavior and meaningful limits. Raw logs, artifact finger
 
 The recorded shared checks ran on Apple Silicon, macOS 15.8 and Rust 1.99.1. They cover formatting and Clippy, native Rust behavior, the macOS paste adapter, actual WASM and browser-host execution in Node, emitted-script fixtures, project workflows, public FLA corpus integrity/refusals, export preparation and demo export. Earlier failed gates and their affected reruns do not constitute an uninterrupted all-green pass.
 
-Use `./scripts/check.sh` for a complete delivery check. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families; that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
+Use `./scripts/check.sh` for a complete delivery check. It runs, in order:
+
+```sh
+python3 scripts/design-lock.py                       # NF2 design lock
+python3 scripts/editor-api-index.py --check          # Actions toolbox / code-hint index
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace                      # core, editor, script, import, export, web crates
+cargo test --locked -p egui-winit --lib neoflash_paste_tests
+python3 scripts/check-fla-corpus.py                  # public FLA corpus imports and refusals
+./scripts/build-web.sh                               # WASM runtime
+node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs
+node crates/neoflash-script/tests/execute.mjs        # emitted-script fixtures
+node crates/neoflash-script/tests/project-execute.mjs  # every project workflow family, incl. sound-playback
+python3 -B -m unittest discover -s scripts/tests -p 'test_browser_batch.py'
+cargo run --locked -p neoflash-export -- --demo --output dist/demo
+```
+
+Deliveries that change ActionScript or product status also run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families (for example `NEOFLASH_WORKFLOWS=sound-playback`); that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
+
+<a id="timeline-scenes-sound"></a>
+### Timeline, scenes and sound
+
+Automated coverage: `crates/neoflash-core/tests/timeline_tweens.rs` (shape/motion/guided tweens, Orient to path, range edits, Synchronise symbols, the example document and playback of the imported FLA corpus), `tests/timeline_sound.rs` (every sync mode, loops, seek, stop-all, nested clips), `tests/frame_labels.rs` (scene flattening and scene-aware goto), the editor's `timeline_*_tests.rs` and `stage_view_tests.rs` modules, `web/tests/as2-timeline.test.cjs` (two scenes through the real WASM player in AS3 and AS2), `web/tests/wasm.test.cjs` (timeline sound commands) and the `sound-playback` workflow family (Stream offsets, loop restart and `stopAllSounds`/`SoundMixer.stopAll()` through the shipped host with an injected AudioContext). These tests do not establish audible quality, real browser decoding beyond MP3/WAV, Safari, stream behaviour when a browser drops frames, or pixel identity of in-between frames with Flash.
 
 ## Open findings and scoped fixes
 

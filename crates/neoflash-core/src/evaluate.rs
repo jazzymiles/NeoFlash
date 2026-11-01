@@ -457,36 +457,67 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
         .iter()
         .map(|element| {
             let mut out = element.clone();
-            for property in TweenProperty::ALL {
-                let mut previous = (start.frame as f64, element.transform);
-                let mut next = None;
-                for key in &properties {
-                    if !key
-                        .keyed_properties
-                        .as_ref()
-                        .is_some_and(|keyed| keyed.contains(&property))
-                    {
-                        continue;
-                    }
-                    let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
-                        continue;
-                    };
-                    if key.frame as f64 <= time {
-                        previous = (key.frame as f64, keyed.transform);
-                    } else {
-                        next = Some((key.frame as f64, keyed.transform));
-                        break;
-                    }
-                }
-                let (to, t) = match next {
-                    Some((frame, to)) => (to, (time - previous.0) / (frame - previous.0)),
-                    None => (previous.1, 0.),
+            out.transform = motion_pose(start, &properties, element, time);
+            if start.orient_to_path {
+                // Orient to path: turn with the direction of travel, relative to the
+                // direction at the span start (the authored rotation stays the base).
+                let heading = |at: f64| {
+                    let a = motion_pose(start, &properties, element, at);
+                    let b = motion_pose(start, &properties, element, at + 0.5);
+                    let (dx, dy) = (b.x - a.x, b.y - a.y);
+                    (dx.hypot(dy) > 1e-9).then(|| dy.atan2(dx).to_degrees())
                 };
-                set_property(&mut out.transform, property, &previous.1, &to, t);
+                let initial = heading(start.frame as f64);
+                let now = heading(time).or_else(|| heading(time - 0.5));
+                if let (Some(initial), Some(now)) = (initial, now) {
+                    out.transform.rotation += now - initial;
+                }
             }
             out
         })
         .collect()
+}
+
+/// Pose of one motion-tweened element at (eased, fractional) frame `time`: every
+/// property interpolates between the ◆ keys that key it.
+fn motion_pose(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    time: f64,
+) -> Transform {
+    let mut transform = element.transform;
+    for property in TweenProperty::ALL {
+        let mut previous = (start.frame as f64, element.transform);
+        let mut next = None;
+        for key in properties {
+            if !key
+                .keyed_properties
+                .as_ref()
+                .is_some_and(|keyed| keyed.contains(&property))
+            {
+                continue;
+            }
+            let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
+                continue;
+            };
+            if key.frame as f64 <= time {
+                previous = (key.frame as f64, keyed.transform);
+            } else {
+                next = Some((key.frame as f64, keyed.transform));
+                break;
+            }
+        }
+        let (to, t) = match next {
+            Some((frame, to)) => (
+                to,
+                ((time - previous.0) / (frame - previous.0)).clamp(0., 1.),
+            ),
+            None => (previous.1, 0.),
+        };
+        set_property(&mut transform, property, &previous.1, &to, t);
+    }
+    transform
 }
 
 /// Sample a layer within its timeline: classic tweens on a layer guided by a

@@ -69,7 +69,7 @@ Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVa
 
 ## Audio family and next media work
 
-Complete-file AS3 Sound/SoundChannel/SoundTransform and AS2 Sound now share resource/HTTP loading, browser decoding, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. Native audio tracks, streaming, linkage, precise historical mixing, video and audio-driven timeline synchronization remain open. Keep their verification grouped by workflow and separate from this first playback profile.
+Complete-file AS3 Sound/SoundChannel/SoundTransform and AS2 Sound now share resource/HTTP loading, browser decoding, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. Timeline (frame) sounds now play with Flash sync in HTML5 and editor playback (decision 0037). Streaming, linkage, precise historical mixing, custom envelopes, decoded waveforms, re-synchronising streams after dropped frames and video timeline synchronization remain open. Keep their verification grouped by workflow and separate from this first playback profile.
 
 ## Data-processing family
 
@@ -123,13 +123,14 @@ Still open: broader owner-aware unsupported API diagnostics (including TextField
 - Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
 - [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core/egui tests and observed macOS copy/cut/paste, cross-document transfer, text focus, save/reopen and Test Movie checks pass.
 - [x] Preserve paste shortcut modifiers at key press in a pinned egui-winit adapter, with release-order, repeated-batch and text-recipient regressions. Physical macOS keyboard/menu delivery was observed after unlocking; an initial foreign-content event could not be reproduced after fresh copies.
-- Timeline clipboard for selected frame ranges and layer-preserving paste modes.
-- Drag/copy/reverse frame spans, keyframe movement, multi-frame edit and layer folders/reordering.
+- [x] Timeline clipboard for selected frame ranges, drag/copy/reverse of frame spans, keyframe movement and layer folders/reordering. Creating destination layers on paste remains open.
+- Edit multiple frames beyond moving: selecting objects that exist only on other keyframes, scale/rotate across frames.
 - [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
-- Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradients, masks and guides.
+- Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradient authoring, object/pixel snapping and shape hints.
 - [x] Tessellate native rectangle/ellipse fills and strokes before applying their full affine transforms, matching the Canvas geometry convention. Tests cover scaled, reflected and nested transforms; live native visual comparison remains pending.
 - Autosave/recovery, file-change detection, unsaved project protection and multiple documents.
-- Display and edit custom easing curves visually, including overshoot; property-level motion curves.
+- [x] Display and edit custom easing curves visually, including overshoot (Ease panel).
+- Bounce/Elastic presets and property-level motion curves; curved motion paths; Orient to path for motion tweens.
 - Timeline virtualization and resource-aware undo for large documents.
 - System fonts: weight/style/variable axes, shaping/fallback and refresh after font activation.
 - Font embedding/subsetting and outline export with explicit font policies.
@@ -157,7 +158,8 @@ Still open: broader owner-aware unsupported API diagnostics (including TextField
 - [x] Preserve bounded Contents prefixes, scene/library/media descriptors, MFC identities and raw settings; resolve all 289 descriptors in the 19 accepted local containers while retaining unread suffix bytes.
 - [x] Preserve typed timeline identity/ownership/partial fields and shape associations from one container snapshot; read the supported Flash 3 Contents suffix to exact EOF. Synthetic fixtures and aggregate corpus verification establish the documented reader boundary.
 - [x] Pure, bounded Flash 3 solid contour adapter with original fixtures, exact endpoint assembly, affine path coordinates and explicit topology/paint diagnostics. This does not enable binary document import.
-- Binary FLA document conversion: document-wide semantic acceptance, Contents extensions/suffix, interpreted linkage, more paints/contours, object/media payloads and historical actions. Investigate one corpus container rejected by strict directory validation. Lossless FLA round-trip also requires retained document provenance and metadata.
+- [x] Binary FLA document conversion for Flash 3–CS4 save targets with reported approximations, including scenes, motion guides, shape tweens and translated Actions-panel commands (decision 0036; 101 of 106 local documents import).
+- Remaining binary FLA work: map approximated filters, blend modes, bitmap fills, rich/dynamic text, frame sounds and media items, motion-tween XML and per-property easing; investigate the five local documents that still refuse. Lossless FLA round-trip also requires retained document provenance and metadata.
 - Evaluate Ruffle as optional SWF playback/compatibility module. Keep new HTML5 publication independent of mandatory SWF.
 - Reproducible private-corpus tests: per-file diagnostics, rendered frames, input scenarios, comparison provenance.
 

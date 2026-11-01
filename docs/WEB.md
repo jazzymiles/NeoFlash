@@ -58,7 +58,15 @@ AS3 Sound loads a portable resource path or an HTTP(S) URL through URLRequest; A
 
 A real click on an authored Play control can enable audio. If a script requests playback before a browser gesture, the preview exposes **Enable audio** and queues the channel. The same control then mutes or unmutes the publication. Restart stops its channels, cancels loading and creates fresh script owners. The public example deliberately starts at zero volume; change its volume variable when authoring an audible project.
 
-Compressed input keeps the resource service's 16 MiB limit. Frame/chunk inspection reserves decoded float PCM at the actual output sample rate before native decoding; the publication permits up to 128 MiB of live/reserved PCM, 32 active/pending channels and 256 Sound objects before Restart. Native decoder working memory remains browser-owned. Unsupported containers, free-format MP3 and changing channel layouts produce a loading error. Streaming, ID3 access, sample generation/extraction, exact historical mixing matrices, sound linkage, audio tracks and timeline synchronization remain planned. This browser playback service does not add sound to side-effect-free editor scrubbing.
+Compressed input keeps the resource service's 16 MiB limit. Frame/chunk inspection reserves decoded float PCM at the actual output sample rate before native decoding; the publication permits up to 128 MiB of live/reserved PCM, 32 active/pending channels and 256 Sound objects before Restart. Native decoder working memory remains browser-owned. Unsupported containers, free-format MP3 and changing channel layouts produce a loading error. Streaming, ID3 access, sample generation/extraction, exact historical mixing matrices and sound linkage remain planned. Scrubbing in the editor stays silent.
+
+## Timeline sounds
+
+Keyframes can carry a library sound with Flash sync: **Event** plays on every entry and overlaps, **Start** does not overlap itself, **Stop** stops the sound and **Stream** follows the playhead — it starts at the right offset after a jump, restarts when the timeline loops and stops at the end of its span or when that timeline stops. Repeat counts, Loop and the preset effects (left/right channel, fades) apply. The Rust player decides what plays; the page only decodes each resource once and schedules it with Web Audio, so editor playback and HTML5 agree. Before the first gesture the preview shows **Enable audio**: Event/Start sounds are skipped until then and streams resume at their timeline position. AS2 `stopAllSounds()` and AS3 `SoundMixer.stopAll()` also stop timeline sounds. HTML5 timeline sounds are MP3 or WAV; streams are not re-synchronised if the browser drops frames, and custom envelopes are not available yet. See [examples/timeline-sound.nflash](../examples/timeline-sound.nflash) and the [compatibility notes](COMPATIBILITY.md#timeline-sound).
+
+## Scenes
+
+A document with several scenes is published as one main timeline, scene after scene. Scripts see the scenes through `currentScene`, `scenes`, `gotoAndPlay(frame, scene)` and `nextScene()`/`prevScene()`; AS3 frame numbers are relative to the current scene. Guide layers and ruler guides are never published.
 
 ## Data processing in ActionScript
 

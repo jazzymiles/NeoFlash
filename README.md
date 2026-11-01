@@ -4,7 +4,7 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The editor supports nested timelines, keyframes and tweens, frame/object scripts, system fonts and standalone HTML5 export. The authoring workspace includes vector mask/guide layers, colored layer outlines, configurable panel docks and a searchable library with folders and previews. AS2 and AS3 support remains partial; the catalogue below shows the current audited coverage. Runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
+The editor supports nested timelines, keyframes, classic, shape and motion tweens, motion guides, scenes, timeline sounds, frame/object scripts, system fonts and standalone HTML5 export. The authoring workspace includes vector mask/guide layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks and a searchable library with folders and previews. AS2 and AS3 support remains partial; the catalogue below shows the current audited coverage. Runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 <!-- progress:start -->
 ## Where we are
@@ -54,11 +54,11 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 69 of 99 | 8 | 22 | 4 / 8 / 0 |
-| Timelines and animation | 55 of 71 | 8 | 8 | 4 / 6 / 0 |
+| Timelines and animation | 57 of 72 | 8 | 7 | 4 / 6 / 0 |
 | HTML5 and interactivity | 46 of 73 | 4 | 23 | 5 / 5 / 2 |
 | Import and file compatibility | 38 of 65 | 10 | 17 | 1 / 7 / 2 |
-| Platform and quality | 28 of 46 | 0 | 18 | 4 / 5 / 1 |
-| **All areas** | 236 of 354 | 30 | 88 | 18 / 31 / 5 |
+| Platform and quality | 29 of 47 | 0 | 18 | 4 / 5 / 1 |
+| **All areas** | 239 of 356 | 30 | 87 | 18 / 31 / 5 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -86,7 +86,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 1. Open the example, scrub the top timeline and enable **Onion Skin**. Drag the blue range handles or change Before/After; choose outlines and opacity.
 2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Use the breadcrumbs to return.
 3. Draw a rectangle or oval, or add text. Change position, scale, rotation, fill/stroke color, alpha and font in Properties. Fonts are discovered through macOS CoreText.
-4. Press **F6** to insert a keyframe, move the object, and set a tween/easing on the preceding keyframe. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it.
+4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
 6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish** (or the Publish button in the top bar) writes a self-contained HTML5 folder. The editor's Enter playback is a side-effect-free authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. Pause retains the current pose; Rewind or scrubbing resets the preview.
@@ -111,12 +111,14 @@ System fonts are referenced by name; font embedding and identical cross-platform
 | Linked classes and input events | [Project program](examples/project-program.nflash), [AS2 input](examples/as2-project-input.nflash) |
 | Text entry and saved values | [Text form](examples/text-form.nflash), [Saved game](examples/saved-game.nflash) |
 | Images, filters and resource loading | [Loader gallery](examples/loader-gallery.nflash), [Filter gallery](examples/filter-gallery.nflash) |
+| Tweens, motion guides and scenes | [Timeline tweens](examples/timeline-tweens.nflash) |
+| Timeline sound with Flash sync | [Timeline sound](examples/timeline-sound.nflash) |
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
 
-Native binary FLA import now covers the supported Flash MX/CS4 profiles exercised by `Clock.fla` and `300x600.fla`, preserving nested structure, classic animation and original scripts. The imported project embeds its exact source archive. Clock uses a partial AS1 timeline profile; the banner retains AS2. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
+**File → Import → Import legacy Flash…** opens binary FLA files saved by Flash 3 through CS4. Scenes, nested symbols, layers, masks, motion guides, classic and shape tweens and the original scripts are kept; Flash 3–MX Actions-panel commands become ActionScript 1. Filters, blend modes, bitmap fills, rich text, sounds and other details the model cannot express yet are approximated or kept as visible placeholders, and the import report lists each case. The imported project embeds its exact source file when it fits. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
 
-The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. Accepted cases include MX button/static-text files through the native profile and an Adobe CS6 example through XFL. The CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; these examples do not establish general FLA compatibility.
+The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) import through the native converter, and an Adobe CS6 example imports through XFL and reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; these examples do not establish general FLA compatibility.
 
 ## Project layout
 
@@ -138,4 +140,4 @@ vendor/     pinned integration patches, provenance and licenses
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions use the same terms. Third-party code and fixtures retain their licenses and pinned provenance; see [third-party notices](THIRD_PARTY_NOTICES.txt). This independent project does not include Adobe application code or branding assets.
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions use the same terms. Third-party code and fixtures retain their licenses and pinned provenance; see [third-party notices](THIRD_PARTY_NOTICES.txt). The macOS editor plays timeline sounds through unmodified MPL-2.0 Symphonia decoder crates; they are not part of published HTML5 content. This independent project does not include Adobe application code or branding assets.

@@ -8,8 +8,11 @@ runtime, export, script and editor work, with implementation recommendations.
 - UI connection order and per-item checklist: [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) (items `W…`).
 - Design gaps: [NF2-REQUESTS.md](NF2-REQUESTS.md).
 
-Written against branch `codex/native-design-system` (2026-11-01). Claims about existing code cite the file; anything
-not confirmed is marked **verify**.
+Written against branch `codex/native-design-system` (2026-11-01); the **Status** line of each block reflects `main` after
+the timeline, scene, sound and rulers batches. Claims about existing code cite the file; anything not confirmed is
+marked **verify**. Blocks marked done keep their original plan below the status line for context; where the
+implementation chose a different shape, the status line names the real types. Current timeline architecture and open
+task cards: [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 
 ## 0. Hard rules (repeat of AGENTS.md › "Design system (NF2) — locked")
 
@@ -32,7 +35,7 @@ not confirmed is marked **verify**.
 
 | Fact | Where | Consequence |
 | --- | --- | --- |
-| One document model, serde JSON, `.nflash`; `format_version` 1..=5 accepted; features gate on version | `neoflash-core/src/model.rs`, `validation.rs` (`matches!(format_version, 1..=5)`, `< 5` checks) | New fields: `#[serde(default, skip_serializing_if = …)]`, raise accepted range to 6 (then 7 …), validation "field X requires format N", writer bumps with `format_version.max(N)` like `model.rs:491`. Old files must load byte-for-byte equivalent in meaning. Bump **once per delivery batch**, not per field. |
+| One document model, serde JSON, `.nflash`; `format_version` 1..=6 accepted; features gate on version | `neoflash-core/src/model.rs` (`Project::uses_format_6`, `upgrade_format_for_features`), `validation.rs` (`matches!(format_version, 1..=6)`) | New fields: `#[serde(default, skip_serializing_if = …)]`, raise the accepted range to 7 with the next batch, validation "field X requires format N", writer bumps only when the feature is used (`upgrade_format_for_features`, called by `Editor::commit_history`). Old files must load byte-for-byte equivalent in meaning. Bump **once per delivery batch**, not per field. |
 | Authored evaluation is pure | `evaluate.rs::evaluate`, `sample_layer`, `authored_layers.rs::evaluate_scene` | All timeline semantics (tweens, guides, scenes) are functions of `(Project, symbol, frame)`; never cache mutable state in the document. |
 | One `Player` runs both the editor preview and HTML5 | `runtime.rs` (`Player`), `authored_playback.rs` (editor), `neoflash-web/src/lib.rs::WebPlayer` (WASM) | Evaluation changes in core reach HTML5 automatically through WASM; drawing changes need the canvas painter in `web/path.js`, `web/runtime.js`, `web/text.js` (strokes hard-code round caps/joins today) and the native painter (`neoflash-editor/src/stage_primitives.rs`, `vector.rs`). |
 | Export packages project JSON + compiled scripts + runtime | `neoflash-export/src/lib.rs::export_project`, `export_warnings` | Export options need a settings struct; unsupported features add `export_warnings`. |
@@ -72,6 +75,9 @@ not confirmed is marked **verify**.
 | 26 | E-27 Deco / Spray, E-28 IK | TO-03…05 / W3.9 | M / XL |
 | 27 | E-29 9-slice, sharing, accessibility extras, bitmap fill, components | DL-15, DL-17, CO-02, PR-06 / W3.10 | M each |
 
+Status: done — E-03, E-04, E-11, E-16 (except Test scene), E-18 (except custom envelopes, Sound properties and decoded
+waveforms); partial — E-01, E-02, E-05, E-10, E-20; the rest is open.
+
 No engine block (editor only): rulers, grid, cursors, toasts, Info, Project panel, Output levels, colour-effect UI,
 comments/folding, Find & replace, Movie Explorer, edit multiple frames, preview thumbnails (see wiring Phase 0).
 
@@ -82,6 +88,8 @@ Rust-WASM) · **Script API** (AS2/AS3/JS) · **Editor** (existing UI element it 
 **Recommendations** (algorithms, pitfalls, Flash notes, reuse).
 
 ### E-01 · Playback options (loop, script language default)
+
+**Status: partial.** Editor Loop playback and Play all scenes work (`Editor::after_playback_tick`, `WorkspacePrefs.timeline.loop_playback`). Open: `AuthoredPlayback::set_looping` shared with Test Movie, `Project.default_script_language`.
 
 - Model: none for loop (editor pref). Optional `Project.default_script_language: Option<ScriptLanguage>` for Document
   settings (format bump).
@@ -96,6 +104,8 @@ Rust-WASM) · **Script API** (AS2/AS3/JS) · **Editor** (existing UI element it 
   frame scripts on frame 1 are not re-entered in the preview.
 
 ### E-02 · Easing: overshoot, Flash presets, per-property curves
+
+**Status: partial.** Overshooting `CubicBezier` curves (Back) and `Flash { acceleration }` are authorable in the Ease panel and Properties; evaluation still bisects Bézier x. Open: Bounce/Elastic presets, per-property curves (`Keyframe.property_eases`, wiring plan §7.4 rows 1–2), multi-anchor custom curves.
 
 - Model: `Easing` already has `CubicBezier { x1, y1, x2, y2 }` (validation: x ∈ [0,1], |y| ≤ 100) and
   `Flash { acceleration }`. Add `Easing::Preset { family: EaseFamily, mode: EaseMode, params: [f64; 2] }` (NEW) for
@@ -120,6 +130,8 @@ Rust-WASM) · **Script API** (AS2/AS3/JS) · **Editor** (existing UI element it 
   `neoflash-import`).
 
 ### E-03 · Tween kinds and shape tweens
+
+**Status: done** except shape hints. `Keyframe.tween_kind` (format 6); `neoflash-core/src/shape_tween.rs` pairs shapes by ID then by order (no Hungarian assignment), keeps exact interpolation for equal command structure and otherwise resamples contours by arc length to a common cubic count with start-point/direction alignment; unpaired shapes and contours grow/shrink from their centre; compatible gradients blend, others switch at the midpoint. The editor explains unsuitable content (`timeline_commands.rs::create_tween`). Open: shape hints (§7.4 row 10).
 
 - Model: `Keyframe.tween_kind: TweenKind { Classic, Shape, Motion }` (serde default Classic; format bump). Later
   `Keyframe.shape_hints: Vec<ShapeHint { id: char, start: [f64;2], end: [f64;2] }>` on the start key.
@@ -163,6 +175,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 - Recommendations: guide hit-tolerance in screen pixels (not stage units) so it is zoom-independent.
 
 ### E-05 · Snapping (grid, guides, objects, pixels)
+
+**Status: partial.** Grid and guide snapping with the snap ring work (`neoflash-editor/src/snapping.rs`, [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md)). Open: object and pixel snapping, View ▸ Snapping (R-003), ⌘-suspend.
 
 - Model: none (settings in view prefs; snapping tolerance in Preferences ▸ Drawing).
 - Engine helper (optional, `neoflash-core::geometry`): `snap_candidates(&AuthoredScene, exclude: &[Id]) ->
@@ -242,6 +256,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-10 · Motion tweens (property tracks)
 
+**Status: partial, with a simpler model than proposed below.** There is no `MotionTween` struct: the span start key has `tween_kind = Motion`, and ◆ property keyframes are ordinary `Keyframe`s with `keyed_properties: Some(vec![TweenProperty…])` (X, Y, ScaleX, ScaleY, Rotation, Skew, Alpha, Color). `evaluate.rs::sample_motion` interpolates each property through the keys that key it, with the span ease remapping time; `Editor::commit_history` records changed properties as keys. Rotation turns are the difference between the start rotation and the last Rotation key; the path box is the bounds of the X/Y keys; `Keyframe.orient_to_path` is stored on the start key. Open: per-property eases, motion path curves (`Keyframe.motion_path`), Orient to path evaluation for motion tweens, Sync graphic symbols, Snap, moving keys in time, XFL motion-tween import (§7.4).
+
 - Model: on a motion-tween span keyframe: `MotionTween { target: Id (element id), duration: u32, tracks:
   Vec<PropertyTrack { property: MotionProperty, keys: Vec<TrackKey { frame: u32, value: f64, ease:
   Option<Easing> }> }>, path: Option<MotionPath { commands: Vec<PathCommand> }>, orient_to_path: bool, rotate:
@@ -267,6 +283,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
   (today edits bake tween boundaries to integer poses).
 
 ### E-11 · Motion guides
+
+**Status: done.** Implemented as `LayerRole::Guide` + `LayerProperties.motion_guide: Option<Id>` on the guided Normal layer (no separate MotionGuide role; `Project::prune_motion_guides` drops stale links). Classic tweens move between the guide-stroke points nearest their start and end poses (`evaluate.rs::sample_layer_in`, `guide_polyline`); `orient_to_path` adds the tangent change. Guides are never published. Open: Orient / Snap controls for classic tweens (needs a design slot).
 
 - Model: `LayerRole::MotionGuide` (NEW) and `LayerProperties.guided_by: Option<Id>` (stable ids like `mask`);
   validation: guide layer exists, no cycles, only Normal layers guided.
@@ -331,6 +349,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-16 · Scenes
 
+**Status: done** except Control ▸ Test scene and the breadcrumb ▾ (ST-08). `Project.scenes: Vec<Id>` (scene MovieClip symbols; `scenes[0] == root`). Scenes are flattened only at the export / `WebPlayer::new` boundary (`scenes.rs::flatten_scenes_with_ranges`); `Player::set_scenes` keeps the ranges for `currentScene`, `scenes`, scene-aware `gotoAndPlay`/`gotoAndStop` (`resolve_goto`) and `nextScene`/`prevScene` (`scene_step`). The editor edits each scene symbol; Scene select, Insert ▸ Scene, the Scene panel and Play all scenes are in `timeline_commands.rs` and `panels/scene.rs`.
+
 - Model: `Project.scenes: Vec<Scene { id, name, timeline_symbol: Id }>`; migration: absent → one scene from
   `Project.root` (no file change until a second scene is added; then format bump). Scene timelines are MovieClip-like
   symbols hidden from the Library.
@@ -363,6 +383,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
   "raster isolation"; reuse it rather than approximating with composite ops on the shared canvas.
 
 ### E-18 · Timeline sound
+
+**Status: done** except custom envelopes (DL-09), Sound properties (DL-08), decoded waveform peaks and legacy FLA frame sounds — see [decision 0037](decisions/0037-timeline-sound.md). `Keyframe.sound: Option<FrameSound { resource, sync, loops, loop_forever, effect }>` (no envelope field yet); `timeline_sound.rs` `SoundCommand`s drained from `Player`; `web/audio.js` schedules them; the editor previews them with rodio 0.21 + Symphonia (MP3/WAV; MPL-2.0 decoder crates, editor only, never in HTML5 exports). Streams are not re-synchronised when a host drops frames; scrubbing is silent.
 
 - Model: `Keyframe.sound: Option<FrameSound { resource_id: Id, sync: Event|Start|Stop|Stream, effect: SoundEffect,
   envelope: Vec<EnvelopePoint { position_ms, left, right }>, loops: LoopSpec { Repeat(u32) | Loop } }>`; layer
@@ -398,6 +420,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 - Registry: `animation-media-sync`, `web-media-assets`.
 
 ### E-20 · Code intelligence (completion, formatter, navigator, toolbox)
+
+**Status: partial.** Code hints, the toolbox, the Script navigator and re-indenting Auto-format work ([NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)); full formatting and folding are open.
 
 - Script crate: `complete(project, script, offset) -> Vec<Completion { label, kind, detail }>` using the project
   program's class/member tables plus the declaration catalogue (`docs/progress/actionscript-catalog.json`) filtered to
@@ -528,13 +552,12 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 - Editor behaviour in existing editor test modules; screenshots (both themes) for every converted panel.
 - One shared regression pass per delivery batch: `scripts/check.sh` (includes the design lock).
 
-## 5. Format-version plan (proposal)
+## 5. Format versions
 
-| Version | Contents (batch) |
+| Version | Contents |
 | --- | --- |
-| 6 | Tween kind, guides, stroke style, paint enum (gradients), primitive parameters, document swatches, publish settings, text options (Phase 1 batch) |
-| 7 | Motion tween tracks, motion guides, authored display/filters (Phase 2a) |
-| 8 | Scenes, frame sounds, authored video sources/cue points (Phase 2b) |
+| 6 (done) | Ruler guides, tween kinds, ◆ property keys, `orient_to_path`, motion guides, scenes, frame sounds |
+| 7 (next batch) | Whatever the next delivery batch adds, e.g. easing presets, `property_eases`, shape hints, motion path curves, custom sound envelopes, stroke style, paint/primitive parameters, document swatches, publish settings, text options, authored display/filters, video sources |
 
 Each version: validation rule per field ("requires format N"), loader accepts ≤ N, writer bumps only when the new
 data is present (so untouched documents stay readable by older builds), import (`neoflash-import`) maps Flash data to

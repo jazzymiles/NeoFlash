@@ -73,6 +73,43 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** reference §8 (Frame menu), `panels-menus.txt`, `planned_dialogs.rs` — no Paste motion special dialog.
 - **Proposal (optional):** `NF2/Dialog` with a column of `NF2/Checkbox` rows like the other planned dialogs.
 
+### R-007 · Orient / Snap rows in the classic Tween section
+- **Status:** open
+- **Requested by / for:** Claude · TL-01, PR-10 (WIRING-PLAN §7.4 row 5)
+- **Where:** `panels/properties.rs` frame Tween section for classic tweens on a guided layer
+- **Need:** rows for Orient to path and Snap (to motion guide), as Flash's classic tween properties show them.
+- **Why:** `Keyframe.orient_to_path` and `Editor::set_orient_to_path` work, but the classic Tween section has no slot.
+- **Checked:** `panel-properties-frame` reference and the Motion tween section, which has these rows.
+- **Proposal (optional):** reuse the Motion tween section's Orient checkbox row.
+- **Answer:**
+
+### R-008 · Bézier handles for motion path editing
+- **Status:** open
+- **Requested by / for:** Claude · TL-05 (WIRING-PLAN §7.4 row 9)
+- **Where:** stage motion path overlay (`NF2/Motion Path`)
+- **Need:** a curve-handle style (tangent line + handle dot, hover/drag states) to bend the path between ◆ keys.
+- **Why:** paths are edited only at their ◆ points today.
+- **Checked:** R-005 answer (◆ handles only), `canvas.rs`.
+- **Answer:**
+
+### R-009 · Shape hint markers
+- **Status:** open
+- **Requested by / for:** Claude · TL-04 (WIRING-PLAN §7.4 row 10)
+- **Where:** stage overlay on shape-tween keyframes; View ▸ Show shape hints, Modify ▸ Shape ▸ Add shape hint
+- **Need:** the lettered shape-hint marker (a–z) with unplaced / start (yellow) / end (green) states.
+- **Why:** shape hints pin the morph correspondence; there is no marker component.
+- **Checked:** design system reference, `canvas.rs`.
+- **Answer:**
+
+### R-010 · Sound span painter with real waveform peaks
+- **Status:** open
+- **Requested by / for:** Claude · TL-07, TL-13 (WIRING-PLAN §7.4 row 13)
+- **Where:** `neoflash_ui::components::timeline::paint_span(SpanType::Sound)`
+- **Need:** a variant that takes decoded peak values instead of the decorative waveform.
+- **Why:** Sound spans should show the actual sound.
+- **Checked:** `timeline.rs` span painter, `timeline-states-legend.png`.
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

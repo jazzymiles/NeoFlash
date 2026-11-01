@@ -11,10 +11,10 @@ Related pages:
 - [NF2-REQUESTS.md](NF2-REQUESTS.md) — where design gaps are reported (never fixed in code).
 - Reference: `interface/design-system/docs/NeoFlash-Design-System.codex.md` §4–§10 and `docs/data/outline/*.txt`.
 
-State of the code this page was written against: branch `codex/native-design-system` after the NF2 migration
-(2026-11-01). Entry points that open planned previews (menu items, buttons) are being added in parallel; this page
-therefore names "its menu item / button" instead of pinning code that is changing. Statements marked **verify** were
-not confirmed in code.
+Statuses and "Done / Not yet" notes reflect `main` on 2026-11-01 (after the timeline, scene, sound and rulers
+batches). Every planned preview has its entry point (menu item, button); this page names "its menu item / button"
+instead of pinning code. Statements marked **verify** were not confirmed in code. The timeline's current architecture
+and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 
 ## Conventions
 
@@ -87,12 +87,12 @@ not confirmed in code.
 | CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | absent | editor | P1 |
 | LI-01 | Library: delete / duplicate item | Library | absent | editor | P1 |
 | LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | absent | editor | P2 |
-| AC-01 | Actions toolbar: auto-format | Actions | disabled | yes | P2 |
-| AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | disabled | yes | P2 |
+| AC-01 | Actions toolbar: auto-format | Actions | partial (re-indent only) | yes | P2 |
+| AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | done | yes | P2 |
 | AC-03 | Actions toolbar: debug options | Actions | disabled | yes | P3 |
 | AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | disabled | editor | P2 |
-| AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | disabled | UI-only | P1 |
-| AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | disabled | yes | P2 |
+| AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | done | UI-only | P1 |
+| AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | done | yes | P2 |
 | AC-07 | Script assist | Actions | disabled | yes | P3 |
 | AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | partial | yes | P2 |
 | OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | absent | editor | P1 |
@@ -128,8 +128,8 @@ not confirmed in code.
 | DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | absent | yes | P3 |
 | DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | partial | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
-| MN-01 | Menu items absent from §8 menus | Menus | absent | mixed | P1–P3 |
-| MN-02 | Frame / layer / stage context menu items absent | Menus | absent | mixed | P1–P2 |
+| MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
+| MN-02 | Frame / layer / stage context menu items absent | Menus | partial | mixed | P1–P2 |
 | MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | working (Snapping ▸ disabled) | UI-only | P1 |
 
 Counts: 93 entries — 14 timeline, 8 tools, 11 stage/window chrome, 11 properties, 3 colour, 2 library, 8 actions,
@@ -141,14 +141,14 @@ groups.
 ## 1. Timeline controls (`crates/neoflash-editor/src/panels/timeline_controls.rs`, `panels/timeline.rs`)
 
 **TL-01 · Add motion guide** — `timeline_layer_actions` · done
-- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Not yet: the Orient / Snap controls in Properties (PR-10); drawing the path when the guide has no stroke is the author's step.
+- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Not yet: Orient / Snap controls for guided classic tweens (the classic Tween section has no slot — design request needed; wiring plan §7.4 row 5); drawing the path when the guide has no stroke is the author's step.
 - Purpose: insert a classic motion guide layer above the current layer and make the current layer guided by it.
 - Behaviour: click → new layer `Guide: <name>` of type Motion Guide above the current layer; current layer indents
   under it. A stroke drawn on the guide is the path; classic tweens on guided layers follow it ("Snap to motion
   guide" in PR-10). Locked/hidden current layer → command disabled. One Undo step.
-- Data: `LayerRole` has `Normal | Guide | Mask | Folder` only; no motion-guide role and no "guided by" link (masks
-  use `LayerProperties.mask`). **NEW** role + link.
-- Depends on: engine — path sampling along a guide stroke in evaluation and export.
+- Data: `LayerRole::Guide` layer + `LayerProperties.motion_guide: Option<Id>` on the guided Normal layer (no separate
+  motion-guide role); `Keyframe.orient_to_path`.
+- Depends on: engine — path sampling along a guide stroke in evaluation and export (done).
 - Acceptance: button creates a guide layer + guided relation in one Undo; a classic tween on the guided layer moves
   along a drawn curve in the editor and in HTML5; the guide is not exported as artwork.
 
@@ -164,12 +164,12 @@ groups.
   panel re-dock (workspace prefs).
 
 **TL-03 · Scene select ▸ New scene** — `timeline_scene_select` · done
-- Done: `Project.scenes` (ordered MovieClip symbol IDs, first = `root`, format 6); Scene select lists and switches scenes, New scene and Insert ▸ Scene add one (one Undo); scene symbols are hidden from the Library; Control ▸ Play all scenes continues editor playback into the next scene. Runtime/HTML5 flatten scenes into one main timeline (`neoflash_core::flatten_scenes`). Not yet: Scene panel (PP-08) rename/duplicate/reorder; `Editor::delete_scene` exists for it.
+- Done: `Project.scenes` (ordered MovieClip symbol IDs, first = `root`, format 6); Scene select lists and switches scenes, New scene and Insert ▸ Scene add one (one Undo); scene symbols are hidden from the Library; Control ▸ Play all scenes continues editor playback into the next scene. Runtime/HTML5 flatten scenes into one main timeline (`neoflash_core::flatten_scenes`); the Scene panel (PP-08) renames, duplicates, deletes and reorders. Not yet: Control ▸ Test scene, breadcrumb ▾ (ST-08).
 - Purpose: Flash scenes — consecutive main timelines played in order; the Scene select switches the edited scene.
 - Behaviour: menu lists scenes (checked = current) + New scene; selecting a scene leaves symbol editing and shows its
   timeline. New scene is one Undo step. Scene panel (PP-08) adds rename/duplicate/delete/reorder.
-- Data: `Project.root` is one symbol; no scene list. **NEW** `Project.scenes` (or ordered list of root timeline ids).
-- Depends on: engine — evaluation/playback across scenes, `gotoAndPlay(frame, scene)`, `currentScene`, export.
+- Data: `Project.scenes: Vec<Id>` (scene MovieClip symbols in play order; empty = one scene, `root`).
+- Depends on: engine — playback across scenes, `gotoAndPlay(frame, scene)`, `currentScene`, export (done).
 - Acceptance: two scenes play in order in the editor preview and HTML5; AS3 `scenes`/`currentScene` report them
   (bounded); legacy one-scene documents load unchanged.
 
@@ -179,20 +179,21 @@ groups.
 - Behaviour: enabled on a keyframe whose layer holds shapes (paths, rectangles, ovals) in this and the next keyframe;
   click toggles a shape tween. Mixed content or symbols → diagnostic "Shape tweens need shapes on both keyframes".
   Shape hints (View ▸ Show shape hints, Modify ▸ Shape ▸ Add shape hint) later.
-- Data: `Keyframe.tween: Option<Easing>` only — no tween kind. Path interpolation for equal command topology exists
-  (`animation-shape-tween` partial). **NEW** tween kind (`Classic | Shape | Motion`).
-- Depends on: engine — contour correspondence for differing topology; span colour per kind.
-- Acceptance: shape tween marker renders green with arrow; matching-topology paths morph as today; mismatched
-  topology produces a diagnostic instead of a jump (until general morphing lands).
+- Data: `Keyframe.tween_kind: TweenKind { Classic, Shape, Motion }` qualifies `Keyframe.tween`; shape hints would be
+  **NEW** (`Keyframe.shape_hints`, wiring plan §7.4 row 10).
+- Depends on: engine — contour correspondence for differing topology (done in `shape_tween.rs`); span colour per kind.
+- Acceptance: shape tween marker renders green with arrow; paths with matching and differing topology morph; a
+  keyframe without shapes produces an explanation instead of a jump.
 
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
-- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Not yet: Motion editor (PP-02), Properties — Motion tween (PR-10), Bézier path editing between keys.
+- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease (`evaluate::sample_motion`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Motion editor (PP-02) and Properties — Motion tween (PR-10) are partial. Not yet: Bézier path editing between keys, per-property eases, Orient to path evaluation for motion tweens (wiring plan §7.4).
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
 - Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
   later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
   Motion tween (PR-10). Non-symbol content → offer Convert to Symbol (F8) or a diagnostic.
-- Data: none (classic pose interpolation only). **NEW** per-property tracks.
-- Depends on: engine (largest timeline item).
+- Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties` (tracks are derived from
+  them, not stored separately).
+- Depends on: engine (done for tracks; path curves and per-property eases open).
 - Acceptance: create/remove with one Undo each; ◆ markers render; X/Y/rotation/scale/alpha tracks interpolate
   independently in editor and HTML5; classic tweens unchanged.
 
@@ -210,8 +211,8 @@ groups.
 - Done: menu of library sounds + Import sound… (MP3/WAV) sets the current span's keyframe sound (default Event) as one Undo and selects that frame so Properties shows Sound; Sound layers with Sound spans (the span painter's waveform is decorative, not decoded peaks); Event/Start/Stop/Stream in HTML5 and in editor playback (rodio). Scrubbing is silent (documented limit).
 - Purpose: attach a library sound to the current keyframe (sound layer) and open Properties — Sound.
 - Behaviour: menu of library sounds + "Import sound…"; choosing one sets the keyframe's sound (default Sync Event).
-- Data: audio exists only as `ResourceUnit` bytes (scripted `Sound`); no timeline sound. **NEW**.
-- Depends on: engine (media sync, `animation-media-sync` planned).
+- Data: `Keyframe.sound: Option<FrameSound>` referencing an `audio/*` `ResourceUnit` (decision 0037).
+- Depends on: engine (done: `Player` `SoundCommand`s, `web/audio.js`, editor rodio preview).
 - Acceptance: waveform span on the layer; Event/Start/Stop/Stream behave in HTML5 preview; scrubbing with Stream
   sync plays audio (or a documented limitation).
 
@@ -475,7 +476,8 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Controls: Label name/type; sound file select; Effect (None, Left/Right channel, Fade left→right / right→left, Fade in,
   Fade out, Custom) + Envelope… (DL-09); Sync Event / Start / Stop / Stream; Repeat / Loop + count; waveform; file info;
   Play; Sound properties… (DL-08).
-- Data: none (TL-07). Acceptance: Event sound plays once per keyframe hit; Stop stops it; Stream follows playhead.
+- Data: `FrameSound { resource, sync, loops, loop_forever, effect }` (TL-07); Custom envelope is **NEW** (DL-09).
+  Acceptance: Event sound plays once per keyframe hit; Stop stops it; Stream follows playhead.
 
 **PR-09 · Properties — Video** — partial (W/H + NetStream hint)
 - Missing: tabs Properties / Cue points; preview with transport; instance name + Swap…; file info; Deployment
@@ -489,19 +491,18 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 **PR-10 · Properties — Motion tween** — partial (`panels/motion_tween.rs`)
 - Done: replaces the frame Tween section while the playhead is inside a motion tween. Ease (Flash acceleration of the
   span start key) + Edit curve… (opens PP-01); Rotate turns + CW/CCW (written as the last Rotation ◆ key); Orient to
-  path (`Keyframe.orient_to_path` on the span start key); Path X/Y/W/H moves and scales the X/Y keys. Not yet: Show
-  path / frame dots (R-005), Sync graphic symbols, Snap to motion guide (disabled, "Not available yet").
+  path (`Keyframe.orient_to_path` on the span start key); Path X/Y/W/H moves and scales the X/Y keys. The path itself
+  is drawn on the stage (R-005 resolved). Orient to path turns the object along its X/Y track. Not yet: Show path / Show frame dots toggles, Sync graphic symbols and Snap to motion guide stay disabled ("Not
+  available yet"). Task cards: wiring plan §7.4 rows 4, 6, 7.
 - Controls: Ease −100 in … +100 out + Edit curve… (→ PP-01); Rotation count + direction CW/CCW + Orient to path; Path
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
-- Data: needs TL-05. Acceptance: Orient to path rotates the object along the path tangent in editor and HTML5.
-- Ready for wiring: `Keyframe.orient_to_path` + `Editor::set_orient_to_path(bool)` (guided classic tweens); Sync graphic
-  symbols = `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`; Show path = `NF2/Motion Path` on the stage.
+- Data: values live in the span keys (TL-05). Acceptance: Orient to path rotates the object along the path tangent
+  in editor and HTML5.
+- Reusable: `Editor::set_orient_to_path` (any tweened span); `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`;
+  `timeline_motion.rs::paint_motion_path`.
 
 **PR-11 · Frame easing values** — done (`properties` Tween section)
 - Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100.
-- Gap: Bézier Y1/Y2 are clamped to 0–1 in the UI (`numeric_pair … 0. ..=1.`) while the model accepts |y| ≤ 100
-  (`validation.rs`), so overshoot cannot be authored; `Easing::Flash { acceleration }` is shown but has no numeric
-  field (`animation-easing` limits).
 - Behaviour: allow Y outside 0–1 (Ease panel ranges: −30…130 % in the overshoot graph); add Flash acceleration
   −100…100 as the existing field style (no new control type — if a field must be added, request).
 - Depends on: UI-only. Acceptance: Y2 = 1.12 saves, reloads and overshoots in editor and HTML5.
@@ -548,7 +549,10 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
   shows only the current document.
 - Depends on: editor. Acceptance: an imported PNG appears in the Library tree and can be dragged to the stage.
 
-## 7. Actions and code editor (`panels/actions.rs` `PLANNED_CODE_TOOLS`, `sources.rs`)
+## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
+
+Status: AC-02, AC-05 and AC-06 work and AC-01 re-indents only (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md));
+AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
@@ -587,8 +591,8 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
   −0.3…1.3 in the graph (model allows |y| ≤ 100); Bounce and Elastic are not single cubic curves → disabled preset with
   hint or **NEW** easing variants. Per-property curves ("One curve for all" off) need motion tracks (TL-05).
 - Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier{..}, Flash{..}}`; evaluation `evaluate::easing`
-  solves Bézier x by bisection. Depends on: editor (single curve); engine for Back/Bounce/Elastic presets and
-  per-property curves.
+  solves Bézier x by bisection. Back is a cubic with y outside 0–1. Depends on: engine for Bounce/Elastic presets and
+  per-property curves (wiring plan §7.4 rows 1–2).
 - Acceptance: Apply on "Back out" (Y2 > 1) overshoots in editor preview and HTML5; Cancel leaves the document
   unchanged (History unchanged).
 
@@ -757,28 +761,27 @@ metadata + encoding at publish). P3.
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 
 **MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — working except the Snapping ▸ submenu
-(R-003). Was: disabled ("Not available yet"). Enable with
-ST-01…ST-06; reference has Grid / Guides / Snapping as submenus (§8 View ▸ Grid) — if the submenu shape differs from
-the current flat items, **request** before changing.
+(R-003). Grid ▸ and Guides ▸ are submenus as in the reference (§8 View ▸ Grid); the Snapping ▸ submenu content waits
+for R-003.
 
 **MN-01 · Absent main-menu items** (reference §8 vs. current menus). Each item uses the existing menu row style; adding
 rows to an existing menu is wiring of a reference element, but confirm with NF2-REQUESTS.md if the order/grouping is
 unclear.
 
-| Menu | Absent items | Depends on |
+| Menu | Still absent or disabled (everything else in §8 works) | Depends on |
 | --- | --- | --- |
-| File | Open recent, Close, Revert, Import ▸ / Export ▸ submenus, Publish settings… ⇧F12, Print… | editor (recent/revert); DL-03/04–06 |
-| Edit | Paste in centre (current "Paste" — verify semantics), Find and replace ⌘F, Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place, Preferences… ⌘U, Keyboard shortcuts… | existing frame-range ops (`timeline_edit.rs`); DL-13; DL-01 |
-| View | Magnification ▸, Preview mode ▸, Pasteboard ⇧⌘W, Snapping ▸, Show shape hints ⌥⌘H | editor; ST-04; TL-04 |
-| Insert | Layer, Layer folder, Motion guide, Classic / Shape / Motion tween, Scene | existing layer commands; TL-01/03/04/05 |
-| Modify | Document… ⌘J, Bitmap ▸, Symbol ▸ (Swap, Duplicate), Shape ▸ (smooth, straighten, optimise, soften, hints), Combine objects ▸, Timeline ▸ (Reverse, Distribute to layers), Align ▸ | DL-02; PR-06; LI-01; engine for shape ops |
-| Control | Go to end, Step forward/back (shortcuts `.` `,`), Test scene ⌥⌘↵, Loop playback, Play all scenes, Mute sounds ⌥⌘M (done), Enable simple buttons ⌥⌘B | TL-02; TL-03; TL-07; editor button preview |
-| Window | Duplicate window, Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Compiler errors ⌥F2, Hide panels F4 | PP-*; workspace |
+| File | Open recent, Close, Revert, Print… (disabled); Export ▸ image / video / audio and Publish settings… ⇧F12 open planned previews | editor (recent/revert); DL-03/04–06 |
+| Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
+| View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (disabled); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
+| Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
+| Modify | Document… ⌘J (planned preview), Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled), Layer properties… (planned). Done: Timeline ▸ Reverse frames, Synchronise symbols, Convert to (blank) keyframes | DL-02; PR-06; LI-01; engine for shape ops |
+| Control | Test scene ⌥⌘↵ (planned preview), Enable simple buttons ⌥⌘B (disabled). Done: Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | E-16; editor button preview |
+| Window | Duplicate window, Hide panels F4 (disabled); Swatches, Info, History, Compiler errors and other planned panels open previews. Done: Ease, Scene ⇧F2, Motion editor | PP-*; workspace |
 
 **MN-02 · Context menus** (reference §8 Frame / Layer / Stage object)
 
-| Menu | Absent items | Depends on |
+| Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
-| Frame | Paste motion special… (R-006); Ease… (done: tweens, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Reverse frames, Synchronise symbols) | TL-04/05; `TimelineEdit` (reverse = **NEW** variant); PP-01 |
-| Layer | Add classic motion guide; Guide / Mask as checked toggles (role select exists) | TL-01 |
-| Stage object | Edit in place, Edit in new window, Swap symbol…, Duplicate symbol…, Create motion tween, Distribute to layers ⇧⌘D, Show in library | PR-06, LI-01, TL-05; distribute = editor |
+| Frame | Paste motion special… (disabled, R-006). Done: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Reverse frames, Synchronise symbols | R-006 |
+| Layer | — (Add classic motion guide, Guide / Mask toggles work) | — |
+| Stage object | Edit in new window, Swap symbol…, Duplicate symbol…, Distribute to layers ⇧⌘D (disabled). Done: Edit in place, Create motion tween, Show in library | PR-06, LI-01; distribute = editor |

@@ -7,7 +7,7 @@
 - Flash sync semantics in HTML5 and editor playback: Event plays on every keyframe entry and overlaps, Start does not overlap itself, Stop stops the sound, and Stream follows the playhead — it starts at the right position after a jump, restarts when the timeline loops and stops at the end of its span or when that timeline stops.
 - Editor playback plays timeline sounds through the Mac's default output; Control ▸ Mute sounds (⌥⌘M) silences them. Scrubbing is silent.
 - AS3 `SoundMixer.stopAll()` and AS2 `stopAllSounds()` also stop timeline sounds.
-- Documents with frame sounds are saved as format 6.
+- Not yet: Edit envelope, Sound properties and real waveforms in Sound spans (the drawing is decorative).
 
 ## Unreleased — Legacy FLA import
 
@@ -35,20 +35,20 @@
 - Motion path on the stage: a selected motion-tweened instance shows its path with a dot per frame and ◆ key points while the playhead is in its span; drag a point to move that key (one Undo).
 - Copy motion / Paste motion (frame menu): copy the classic or motion tween under the playhead and animate another selected object the same way, relative to its own position, scale and rotation. Paste motion special is not available yet.
 - Synchronise symbols (frame menu, Edit ▸ Timeline, Modify ▸ Timeline): graphic instances on the selected keyframes continue the nested animation of the keyframe before them.
-- Orient to path: guided classic tweens can turn their objects with the guide path in the editor and HTML5 (stored per tween; the Properties control follows with the Motion tween panel).
+- Orient to path: motion tweens (Properties — Motion tween) and guided classic tweens turn their objects with the direction of travel in the editor and HTML5. The classic Tween section has no control for it yet; Copy/Paste motion carries it.
 - Frame view ▸ Preview and Preview in context: taller rows with a thumbnail of each keyframe span (the layer alone, or the whole stage). Saved with the workspace.
-- Documents using scenes, shape/motion tweens, motion guides or Orient to path are saved as format 6; older documents open unchanged.
+- Documents that use scenes, shape or motion tweens, motion guides, Orient to path, frame sounds or ruler guides are saved as format 6; older documents open unchanged and keep their version until they use one of these features.
 
 ## Unreleased — Progress counting v3
 
 - Count ActionScript 2 and 3 in the same eight Flash Player areas, with Working % and Working-or-partial % per area. AIR, Flex and component libraries are shown once, outside every percentage.
-- Count product progress by user-visible functions inside each capability group (207 of 329 working). A group is closed only when all its functions work.
+- Count product progress by user-visible functions inside each capability group. A group is closed only when all its functions work.
 - Declaration statuses change through test-backed reviews that can promote to Working or demote. History recounts every day's catalogue with the same area rules.
 
 ## Unreleased — NF2 design system
 
 - Re-audit AS3 core APIs by execution: a new core-surface workflow runs 223 Stage, display, event, filter, text, collection, Date and RegExp members through the real compiler and WASM player; 33 constants are now working and 190 members partial. The Actions toolbox and code hints include them automatically.
-- Stage rulers, guides and grid work as in the NF2 design: rulers in pixels, points, inches, centimetres or millimetres with Auto or fixed label steps and a movable zero point; guides dragged out of the rulers, moved, selected, locked, hidden, deleted by dropping on a ruler or with Delete, cleared in one Undo, saved per scene/symbol (document format 6) and never exported; a stage grid with spacing, colour and Over objects. Moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides and the grid, with a snap ring. View ▸ Rulers / Grid / Guides, the zoom-control toggles, shortcuts and the Rulers, guides & grid popover (Save as default) are enabled.
+- Stage rulers, guides and grid work as in the NF2 design: rulers in pixels, points, inches, centimetres or millimetres with Auto or fixed label steps and a movable zero point; guides dragged out of the rulers, moved, selected, locked, hidden, deleted by dropping on a ruler or with Delete, cleared in one Undo, saved per scene/symbol and never exported; a stage grid with spacing, colour and Over objects. Moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides and the grid, with a snap ring. View ▸ Rulers / Grid / Guides, the zoom-control toggles, shortcuts and the Rulers, guides & grid popover (Save as default) are enabled.
 - Actions gains the NF2 sidebar: a toolbox of the ActionScript 2.0/3.0 APIs NeoFlash runs (packages, classes, members with types; search; double-click inserts, adding the AS3 `import`) and a Script navigator that lists and opens every frame, object and project-file script. Project classes appear in the toolbox and in hints as soon as they are written.
 - Code hints after `.` and with ⌃Space or **Show code hint**: members of `this`, typed variables, stage instance names, classes and their statics, including inherited members; ↑↓ choose, Return/Tab insert, Esc closes.
 - Enable Auto-format (re-indents only, never moves code), Apply block/line comment and Remove comment. Scripts are checked automatically 0.6 s after typing stops; explicit Check still reports to Output. Debug, folding and Script assist remain unavailable.

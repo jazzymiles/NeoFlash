@@ -15,7 +15,9 @@ and AGENTS.md › "Design system (NF2) — locked". Work still to do: [NF2-FUNCT
 - Every existing panel was restyled with NF2 components and moved to one file per panel under
   `crates/neoflash-editor/src/panels/`. Behaviour, undo, selection, shortcuts and accessibility names are unchanged.
 - NF2 features the engine does not support are visible but honest: disabled controls with "Not available yet", and
-  39 read-only planned previews, opened from their natural menu items and buttons as well as Window ▸ Planned panels.
+  read-only planned previews (33 on 2026-11-01), opened from their natural menu items and buttons as well as Window ▸
+  Planned panels. Ease, Scene, Motion editor, Properties — Motion tween, Properties — Sound and the View settings popover
+  have since become working panels.
 - New: workspace templates, View menu with zoom commands (⌘= ⌘− ⌘1 ⌘0), macOS fix for detached panels opening full
   screen, screenshot mode for design comparison, design lock for implementation agents.
 - The engine crates (`neoflash-core`, `-script`, `-export`, `-import`, `-web`) were not modified.
@@ -84,7 +86,7 @@ tools (≈ 7.6 MB). Ignored: screen/panel PNG/SVG exports, PDFs, the gallery sit
 
 ## 6. Known gaps (next work)
 
-- Stage rulers, guides, grid overlay and NF2 stage cursors are not wired yet; their components exist in `neoflash-ui/components/canvas.rs` (planned as a separate work item).
+- NF2 stage cursors are not wired yet (ST-07). Stage rulers, guides and grid work ([NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md)).
 - Planned previews and disabled controls: see NF2-FUNCTIONAL-SPEC.md / NF2-WIRING-PLAN.md.
 - Native detached windows still use the dock tab header; the NF2 Floating Panel Header is used for embedded floating panels.
 - Library at the default size shows only the header and search (as in the design).

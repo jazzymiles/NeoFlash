@@ -22,7 +22,7 @@ The initial transfer limits are 8 MiB of encoded text, 1,024 reachable symbols, 
 
 The 8 MiB clipboard cap includes resource base64 and remains smaller than the document resource limits (1,024 resources, 16 MiB per decoded resource, 64 MiB decoded total). A project can therefore save successfully while its complete resource snapshot is too large to copy. This produces an explicit diagnostic; resources are never dropped to make the selection fit.
 
-This is an object clipboard. Selected frame ranges, top-level frame Actions, native image/SVG clipboard formats and preserving separate source layers during paste are separate planned workflows. Frame scripts inside captured library symbols are included.
+This is an object clipboard. Selected frame ranges have their own session-local frame clipboard (Edit ▸ Timeline and the frame menu). Top-level frame Actions, native image/SVG clipboard formats and preserving separate source layers during paste are separate planned workflows. Frame scripts inside captured library symbols are included.
 
 Keyboard Paste in Place uses the modifiers captured when the native paste shortcut is pressed. A small pinned [egui-winit adapter patch](../vendor/egui-winit/NEOFLASH-PATCH.md) preserves that key event immediately before its paste payload, so releasing Shift before V or pressing Shift later in the same input batch does not change the operation. The editor consumes this metadata and delivers the payload once to the chosen recipient. Text fields retain ordinary text paste behavior for both shortcuts. An unpaired paste payload, including a platform/accessibility paste without shortcut metadata, means ordinary Paste; the explicit Edit → Paste in Place command retains its selected mode independently.
 

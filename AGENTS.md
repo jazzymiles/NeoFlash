@@ -76,3 +76,50 @@ The NF2 design system is owned by the design track (the project owner with the F
 **Rulers, guides, grid and snapping are finished features** — read `docs/NF2-RULERS-GUIDES-GRID.md` (data model, invariants, tests, "Do not change") before touching `stage_view.rs`, `snapping.rs`, `panels/view_settings.rs`, `Timeline::guides` or the stage event order in `stage.rs`. Keep `stage_view_tests.rs` passing.
 
 **Checks:** `python3 scripts/design-lock.py` must pass (it is part of `scripts/check.sh`); it fails on any change to locked files. Functional scope and order of work: `docs/NF2-FUNCTIONAL-SPEC.md` and `docs/NF2-WIRING-PLAN.md`. Visual verification: `NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light [NEOFLASH_SCREENSHOT_WORKSPACE=developer] cargo run -p neoflash-editor`, compared with `interface/design-system/exports/` (local, not versioned).
+
+## Timeline engine
+
+Tweens, motion guides, scenes and frame sounds are finished features with open task cards. Full guide and task cards: `docs/NF2-WIRING-PLAN.md` §7; sound design: `docs/decisions/0037-timeline-sound.md`.
+
+**Document model (format 6, `crates/neoflash-core/src/model.rs`).**
+- `Keyframe.tween: Option<Easing>` — the span starting here is tweened; `Easing` = Linear, EaseIn, EaseOut, EaseInOut, `CubicBezier { x1, y1, x2, y2 }` (|y| ≤ 100 overshoots), `Flash { acceleration }`.
+- `Keyframe.tween_kind` — `Classic` (default; pose interpolation by element ID), `Shape` (morph the layer's shapes), `Motion` (property tracks).
+- `Keyframe.keyed_properties: Option<Vec<TweenProperty>>` — `Some` = a ◆ property keyframe inside a motion span: it stores a full pose, but only the listed properties (X, Y, ScaleX, ScaleY, Rotation, Skew, Alpha, Color) are keys; the others are refreshed from the displayed pose. `None` = an ordinary keyframe that ends the previous span.
+- `Keyframe.orient_to_path: bool` — the object turns with its direction of travel: along the guide tangent for guided classic tweens (`sample_layer_in`), along the X/Y track for motion tweens (`sample_motion`); the authored rotation is the base.
+- `Keyframe.sound: Option<FrameSound { resource, sync: Event|Start|Stop|Stream, loops, loop_forever, effect }>` — frame sound of an `audio/*` resource. Sound layers are derived, never stored.
+- `LayerProperties.motion_guide: Option<Id>` — a Normal layer guided by a `LayerRole::Guide` layer of the same timeline (first stroke = path).
+- `Project.scenes: Vec<Id>` — scene MovieClip symbols in play order; empty = one scene (`root`), otherwise `scenes[0] == root`. Scene symbols are hidden from the Library and never instantiated.
+- `Timeline.guides` — ruler guides (see the rulers note above).
+- New fields are `#[serde(default, skip_serializing_if = …)]`. `Project::uses_format_6()` lists the format-6 features; extend it (or add `uses_format_7` with the next bump, once per delivery batch) and add the validation rule in `validation.rs` in the same change.
+
+**Where behaviour lives.**
+
+| File | Responsibility |
+| --- | --- |
+| `neoflash-core/src/evaluate.rs` | `sample_layer` (Motion → `sample_motion`, Shape → `shape_tween`, Classic → pose interpolation), `motion_span`, `sample_layer_in` (motion guide path + Orient to path), `easing`. Pure: no state, no sound. |
+| `neoflash-core/src/shape_tween.rs` | Shape morph: pairs shapes by ID then order, arc-length resampling, start alignment, paint blending. |
+| `neoflash-core/src/timeline_edit.rs` | Range edits incl. `Reverse`, `ConvertToKeyframes`, `SyncSymbols`; each ends with `Layer::normalize_motion_keys`. |
+| `neoflash-core/src/scenes.rs` | `flatten_scenes_with_ranges`, `resolve_goto`, `scene_step`. |
+| `neoflash-core/src/timeline_sound.rs`, `runtime.rs` | `Player` emits `SoundCommand`s on frame entry; `drain_sound_commands`, `stop_all_sounds`, `set_scenes`. |
+| `neoflash-export/src/lib.rs`, `neoflash-web/src/lib.rs` | The only places that flatten scenes (export bundle + `scenes` ranges; `WebPlayer::new`). |
+| `web/audio.js` | Schedules `SoundCommand`s on Web Audio. Decides only "is this sound still playing" for Start. |
+| `neoflash-editor/src/timeline_commands.rs` | `Editor::commit_history`, `record_motion_property_keys`, tween/guide/keyframe/scene/playback commands. |
+| `neoflash-editor/src/timeline_motion.rs`, `timeline_preview.rs`, `timeline_sound.rs` | Motion path + Copy/Paste motion; Preview thumbnails; frame-sound editing and rodio/Symphonia preview. |
+| `neoflash-editor/src/panels/{ease,scene,motion_editor,motion_tween,properties_sound}.rs` | Ease, Scene, Motion editor, Properties — Motion tween, Properties ▸ Sound. |
+| `neoflash-editor/src/workspace.rs` | `TimelineView` prefs (short rows, snap playhead, loop, preview); `PanelId::{Ease, Scene, MotionEditor}` hidden by default. |
+
+**Rules.**
+1. Every history commit goes through `Editor::commit_history` (`Editor::transact` ends with it). It records ◆ motion keys for exactly the changed properties, prunes motion-guide links to deleted guides and upgrades the format version. Never call `history.commit` in new code.
+2. ◆ keys: a change on a ◆ key keys only the properties that changed; F6 inside a motion span keys all; removing the tween drops its ◆ keys; switching to Classic or Shape keeps their poses as ordinary keyframes. Never write `keyed_properties` outside a motion span (validation rejects it).
+3. Scenes: the editor edits each scene symbol separately; runtime and HTML5 see one flattened main timeline. Do not flatten anywhere else and do not add scene logic to evaluation.
+4. Sound: Rust decides what starts, stops or seeks; hosts only decode and schedule. Pure evaluation, scrubbing and onion skin stay silent.
+5. Keep authored evaluation pure; editor-only view state goes in `WorkspacePrefs`, never in the document.
+
+**How to change timeline behaviour, step by step.**
+1. Model: add the field with serde defaults, the format-6/7 feature check and a validation rule; add an old-document load test.
+2. Engine: change `evaluate.rs` / `scenes.rs` / `timeline_sound.rs`; HTML5 follows through WASM. Extend `crates/neoflash-core/tests/timeline_tweens.rs` or `tests/timeline_sound.rs`.
+3. Editor: add an `Editor` method in the matching `timeline_*.rs` file that uses `transact`; extend `timeline_commands_tests.rs`, `timeline_motion_tests.rs`, `timeline_panels_tests.rs` or `timeline_sound_tests.rs` (state + one Undo + `project.validate()`).
+4. UI: enable the existing control (drop only "Not available yet"); no new visuals.
+5. Browser: extend `web/tests/*.test.cjs` (scenes: `as2-timeline.test.cjs`; sound: `wasm.test.cjs`) or the `sound-playback` family in `crates/neoflash-script/tests/sound-playback.mjs`.
+6. Look: open `examples/timeline-tweens.nflash` or `examples/timeline-sound.nflash` and capture both themes: `NEOFLASH_OPEN=examples/timeline-tweens.nflash NEOFLASH_SCREENSHOT_FRAME=2,16 NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light cargo run -p neoflash-editor` (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, zero-based; layer 0 is the bottom row).
+7. Docs and progress: update the task card in `docs/NF2-WIRING-PLAN.md` §7.4, the spec entry in `docs/NF2-FUNCTIONAL-SPEC.md`, `docs/progress/product.json` items, CHANGELOG, then the progress scripts above.

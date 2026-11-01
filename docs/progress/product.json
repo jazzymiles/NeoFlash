@@ -1009,6 +1009,11 @@
           "id": "motion-tween-properties",
           "title": "Motion tween properties: ease, rotation turns, orient to path, path box",
           "status": "partial"
+        },
+        {
+          "id": "orient-to-path",
+          "title": "Orient to path",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1258,7 +1263,7 @@
       "title": "Complete Flash timeline lifecycle",
       "status": "partial",
       "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5.",
-      "limitations": "Construction/re-entry order, complex nested goto, scenes and complete Flash Player semantics still need conformance work.",
+      "limitations": "Construction/re-entry order, complex nested goto and complete Flash Player semantics still need conformance work.",
       "items": [
         {
           "id": "instance-lifetimes",
@@ -1287,8 +1292,8 @@
         },
         {
           "id": "scenes",
-          "title": "Scenes",
-          "status": "planned"
+          "title": "Scenes played in order with scene-aware goto",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1297,7 +1302,9 @@
         "docs/COMPATIBILITY.md",
         "crates/neoflash-core/tests/visibility.rs",
         "examples/symbol-replacement.nflash",
-        "docs/VERIFICATION.md"
+        "docs/VERIFICATION.md",
+        "crates/neoflash-core/src/scenes.rs",
+        "crates/neoflash-core/tests/frame_labels.rs"
       ]
     },
     {
@@ -2598,6 +2605,11 @@
           "id": "format5-properties",
           "title": "Skew, color transforms, gradients and Flash easing",
           "status": "working"
+        },
+        {
+          "id": "format6-timeline",
+          "title": "Scenes, tween kinds, motion and ruler guides and frame sounds (format 6)",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -2617,7 +2629,8 @@
         "crates/neoflash-core/src/authored_layers.rs",
         "crates/neoflash-core/src/library_folders.rs",
         "crates/neoflash-core/tests/legacy_authoring.rs",
-        "docs/decisions/0008-real-fla-acceptance.md"
+        "docs/decisions/0008-real-fla-acceptance.md",
+        "crates/neoflash-core/tests/timeline_tweens.rs"
       ]
     },
     {

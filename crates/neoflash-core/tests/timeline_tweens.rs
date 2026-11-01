@@ -492,3 +492,28 @@ fn synchronise_symbols_keeps_nested_graphics_in_step() {
     assert!(edit_frames(&mut project, &root, TimelineEdit::SyncSymbols { range }).is_err());
     assert_eq!(project, before);
 }
+
+#[test]
+fn motion_tween_orient_to_path_turns_with_the_direction_of_travel() {
+    // Move right to frame 10, then down to frame 20: oriented, the object turns 90°.
+    let mut start = key(0, vec![rect("box", 0., 0.)]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    start.orient_to_path = true;
+    let mut right = key(10, vec![rect("box", 100., 0.)]);
+    right.tween = start.tween;
+    right.tween_kind = TweenKind::Motion;
+    right.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    let mut down = right.clone();
+    down.frame = 20;
+    down.elements = vec![rect("box", 100., 100.)];
+    let project = project(21, vec![layer("motion", vec![start, right, down])]);
+    project.validate().unwrap();
+    let rotation = |frame| {
+        sample_layer(&project.symbols[0].timeline.layers[0], frame)[0]
+            .transform
+            .rotation
+    };
+    assert!(rotation(5).abs() < 1e-9);
+    assert!((rotation(15) - 90.).abs() < 1e-9, "{}", rotation(15));
+}

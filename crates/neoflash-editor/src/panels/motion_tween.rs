@@ -483,7 +483,8 @@ impl Editor {
                         self.set_motion_path_bounds(span, bounds, Some(control));
                     }
                     ui.horizontal(|ui| {
-                        // Drawing the path on the stage waits for the motion path painter (R-005).
+                        // The stage draws the path whenever the tweened instance is selected; hiding the
+                        // path or its frame dots is not wired yet (WIRING-PLAN §7.4).
                         for label in ["Show path", "Show frame dots"] {
                             let mut off = false;
                             let response = ui.add_enabled(false, c::Checkbox::new(&mut off, label));
