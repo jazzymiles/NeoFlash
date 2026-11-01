@@ -99,6 +99,8 @@ pub struct ContentsDescriptor {
     pub linkage: Option<ContentsLinkage>,
     #[serde(default)]
     pub bitmap: Option<ContentsBitmapSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<ContentsSoundSettings>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -108,6 +110,19 @@ pub struct ContentsBitmapSettings {
     pub smoothing: bool,
     pub encoded_byte_count: i32,
     pub deblocking: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ContentsSoundSettings {
+    pub format_flags: u16,
+    pub sample_count: u32,
+    pub export_format: Option<i16>,
+    pub export_bits: Option<i16>,
+    pub encoded_byte_count: Option<u32>,
+    pub imported_mp3_quality: Option<u8>,
+    pub secondary_format_flags: Option<u16>,
+    pub secondary_sample_count: Option<u32>,
+    pub use_8k_sample_rate: Option<u32>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ContentsLibraryMetadata {
@@ -388,6 +403,9 @@ impl Reader<'_> {
     }
     fn u16(&mut self) -> Result<u16> {
         Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+    fn i16(&mut self) -> Result<i16> {
+        Ok(self.u16()? as i16)
     }
     fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))

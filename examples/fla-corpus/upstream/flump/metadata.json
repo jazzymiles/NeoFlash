@@ -68,7 +68,7 @@
           "external_script_configuration",
           "publish_settings",
           "transform_pivot",
-          "tween_not_supported",
+          "tween_rotation",
           "unsupported_assets",
           "unsupported_attribute",
           "unsupported_element"
@@ -78,7 +78,7 @@
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       },
@@ -122,17 +122,19 @@
           "editor_metadata",
           "external_script_configuration",
           "publish_settings",
-          "tween_not_supported",
+          "transform_pivot",
+          "tween_rotation",
           "unsupported_assets",
           "unsupported_attribute",
-          "unsupported_element"
+          "unsupported_element",
+          "xfl_tween_dropped"
         ]
       },
       "expected": {
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       },
@@ -177,21 +179,20 @@
         "diagnostic_codes": [
           "editor_metadata",
           "external_script_configuration",
-          "layer_type",
-          "matrix_skew",
+          "hidden_layer_publish_policy",
           "publish_settings",
           "transform_pivot",
-          "tween_not_supported",
           "unsupported_assets",
           "unsupported_attribute",
-          "unsupported_element"
+          "unsupported_element",
+          "xfl_tween_dropped"
         ]
       },
       "expected": {
         "format": "xfl_archive",
         "can_import": false,
         "required_diagnostics": [
-          "tween_not_supported",
+          "external_script_configuration",
           "unsupported_assets"
         ]
       },

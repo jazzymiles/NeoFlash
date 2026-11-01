@@ -2,7 +2,7 @@
 //! enclosing descriptor span; interpreting their authoring semantics is separate.
 use super::{
     ContentsBitmapSettings, ContentsByteSpan, ContentsDescriptor, ContentsDescriptorClass as Class,
-    ContentsLibraryMetadata, ContentsLinkage, Reader, Result,
+    ContentsLibraryMetadata, ContentsLinkage, ContentsSoundSettings, Reader, Result,
 };
 
 impl Reader<'_> {
@@ -33,6 +33,7 @@ impl Reader<'_> {
             library_metadata: None,
             linkage: None,
             bitmap: None,
+            sound: None,
         };
         if page {
             if revision >= 2 {
@@ -145,22 +146,30 @@ impl Reader<'_> {
                     if v == 2 {
                         self.string()?;
                     }
-                    self.take(6)?;
+                    let mut sound = ContentsSoundSettings {
+                        format_flags: self.u16()?,
+                        sample_count: self.u32()?,
+                        ..Default::default()
+                    };
                     if v >= 4 {
-                        self.take(4)?;
+                        sound.export_format = Some(self.i16()?);
+                        sound.export_bits = Some(self.i16()?);
                     }
                     if v >= 6 {
-                        self.take(5)?;
+                        sound.encoded_byte_count = Some(self.u32()?);
+                        sound.imported_mp3_quality = Some(self.u8()?);
                     }
                     if v >= 7 {
-                        self.take(6)?;
+                        sound.secondary_format_flags = Some(self.u16()?);
+                        sound.secondary_sample_count = Some(self.u32()?);
                     }
                     if v >= 9 {
                         self.string()?;
                     }
                     if v >= 10 {
-                        self.take(4)?;
+                        sound.use_8k_sample_rate = Some(self.u32()?);
                     }
+                    result.sound = Some(sound);
                 }
                 Class::SwfPage => {
                     // Compiled-clip media: component envelope, then its own

@@ -1,6 +1,8 @@
-//! Bounded legacy bitmap decoding. Wire-layout facts are documented by JPEXS
-//! FLA Convert 0923d708, BitmapRecordDecoder/XflBitmapWriter; this reader uses
+//! Bounded legacy bitmap and sound decoding. Wire-layout facts are documented
+//! by JPEXS FLA Convert 0923d708 (BitmapRecordDecoder/XflBitmapWriter and
+//! FlaSoundFormat/MediaPayloadRecordDecoder/XflMediaWriter); this reader uses
 //! independent checked slices and the shared Rust image/compression libraries.
+use super::contents::ContentsSoundSettings;
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 
@@ -321,6 +323,225 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
     })
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedBinarySound {
+    pub media_type: &'static str,
+    pub extension: &'static str,
+    pub bytes: Vec<u8>,
+    pub duration_44: u32,
+    pub short_read: bool,
+}
+
+fn pcm_byte_count(flags: u32, samples: u32) -> Option<usize> {
+    let block =
+        usize::from(1 + u16::from((flags & 2) != 0)) * usize::from(1 + u16::from((flags & 1) != 0));
+    (samples as usize).checked_mul(block)
+}
+
+fn is_mpeg_frame_header(h: [u8; 4]) -> bool {
+    h[0] == 0xff
+        && (h[1] & 0xe0) == 0xe0
+        && ((h[1] >> 3) & 3) != 1
+        && ((h[1] >> 1) & 3) != 0
+        && ((h[2] >> 4) & 0xf) != 0xf
+        && ((h[2] >> 2) & 3) != 3
+}
+
+fn looks_like_mp3(bytes: &[u8]) -> bool {
+    let mut start = 0usize;
+    if bytes.len() >= 10
+        && &bytes[..3] == b"ID3"
+        && (bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80 == 0
+    {
+        let tag_len = ((bytes[6] as usize) << 21)
+            | ((bytes[7] as usize) << 14)
+            | ((bytes[8] as usize) << 7)
+            | (bytes[9] as usize);
+        let footer = if (bytes[5] & 0x10) != 0 { 10 } else { 0 };
+        start = (10 + tag_len + footer).min(bytes.len());
+    }
+    let end = bytes
+        .len()
+        .saturating_sub(3)
+        .min(start.saturating_add(4096));
+    (start..end).any(|i| is_mpeg_frame_header(bytes[i..i + 4].try_into().unwrap()))
+}
+
+/// Decode a sound media stream into a standalone `audio/wav` or `audio/mpeg`
+/// payload. Codecs without a standalone source container (ADPCM, GSM,
+/// Nellymoser) return an explicit error so conversion can warn and keep the
+/// original stream in provenance without failing the document.
+pub fn decode_binary_sound(
+    bytes: &[u8],
+    subtype_revision: u8,
+    settings: &ContentsSoundSettings,
+) -> Result<DecodedBinarySound> {
+    if bytes.len() > neoflash_core::MAX_RESOURCE_TOTAL_BYTES {
+        return Err(error(
+            "fla_sound_limit",
+            0,
+            "Sound media stream exceeds the 64 MiB resource budget.",
+        ));
+    }
+    let flags = u32::from(settings.format_flags) + if subtype_revision < 5 { 4 } else { 0 };
+    if (flags & !0xff) != 0 {
+        return Err(error(
+            "fla_sound_format",
+            0,
+            "Sound format flags are unsupported.",
+        ));
+    }
+    let codec_id = ((flags >> 4) & 0xf) as u8;
+    let rate_code = ((flags >> 2) & 3) as usize;
+    let sample_rate_hz = [5512_u32, 11025, 22050, 44100][rate_code];
+    let bits_per_sample = if (flags & 2) != 0 { 16_u16 } else { 8_u16 };
+    let channels = if (flags & 1) != 0 { 2_u16 } else { 1_u16 };
+    let block_align = channels * (bits_per_sample / 8);
+    let scale_44 = 1_u64 << (3 - rate_code);
+
+    let encoded = settings.encoded_byte_count.unwrap_or(0) as usize;
+    let expected = if codec_id != 0 && encoded > 0 {
+        encoded
+    } else {
+        pcm_byte_count(flags, settings.sample_count)
+            .ok_or_else(|| error("fla_sound_limit", 0, "Sound PCM byte count overflows."))?
+    };
+    let actual = expected.min(bytes.len());
+    let short_read = actual != expected;
+    let primary = &bytes[..actual];
+
+    if codec_id == 0 {
+        if bytes.len() > actual {
+            return Err(error(
+                "fla_sound_trailing",
+                actual,
+                "Bytes remain after uncompressed PCM audio.",
+            ));
+        }
+    } else if bytes.len() > actual {
+        let secondary_flags = u32::from(settings.secondary_format_flags.unwrap_or(0));
+        let secondary_samples = settings.secondary_sample_count.unwrap_or(0);
+        let secondary_expected =
+            pcm_byte_count(secondary_flags, secondary_samples).ok_or_else(|| {
+                error(
+                    "fla_sound_limit",
+                    actual,
+                    "Secondary sound PCM count overflows.",
+                )
+            })?;
+        let remaining_after_marker = bytes.len() - actual - 1;
+        if remaining_after_marker > secondary_expected {
+            return Err(error(
+                "fla_sound_trailing",
+                actual + 1 + secondary_expected,
+                "Bytes remain after secondary cached audio.",
+            ));
+        }
+    }
+
+    match codec_id {
+        0 | 3 => {
+            let block = usize::from(block_align);
+            let count = (primary.len() / block) * block;
+            if count == 0 {
+                return Err(error(
+                    "fla_sound_empty",
+                    0,
+                    "Sound media stream contains no complete PCM sample frames.",
+                ));
+            }
+            let pad = count & 1;
+            let wav_len = 44usize
+                .checked_add(count)
+                .and_then(|n| n.checked_add(pad))
+                .filter(|&n| n <= neoflash_core::MAX_RESOURCE_BYTES)
+                .ok_or_else(|| {
+                    error(
+                        "fla_sound_limit",
+                        0,
+                        "WAV output exceeds the 16 MiB resource limit.",
+                    )
+                })?;
+            let riff_chunk_size = (36 + count + pad) as u32;
+            let byte_rate = sample_rate_hz * u32::from(block_align);
+            let mut wav = Vec::with_capacity(wav_len);
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&riff_chunk_size.to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16_u32.to_le_bytes());
+            wav.extend_from_slice(&1_u16.to_le_bytes());
+            wav.extend_from_slice(&channels.to_le_bytes());
+            wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
+            wav.extend_from_slice(&byte_rate.to_le_bytes());
+            wav.extend_from_slice(&block_align.to_le_bytes());
+            wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&(count as u32).to_le_bytes());
+            wav.extend_from_slice(&primary[..count]);
+            if pad != 0 {
+                wav.push(0);
+            }
+            let actual_samples = (count / block) as u64;
+            let duration_44 = (actual_samples * scale_44).min(u64::from(u32::MAX)) as u32;
+            Ok(DecodedBinarySound {
+                media_type: "audio/wav",
+                extension: "wav",
+                bytes: wav,
+                duration_44,
+                short_read,
+            })
+        }
+        2 => {
+            if primary.is_empty() {
+                return Err(error("fla_sound_empty", 0, "MP3 media stream is empty."));
+            }
+            if primary.len() > neoflash_core::MAX_RESOURCE_BYTES {
+                return Err(error(
+                    "fla_sound_limit",
+                    0,
+                    "MP3 media stream exceeds the 16 MiB resource limit.",
+                ));
+            }
+            if !looks_like_mp3(primary) {
+                return Err(error(
+                    "fla_sound_format",
+                    0,
+                    "MP3 media stream has no valid MPEG audio frame header.",
+                ));
+            }
+            let duration_44 =
+                (u64::from(settings.sample_count) * scale_44).min(u64::from(u32::MAX)) as u32;
+            Ok(DecodedBinarySound {
+                media_type: "audio/mpeg",
+                extension: "mp3",
+                bytes: primary.to_vec(),
+                duration_44,
+                short_read,
+            })
+        }
+        1 => Err(error(
+            "fla_sound_codec_unsupported",
+            0,
+            "ADPCM sound codec is not supported for editable audio import.",
+        )),
+        4 => Err(error(
+            "fla_sound_codec_unsupported",
+            0,
+            "GSM sound codec is not supported for editable audio import.",
+        )),
+        5 | 6 => Err(error(
+            "fla_sound_codec_unsupported",
+            0,
+            "Nellymoser sound codec is not supported for editable audio import.",
+        )),
+        _ => Err(error(
+            "fla_sound_codec_unsupported",
+            0,
+            "Sound codec is not supported for editable audio import.",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,5 +694,119 @@ mod tests {
         assert_eq!(decoded.original_bytes, bytes);
         assert!(decode_binary_bitmap(&bytes, length + 1).is_err());
         assert!(decode_binary_bitmap(&bytes[..bytes.len() - 1], length).is_err());
+    }
+
+    #[test]
+    fn binary_sound_wraps_pcm_into_wav_preserves_mp3_and_rejects_unsupported_codecs() {
+        use crate::legacy::contents::ContentsSoundSettings;
+
+        fn settings(
+            format_flags: u8,
+            sample_count: u32,
+            encoded_byte_count: Option<u32>,
+        ) -> ContentsSoundSettings {
+            ContentsSoundSettings {
+                format_flags: u16::from(format_flags),
+                sample_count,
+                encoded_byte_count,
+                ..Default::default()
+            }
+        }
+
+        // 22.05 kHz (rate=2 -> 2<<2=0x08), 16-bit (0x02), stereo (0x01), codec 0 (raw PCM)
+        let pcm_stream = vec![0x10_u8, 0x00, 0xf0, 0xff, 0x20, 0x00, 0xe0, 0xff];
+        let wav = decode_binary_sound(&pcm_stream, 8, &settings(0x0b, 2, None)).unwrap();
+        assert_eq!(wav.media_type, "audio/wav");
+        assert_eq!(wav.extension, "wav");
+        assert!(!wav.short_read);
+        assert_eq!(wav.bytes.len(), 44 + 8);
+        assert_eq!(&wav.bytes[0..4], b"RIFF");
+        assert_eq!(&wav.bytes[8..16], b"WAVEfmt ");
+        assert_eq!(u16::from_le_bytes([wav.bytes[22], wav.bytes[23]]), 2);
+        assert_eq!(
+            u32::from_le_bytes(wav.bytes[24..28].try_into().unwrap()),
+            22_050
+        );
+        assert_eq!(u16::from_le_bytes([wav.bytes[34], wav.bytes[35]]), 16);
+        assert_eq!(&wav.bytes[36..40], b"data");
+        assert_eq!(u32::from_le_bytes(wav.bytes[40..44].try_into().unwrap()), 8);
+        assert_eq!(&wav.bytes[44..], &pcm_stream[..8]);
+
+        // Trailing bytes on codec 0 raw PCM are rejected:
+        let mut trailing_pcm = pcm_stream.clone();
+        trailing_pcm.push(0x99);
+        assert_eq!(
+            decode_binary_sound(&trailing_pcm, 8, &settings(0x0b, 2, None))
+                .unwrap_err()
+                .code,
+            "fla_sound_trailing"
+        );
+
+        // Pre-rev-5 (+4 added in decoder!) and odd-byte 8-bit mono RIFF padding (codec 3 = LE PCM):
+        // Passing format_flags = ((3 << 4) | (3 << 2)) - 4 with subtype_revision = 4 adds +4 back -> 44.1 kHz!
+        let odd_pcm = [0x80_u8, 0x90, 0x70];
+        let pre_rev5_flags = ((3_u8 << 4) | (3_u8 << 2)).wrapping_sub(4);
+        let wav_odd = decode_binary_sound(&odd_pcm, 4, &settings(pre_rev5_flags, 3, None)).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(wav_odd.bytes[24..28].try_into().unwrap()),
+            44_100
+        );
+        assert_eq!(wav_odd.bytes.len(), 44 + 4);
+        assert_eq!(
+            u32::from_le_bytes(wav_odd.bytes[4..8].try_into().unwrap()),
+            36 + 4
+        );
+        assert_eq!(
+            u32::from_le_bytes(wav_odd.bytes[40..44].try_into().unwrap()),
+            3
+        );
+
+        // Empty/incomplete single-sample PCM (< 1 block_align) is rejected, while partial frames set short_read:
+        assert_eq!(
+            decode_binary_sound(&[0; 2], 8, &settings(0x0b, 2, None))
+                .unwrap_err()
+                .code,
+            "fla_sound_empty"
+        );
+        assert!(
+            decode_binary_sound(&[0; 4], 8, &settings(0x0b, 2, None))
+                .unwrap()
+                .short_read
+        );
+
+        // Embedded MP3 (codec 2 -> 2<<4 = 0x20), raw MPEG sync, ID3v2 prefix, and secondary cached PCM:
+        for mp3_bytes in [
+            &[0xff_u8, 0xfb, 0x90, 0x64, 0x00, 0x00][..],
+            &[
+                b'I', b'D', b'3', 4, 0, 0, 0, 0, 0, 0, 0xff, 0xfb, 0x90, 0x64,
+            ][..],
+        ] {
+            let mut stream = mp3_bytes.to_vec();
+            stream.push(0xff); // 1-byte marker
+            stream.extend_from_slice(&[0; 8]); // 2 frames of 16-bit stereo secondary PCM
+            let mut s = settings(0x2b, 576, Some(mp3_bytes.len() as u32));
+            s.secondary_format_flags = Some(0x0b);
+            s.secondary_sample_count = Some(2);
+            let mp3 = decode_binary_sound(&stream, 8, &s).unwrap();
+            assert_eq!(mp3.media_type, "audio/mpeg");
+            assert_eq!(mp3.extension, "mp3");
+            assert_eq!(mp3.bytes, mp3_bytes);
+        }
+        assert_eq!(
+            decode_binary_sound(&[0x00, 0x01, 0x02, 0x03], 8, &settings(0x2b, 576, Some(4)))
+                .unwrap_err()
+                .code,
+            "fla_sound_format"
+        );
+
+        // ADPCM (1), Nellymoser (4, 5, 6), GSM (9) produce explicit unsupported codec error:
+        for codec in [1_u8, 4, 5, 6, 9] {
+            assert_eq!(
+                decode_binary_sound(&[1, 2, 3, 4], 8, &settings(codec << 4, 4, Some(4)))
+                    .unwrap_err()
+                    .code,
+                "fla_sound_codec_unsupported"
+            );
+        }
     }
 }

@@ -229,7 +229,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             true
         }
     };
-    let (resources, bitmaps) = assets::resources(document, report)?;
+    let (resources, bitmaps, sounds) = assets::resources(document, report)?;
     let (folders, folder_paths) = assets::folders(c)?;
     let mut library = BTreeMap::new();
     for d in &c.descriptors {
@@ -244,6 +244,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         report,
         library,
         bitmaps,
+        sounds,
         language,
         include_hidden,
         generated: vec![],
@@ -440,6 +441,7 @@ struct Context<'a> {
     report: &'a mut ImportReport,
     library: BTreeMap<u32, String>,
     bitmaps: BTreeMap<u16, assets::BitmapAsset>,
+    sounds: BTreeMap<u16, assets::SoundAsset>,
     language: ScriptLanguage,
     include_hidden: bool,
     generated: Vec<Symbol>,
@@ -447,6 +449,154 @@ struct Context<'a> {
     missing_bitmaps: BTreeMap<u16, String>,
 }
 impl Context<'_> {
+    fn frame_sound(
+        &mut self,
+        s: &BinaryTimelineStream,
+        f: &TimelineFrame,
+        at: &str,
+    ) -> Option<FrameSound> {
+        let id = f.sound_media_id.unwrap_or(0);
+        if id == 0 {
+            return None;
+        }
+        let Some(asset) = self.sounds.get(&id).cloned() else {
+            self.report.warning(
+                "fla_frame_sound",
+                at,
+                format!(
+                    "Timeline sound references media #{id}, which could not be imported; the sound and its sync settings remain in the embedded source."
+                ),
+            );
+            return None;
+        };
+        let sync = match f.sound_sync.unwrap_or(0) {
+            0 => SoundSync::Event,
+            1 => SoundSync::Start,
+            2 => SoundSync::Stop,
+            3 => SoundSync::Stream,
+            other => {
+                self.report.warning(
+                    "fla_frame_sound",
+                    at,
+                    format!("Unknown frame-sound sync mode {other}; Event sync is used."),
+                );
+                SoundSync::Event
+            }
+        };
+        let raw_loop = f.sound_loop_count.unwrap_or(1);
+        let (loops, loop_forever) = if raw_loop == 0x7fff {
+            (1, true)
+        } else {
+            let n = u32::from(raw_loop).max(1);
+            if n > FrameSound::MAX_LOOPS {
+                self.report.warning(
+                    "fla_frame_sound",
+                    at,
+                    format!(
+                        "Frame-sound repeat count {n} exceeds {}; clamped to {}.",
+                        FrameSound::MAX_LOOPS,
+                        FrameSound::MAX_LOOPS
+                    ),
+                );
+                (FrameSound::MAX_LOOPS, false)
+            } else {
+                (n, false)
+            }
+        };
+        let envelope_points = || -> Option<Vec<(u32, u16, u16)>> {
+            let count = usize::from(f.sound_envelope_count.unwrap_or(0));
+            if count == 0 {
+                return Some(vec![]);
+            }
+            let span = f.sound_envelope?;
+            let raw = s.original_bytes.get(span.start..span.end)?;
+            if raw.len() != count * 8 {
+                return None;
+            }
+            Some(
+                raw.as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|c| {
+                        (
+                            u32::from_le_bytes([c[0], c[1], c[2], c[3]]),
+                            u16::from_le_bytes([c[4], c[5]]),
+                            u16::from_le_bytes([c[6], c[7]]),
+                        )
+                    })
+                    .collect(),
+            )
+        };
+        let classify_envelope = |pts: &[(u32, u16, u16)]| -> Option<SoundEffect> {
+            if pts.is_empty() || pts.iter().all(|&(_, l, r)| l == 0x8000 && r == 0x8000) {
+                Some(SoundEffect::None)
+            } else if pts.iter().all(|&(_, l, r)| l == 0x8000 && r == 0) {
+                Some(SoundEffect::LeftChannel)
+            } else if pts.iter().all(|&(_, l, r)| l == 0 && r == 0x8000) {
+                Some(SoundEffect::RightChannel)
+            } else if let [(0, 0, 0), (_, 0x8000, 0x8000)] = pts {
+                Some(SoundEffect::FadeIn)
+            } else if let [(_, 0x8000, 0x8000), (_, 0, 0)] = pts {
+                Some(SoundEffect::FadeOut)
+            } else if let [(_, 0x8000, 0), (_, 0, 0x8000)] = pts {
+                Some(SoundEffect::FadeLeftToRight)
+            } else if let [(_, 0, 0x8000), (_, 0x8000, 0)] = pts {
+                Some(SoundEffect::FadeRightToLeft)
+            } else {
+                None
+            }
+        };
+        let effect = match f.sound_effect {
+            Some(0) => SoundEffect::None,
+            Some(1) => SoundEffect::LeftChannel,
+            Some(2) => SoundEffect::RightChannel,
+            Some(3) => SoundEffect::FadeLeftToRight,
+            Some(4) => SoundEffect::FadeRightToLeft,
+            Some(5) => SoundEffect::FadeIn,
+            Some(6) => SoundEffect::FadeOut,
+            Some(7) | None => match envelope_points().as_deref().and_then(classify_envelope) {
+                Some(preset) => preset,
+                None => {
+                    self.report.warning(
+                        "fla_frame_sound",
+                        at,
+                        "Custom frame-sound envelope is approximated without gain automation; the envelope points remain in the embedded source.",
+                    );
+                    SoundEffect::None
+                }
+            },
+            Some(other) => {
+                self.report.warning(
+                    "fla_frame_sound",
+                    at,
+                    format!(
+                        "Unknown frame-sound effect {other}; imported without an effect preset."
+                    ),
+                );
+                SoundEffect::None
+            }
+        };
+        let in_trimmed = f.sound_in_point.unwrap_or(0) > 0;
+        let out_point = f.sound_out_point.unwrap_or(0);
+        let out_trimmed = out_point > 0
+            && out_point < 0x3fff_ffff
+            && asset.duration_44 > 0
+            && out_point.saturating_add(8) < asset.duration_44;
+        if in_trimmed || out_trimmed {
+            self.report.warning(
+                "fla_frame_sound",
+                at,
+                "Frame-sound in/out trim points are not applied yet; the full sound resource plays and trim offsets remain in the embedded source.",
+            );
+        }
+        Some(FrameSound {
+            resource: asset.resource_id,
+            sync,
+            loops,
+            loop_forever,
+            effect,
+        })
+    }
     fn actions(
         &mut self,
         stream: &BinaryTimelineStream,
@@ -630,9 +780,7 @@ impl Context<'_> {
                     layer.name,
                     cursor + 1
                 );
-                if f.sound_media_id.unwrap_or(0) != 0 {
-                    self.report.warning("fla_frame_sound",&at,"Timeline sound is not imported yet; the sound and its sync settings remain in the embedded source.");
-                }
+                let sound = self.frame_sound(s, f, &at);
                 if f.rotation_mode.unwrap_or(0) != 0 || f.rotation_count.unwrap_or(0) != 0 {
                     self.report.warning("fla_tween_rotation",&at,"Directed tween rotation (clockwise/counter-clockwise turns) is interpolated along the shortest angle.");
                 }
@@ -716,6 +864,7 @@ impl Context<'_> {
                     elements,
                     tween,
                     tween_kind,
+                    sound,
                     label: optional_text(&s.original_bytes, f.label.as_ref())?,
                     ..Default::default()
                 });

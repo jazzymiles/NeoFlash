@@ -290,6 +290,7 @@ mod tests {
             statistics: Statistics::default(),
             diagnostics: vec![],
             binary_fla: None,
+            swf: None,
         };
         (stream, text, report)
     }

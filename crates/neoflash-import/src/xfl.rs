@@ -117,7 +117,58 @@ pub(crate) fn convert(
             }
         }
     }
-    for tag in ["folders", "swatchLists", "swatches"] {
+    let mut declared_folders = Vec::new();
+    if let Some(folders_node) = child(root, "folders") {
+        let first_diagnostic = parser.report.diagnostics.len();
+        parser.audit(folders_node, "DOMDocument.xml", &[], &["DOMFolderItem"]);
+        let items: Vec<_> = elements(folders_node)
+            .filter(|n| n.has_tag_name("DOMFolderItem"))
+            .collect();
+        if items.is_empty() {
+            if !parser.report.diagnostics[first_diagnostic..]
+                .iter()
+                .any(|d| d.severity == crate::Severity::Error)
+            {
+                parser.report.warning(
+                    "editor_metadata",
+                    "DOMDocument.xml/folders",
+                    "Empty library folder/swatch marker is not retained; nonempty organization requires a dedicated importer.",
+                );
+            }
+        } else {
+            let mut seen_folders = BTreeSet::new();
+            for item in items {
+                parser.audit(
+                    item,
+                    "DOMDocument.xml",
+                    &["name", "itemID", "isExpanded"],
+                    &[],
+                );
+                parser.boolean(item, "isExpanded", false, "DOMDocument.xml");
+                if item.attribute("itemID").is_some() {
+                    parser.report.warning(
+                        "editor_metadata",
+                        parser.location(item, "DOMDocument.xml"),
+                        "Flash library folder itemID is not retained.",
+                    );
+                }
+                let folder_name = item.attribute("name").unwrap_or("");
+                if folder_name.is_empty()
+                    || !valid_library_folder(folder_name)
+                    || !seen_folders.insert(folder_name.to_owned())
+                {
+                    parser.report.error(
+                        "invalid_library_folder",
+                        parser.location(item, "DOMDocument.xml"),
+                        "Library folder paths must be unique, nonempty, normalized NeoFlash folder paths.",
+                    );
+                } else {
+                    declared_folders.push(folder_name.to_owned());
+                }
+            }
+        }
+    }
+    for tag in ["swatchLists", "swatches"] {
         if let Some(metadata) = child(root, tag) {
             // Empty authoring markers are harmless. Do not treat an entire
             // unaudited subtree as metadata: it may contain unsupported content.
@@ -206,6 +257,7 @@ pub(crate) fn convert(
         1.,
         "DOMDocument.xml",
     );
+    p.library_folders = declared_folders;
     let Some(timelines) = child(root, "timelines") else {
         parser.report.error(
             "missing_timeline",
@@ -215,12 +267,14 @@ pub(crate) fn convert(
         return None;
     };
     parser.audit(timelines, "DOMDocument.xml", &[], &["DOMTimeline"]);
-    let scenes: Vec<_> = elements(timelines).collect();
-    if scenes.len() != 1 {
+    let scenes: Vec<_> = elements(timelines)
+        .filter(|n| n.has_tag_name("DOMTimeline"))
+        .collect();
+    if scenes.is_empty() {
         parser.report.error(
-            "multiple_scenes",
+            "missing_timeline",
             "DOMDocument.xml",
-            "Exactly one scene is supported in the initial XFL importer.",
+            "No document timeline.",
         );
         return None;
     }
@@ -231,6 +285,23 @@ pub(crate) fn convert(
         SymbolKind::MovieClip,
         "DOMDocument.xml",
     ));
+    if scenes.len() > 1 {
+        p.scenes.push(p.root.clone());
+        for (idx, scene_node) in scenes.iter().enumerate().skip(1) {
+            let scene_id = new_id("symbol");
+            let mut scene_symbol = parser.symbol(
+                *scene_node,
+                scene_id.clone(),
+                SymbolKind::MovieClip,
+                "DOMDocument.xml",
+            );
+            if scene_node.attribute("name").is_none() {
+                scene_symbol.name = format!("Scene {}", idx + 1);
+            }
+            p.scenes.push(scene_id);
+            p.symbols.push(scene_symbol);
+        }
+    }
     for (path, doc) in &libraries {
         let node = doc.root_element();
         parser.audit(
@@ -238,6 +309,7 @@ pub(crate) fn convert(
             path,
             &[
                 "name",
+                "folder",
                 "itemID",
                 "symbolType",
                 "lastModified",
@@ -255,6 +327,35 @@ pub(crate) fn convert(
             );
         }
         let name = node.attribute("name").unwrap_or("");
+        let (symbol_folder, display_name) = if let Some(explicit) = node.attribute("folder") {
+            if !valid_library_folder(explicit) {
+                parser.report.error(
+                    "invalid_library_folder",
+                    path,
+                    "Symbol folder attribute must be a valid normalized NeoFlash library folder path.",
+                );
+                (String::new(), name.to_owned())
+            } else {
+                let base = name.rsplit_once('/').map_or(name, |(_, b)| b);
+                (explicit.to_owned(), base.to_owned())
+            }
+        } else if let Some((prefix, base)) = name.rsplit_once('/') {
+            if prefix.is_empty() || base.is_empty() || !valid_library_folder(prefix) {
+                parser.report.error(
+                    "invalid_library_folder",
+                    path,
+                    "Slash-separated symbol name does not form a valid normalized library folder path.",
+                );
+                (String::new(), name.to_owned())
+            } else {
+                (prefix.to_owned(), base.to_owned())
+            }
+        } else {
+            (String::new(), name.to_owned())
+        };
+        if !symbol_folder.is_empty() && !p.library_folders.contains(&symbol_folder) {
+            p.library_folders.push(symbol_folder.clone());
+        }
         let kind = match node.attribute("symbolType").unwrap_or("movie clip") {
             "graphic" => SymbolKind::Graphic,
             "movie clip" => SymbolKind::MovieClip,
@@ -296,9 +397,33 @@ pub(crate) fn convert(
             .cloned()
             .unwrap_or_else(|| new_id("symbol"));
         let mut symbol = parser.symbol(timeline, id, kind, path);
-        symbol.name = name.into();
+        symbol.folder = symbol_folder;
+        symbol.name = display_name;
         p.symbols.push(symbol);
     }
+    if !p.library_folders.is_empty()
+        || p.symbols.iter().any(|s| {
+            !s.folder.is_empty() || s.timeline.layers.iter().any(|l| !l.properties.is_default())
+        })
+    {
+        p.format_version = p.format_version.max(4);
+    }
+    if p.symbols.iter().any(|s| {
+        s.timeline.layers.iter().any(|l| {
+            l.properties.end_frame.is_some()
+                || l.keyframes.iter().any(|k| {
+                    matches!(k.tween, Some(Easing::Flash { .. }))
+                        || k.elements.iter().any(|e| {
+                            e.transform.skew != 0.0
+                                || !e.transform.color_transform.is_identity()
+                                || matches!(e.kind, ElementKind::PaintedPath { .. })
+                        })
+                })
+        })
+    }) {
+        p.format_version = p.format_version.max(5);
+    }
+    p.upgrade_format_for_features();
     for issue in validate(&p) {
         parser
             .report
@@ -546,6 +671,7 @@ impl Parser<'_> {
             if !matches!(
                 *tag,
                 "Include"
+                    | "DOMFolderItem"
                     | "DOMLayer"
                     | "DOMFrame"
                     | "DOMTimeline"
@@ -559,6 +685,8 @@ impl Parser<'_> {
                     | "FillStyle"
                     | "StrokeStyle"
                     | "PublishItem"
+                    | "CustomEase"
+                    | "Point"
             ) && elements(node)
                 .filter(|n| n.tag_name().name() == *tag)
                 .count()
@@ -672,12 +800,16 @@ impl Parser<'_> {
             };
         };
         self.audit(layers, file, &[], &["DOMLayer"]);
+        let layer_nodes: Vec<_> = elements(layers)
+            .filter(|n| n.has_tag_name("DOMLayer"))
+            .collect();
+        let mut parent_indices: Vec<Option<(usize, String)>> = vec![None; layer_nodes.len()];
         let mut spans = vec![];
         let mut instance_starts: BTreeMap<u32, Vec<(Id, String)>> = BTreeMap::new();
         let mut instance_ends: BTreeMap<u32, BTreeSet<Id>> = BTreeMap::new();
         let mut published_end = 0;
         let mut excluded_end = 0;
-        for (li, layer_node) in elements(layers).enumerate() {
+        for (li, layer_node) in layer_nodes.iter().copied().enumerate() {
             self.audit(
                 layer_node,
                 file,
@@ -690,20 +822,66 @@ impl Parser<'_> {
                     "isSelected",
                     "autoNamed",
                     "layerType",
+                    "parentLayerIndex",
+                    "animationType",
+                    "open",
+                    "heightLiteral",
+                    "heightMultiplier",
                     "outline",
                     "useOutlineView",
                 ],
                 &["frames"],
             );
-            if layer_node
-                .attribute("layerType")
-                .is_some_and(|t| t != "normal")
+            for attr in ["heightLiteral", "heightMultiplier"] {
+                if layer_node.attribute(attr).is_some() {
+                    let h = self.integer(layer_node, attr, 1, file);
+                    if h == 0 {
+                        self.report.error(
+                            "integer_required",
+                            self.location(layer_node, file),
+                            format!("{attr} must be a positive integer."),
+                        );
+                    }
+                }
+            }
+            if let Some(anim) = layer_node.attribute("animationType")
+                && !anim.is_empty()
+                && anim != "none"
             {
                 self.report.error(
-                    "layer_type",
+                    "motion_object_not_supported",
                     self.location(layer_node, file),
-                    "Mask, guide and folder layers need a dedicated importer.",
+                    format!(
+                        "XFL layer animationType={anim:?} is not supported yet; convert to classic/shape tweens or frame keyframes."
+                    ),
                 );
+            }
+            let role = match layer_node.attribute("layerType").unwrap_or("normal") {
+                "normal" => LayerRole::Normal,
+                "guide" => LayerRole::Guide,
+                "mask" => LayerRole::Mask,
+                "folder" => LayerRole::Folder,
+                other => {
+                    self.report.error(
+                        "layer_type",
+                        self.location(layer_node, file),
+                        format!("Unsupported XFL layerType {other:?}."),
+                    );
+                    LayerRole::Normal
+                }
+            };
+            let open = self.boolean(layer_node, "open", true, file);
+            if layer_node.attribute("parentLayerIndex").is_some() {
+                let p_idx = self.integer(layer_node, "parentLayerIndex", u32::MAX, file) as usize;
+                if p_idx >= layer_nodes.len() || p_idx == li {
+                    self.report.error(
+                        "invalid_layer_parent",
+                        self.location(layer_node, file),
+                        "parentLayerIndex must reference a distinct layer in the same timeline.",
+                    );
+                } else {
+                    parent_indices[li] = Some((p_idx, self.location(layer_node, file)));
+                }
             }
             let authoring_visible = self.boolean(layer_node, "visible", true, file);
             let excluded = !authoring_visible && !self.include_hidden_layers;
@@ -719,17 +897,24 @@ impl Parser<'_> {
                 );
             }
             let mut layer = Layer {
-                properties: Default::default(),
+                properties: LayerProperties {
+                    role,
+                    collapsed: role == LayerRole::Folder && !open,
+                    ..Default::default()
+                },
                 id: new_id("layer"),
                 name: layer_node.attribute("name").unwrap_or("Layer").into(),
                 visible: !excluded,
                 locked: self.boolean(layer_node, "locked", false, file),
                 keyframes: vec![],
             };
+            type RawKeyframeEntry = (u32, u32, String, Vec<(Id, String)>, Keyframe);
             let mut ends = vec![];
+            let mut raw_keys: Vec<RawKeyframeEntry> = vec![];
             if let Some(frames) = child(layer_node, "frames") {
                 self.audit(frames, file, &[], &["DOMFrame"]);
-                for frame_node in elements(frames) {
+                for frame_node in elements(frames).filter(|n| n.has_tag_name("DOMFrame")) {
+                    let has_motion_xml = child(frame_node, "MotionObjectXML").is_some();
                     self.audit(
                         frame_node,
                         file,
@@ -740,22 +925,40 @@ impl Parser<'_> {
                             "labelType",
                             "keyMode",
                             "tweenType",
+                            "acceleration",
+                            "motionTweenOrientToPath",
+                            "motionTweenSnap",
+                            "motionTweenRotate",
+                            "motionTweenRotateTimes",
+                            "motionTweenScale",
+                            "motionTweenSync",
+                            "shapeTweenBlend",
+                            "hasCustomEase",
+                            "useSingleEaseCurve",
                         ],
-                        &["elements", "Actionscript"],
+                        if has_motion_xml {
+                            &["elements", "Actionscript", "tweens", "MotionObjectXML"]
+                        } else {
+                            &["elements", "Actionscript", "tweens"]
+                        },
                     );
-                    if frame_node
-                        .attribute("tweenType")
-                        .is_some_and(|t| !t.is_empty() && t != "none")
-                    {
-                        self.report.error("tween_not_supported",self.location(frame_node,file),"XFL tween/motion curves are not imported yet; bake the animation to frame keyframes first.");
+                    if has_motion_xml {
+                        self.report.error(
+                            "motion_object_not_supported",
+                            self.location(frame_node, file),
+                            "XFL MotionObjectXML property-track tweens are not imported yet; convert to classic/shape tweens or frame keyframes.",
+                        );
                     }
+                    let frame_loc = self.location(frame_node, file);
+                    let (tween, tween_kind, orient_to_path) =
+                        self.frame_tween(frame_node, has_motion_xml, file);
                     if frame_node
                         .attribute("labelType")
                         .is_some_and(|t| t != "name")
                     {
                         self.report.error(
                             "frame_label_type",
-                            self.location(frame_node, file),
+                            &frame_loc,
                             "Only ordinary frame labels are supported.",
                         );
                     }
@@ -764,31 +967,46 @@ impl Parser<'_> {
                     if duration == 0 {
                         self.report.error(
                             "frame_duration",
-                            self.location(frame_node, file),
+                            &frame_loc,
                             "Frame duration must be positive.",
                         );
                     }
                     let end = frame.saturating_add(duration.max(1));
-                    if excluded {
-                        excluded_end = excluded_end.max(end);
-                        if frame_node
-                            .attribute("name")
-                            .is_some_and(|name| !name.is_empty())
-                        {
-                            self.report.error("excluded_layer_label", self.location(frame_node, file), "A label on an excluded hidden layer cannot be retained with its publication ownership in the current model. Move the label to a published layer before importing.");
+                    if role != LayerRole::Folder {
+                        if excluded {
+                            excluded_end = excluded_end.max(end);
+                            if frame_node
+                                .attribute("name")
+                                .is_some_and(|name| !name.is_empty())
+                            {
+                                self.report.error("excluded_layer_label", &frame_loc, "A label on an excluded hidden layer cannot be retained with its publication ownership in the current model. Move the label to a published layer before importing.");
+                            }
+                        } else {
+                            published_end = published_end.max(end);
                         }
-                    } else {
-                        published_end = published_end.max(end);
+                        timeline.frame_count = timeline.frame_count.max(end);
+                        ends.push((frame, end));
+                    } else if frame_node
+                        .attribute("name")
+                        .is_some_and(|name| !name.is_empty())
+                        || tween.is_some()
+                    {
+                        self.report.error(
+                            "folder_layer_elements",
+                            &frame_loc,
+                            "Folder layers cannot own labels or tweens.",
+                        );
                     }
-                    timeline.frame_count = timeline.frame_count.max(end);
-                    ends.push((frame, end));
                     let mut key = Keyframe {
                         frame,
                         elements: vec![],
-                        tween: None,
+                        tween,
+                        tween_kind,
+                        orient_to_path,
                         label: frame_node.attribute("name").unwrap_or("").into(),
                         ..Default::default()
                     };
+                    let mut elem_locs = vec![];
                     if let Some(container) = child(frame_node, "elements") {
                         self.audit(
                             container,
@@ -803,25 +1021,23 @@ impl Parser<'_> {
                             ],
                         );
                         for (ei, element_node) in elements(container).enumerate() {
+                            if role == LayerRole::Folder {
+                                self.report.error(
+                                    "folder_layer_elements",
+                                    self.location(element_node, file),
+                                    "Folder layers must not contain display elements.",
+                                );
+                                continue;
+                            }
                             let mut identity = format!("xfl-{id}-{li}-{ei}");
                             // A later authored instance span never inherits an earlier
-                            // XML slot's state, including direct goto across a blank gap.
-                            // Adjacent same-symbol spans are rejected below: referenceID
-                            // has no verified lifetime semantics in this adapter.
+                            // XML slot's state unless explicitly connected by a classic tween.
                             if element_node.has_tag_name("DOMSymbolInstance") && frame != 0 {
                                 identity.push_str(&format!("-placement-{frame}"));
                             }
                             if let Some(element) = self.element(element_node, identity, file) {
-                                if let ElementKind::Instance { symbol_id, .. } = &element.kind {
-                                    instance_starts.entry(frame).or_default().push((
-                                        symbol_id.clone(),
-                                        self.location(element_node, file),
-                                    ));
-                                    instance_ends
-                                        .entry(end)
-                                        .or_default()
-                                        .insert(symbol_id.clone());
-                                }
+                                elem_locs
+                                    .push((element.id.clone(), self.location(element_node, file)));
                                 key.elements.push(element);
                             }
                         }
@@ -832,6 +1048,13 @@ impl Parser<'_> {
                             self.audit(script, file, &[], &[]);
                             let source = immediate_text(script);
                             if !source.trim().is_empty() {
+                                if role == LayerRole::Folder {
+                                    self.report.error(
+                                        "folder_layer_elements",
+                                        self.location(script, file),
+                                        "Folder layers cannot own frame scripts.",
+                                    );
+                                }
                                 if excluded {
                                     self.report.error("excluded_layer_script", self.location(script, file), "A frame script on an excluded hidden layer cannot retain its publication ownership in the current model. Import is blocked rather than executing or discarding that source.");
                                 }
@@ -847,10 +1070,12 @@ impl Parser<'_> {
                             }
                         }
                     }
-                    layer.keyframes.push(key);
+                    if role != LayerRole::Folder {
+                        raw_keys.push((frame, end, frame_loc, elem_locs, key));
+                    }
                 }
             }
-            layer.keyframes.sort_by_key(|k| k.frame);
+            raw_keys.sort_by_key(|entry| entry.0);
             ends.sort_unstable();
             for pair in ends.windows(2) {
                 if pair[0].1 > pair[1].0 {
@@ -861,8 +1086,155 @@ impl Parser<'_> {
                     );
                 }
             }
+            // Resolve classic and shape tween continuity across consecutive keyframes.
+            for idx in 0..raw_keys.len() {
+                let (prev_tween, prev_kind, prev_end, prev_loc) = {
+                    let prev = &raw_keys[idx];
+                    (prev.4.tween, prev.4.tween_kind, prev.1, prev.2.clone())
+                };
+                if prev_tween.is_none() {
+                    continue;
+                }
+                if idx + 1 >= raw_keys.len() || raw_keys[idx + 1].0 != prev_end {
+                    raw_keys[idx].4.tween = None;
+                    raw_keys[idx].4.tween_kind = TweenKind::Classic;
+                    raw_keys[idx].4.orient_to_path = false;
+                    self.report.warning(
+                        "xfl_tween_dropped",
+                        prev_loc,
+                        "Unterminated or gap-separated tween has no adjacent end keyframe; its pose is held.",
+                    );
+                    continue;
+                }
+                match prev_kind {
+                    TweenKind::Classic => {
+                        let compatible = raw_keys[idx].4.elements.len() == 1
+                            && raw_keys[idx + 1].4.elements.len() == 1
+                            && classic_tween_matches(
+                                &raw_keys[idx].4.elements[0],
+                                &raw_keys[idx + 1].4.elements[0],
+                            );
+                        if compatible {
+                            let continued_id = raw_keys[idx].4.elements[0].id.clone();
+                            raw_keys[idx + 1].4.elements[0].id = continued_id.clone();
+                            if let Some(slot) = raw_keys[idx + 1].3.first_mut() {
+                                slot.0 = continued_id;
+                            }
+                        } else if raw_keys[idx + 1].4.elements.is_empty() {
+                            raw_keys[idx].4.tween = None;
+                            raw_keys[idx].4.orient_to_path = false;
+                            self.report.warning(
+                                "xfl_tween_dropped",
+                                prev_loc,
+                                "Classic motion tween ends at a blank keyframe; its start pose is held.",
+                            );
+                        } else {
+                            raw_keys[idx].4.tween = None;
+                            raw_keys[idx].4.orient_to_path = false;
+                            self.report.warning(
+                                "xfl_tween_dropped",
+                                prev_loc,
+                                "Classic motion tween does not connect a single compatible element across keyframes; poses are held.",
+                            );
+                        }
+                    }
+                    TweenKind::Shape => {
+                        let is_shape = |e: &Element| {
+                            matches!(
+                                e.kind,
+                                ElementKind::Rectangle { .. }
+                                    | ElementKind::Ellipse { .. }
+                                    | ElementKind::Path { .. }
+                                    | ElementKind::PaintedPath { .. }
+                            )
+                        };
+                        let valid_from = !raw_keys[idx].4.elements.is_empty()
+                            && raw_keys[idx].4.elements.iter().all(is_shape);
+                        let valid_to = !raw_keys[idx + 1].4.elements.is_empty()
+                            && raw_keys[idx + 1].4.elements.iter().all(is_shape);
+                        if !valid_from || !valid_to {
+                            self.report.error(
+                                "invalid_shape_tween",
+                                prev_loc,
+                                "Shape tweens require vector shape elements on both the start and end keyframes.",
+                            );
+                        }
+                    }
+                    TweenKind::Motion => {}
+                }
+            }
+            // Record true instance placement lifetimes (continuous classic-tween chains
+            // share one element ID and do not end/restart at intermediate tween keys).
+            let mut active_instances: HashMap<Id, (Id, u32)> = HashMap::new();
+            for (frame, end, _, elem_locs, key) in &raw_keys {
+                let current_ids: BTreeSet<&str> =
+                    key.elements.iter().map(|e| e.id.as_str()).collect();
+                active_instances.retain(|elem_id, (sym_id, prev_end)| {
+                    if *prev_end == *frame && current_ids.contains(elem_id.as_str()) {
+                        true
+                    } else {
+                        instance_ends
+                            .entry(*prev_end)
+                            .or_default()
+                            .insert(sym_id.clone());
+                        false
+                    }
+                });
+                for element in &key.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                        if let Some(entry) = active_instances.get_mut(&element.id) {
+                            entry.1 = *end;
+                        } else {
+                            let loc = elem_locs
+                                .iter()
+                                .find(|(eid, _)| eid == &element.id)
+                                .map(|(_, l)| l.clone())
+                                .unwrap_or_default();
+                            instance_starts
+                                .entry(*frame)
+                                .or_default()
+                                .push((symbol_id.clone(), loc));
+                            active_instances.insert(element.id.clone(), (symbol_id.clone(), *end));
+                        }
+                    }
+                }
+            }
+            for (_, (sym_id, last_end)) in active_instances {
+                instance_ends.entry(last_end).or_default().insert(sym_id);
+            }
+            layer.keyframes = raw_keys.into_iter().map(|entry| entry.4).collect();
             spans.push(ends);
             timeline.layers.push(layer);
+        }
+        let roles_and_ids: Vec<(LayerRole, Id)> = timeline
+            .layers
+            .iter()
+            .map(|l| (l.properties.role, l.id.clone()))
+            .collect();
+        for (li, parent_entry) in parent_indices.into_iter().enumerate() {
+            let Some((p_idx, loc)) = parent_entry else {
+                continue;
+            };
+            let (parent_role, ref parent_id) = roles_and_ids[p_idx];
+            let child_role = roles_and_ids[li].0;
+            match parent_role {
+                LayerRole::Folder => {
+                    timeline.layers[li].properties.parent = Some(parent_id.clone());
+                }
+                LayerRole::Mask if child_role == LayerRole::Normal => {
+                    timeline.layers[li].properties.mask = Some(parent_id.clone());
+                }
+                LayerRole::Guide if child_role == LayerRole::Normal => {
+                    timeline.layers[li].properties.motion_guide = Some(parent_id.clone());
+                }
+                _ => {
+                    self.report.error(
+                        "invalid_layer_parent",
+                        loc,
+                        "parentLayerIndex must target a folder layer, or a mask/guide layer from a normal child layer.",
+                    );
+                }
+            }
         }
         for (frame, starts) in instance_starts {
             if let Some(ends) = instance_ends.get(&frame) {
@@ -877,6 +1249,9 @@ impl Parser<'_> {
             self.report.error("excluded_layer_duration", self.location(node, file), "An excluded hidden layer defines a longer timeline than the published layers. Published duration cannot yet be established without dropping authored frame structure; align the visible timeline extent before importing.");
         }
         for (layer, ends) in timeline.layers.iter_mut().zip(spans) {
+            if layer.properties.role == LayerRole::Folder {
+                continue;
+            }
             for (_, end) in ends {
                 if end < timeline.frame_count && !layer.keyframes.iter().any(|k| k.frame == end) {
                     layer.keyframes.push(Keyframe {
@@ -959,18 +1334,18 @@ impl Parser<'_> {
                     }
                     "graphic" => match node.attribute("loop").unwrap_or("loop") {
                         "single frame" => InstancePlayback::SingleFrame(first),
-                        "loop" | "play once" => {
-                            if first != 0 {
-                                self.report.error(
-                                    "graphic_start_frame",
-                                    &location,
-                                    "Loop/play-once offsets are not supported yet.",
-                                );
+                        "loop" => {
+                            if first == 0 {
+                                InstancePlayback::Loop
+                            } else {
+                                InstancePlayback::LoopFrom(first)
                             }
-                            if node.attribute("loop") == Some("play once") {
+                        }
+                        "play once" => {
+                            if first == 0 {
                                 InstancePlayback::PlayOnce
                             } else {
-                                InstancePlayback::Loop
+                                InstancePlayback::PlayOnceFrom(first)
                             }
                         }
                         other => {
@@ -1224,6 +1599,168 @@ impl Parser<'_> {
         })
     }
 
+    fn frame_tween(
+        &mut self,
+        frame_node: Node<'_, '_>,
+        has_motion_xml: bool,
+        file: &str,
+    ) -> (Option<Easing>, TweenKind, bool) {
+        let loc = self.location(frame_node, file);
+        let accel = self.number(frame_node, "acceleration", 0., file);
+        if !(-100.0..=100.0).contains(&accel) {
+            self.report.error(
+                "invalid_acceleration",
+                &loc,
+                "Tween acceleration must be within [-100, 100].",
+            );
+        }
+        let has_custom_ease = self.boolean(frame_node, "hasCustomEase", false, file);
+        let single_ease = self.boolean(frame_node, "useSingleEaseCurve", true, file);
+        let mut custom_bezier = None;
+        if let Some(tweens) = child(frame_node, "tweens") {
+            self.audit(tweens, file, &[], &["CustomEase"]);
+            let eases: Vec<_> = elements(tweens)
+                .filter(|n| n.has_tag_name("CustomEase"))
+                .collect();
+            if has_custom_ease || !eases.is_empty() {
+                if !single_ease || eases.len() != 1 {
+                    self.report.error(
+                        "custom_ease_not_supported",
+                        self.location(tweens, file),
+                        "Only a single global CustomEase target=\"all\" cubic Bézier curve is supported.",
+                    );
+                } else {
+                    let ease_node = eases[0];
+                    self.audit(ease_node, file, &["target"], &["Point"]);
+                    if ease_node.attribute("target") != Some("all") {
+                        self.report.error(
+                            "custom_ease_not_supported",
+                            self.location(ease_node, file),
+                            "Per-property XFL CustomEase targets are not supported; use target=\"all\".",
+                        );
+                    }
+                    let pts: Vec<_> = elements(ease_node)
+                        .filter(|n| n.has_tag_name("Point"))
+                        .map(|pt| {
+                            self.audit(pt, file, &["x", "y"], &[]);
+                            [
+                                self.number(pt, "x", 0., file),
+                                self.number(pt, "y", 0., file),
+                            ]
+                        })
+                        .collect();
+                    if pts.len() != 4 || pts[0] != [0., 0.] || pts[3] != [1., 1.] {
+                        self.report.error(
+                            "custom_ease_not_supported",
+                            self.location(ease_node, file),
+                            "Multi-segment XFL CustomEase curves are not supported yet.",
+                        );
+                    } else if !(0.0..=1.0).contains(&pts[1][0])
+                        || !(0.0..=1.0).contains(&pts[2][0])
+                        || pts[1][1].abs() > 100.0
+                        || pts[2][1].abs() > 100.0
+                    {
+                        self.report.error(
+                            "custom_ease_not_supported",
+                            self.location(ease_node, file),
+                            "CustomEase Bézier controls must have x in [0, 1] and |y| <= 100.",
+                        );
+                    } else {
+                        custom_bezier = Some(Easing::CubicBezier {
+                            x1: pts[1][0],
+                            y1: pts[1][1],
+                            x2: pts[2][0],
+                            y2: pts[2][1],
+                        });
+                    }
+                }
+            }
+        } else if has_custom_ease {
+            self.report.error(
+                "custom_ease_not_supported",
+                &loc,
+                "hasCustomEase is true, but no <tweens> CustomEase curve was supplied.",
+            );
+        }
+        let ease = custom_bezier.unwrap_or_else(|| {
+            let clamped = accel.clamp(-100.0, 100.0);
+            if clamped == 0.0 {
+                Easing::Linear
+            } else {
+                Easing::Flash {
+                    acceleration: clamped,
+                }
+            }
+        });
+        let orient = self.boolean(frame_node, "motionTweenOrientToPath", false, file);
+        self.boolean(frame_node, "motionTweenSnap", false, file);
+        self.boolean(frame_node, "motionTweenScale", true, file);
+        self.boolean(frame_node, "motionTweenSync", false, file);
+        let rotate_times = self.integer(frame_node, "motionTweenRotateTimes", 0, file);
+        let rotate_mode = frame_node.attribute("motionTweenRotate").unwrap_or("auto");
+        if !matches!(
+            rotate_mode,
+            "none" | "auto" | "clockwise" | "counter-clockwise"
+        ) {
+            self.report.error(
+                "invalid_tween_rotate",
+                &loc,
+                format!("Unsupported motionTweenRotate value {rotate_mode:?}."),
+            );
+        }
+        let shape_blend = frame_node
+            .attribute("shapeTweenBlend")
+            .unwrap_or("distributive");
+        if !matches!(shape_blend, "distributive" | "angular") {
+            self.report.error(
+                "invalid_shape_tween_blend",
+                &loc,
+                format!("Unsupported shapeTweenBlend value {shape_blend:?}."),
+            );
+        }
+        match frame_node.attribute("tweenType") {
+            None | Some("") | Some("none") => (None, TweenKind::Classic, false),
+            Some("motion") => {
+                if matches!(rotate_mode, "clockwise" | "counter-clockwise") || rotate_times > 0 {
+                    self.report.warning(
+                        "tween_rotation",
+                        &loc,
+                        "Directed classic-tween rotation (clockwise/counter-clockwise turns) is interpolated along the shortest angle.",
+                    );
+                }
+                (Some(ease), TweenKind::Classic, orient)
+            }
+            Some("shape") => {
+                if shape_blend == "angular" {
+                    self.report.warning(
+                        "shape_tween_blend",
+                        &loc,
+                        "Angular shape-tween vertex blending is approximated with distributive arc-length resampling.",
+                    );
+                }
+                (Some(ease), TweenKind::Shape, false)
+            }
+            Some("motion object") => {
+                if !has_motion_xml {
+                    self.report.error(
+                        "motion_object_not_supported",
+                        &loc,
+                        "XFL motion-object property-track tweens are not imported yet; convert to classic/shape tweens or frame keyframes.",
+                    );
+                }
+                (None, TweenKind::Classic, false)
+            }
+            Some(other) => {
+                self.report.error(
+                    "tween_not_supported",
+                    &loc,
+                    format!("Unsupported XFL tweenType {other:?}."),
+                );
+                (None, TweenKind::Classic, false)
+            }
+        }
+    }
+
     fn transform(&mut self, node: Node<'_, '_>, file: &str) -> Transform {
         let mut t = Transform::default();
         if let Some(wrapper) = child(node, "matrix") {
@@ -1234,20 +1771,37 @@ impl Parser<'_> {
                 let b = self.number(matrix, "b", 0., file);
                 let c = self.number(matrix, "c", 0., file);
                 let d = self.number(matrix, "d", 1., file);
-                let scale = a.hypot(b);
-                if scale < 1e-12 || (a * c + b * d).abs() > 1e-7 * (1. + scale * c.hypot(d)) {
+                let tx = self.number(matrix, "tx", 0., file);
+                let ty = self.number(matrix, "ty", 0., file);
+                let sx = a.hypot(b);
+                let sy = c.hypot(d);
+                let det = a * d - b * c;
+                if sx < 1e-12 || sy < 1e-12 || det.abs() <= 1e-12 * sx * sy {
                     self.report.error(
-                        "matrix_skew",
+                        "matrix_singular",
                         self.location(matrix, file),
-                        "Skew/singular matrices are not supported by the current TRS model.",
+                        "Singular or zero-scale placement matrices cannot be represented as an editable 2D transform.",
                     );
-                } else {
-                    t.scale_x = scale;
-                    t.scale_y = (a * d - b * c) / scale;
+                } else if (a * c + b * d).abs() <= 1e-7 * (1. + sx * sy) {
+                    t.scale_x = sx;
+                    t.scale_y = det / sx;
                     t.rotation = b.atan2(a).to_degrees();
+                    t.x = tx;
+                    t.y = ty;
+                } else if let Some(skewed) = Transform::from_matrix([a, b, c, d, tx, ty]) {
+                    t.x = skewed.x;
+                    t.y = skewed.y;
+                    t.scale_x = skewed.scale_x;
+                    t.scale_y = skewed.scale_y;
+                    t.rotation = skewed.rotation;
+                    t.skew = skewed.skew;
+                } else {
+                    self.report.error(
+                        "matrix_singular",
+                        self.location(matrix, file),
+                        "Singular or out-of-range placement matrix cannot be represented.",
+                    );
                 }
-                t.x = self.number(matrix, "tx", 0., file);
-                t.y = self.number(matrix, "ty", 0., file);
             }
         }
         if let Some(wrapper) = child(node, "color") {
@@ -1274,4 +1828,19 @@ impl Parser<'_> {
         }
         t
     }
+}
+
+fn classic_tween_matches(a: &Element, b: &Element) -> bool {
+    a.name == b.name
+        && match (&a.kind, &b.kind) {
+            (
+                ElementKind::Instance { symbol_id: a, .. },
+                ElementKind::Instance { symbol_id: b, .. },
+            ) => a == b,
+            (ElementKind::Rectangle { .. }, ElementKind::Rectangle { .. })
+            | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
+            | (ElementKind::Path { .. }, ElementKind::Path { .. })
+            | (ElementKind::Text { .. }, ElementKind::Text { .. }) => true,
+            _ => false,
+        }
 }
