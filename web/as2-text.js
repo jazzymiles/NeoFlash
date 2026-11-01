@@ -3,7 +3,7 @@
  * graph references and URLLoader/browser callbacks. */
 (function(global){
   'use strict';
-  function create({wasm,player,text,broadcaster=global.NeoFlashBroadcaster,getNet=()=>null,targetForRef=null,afterCallback=()=>{},project=null,document=global.document}){
+  function create({wasm,player,text,broadcaster=global.NeoFlashBroadcaster,getNet=()=>null,onAsfunction=null,targetForRef=null,afterCallback=()=>{},project=null,document=global.document}){
     if(!wasm||typeof wasm.as2_text_json!=='function')throw new Error('AS2 text Rust kernel is missing; re-export this publication.');
     if(typeof broadcaster?.create!=='function')throw new Error('AS2 text requires the shared broadcaster host.');
     const execute=request=>JSON.parse(wasm.as2_text_json(JSON.stringify(request)));
@@ -120,6 +120,7 @@
     function link(ref,point,event){
       if(disposed||event.defaultPrevented)return false;const field=text.info(ref);if(!field.format.url)return false;
       const result=execute({op:'hit_link',field,layout:text.layout(field),x:point.x,y:point.y});if(!result)return false;
+      if(/^asfunction:/i.test(result.url)){if(typeof onAsfunction==='function')onAsfunction(ref,result.url.slice(11));return true;}
       const net=getNet();if(!net)throw new Error('Text hyperlinks require the publication URL navigation service.');
       net.navigateToURL(new net.URLRequest(result.url),result.target||null);return true;
     }

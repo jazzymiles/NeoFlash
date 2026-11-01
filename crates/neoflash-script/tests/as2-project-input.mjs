@@ -427,6 +427,241 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
       source: 'import app.Inspector;\nclass app.SubInspector extends Inspector {\n  public function SubInspector() { super(); }\n}',
     },
     {
+      id: 'as2-source-math-geom-audit',
+      path: 'app/MathGeomAudit.as',
+      language: 'action_script2',
+      source: [
+        'import flash.geom.ColorTransform;',
+        'import flash.geom.Matrix;',
+        'import flash.geom.Point;',
+        'import flash.geom.Rectangle;',
+        'import flash.geom.Transform;',
+        'class app.MathGeomAudit {',
+        '  public static function run(host:MovieClip):Object {',
+        '    var out:Object = {};',
+        '    out.consts = [Infinity > 1e300, -Infinity < -1e300, isNaN(NaN)];',
+        '    var boxed:Number = new Number(42.5);',
+        '    out.numConsts = [Number.MAX_VALUE > 1e308, Number.MIN_VALUE > 0 && Number.MIN_VALUE < 1e-300, Number.POSITIVE_INFINITY == Infinity, Number.NEGATIVE_INFINITY == -Infinity, isNaN(Number.NaN), boxed.valueOf() == 42.5];',
+        '    var randOk:Boolean = (random(0) == 0);',
+        '    for (var ri:Number = 0; ri < 16; ri++) {',
+        '      var rv:Number = random(5);',
+        '      if (rv < 0 || rv >= 5 || int(rv) != rv) randOk = false;',
+        '    }',
+        '    out.numGlobals = [int(-7.9) == -7, int(7.9) == 7, isFinite(42) && !isFinite(Infinity) && !isFinite(NaN), isNaN(NaN) && !isNaN(0), Math.abs(parseFloat("  -3.25e2px") + 325) < 1e-9, randOk];',
+        '    var mr:Number = Math.random();',
+        '    out.mathConsts = [Math.abs(Math.E - 2.718281828) < 1e-6, Math.abs(Math.LN10 - 2.302585093) < 1e-6, Math.abs(Math.LN2 - 0.69314718) < 1e-6, Math.abs(Math.LOG10E - 0.43429448) < 1e-6, Math.abs(Math.LOG2E - 1.44269504) < 1e-6, Math.abs(Math.PI - 3.1415926535) < 1e-8, Math.abs(Math.SQRT1_2 - 0.70710678) < 1e-6, Math.abs(Math.SQRT2 - 1.41421356) < 1e-6];',
+        '    out.mathFns = [Math.abs(-9) == 9, Math.acos(1) == 0, Math.asin(0) == 0, Math.abs(Math.atan(1) - Math.PI / 4) < 1e-9, Math.abs(Math.atan2(1, 1) - Math.PI / 4) < 1e-9, Math.ceil(2.1) == 3, Math.cos(0) == 1, Math.abs(Math.exp(1) - Math.E) < 1e-9, Math.floor(2.9) == 2, Math.abs(Math.log(Math.E) - 1) < 1e-9, Math.max(3, 9) == 9, Math.min(3, 9) == 3, Math.pow(2, 10) == 1024, mr >= 0 && mr < 1, Math.round(-2.5) == -2, Math.abs(Math.sin(Math.PI / 2) - 1) < 1e-9, Math.sqrt(81) == 9, Math.tan(0) == 0];',
+        '    var p:Point = new Point(3, 4);',
+        '    var pClone:Point = p.clone();',
+        '    var pAdd:Point = p.add(new Point(1, 2));',
+        '    var pSub:Point = p.subtract(new Point(1, 1));',
+        '    pClone.offset(3, 4);',
+        '    pClone.normalize(10);',
+        '    var pDist:Number = Point.distance(new Point(0, 0), new Point(6, 8));',
+        '    var pInterp:Point = Point.interpolate(new Point(10, 20), new Point(0, 0), 0.25);',
+        '    var pPolar:Point = Point.polar(5, 0);',
+        '    out.pointChecks = [p instanceof Point, p.x == 3 && p.y == 4, p.length == 5, p.equals(new Point(3, 4)), pAdd.x == 4 && pAdd.y == 6, pSub.x == 2 && pSub.y == 3, Math.abs(pClone.length - 10) < 1e-9, pDist == 10, Math.abs(pInterp.x - 2.5) < 1e-9 && Math.abs(pInterp.y - 5) < 1e-9, Math.abs(pPolar.x - 5) < 1e-9 && Math.abs(pPolar.y) < 1e-9, p.toString().indexOf("x=3") >= 0];',
+        '    var rc:Rectangle = new Rectangle(10, 20, 30, 40);',
+        '    var rcClone:Rectangle = rc.clone();',
+        '    var rcBasic:Boolean = (rc instanceof Rectangle) && rc.x == 10 && rc.y == 20 && rc.width == 30 && rc.height == 40 && rc.left == 10 && rc.right == 40 && rc.top == 20 && rc.bottom == 60 && rc.topLeft.equals(new Point(10, 20)) && rc.bottomRight.equals(new Point(40, 60)) && rc.size.equals(new Point(30, 40));',
+        '    var rcQueries:Boolean = rc.equals(rcClone) && rc.contains(15, 25) && !rc.contains(40, 60) && rc.containsPoint(new Point(15, 25)) && rc.containsRectangle(new Rectangle(12, 22, 10, 10)) && !rc.containsRectangle(new Rectangle(0, 0, 20, 20)) && rc.intersects(new Rectangle(20, 30, 5, 5)) && !rc.isEmpty();',
+        '    var rcInter:Rectangle = rc.intersection(new Rectangle(20, 30, 50, 50));',
+        '    var rcUnion:Rectangle = rc.union(new Rectangle(0, 0, 10, 10));',
+        '    rcClone.inflate(2, 3);',
+        '    rcClone.inflatePoint(new Point(1, 2));',
+        '    rcClone.offset(5, 6);',
+        '    rcClone.offsetPoint(new Point(1, 2));',
+        '    var rcMut:Rectangle = new Rectangle();',
+        '    rcMut.left = 2; rcMut.right = 12; rcMut.top = 4; rcMut.bottom = 14;',
+        '    rcMut.topLeft = new Point(1, 2); rcMut.bottomRight = new Point(11, 22); rcMut.size = new Point(8, 9);',
+        '    var rcStr:String = rc.toString();',
+        '    rcMut.setEmpty();',
+        '    out.rectChecks = [rcBasic, rcQueries, rcInter.equals(new Rectangle(20, 30, 20, 30)), rcUnion.equals(new Rectangle(0, 0, 40, 60)), rcClone.width == 36 && rcClone.height == 50 && rcClone.x == 13 && rcClone.y == 23, rcMut.isEmpty(), rcStr.indexOf("w=30") >= 0];',
+        '    var m:Matrix = new Matrix(1, 0, 0, 1, 5, 6);',
+        '    var mClone:Matrix = m.clone();',
+        '    mClone.translate(3, 4);',
+        '    mClone.scale(2, 3);',
+        '    mClone.rotate(0);',
+        '    mClone.concat(new Matrix(1, 0, 0, 1, 1, 2));',
+        '    var tp:Point = m.transformPoint(new Point(2, 3));',
+        '    var dtp:Point = m.deltaTransformPoint(new Point(2, 3));',
+        '    var inv:Matrix = new Matrix(2, 0, 0, 4, 10, 20);',
+        '    inv.invert();',
+        '    var idm:Matrix = new Matrix(9, 1, 2, 9, 3, 4);',
+        '    idm.identity();',
+        '    var boxM:Matrix = new Matrix();',
+        '    boxM.createBox(2, 3, 0, 10, 20);',
+        '    var gradM:Matrix = new Matrix();',
+        '    gradM.createGradientBox(100, 50, 0, 10, 20);',
+        '    out.matrixChecks = [m instanceof Matrix, m.a == 1 && m.b == 0 && m.c == 0 && m.d == 1 && m.tx == 5 && m.ty == 6, mClone.tx == 17 && mClone.ty == 32, tp.x == 7 && tp.y == 9, dtp.x == 2 && dtp.y == 3, Math.abs(inv.a - 0.5) < 1e-9 && Math.abs(inv.d - 0.25) < 1e-9 && inv.tx == -5 && inv.ty == -5, idm.a == 1 && idm.d == 1 && idm.tx == 0 && idm.ty == 0, boxM.a == 2 && boxM.d == 3 && boxM.tx == 10 && boxM.ty == 20, Math.abs(gradM.a - 100 / 1638.4) < 1e-6 && gradM.tx == 60 && gradM.ty == 45, m.toString().indexOf("tx=5") >= 0];',
+        '    var ct:ColorTransform = new ColorTransform(0.5, 0.25, 0.75, 0.8, 10, 20, 30, 40);',
+        '    var ctInit:Boolean = (ct instanceof ColorTransform) && ct.redMultiplier == 0.5 && ct.greenMultiplier == 0.25 && ct.blueMultiplier == 0.75 && Math.abs(ct.alphaMultiplier - 0.8) < 1e-6 && ct.redOffset == 10 && ct.greenOffset == 20 && ct.blueOffset == 30 && ct.alphaOffset == 40;',
+        '    ct.concat(new ColorTransform(2, 4, 1, 1, 4, 8, 12, 0));',
+        '    var ctAfterConcat:Boolean = ct.redMultiplier == 1 && ct.greenMultiplier == 1 && Math.abs(ct.redOffset - 24) < 1e-6 && Math.abs(ct.greenOffset - 88) < 1e-6;',
+        '    ct.rgb = 0x112233;',
+        '    out.colorChecks = [ctInit, ctAfterConcat, ct.rgb == 0x112233 && ct.redMultiplier == 0 && ct.greenMultiplier == 0 && ct.blueMultiplier == 0 && ct.redOffset == 0x11 && ct.greenOffset == 0x22 && ct.blueOffset == 0x33, ct.toString().indexOf("redOffset=17") >= 0];',
+        '    var gClip:MovieClip = host.createEmptyMovieClip("geomProbe", 90);',
+        '    gClip.beginFill(0x224466, 100); gClip.moveTo(0, 0); gClip.lineTo(20, 0); gClip.lineTo(20, 10); gClip.lineTo(0, 10); gClip.endFill();',
+        '    var tr:Transform = new Transform(gClip);',
+        '    tr.matrix = new Matrix(2, 0, 0, 3, 15, 25);',
+        '    tr.colorTransform = new ColorTransform(1, 1, 1, 0.5, 12, 24, 36, 0);',
+        '    var pb:Rectangle = gClip.transform.pixelBounds;',
+        '    out.transformChecks = [tr instanceof Transform, tr.matrix.a == 2 && tr.matrix.d == 3 && tr.matrix.tx == 15 && tr.matrix.ty == 25, tr.concatenatedMatrix.tx == 15 && tr.concatenatedMatrix.ty == 25, tr.colorTransform.redOffset == 12 && Math.abs(tr.colorTransform.alphaMultiplier - 0.5) < 1e-6, tr.concatenatedColorTransform.blueOffset == 36, pb instanceof Rectangle && pb.width >= 40 && pb.height >= 30];',
+        '    return out;',
+        '  }',
+        '}',
+      ].join('\n'),
+    },
+    {
+      id: 'as2-source-services-audit',
+      path: 'app/ServicesAudit.as',
+      language: 'action_script2',
+      source: [
+        'import flash.net.FileReference;',
+        'class app.ServicesAudit {',
+        '  public static function run(host:MovieClip):Object {',
+        '    var out:Object = {};',
+        '    var asfLog:Array = [];',
+        '    host.onAsfuncHit = function(arg:String):Void { asfLog.push("hit:" + arg); };',
+        '    host.onAsfuncBare = function(arg:String):Void { asfLog.push("bare:" + String(arg === undefined)); };',
+        '    var href1:String = asfunction("onAsfuncHit", "hello,world");',
+        '    var href2:String = asfunction("onAsfuncBare");',
+        '    var fnAsf:Function = asfunction;',
+        '    getURL(href1);',
+        '    getURL(href2);',
+        '    getURL(fnAsf("onAsfuncHit", "bound"));',
+        '    getURL("https://app.example.test/docs?from=globalGetURL", "_blank");',
+        '    var navClip:MovieClip = host.createEmptyMovieClip("navClip", 95);',
+        '    navClip.navToken = "fromAS2";',
+        '    navClip.getURL("https://app.example.test/form", "_blank", "GET");',
+        '    var linkTf:TextField = host.createTextField("linkTf", 91, 10, 10, 180, 30);',
+        '    linkTf.html = true;',
+        '    linkTf.htmlText = "<a href=\\"asfunction:onAsfuncHit,fromHtml\\">ClickLink</a>";',
+        '    out.linkTf = linkTf;',
+        '    out.asfLog = asfLog;',
+        '    out.asfunctionHrefs = [href1, href2];',
+        '    fscommand("notifyHost", "payload-42");',
+        '    fscommand("fullscreen", "true");',
+        '    out.mmResult = MMExecute("fl.getDocumentDOM()");',
+        '    var loadSlot:MovieClip = host.createEmptyMovieClip("loadSlot", 92);',
+        '    var unloadSlot:MovieClip = host.createEmptyMovieClip("unloadSlot", 93);',
+        '    loadMovie("images/pixel-creature.png", loadSlot);',
+        '    loadMovie("images/pixel-creature.png", "unloadSlot");',
+        '    unloadMovie(unloadSlot);',
+        '    host.tryLoadMovieNum = function(lvl:Number):Void { loadMovieNum("images/pixel-creature.png", lvl); };',
+        '    host.tryUnloadMovieNum = function(lvl:Number):Void { unloadMovieNum(lvl); };',
+        '    out.loadSlot = loadSlot;',
+        '    out.unloadSlot = unloadSlot;',
+        '    var printClip:MovieClip = host.createEmptyMovieClip("printClip", 94);',
+        '    printClip.beginFill(0xcc3300, 100); printClip.moveTo(0, 0); printClip.lineTo(40, 0); printClip.lineTo(40, 30); printClip.lineTo(0, 30); printClip.endFill();',
+        '    print(printClip, "bmovie");',
+        '    printAsBitmap(printClip, "bmax");',
+        '    printNum(0, "bframe");',
+        '    printAsBitmapNum(0, "bmovie");',
+        '    var cam:Camera = Camera.get(0);',
+        '    var camInit:Array = [cam.bandwidth, cam.quality, cam.keyFrameInterval, cam.loopback];',
+        '    cam.setQuality(32768, 85);',
+        '    cam.setKeyFrameInterval(24);',
+        '    cam.setLoopback(true);',
+        '    out.camChecks = [camInit[0] == 16384 && camInit[1] == 0 && camInit[2] == 15 && camInit[3] == false, cam.bandwidth == 32768, cam.quality == 85, cam.keyFrameInterval == 24, cam.loopback == true];',
+        '    var mic:Microphone = Microphone.get(0);',
+        '    var micInit:Array = [mic.codec, mic.encodeQuality, mic.framesPerPacket];',
+        '    mic.setCodec("speex");',
+        '    mic.setEncodeQuality(9);',
+        '    mic.setFramesPerPacket(1);',
+        '    out.micChecks = [micInit[0] == "NellyMoser" && micInit[1] == 6 && micInit[2] == 2, mic.codec == "Speex", mic.encodeQuality == 9, mic.framesPerPacket == 1];',
+        '    var sysHandler:Function = function(info:Object):Void {};',
+        '    System.onStatus = sysHandler;',
+        '    var sysClipOk:Boolean = System.setClipboard("neoflash-clipboard");',
+        '    System.showSettings(2);',
+        '    System.security.allowDomain("cdn.example.test", "api.example.test");',
+        '    System.security.allowInsecureDomain("legacy.example.test");',
+        '    System.security.loadPolicyFile("https://cdn.example.test/crossdomain.xml");',
+        '    var imeEvents:Array = [];',
+        '    var imeInit:Array = [System.IME.getEnabled(), System.IME.getConversionMode()];',
+        '    var imeL:Object = { onIMEComposition: function(txt:String):Void { imeEvents.push(txt); } };',
+        '    System.IME.addListener(imeL);',
+        '    var imeEnOk:Boolean = System.IME.setEnabled(true);',
+        '    var imeModeOk:Boolean = System.IME.setConversionMode(System.IME.JAPANESE_HIRAGANA);',
+        '    var imeCompOk:Boolean = System.IME.setCompositionString("kana");',
+        '    var imeConv1:Boolean = System.IME.doConversion();',
+        '    System.IME.setEnabled(false);',
+        '    var imeConvDisabled:Boolean = System.IME.doConversion();',
+        '    System.IME.setEnabled(true);',
+        '    out.systemChecks = [System.onStatus === sysHandler, sysClipOk, imeInit[0] == false && imeInit[1] == "ALPHANUMERIC_HALF", imeEnOk && System.IME.getEnabled() == true, imeModeOk && System.IME.getConversionMode() == "JAPANESE_HIRAGANA", imeCompOk && imeConv1 && !imeConvDisabled, imeEvents.length == 1 && imeEvents[0] == "kana"];',
+        '    var lcLog:Array = [];',
+        '    var rx:LocalConnection = new LocalConnection();',
+        '    rx.allowDomain = function(d:String):Boolean { lcLog.push("allow:" + d); return d == "app.example.test"; };',
+        '    rx.allowInsecureDomain = function(d:String):Boolean { lcLog.push("insec:" + d); return d == "http-ok.example.test"; };',
+        '    rx.onBusMsg = function(tag:String):Void { lcLog.push("msg:" + tag); };',
+        '    rx.connect("batch3_bus");',
+        '    var tx:LocalConnection = new LocalConnection();',
+        '    tx.send("batch3_bus", "onBusMsg", "sameOrigin");',
+        '    out.lcLog = lcLog;',
+        '    out.lcRx = rx;',
+        '    var fr:FileReference = new FileReference();',
+        '    var frBefore:Boolean = (fr.creationDate === undefined && fr.creator === undefined);',
+        '    fr.browse([{description: "Text", extension: "*.txt"}]);',
+        '    out.fileChecks = [frBefore, fr.creationDate instanceof Date, fr.creationDate.getTime() == 1700000000000, fr.creator === undefined];',
+        '    var localNc:NetConnection = new NetConnection();',
+        '    localNc.connect(null);',
+        '    var remNc:NetConnection = new NetConnection();',
+        '    remNc.connect("https://app.example.test/gateway");',
+        '    var ns2:NetStream = new NetStream(localNc);',
+        '    var nsDelay:Number = ns2.liveDelay;',
+        '    var nsPause0:Number = ns2.maxPauseBufferTime;',
+        '    ns2.maxPauseBufferTime = 90;',
+        '    var info:Object = ns2.getInfo();',
+        '    ns2.attachAudio(mic);',
+        '    ns2.attachVideo(cam, 0);',
+        '    ns2.play2({streamName: "https://app.example.test/sample.mp4", start: 0});',
+        '    var nsLog:Array = [];',
+        '    ns2.onStatus = function(st:Object):Void { nsLog.push("status:" + st.code); };',
+        '    ns2.onCuePoint = function(cp:Object):Void { nsLog.push("cue:" + cp.name); };',
+        '    ns2.onTextData = function(td:Object):Void { nsLog.push("text:" + td.text); };',
+        '    ns2.onXMPData = function(xd:Object):Void { nsLog.push("xmp:" + xd.data); };',
+        '    ns2.publish("feed", "live");',
+        '    ns2.send("onCuePoint", {name: "c1"});',
+        '    ns2.send("onTextData", {text: "sub"});',
+        '    ns2.send("onXMPData", {data: "<xmp/>"});',
+        '    out.netChecks = [localNc.protocol == "", remNc.protocol == "https", nsDelay == 0, nsPause0 == 30 && ns2.maxPauseBufferTime == 90, info.isLive == false && info.droppedFrames == 0 && info.audioBufferLength == 0];',
+        '    out.nsLog = nsLog;',
+        '    var rsoLog:Array = [];',
+        '    var rso:SharedObject = SharedObject.getRemote("lobby", "https://app.example.test/fms", false);',
+        '    var rsoStatusFn:Function = function(st:Object):Void { rsoLog.push("status:" + st.code); };',
+        '    rso.onStatus = rsoStatusFn;',
+        '    rso.onSync = function(list:Array):Void { rsoLog.push("sync:" + list[0].code); };',
+        '    rso.onChat = function(msg:String):Void { rsoLog.push("chat:" + msg); };',
+        '    var rsoConn:Boolean = rso.connect(localNc);',
+        '    var rsoFps:Boolean = rso.setFps(15);',
+        '    rso.data.topic = "as2";',
+        '    rso.send("onChat", "hello-room");',
+        '    out.rso = rso;',
+        '    out.rsoChecks = [rso != null, rso.onStatus === rsoStatusFn, rsoConn, rsoFps, rso.data.topic == "as2"];',
+        '    out.rsoLog = rsoLog;',
+        '    var xmlLog:Array = [];',
+        '    var xs1:XMLSocket = new XMLSocket();',
+        '    var xsTimeout0:Number = xs1.timeout;',
+        '    xs1.timeout = 4500;',
+        '    var lowPortOk:Boolean = xs1.connect("chat.example.test", 80);',
+        '    xs1.onConnect = function(ok:Boolean):Void { xmlLog.push("conn1:" + ok); if (ok) this.send("<hello v=\\"1\\"/>"); };',
+        '    xs1.onXML = function(doc:XML):Void { xmlLog.push("xml1:" + doc.firstChild.nodeName + ":" + doc.firstChild.attributes.ok); };',
+        '    xs1.onClose = function():Void { xmlLog.push("close1"); };',
+        '    var hiPortOk:Boolean = xs1.connect("chat.example.test", 9000);',
+        '    var xs2:XMLSocket = new XMLSocket();',
+        '    xs2.onConnect = function(ok:Boolean):Void { xmlLog.push("conn2:" + ok); };',
+        '    xs2.onData = function(raw:String):Void { xmlLog.push("raw2:" + raw); };',
+        '    xs2.onClose = function():Void { xmlLog.push("close2"); };',
+        '    var xs2ConnOk:Boolean = xs2.connect("chat.example.test", 9001);',
+        '    out.xs2 = xs2;',
+        '    out.xmlChecks = [xs1 instanceof XMLSocket, xsTimeout0 == 20000 && xs1.timeout == 4500, lowPortOk == false, hiPortOk == true, xs2ConnOk == true];',
+        '    out.xmlLog = xmlLog;',
+        '    return out;',
+        '  }',
+        '}',
+      ].join('\n'),
+    },
+    {
       id: 'as2-source-foundation-main',
       path: 'app/FoundationMain.as',
       language: 'action_script2',
@@ -434,6 +669,8 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         'import app.RegisteredCard;',
         'import app.Inspector;',
         'import app.SubInspector;',
+        'import app.MathGeomAudit;',
+        'import app.ServicesAudit;',
         'import ext.HostWidget;',
         'import flash.display.BitmapData;',
         'import flash.geom.Matrix;',
@@ -673,6 +910,9 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    r.policyChecks = [sndPolicy0, snd.checkPolicyFile, nsPolicy0, ns.checkPolicyFile];',
         '    foundationReport = r;',
         '  }',
+        '  public function runBatch3():Object {',
+        '    return { math: MathGeomAudit.run(this), services: ServicesAudit.run(this) };',
+        '  }',
         '}',
       ].join('\n'),
     },
@@ -694,11 +934,125 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
   const { SemanticLayer } = require(resolve(root, 'web/accessibility.js'));
   const semanticDom = createSemanticDom();
   const semanticLayer = new SemanticLayer(semanticDom, () => {});
+  const navigations = [], fsCommands = [], clipboardWrites = [], shownTabs = [], printCaptures = [], videoLoads = [], xmlSockets = [];
+  let printCount = 0;
+  const memMap = new Map();
+  const memStorage = { getItem: k => memMap.has(k) ? memMap.get(k) : null, setItem: (k, v) => { memMap.set(k, String(v)); }, removeItem: k => { memMap.delete(k); } };
+  const bcPeers = new Set();
+  class MockBC {
+    constructor(name) { this.name = name; this.onmessage = null; bcPeers.add(this); }
+    postMessage(data) { for (const peer of bcPeers) if (peer !== this) queueMicrotask(() => peer.onmessage?.({ data })); }
+    close() { bcPeers.delete(this); }
+  }
+  const fCanvas = Object.assign(new Surface(), { id: 'stage' });
   let fHost;
   try {
     ({ host: fHost } = createRuntimeHost(root, fPlayer, Array.from(bundle.scripts, item => ({
       script: { language: item.language, source: item.source }, code: item.code, location: item.location,
-    })), { bundle, semanticLayer, context: { measureText: line => ({ width: line.length * 8 }) } }));
+    })), {
+      bundle,
+      canvas: fCanvas,
+      semanticLayer,
+      context: { save() {}, restore() {}, font: '', measureText: line => ({ width: line.length * 8 }) },
+      external: {
+        hostObject: fCanvas,
+        hostGlobal: { stage_DoFSCommand: (cmd, args) => fsCommands.push([cmd, args]) },
+        navigate: req => navigations.push(req),
+      },
+      net: { baseURL: 'https://app.example.test/index.html', navigate: req => navigations.push(req) },
+      storage: { url: 'https://app.example.test/index.html', storage: memStorage },
+      platform: {
+        global: {
+          navigator: { language: 'en-US', platform: 'MacIntel', clipboard: { writeText: text => clipboardWrites.push(text) } },
+          location: { protocol: 'https:' },
+          screen: { width: 1440, height: 900, colorDepth: 24 },
+        },
+        onShowSettings: tab => shownTabs.push(tab),
+      },
+      capture: {
+        mediaDevices: {
+          enumerateDevices: async () => [
+            { kind: 'videoinput', deviceId: 'cam-1', label: 'Studio Cam' },
+            { kind: 'audioinput', deviceId: 'mic-1', label: 'Studio Mic' },
+          ],
+          getSupportedConstraints: () => ({ sampleRate: true, echoCancellation: true }),
+        },
+      },
+      files: {
+        isUserGesture: () => true,
+        document: {
+          body: { appendChild() {} },
+          createElement() {
+            const listeners = {};
+            return {
+              style: {},
+              setAttribute() {},
+              remove() {},
+              addEventListener(k, fn) { listeners[k] = fn; },
+              click() {
+                this.files = [{ name: 'notes.txt', size: 12, lastModified: 1700000000000 }];
+                listeners.change?.();
+              },
+            };
+          },
+        },
+      },
+      print: {
+        isUserGesture: () => true,
+        openWindow: () => ({
+          closed: false,
+          opener: null,
+          close() { this.closed = true; },
+          focus() {},
+          print() { printCount++; },
+          document: {
+            title: '',
+            head: { append() {} },
+            body: { textContent: '', append() {} },
+            createElement(tag) {
+              return { tagName: tag, style: {}, complete: true, append() {}, remove() {}, addEventListener() {} };
+            },
+          },
+        }),
+        capture: (_target, plan) => {
+          printCaptures.push([plan.width, plan.height]);
+          const bmp = new (fHost.bitmap().BitmapData)(4, 4, false, 0xcc3300);
+          try {
+            return new Uint8Array(fPlayer.bitmap_encode_png(JSON.stringify(fHost.bitmap().refOf(bmp)), 0, 0, 4, 4, false));
+          } finally {
+            bmp.dispose();
+          }
+        },
+      },
+      video: {
+        isUserGesture: () => true,
+        createVideo: () => {
+          const el = new EventTarget();
+          Object.assign(el, {
+            muted: true, volume: 0, src: '', currentTime: 0, readyState: 0, paused: true,
+            removeAttribute() { this.src = ''; },
+            load() { if (this.src) videoLoads.push(this.src); },
+            play() { this.paused = false; return Promise.resolve(); },
+            pause() { this.paused = true; },
+          });
+          return el;
+        },
+      },
+      connections: {
+        url: 'https://app.example.test/index.html',
+        BroadcastChannel: MockBC,
+        locks: { request: async (_name, _opts, cb) => cb({}) },
+        createXmlSocket: (host, port) => {
+          const s = {
+            host, port, sent: [], closed: false, onopen: null, onmessage: null, onerror: null, onclose: null,
+            send(frame) { this.sent.push(frame); },
+            close() { this.closed = true; },
+          };
+          xmlSockets.push(s);
+          return s;
+        },
+      },
+    }));
     fHost.dispatchScripts();
     const scene = fHost.proxyFor([]), r = scene.foundationReport;
     await until(() => Array.from(r.keepEvents).length === 5, 'MovieClipLoader bundled success + missing error events settle');
@@ -814,6 +1168,109 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     assert.equal(resetReport.initSoundBuf, 5);
     assert.deepEqual(Array.from(resetReport.rendererDefaults), ['default', 4]);
     assert.deepEqual(Array.from(resetReport.initOrder), ['unordered:true', 'order3', 'order10']);
+
+    // Batch 3 verification: Area 1 math/geometry (124 declarations) + Areas 7-8 globals & services (70 declarations).
+    await until(() => fHost.legacy().Camera.names.length === 1 && fHost.legacy().Microphone.names.length === 1, 'Camera/Microphone discovery settles after reset');
+    const b3Root = fHost.proxyFor([]);
+    const b3 = b3Root.runBatch3();
+    const mg = b3.math, sv = b3.services;
+
+    // Area 1 (math-geometry) assertions
+    assert.deepEqual(Array.from(mg.consts), [true, true, true]);
+    assert.deepEqual(Array.from(mg.numConsts), [true, true, true, true, true, true]);
+    assert.deepEqual(Array.from(mg.numGlobals), [true, true, true, true, true, true]);
+    assert.deepEqual(Array.from(mg.mathConsts), Array(8).fill(true));
+    assert.deepEqual(Array.from(mg.mathFns), Array(18).fill(true));
+    assert.deepEqual(Array.from(mg.pointChecks), Array(11).fill(true));
+    assert.deepEqual(Array.from(mg.rectChecks), Array(7).fill(true));
+    assert.deepEqual(Array.from(mg.matrixChecks), Array(10).fill(true));
+    assert.deepEqual(Array.from(mg.colorChecks), [true, true, true, true]);
+    assert.deepEqual(Array.from(mg.transformChecks), Array(6).fill(true));
+
+    // Areas 7-8 globals & services assertions
+    fHost.stage().attach();
+    fHost.stage().handlePointer('pointermove', { clientX: 25, clientY: 20 }, sv.linkTf);
+    fHost.stage().handlePointer('click', { button: 0, buttons: 0, clientX: 25, clientY: 20 }, sv.linkTf);
+    assert.deepEqual(Array.from(sv.asfunctionHrefs), ['asfunction:onAsfuncHit,hello,world', 'asfunction:onAsfuncBare']);
+    assert.deepEqual(Array.from(sv.asfLog), ['hit:hello,world', 'bare:true', 'hit:bound', 'hit:fromHtml']);
+    assert.equal(navigations.length, 2);
+    assert.equal(navigations[0].target, '_blank');
+    assert.equal(navigations[0].url, 'https://app.example.test/docs?from=globalGetURL');
+    assert.match(navigations[1].url, /^https:\/\/app\.example\.test\/form\?.*navToken=fromAS2/);
+    assert.deepEqual(fsCommands, [['notifyHost', 'payload-42']]);
+    assert.equal(sv.mmResult, '');
+    assert.throws(() => b3Root.tryLoadMovieNum(1), /multi-SWF levels/);
+    assert.throws(() => b3Root.tryUnloadMovieNum(1), /multi-SWF levels/);
+    assert.throws(() => b3Root.tryLoadMovieNum(0), /publication root/);
+    assert.throws(() => b3Root.tryUnloadMovieNum(0), /publication root/);
+    await until(() => sv.loadSlot._width > 0, 'loadMovie populates child MovieClip dimensions');
+    assert.equal(sv.unloadSlot._width, 0);
+    assert.equal(printCaptures.length, 4);
+    await until(() => printCount === 4, 'all 4 AS2 print/printAsBitmap/printNum/printAsBitmapNum previews invoke print()');
+
+    assert.deepEqual(Array.from(sv.camChecks), [true, true, true, true, true]);
+    assert.deepEqual(Array.from(sv.micChecks), [true, true, true, true]);
+    assert.deepEqual(Array.from(sv.systemChecks), Array(7).fill(true));
+    assert.deepEqual(clipboardWrites, ['neoflash-clipboard']);
+    assert.deepEqual(shownTabs, [2]);
+    assert.deepEqual(Array.from(sv.fileChecks), [true, true, true, true]);
+    assert.deepEqual(Array.from(sv.netChecks), [true, true, true, true, true]);
+    assert.ok(videoLoads.includes('https://app.example.test/sample.mp4'));
+    await until(() => Array.from(sv.nsLog).length === 4, 'NetStream publish + send callbacks settle');
+    assert.deepEqual(Array.from(sv.nsLog), ['status:NetStream.Publish.BadName', 'cue:c1', 'text:sub', 'xmp:<xmp/>']);
+
+    assert.deepEqual(Array.from(sv.rsoChecks), [true, true, true, true, true]);
+    await until(() => Array.from(sv.rsoLog).length === 2, 'Remote SharedObject onSync + send settle');
+    assert.deepEqual(Array.from(sv.rsoLog), ['sync:clear', 'chat:hello-room']);
+    sv.rso.close();
+    assert.throws(() => sv.rso.send('onChat', 'after-close'), /connected/);
+
+    // LocalConnection allowDomain (same-origin https) + allowInsecureDomain (http allowed vs http denied)
+    await until(() => Array.from(sv.lcLog).includes('msg:sameOrigin'), 'same-origin LocalConnection send delivers');
+    const postInsecureWire = (domain, id, tag) => {
+      const wire = JSON.stringify({
+        version: 1,
+        sender: 'external-http-peer',
+        sender_domain: domain,
+        sender_protocol: 'http:',
+        id,
+        target: 'https://app.example.test|batch3_bus',
+        method: 'onBusMsg',
+        body: fHost.amf().base64(fHost.amf().encode([tag], 0)),
+      });
+      for (const peer of bcPeers) peer.onmessage?.({ data: wire });
+    };
+    postInsecureWire('http-denied.example.test', 501, 'blockedMsg');
+    postInsecureWire('http-ok.example.test', 502, 'allowedInsecureMsg');
+    assert.deepEqual(Array.from(sv.lcLog), [
+      'allow:app.example.test',
+      'msg:sameOrigin',
+      'insec:http-denied.example.test',
+      'insec:http-ok.example.test',
+      'msg:allowedInsecureMsg',
+    ]);
+
+    // XMLSocket handshake, \0 framing, chunked XML reassembly, custom onData, and remote vs local close
+    assert.deepEqual(Array.from(sv.xmlChecks), [true, true, true, true, true]);
+    assert.equal(xmlSockets.length, 2);
+    assert.equal(xmlSockets[0].host, 'chat.example.test');
+    assert.equal(xmlSockets[0].port, 9000);
+    xmlSockets[0].onopen();
+    assert.deepEqual(xmlSockets[0].sent, ['<hello v="1"/>\0']);
+    xmlSockets[0].onmessage({ data: '<reply ok="1"' });
+    xmlSockets[0].onmessage({ data: '/>\0' });
+    xmlSockets[0].onclose();
+    xmlSockets[1].onopen();
+    xmlSockets[1].onmessage({ data: 'plain-frame\0' });
+    sv.xs2.close();
+    assert.equal(xmlSockets[1].closed, true);
+    assert.deepEqual(Array.from(sv.xmlLog), [
+      'conn1:true',
+      'xml1:reply:1',
+      'close1',
+      'conn2:true',
+      'raw2:plain-frame',
+    ]);
   } finally {
     fHost?.disposeFamily();
     fPlayer.free();

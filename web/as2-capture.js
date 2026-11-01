@@ -93,6 +93,9 @@ function create(wasm,options={}){
   static get(index){return get('camera',index===undefined?0:index);}static get names(){return raw({op:'names',kind:'camera'}).value;}static refresh(callback){void refresh(callback);}
   setMode(width=160,height=120,fps=15,favorArea=true){apply(state(this,'camera'),{op:'mode',width,height,fps,favorArea});}
   setMotionLevel(level=50,timeout=2000){apply(state(this,'camera'),{op:'threshold',level,timeout});}
+  setQuality(bandwidth=16384,quality=0){apply(state(this,'camera'),{op:'quality',bandwidth,quality});}
+  setKeyFrameInterval(keyFrameInterval){apply(state(this,'camera'),{op:'keyframe',keyFrameInterval});}
+  setLoopback(compress=false){apply(state(this,'camera'),{op:'loopback',compress});}
  }
  class Microphone{
   constructor(){throw new TypeError('Use Microphone.get(index) after device discovery; Microphone is not constructible.');}
@@ -101,15 +104,14 @@ function create(wasm,options={}){
   setRate(value){if(mediaDevices?.getSupportedConstraints?.().sampleRate!==true)throw new Error('This browser does not expose microphone sampleRate constraints.');apply(state(this,'microphone'),{op:'rate',value});}
   setSilenceLevel(level,timeout=2000){apply(state(this,'microphone'),{op:'threshold',level,timeout});}
   setUseEchoSuppression(value){if(mediaDevices?.getSupportedConstraints?.().echoCancellation!==true)throw new Error('This browser does not expose echo cancellation constraints.');apply(state(this,'microphone'),{op:'echo',value});}
+  setCodec(codec){apply(state(this,'microphone'),{op:'codec',codec});}
+  setEncodeQuality(quality){apply(state(this,'microphone'),{op:'encode_quality',quality});}
+  setFramesPerPacket(frames){apply(state(this,'microphone'),{op:'frames_per_packet',frames});}
  }
- for(const [Type,kind,names]of [[Camera,'camera',['activityLevel','currentFps','fps','height','index','motionLevel','motionTimeOut','muted','name','width']],[Microphone,'microphone',['activityLevel','gain','index','muted','name','rate','silenceLevel','silenceTimeOut','useEchoSuppression']]]){
+ for(const [Type,kind,names]of [[Camera,'camera',['activityLevel','bandwidth','currentFps','fps','height','index','keyFrameInterval','loopback','motionLevel','motionTimeOut','muted','name','quality','width']],[Microphone,'microphone',['activityLevel','codec','encodeQuality','framesPerPacket','gain','index','muted','name','rate','silenceLevel','silenceTimeOut','useEchoSuppression']]]){
   for(const name of names)Object.defineProperty(Type.prototype,name,{get(){const r=state(this,kind);if(name==='currentFps'&&r.video&&typeof r.video.requestVideoFrameCallback!=='function')throw new Error('Camera.currentFps requires actual presented-frame callbacks in this browser.');if(name==='rate'&&r.stream&&r.track?.getSettings?.().sampleRate===undefined)throw new Error('Browser did not report the actual microphone sample rate.');if(name==='useEchoSuppression'&&r.stream&&r.track?.getSettings?.().echoCancellation===undefined)throw new Error('Browser did not report its actual echo cancellation setting.');return snapshot(r)[name];},set(){throw new TypeError(Type.name+'.'+name+' is read-only.');}});
   Object.defineProperties(Type,{__nfIs:{value:value=>identities.get(value)?.kind===kind&&identities.get(value).generation===generation},__nfInitialize:{value:()=>unsupported(Type.name+' subclassing')}});
  }
- for(const name of ['setQuality','setKeyFrameInterval','setLoopback'])Camera.prototype[name]=function(){state(this,'camera');unsupported('Camera.'+name);};
- for(const name of ['bandwidth','quality','keyFrameInterval','loopback'])Object.defineProperty(Camera.prototype,name,{get(){state(this,'camera');unsupported('Camera.'+name);}});
- for(const name of ['setCodec','setEncodeQuality','setFramesPerPacket'])Microphone.prototype[name]=function(){state(this,'microphone');unsupported('Microphone.'+name);};
- for(const name of ['codec','encodeQuality','framesPerPacket'])Object.defineProperty(Microphone.prototype,name,{get(){state(this,'microphone');unsupported('Microphone.'+name);}});
  function attachVideo(camera,onFrame){const r=state(camera,'camera'),token=acquire(r,{onFrame});return Object.freeze({read(){if(token.released||r.generation!==generation||!r.video||r.video.readyState<2)return null;const s=snapshot(r);return{image:r.video,width:s.width,height:s.height,id:`capture:${generation}:${r.id}:${r.serial}`};},release:token.release});}
  function attachAudio(target,microphone){open();const ref=options.referenceOf?.(target);if(!ref||!options.display?.alive(target)||options.display.descriptor(target).owner!=='movie_clip')throw new TypeError('attachAudio requires a live MovieClip.');const old=audioTargets.get(target);if(microphone===null||microphone===false){old?.release();audioTargets.delete(target);return;}const r=state(microphone,'microphone');if(old?.device===r)return;const next=acquire(r,{alive:()=>options.display.alive(target)});next.device=r;old?.release();audioTargets.set(target,next);}
  function reset(){if(disposed)return;for(const r of records.values()){for(const token of r.leases)token.released=true;r.leases.clear();cleanup(r);}generation++;records.clear();audioTargets.clear();raw({op:'reset'});discovery=null;void refresh();}

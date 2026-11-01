@@ -77,20 +77,21 @@
       }},__nfIs:{value:()=>false}
     });
     const imeListeners=new wasm.ScriptBroadcaster(1024),imeReferences=new Map();
-    let imeIdentities=new WeakMap();
+    let imeIdentities=new WeakMap(),systemOnStatus=null;
     function unsupported(api,reason){throw new Error(`${api} is unavailable in the HTML5 publication: ${reason}`);}
+    function platform(request){active();try{return JSON.parse(core.execute(JSON.stringify(request)));}catch(error){throw error instanceof Error?error:new TypeError(String(error));}}
     const IME={
       ALPHANUMERIC_FULL:'ALPHANUMERIC_FULL',ALPHANUMERIC_HALF:'ALPHANUMERIC_HALF',CHINESE:'CHINESE',
       JAPANESE_HIRAGANA:'JAPANESE_HIRAGANA',JAPANESE_KATAKANA_FULL:'JAPANESE_KATAKANA_FULL',
       JAPANESE_KATAKANA_HALF:'JAPANESE_KATAKANA_HALF',KOREAN:'KOREAN',UNKNOWN:'UNKNOWN',
       addListener(listener){active();object(listener);const id=imeListeners.add(imeIdentities.get(listener)||0);imeIdentities.set(listener,id);imeReferences.set(id,listener);},
       removeListener(listener){active();if(listener===null||(typeof listener!=='object'&&typeof listener!=='function'))return false;const id=imeIdentities.get(listener)||0,removed=imeListeners.remove(id);if(removed)imeReferences.delete(id);return removed;},
-      doConversion(){unsupported('System.IME.doConversion','the browser does not expose OS conversion control.');},
-      getConversionMode(){unsupported('System.IME.getConversionMode','the browser does not expose the OS conversion mode.');},
-      getEnabled(){unsupported('System.IME.getEnabled','the browser does not expose whether the OS IME is enabled.');},
-      setCompositionString(){unsupported('System.IME.setCompositionString','browser composition text cannot be replaced programmatically.');},
-      setConversionMode(){unsupported('System.IME.setConversionMode','the browser does not expose OS conversion control.');},
-      setEnabled(){unsupported('System.IME.setEnabled','the browser does not expose OS IME enable/disable control.');}
+      doConversion(){const res=platform({op:'ime_do_conversion'});if(res.ok)composition({data:res.text});return res.ok;},
+      getConversionMode(){return platform({op:'ime_get_mode'});},
+      getEnabled(){return platform({op:'ime_get_enabled'});},
+      setCompositionString(text){return platform({op:'ime_set_composition',composition:text});},
+      setConversionMode(mode){return platform({op:'ime_set_mode',mode});},
+      setEnabled(enabled){return platform({op:'ime_set_enabled',enabled});}
     };
     function composition(event){
       if(disposed)return;const current=generation,length=imeListeners.len();
@@ -104,19 +105,21 @@
     }
     const security=Object.freeze({
       get sandboxType(){active();return core.sandbox_type();},
-      allowDomain(){unsupported('System.security.allowDomain','browser same-origin/CORS policy cannot be relaxed by ActionScript.');},
-      allowInsecureDomain(){unsupported('System.security.allowInsecureDomain','browser mixed-content policy cannot be relaxed by ActionScript.');},
-      loadPolicyFile(){unsupported('System.security.loadPolicyFile','Flash crossdomain.xml files do not grant browser CORS permissions.');}
+      allowDomain(...domains){platform({op:'allow_domain',domains});},
+      allowInsecureDomain(...domains){platform({op:'allow_insecure_domain',domains});},
+      loadPolicyFile(url){platform({op:'load_policy_file',url});}
     });
     const System=Object.freeze({
       capabilities,security,IME:Object.freeze(IME),
+      get onStatus(){active();return systemOnStatus;},
+      set onStatus(fn){active();if(fn!==null&&fn!==undefined&&typeof fn!=='function')throw new TypeError('System.onStatus requires a Function or null.');systemOnStatus=fn??null;},
       get exactSettings(){return true;},set exactSettings(value){if(value!==true)unsupported('System.exactSettings','storage is isolated by the exact browser origin.');},
       get useCodepage(){return false;},set useCodepage(value){if(value!==false)unsupported('System.useCodepage','text uses Unicode; the browser OS codepage is unavailable.');},
-      setClipboard(){unsupported('System.setClipboard','synchronous clipboard writes require an explicit browser permission adapter.');},
-      showSettings(){unsupported('System.showSettings','use browser site permissions; Flash Player settings panels do not exist.');}
+      setClipboard(text){const ok=platform({op:'set_clipboard',text});if(typeof host.navigator?.clipboard?.writeText==='function')Promise.resolve(host.navigator.clipboard.writeText(text)).catch(()=>{});return ok;},
+      showSettings(tabID){const tab=platform({op:'show_settings',tab:tabID===undefined?0:tabID});options.onShowSettings?.(tab);}
     });
     function observeKeyEvent(event){active();if(typeof event?.getModifierState==='function'){core.key_toggle(20,!!event.getModifierState('CapsLock'));core.key_toggle(144,!!event.getModifierState('NumLock'));}}
-    function reset(){active();for(const value of [...records])freeRecord(value);imeListeners.reset();imeReferences.clear();imeIdentities=new WeakMap();generation++;core.reset();}
+    function reset(){active();for(const value of [...records])freeRecord(value);imeListeners.reset();imeReferences.clear();imeIdentities=new WeakMap();systemOnStatus=null;generation++;core.reset();}
     function dispose(){if(disposed)return;reset();disposed=true;document?.removeEventListener?.('compositionend',composition);imeListeners.free();core.free();}
     document?.addEventListener?.('compositionend',composition);
     function getVersion(){active();return capabilities.version;}
