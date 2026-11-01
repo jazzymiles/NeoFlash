@@ -146,6 +146,9 @@ impl Editor {
                         }
                     }
                     });
+                    if let Some(control) = self.primitive_options_properties_ui(ui, &mut element) {
+                        changes.control = Some(control);
+                    }
                     inspector_section(ui, "Behavior / linkage", |ui| {
                         if let ElementKind::Instance { symbol_id, playback } = &mut element.kind {
                             if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }

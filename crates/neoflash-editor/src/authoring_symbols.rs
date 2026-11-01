@@ -1,7 +1,8 @@
 //! Symbol authoring and the compact, frame-preserving timeline timing controls.
 use crate::{app::Editor, paint_controls::property_row};
 use eframe::egui;
-use neoflash_core::{InstancePlayback, SymbolKind};
+use neoflash_core::{ElementKind, Id, InstancePlayback, SymbolKind, new_id};
+use std::collections::HashSet;
 
 pub(crate) const BUTTON_STATES: [&str; 4] = ["Up", "Over", "Down", "Hit"];
 
@@ -108,7 +109,7 @@ impl Editor {
             let next = (draft.fps.round() as u32).clamp(1, 1000);
             if next != self.project.fps {
                 self.finish_edits();
-                self.transact(|s| {
+                self.transact_named("Frame rate", |s| {
                     s.project.fps = next;
                     s.accumulator = 0.;
                     s.last_tick = std::time::Instant::now();
@@ -193,5 +194,232 @@ impl Editor {
             control.get_or_insert(response.id);
         }
         control
+    }
+
+    /// Duplicate a non-scene Library symbol with fresh symbol, layer, element and group IDs,
+    /// unique `"<name> copy"` naming and cleared class/export linkage. One Undo step.
+    pub(crate) fn duplicate_symbol(&mut self, symbol_id: &str) -> Option<Id> {
+        if self.project.is_scene(symbol_id) {
+            return None;
+        }
+        let source = self.project.symbol(symbol_id).cloned()?;
+        self.finish_edits();
+        let existing: HashSet<String> = self
+            .project
+            .symbols
+            .iter()
+            .map(|s| s.name.to_lowercase())
+            .collect();
+        let mut name = format!("{} copy", source.name);
+        let mut n = 2_usize;
+        while existing.contains(&name.to_lowercase()) {
+            name = format!("{} copy {n}", source.name);
+            n += 1;
+        }
+        let id = new_id("symbol");
+        let mut copy = source;
+        copy.id = id.clone();
+        copy.name = name;
+        copy.class_name = None;
+        copy.linkage_id = None;
+        crate::panels::scene::refresh_timeline_ids(&mut copy.timeline);
+        self.transact_named("Duplicate symbol", |s| {
+            s.project.symbols.push(copy);
+        });
+        self.library_selected = Some(id.clone());
+        Some(id)
+    }
+
+    /// Delete a non-scene Library symbol, removing any placed instances across all symbol timelines
+    /// and exiting symbol-edit mode if currently inside it. One Undo step.
+    pub(crate) fn delete_symbol(&mut self, symbol_id: &str) -> bool {
+        if symbol_id == self.project.root || self.project.is_scene(symbol_id) {
+            self.message("Scene symbols cannot be deleted from the Library.");
+            return false;
+        }
+        let Some(name) = self.project.symbol(symbol_id).map(|s| s.name.clone()) else {
+            return false;
+        };
+        self.finish_edits();
+        let removed_instances: usize = self
+            .project
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .filter(|e| matches!(&e.kind, ElementKind::Instance { symbol_id: sid, .. } if sid == symbol_id))
+            .count();
+
+        self.transact_named("Delete symbol", |s| {
+            for owner in &mut s.project.symbols {
+                for layer in &mut owner.timeline.layers {
+                    for key in &mut layer.keyframes {
+                        key.elements.retain(|el| {
+                            !matches!(&el.kind, ElementKind::Instance { symbol_id: sid, .. } if sid == symbol_id)
+                        });
+                    }
+                    layer.normalize_motion_keys();
+                }
+            }
+            s.project.symbols.retain(|symbol| symbol.id != symbol_id);
+        });
+
+        if let Some(pos) = self.editing.iter().position(|id| id == symbol_id) {
+            self.editing.truncate(pos);
+            if self.editing.is_empty() {
+                self.editing.push(self.project.root.clone());
+            }
+            self.frame = 0;
+            self.layer = 0;
+            self.clear_selection();
+        }
+        if self.library_selected.as_deref() == Some(symbol_id) {
+            self.library_selected = None;
+        }
+        self.normalize_selection();
+        if removed_instances > 0 {
+            self.message(format!(
+                "Deleted symbol “{name}” and {removed_instances} placed instance{}.",
+                if removed_instances == 1 { "" } else { "s" }
+            ));
+        } else {
+            self.message(format!("Deleted symbol “{name}”."));
+        }
+        true
+    }
+
+    /// Whether the editable selection contains at least one symbol instance that can be swapped to
+    /// `target_symbol_id` without introducing a cyclic symbol reference.
+    pub(crate) fn can_swap_instance_symbol(&self, target_symbol_id: &str) -> bool {
+        if self.project.is_scene(target_symbol_id)
+            || self.project.symbol(target_symbol_id).is_none()
+        {
+            return false;
+        }
+        if crate::app::reaches(
+            &self.project,
+            target_symbol_id,
+            self.symbol_id(),
+            &mut HashSet::new(),
+        ) {
+            return false;
+        }
+        self.sampled_targets().into_iter().any(|(target, element)| {
+            self.target_editable(&target)
+                && matches!(
+                    &element.kind,
+                    ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id
+                )
+        })
+    }
+
+    /// Swap editable selected symbol instances to `target_symbol_id`, preserving transform,
+    /// instance name, scripts, accessibility and compatible playback settings. Rejects cycles.
+    /// One Undo step.
+    pub(crate) fn swap_instance_symbol(&mut self, target_symbol_id: &str) -> bool {
+        if self.project.is_scene(target_symbol_id) {
+            return false;
+        }
+        let Some((target_kind, target_frames)) = self
+            .project
+            .symbol(target_symbol_id)
+            .map(|s| (s.kind, s.timeline.frame_count.max(1)))
+        else {
+            return false;
+        };
+        let swappable: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter_map(|(target, element)| {
+                if !self.target_editable(&target) {
+                    return None;
+                }
+                match &element.kind {
+                    ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id => {
+                        let old_kind = self.project.symbol(symbol_id).map(|s| s.kind);
+                        Some((target, old_kind))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        if swappable.is_empty() {
+            return false;
+        }
+        if crate::app::reaches(
+            &self.project,
+            target_symbol_id,
+            self.symbol_id(),
+            &mut HashSet::new(),
+        ) {
+            self.message("Cannot swap to this symbol: it would create a recursive symbol.");
+            return false;
+        }
+        self.finish_edits();
+        self.transact_named("Swap symbol", |s| {
+            for (target, old_kind) in swappable {
+                s.ensure_key_for(&target.layer, false);
+                let frame = s.frame;
+                if let Some(layer) = s
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                    && let Some(element) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                    && let ElementKind::Instance {
+                        symbol_id,
+                        playback,
+                    } = &mut element.kind
+                {
+                    *playback = adapt_swapped_playback(*playback, old_kind, target_kind, target_frames);
+                    *symbol_id = target_symbol_id.to_owned();
+                }
+            }
+        });
+        true
+    }
+}
+
+fn adapt_swapped_playback(
+    playback: InstancePlayback,
+    old_kind: Option<SymbolKind>,
+    target_kind: SymbolKind,
+    target_frames: u32,
+) -> InstancePlayback {
+    let max_frame = target_frames.saturating_sub(1);
+    let clamp = |p: InstancePlayback| match p {
+        InstancePlayback::SingleFrame(f) => InstancePlayback::SingleFrame(f.min(max_frame)),
+        InstancePlayback::LoopFrom(f) => {
+            let f = f.min(max_frame);
+            if f == 0 {
+                InstancePlayback::Loop
+            } else {
+                InstancePlayback::LoopFrom(f)
+            }
+        }
+        InstancePlayback::PlayOnceFrom(f) => {
+            let f = f.min(max_frame);
+            if f == 0 {
+                InstancePlayback::PlayOnce
+            } else {
+                InstancePlayback::PlayOnceFrom(f)
+            }
+        }
+        other => other,
+    };
+    if old_kind == Some(target_kind) {
+        return clamp(playback);
+    }
+    match target_kind {
+        SymbolKind::MovieClip => InstancePlayback::Independent,
+        SymbolKind::Button => InstancePlayback::SingleFrame(0),
+        SymbolKind::Graphic => match playback {
+            InstancePlayback::Independent => InstancePlayback::Loop,
+            other => clamp(other),
+        },
     }
 }

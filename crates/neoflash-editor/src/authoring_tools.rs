@@ -1521,9 +1521,8 @@ impl Editor {
         }
     }
 
-    /// 2-line hook for `panels/properties.rs`: renders NF2 `Rectangle options` or `Oval options`
-    /// for a selected `Rectangle` or `Ellipse`, returning `Some(control_id)` when `element` changed.
-    #[allow(dead_code)]
+    /// Renders NF2 `Rectangle options` or `Oval options` in Properties for a selected
+    /// `Rectangle` or `Ellipse`, returning `Some(control_id)` when `element` changed.
     pub(crate) fn primitive_options_properties_ui(
         &mut self,
         ui: &mut egui::Ui,

@@ -1,7 +1,7 @@
-//! Planned previews of small panels: Debugger, Project, Code snippets (`scripting-panels.png`), Compiler errors,
-//! Info (`panels-more-2.png`), History, Swatches (`panels-more.png`, `swatches-popover.png`)
-//! and movie clip Display & Filters (`panel-properties-movie-clip.png`). All values are fixed samples from the reference.
-use super::planned::{caption, check, mono, num, select, switch, type_header};
+//! Planned previews of small panels: Debugger, Code snippets (`scripting-panels.png`), Compiler errors
+//! (`panels-more-2.png`) and movie clip Display & Filters (`panel-properties-movie-clip.png`).
+//! All values are fixed samples from the reference.
+use super::planned::{caption, check, num, select, switch, type_header};
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
@@ -158,44 +158,6 @@ pub(super) fn debugger(ui: &mut Ui) {
     });
 }
 
-/// Panel / Project.
-pub(super) fn project(ui: &mut Ui) {
-    ui.spacing_mut().item_spacing.y = space::S1;
-    let w = ui.available_width();
-    select(ui, "Ideas in motion (project)", w);
-    search(ui, "Find file");
-    c::TreeItem::new("src", c::TreeItemType::FolderOpen).show(ui);
-    c::TreeItem::new("com/neoflash", c::TreeItemType::FolderOpen)
-        .depth(1)
-        .show(ui);
-    c::TreeItem::new("Orbit.as  ●", c::TreeItemType::Symbol(i16::FILE_CODE))
-        .depth(2)
-        .selected(true)
-        .show(ui);
-    c::TreeItem::new("Planet.as", c::TreeItemType::Symbol(i16::FILE_CODE))
-        .depth(2)
-        .show(ui);
-    c::TreeItem::new("Main.as", c::TreeItemType::Symbol(i16::FILE_CODE))
-        .depth(2)
-        .show(ui);
-    c::TreeItem::new("assets", c::TreeItemType::FolderClosed).show(ui);
-    c::TreeItem::new("publish", c::TreeItemType::FolderClosed).show(ui);
-    c::TreeItem::new("ideas.nfl", c::TreeItemType::Symbol(i16::NEW_FILE)).show(ui);
-    c::TreeItem::new("project.json", c::TreeItemType::Symbol(i16::CODE)).show(ui);
-    ui.horizontal(|ui| {
-        let _ = ui.add(c::IconButton::new(i16::NEW_FILE, "New file"));
-        let _ = ui.add(c::IconButton::new(i16::FOLDERPLUS, "New folder"));
-        let _ = ui.add(c::IconButton::new(i16::TRASH, "Delete"));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let _ = ui.add(c::Button::new("Publish"));
-        });
-    });
-    caption(
-        ui,
-        "● unsaved changes · Orbit.as is linked to symbol \"orbit\"",
-    );
-}
-
 /// Panel / Code snippets.
 pub(super) fn code_snippets(ui: &mut Ui) {
     let nf = neoflash_ui::palette(ui.ctx());
@@ -288,98 +250,6 @@ pub(super) fn compiler_errors(ui: &mut Ui) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let _ = ui.add(c::IconButton::new(i16::EXTERNAL, "Go to source"));
             });
-        });
-    }
-}
-
-/// Panel / History.
-pub(super) fn history(ui: &mut Ui) {
-    ui.scope(|ui| {
-        c::menu::menu_style(ui.style_mut());
-        ui.add(c::MenuItem::new("Oval"));
-        ui.add(c::MenuItem::new("Move"));
-        ui.add(c::MenuItem::new("Fill colour").checked(true));
-        ui.add(c::MenuItem::new("Transform"));
-        ui.add(c::MenuItem::new("Delete"));
-    });
-    ui.add_space(space::S2);
-    action_row(
-        ui,
-        &[(i16::UNDO, "Undo"), (i16::REDO, "Redo")],
-        &[(i16::TRASH, "Clear history")],
-    );
-}
-
-/// Panel / Swatches (same content as the Swatches popover).
-pub(super) fn swatches(ui: &mut Ui) {
-    let palette = c::default_palette();
-    let pick = |i: usize| palette[i % palette.len()];
-    let recent: Vec<_> = [65, 26, 67, 25, 0, 11, 24, 64, 62, 33, 1, 7]
-        .into_iter()
-        .map(pick)
-        .collect();
-    let document: Vec<_> = [1, 67, 25, 10, 7, 79].into_iter().map(pick).collect();
-    let gradients = [
-        c::GradientSwatch {
-            from: pick(0),
-            to: pick(11),
-            radial: false,
-        },
-        c::GradientSwatch {
-            from: pick(11),
-            to: pick(26),
-            radial: false,
-        },
-        c::GradientSwatch {
-            from: pick(67),
-            to: pick(91),
-            radial: false,
-        },
-        c::GradientSwatch {
-            from: pick(48),
-            to: pick(84),
-            radial: true,
-        },
-        c::GradientSwatch {
-            from: pick(53),
-            to: pick(89),
-            radial: true,
-        },
-        c::GradientSwatch {
-            from: pick(50),
-            to: pick(48),
-            radial: false,
-        },
-    ];
-    let mut color = recent[0];
-    c::SwatchesPopover {
-        color: &mut color,
-        recent: &recent,
-        document: &document,
-        palette: &palette,
-        gradients: &gradients,
-    }
-    .show(ui);
-}
-
-/// Panel / Info.
-pub(super) fn info(ui: &mut Ui) {
-    let half = (ui.available_width() - space::S2) / 2.0;
-    ui.horizontal(|ui| {
-        num(ui, 163.0, "Width", "W", "", 1, half);
-        num(ui, 163.0, "Height", "H", "", 1, half);
-    });
-    ui.horizontal(|ui| {
-        num(ui, 412.0, "X", "X", "", 1, half);
-        num(ui, 160.0, "Y", "Y", "", 1, half);
-    });
-    for (label, value) in [
-        ("Cursor", "X 486   Y 233"),
-        ("Colour", "R 91  G 140  B 255  A 100%"),
-    ] {
-        ui.horizontal(|ui| {
-            super::planned::form_label(ui, label, 64.0);
-            mono(ui, value);
         });
     }
 }

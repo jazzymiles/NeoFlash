@@ -119,11 +119,6 @@ const ERASER: ToolSpec = spec(Tool::Eraser, Icon::Eraser, "Eraser", "E", "Eraser
 const HAND: ToolSpec = spec(Tool::Hand, Icon::Hand, "Hand", "H", "Hand (H / hold Space)");
 const ZOOM: ToolSpec = spec(Tool::Zoom, Icon::ZoomIn, "Zoom", "Z", "Zoom (Z / M)");
 
-const _LEGACY_TOOLS_PLANNED_ENTRIES: (&str, &str) = (
-    "Swatches popover ▸ Gradient",
-    "Tool options ▸ PolyStar settings…",
-);
-
 /// 1 Column rail: sections (separated by dividers) of tool groups (one button + flyout each).
 const RAIL: &[&[&[ToolSpec]]] = &[
     &[&[SELECT, SUBSELECT], &[TRANSFORM, GRADIENT], &[LASSO]],

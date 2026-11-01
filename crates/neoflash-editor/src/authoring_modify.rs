@@ -41,13 +41,6 @@ impl PaintFillType {
     }
 }
 
-/// Entry-point names retained for menu coverage while `ColorGradient` is now live in `PanelId::Color`.
-#[allow(dead_code)]
-const LEGACY_COLOR_GRADIENT_ENTRIES: [&str; 2] = [
-    "Color fill type ▸ Linear gradient",
-    "Color fill type ▸ Radial gradient",
-];
-
 pub(crate) struct AuthoringModify {
     pub to_stage: bool,
     pub horizontal_gap: f64,

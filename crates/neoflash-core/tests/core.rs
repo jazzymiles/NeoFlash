@@ -576,9 +576,11 @@ fn history_groups_drag_and_invalidates_redo_on_new_edit() {
     h.begin(&p);
     p.name = "drag final".into();
     assert!(h.commit(&p));
+    assert_eq!(h.undo_label(), Some("Edit"));
     assert!(h.undo(&mut p));
     assert_eq!(p, original);
     assert!(!h.can_undo());
+    assert_eq!(h.redo_label(), Some("Edit"));
     assert!(h.redo(&mut p));
     assert_eq!(p.name, "drag final");
     assert!(h.undo(&mut p));
@@ -592,6 +594,48 @@ fn history_groups_drag_and_invalidates_redo_on_new_edit() {
     assert_eq!(p.name, "other");
     h.begin(&p);
     assert!(!h.commit(&p));
+
+    // Named steps preserve chronological labels across undo, redo and step_to.
+    let mut p = Project::blank();
+    let mut h = History::new(10);
+    for (label, name) in [
+        ("Oval", "step-1"),
+        ("Move", "step-2"),
+        ("Fill colour", "step-3"),
+        ("Transform", "step-4"),
+        ("Delete", "step-5"),
+    ] {
+        h.begin_named(&p, label);
+        p.name = name.into();
+        assert!(h.commit(&p));
+    }
+    assert_eq!(
+        h.undo_labels().collect::<Vec<_>>(),
+        vec!["Oval", "Move", "Fill colour", "Transform", "Delete"]
+    );
+    assert!(h.step_to(&mut p, 3));
+    assert_eq!(p.name, "step-3");
+    assert_eq!(h.undo_len(), 3);
+    assert_eq!(h.redo_len(), 2);
+    assert_eq!(h.undo_label(), Some("Fill colour"));
+    assert_eq!(h.redo_label(), Some("Transform"));
+    assert_eq!(
+        h.undo_labels().collect::<Vec<_>>(),
+        vec!["Oval", "Move", "Fill colour"]
+    );
+    assert_eq!(
+        h.redo_labels().collect::<Vec<_>>(),
+        vec!["Transform", "Delete"]
+    );
+    assert!(!h.step_to(&mut p, 3));
+    assert!(h.step_to(&mut p, 0));
+    assert_eq!(p.name, original.name);
+    assert_eq!(h.undo_len(), 0);
+    assert_eq!(h.redo_len(), 5);
+    assert!(h.step_to(&mut p, 5));
+    assert_eq!(p.name, "step-5");
+    assert_eq!(h.undo_len(), 5);
+    assert_eq!(h.redo_len(), 0);
 }
 
 #[test]

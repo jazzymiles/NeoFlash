@@ -1,7 +1,7 @@
 //! Planned previews of drawing-tool panels: Properties — Oval primitive (`panel-properties-oval-primitive.png`),
-//! Rectangle primitive and PolyStar tool settings (`drawing-tools-panels.png`), Deco tool, Spray brush and
+//! Rectangle primitive (`drawing-tools-panels.png`), Deco tool, Spray brush and
 //! IK bone (`drawing-tools-panels-2.png`). Fixed sample values; sample artwork colours are HSV data.
-use super::planned::{caption, check, form_label, num, select, stepper, switch, text};
+use super::planned::{check, form_label, num, select, stepper, switch, text};
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
@@ -168,52 +168,6 @@ pub(super) fn properties_rect(ui: &mut Ui) {
         ui.add(c::Slider::new(&mut v, 0.0..=100.0, "Corner radius").width(2.0 * w + space::S2));
         let _ = ui.add(c::Button::ghost("Reset"));
     });
-}
-
-/// Dialog / PolyStar tool settings.
-pub(super) fn polystar(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 20.0;
-        let (frame, _) = ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
-        ui.painter().rect_filled(
-            frame,
-            egui::CornerRadius::same(radius::LG as u8),
-            nf.bg_canvas,
-        );
-        // Sample star (5 points, point size 0.5) in the 90 × 90 artwork box.
-        let center = frame.center();
-        let points: Vec<egui::Pos2> = (0..10)
-            .map(|i| {
-                let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
-                let r = if i % 2 == 0 { 45.0 } else { 22.5 };
-                center + egui::vec2(a.cos(), a.sin()) * r
-            })
-            .collect();
-        let fill: Color32 = hsv(0.6, 0.75, 0.75, 1.0).into();
-        // Concave star: fill as triangles from the centre, then outline.
-        for i in 0..10 {
-            ui.painter().add(egui::Shape::convex_polygon(
-                vec![center, points[i], points[(i + 1) % 10]],
-                fill,
-                egui::Stroke::NONE,
-            ));
-        }
-        ui.painter().add(egui::Shape::closed_line(
-            points,
-            egui::Stroke::new(2.0_f32, Color32::from(hsv(0.0, 0.0, 0.0, 1.0))),
-        ));
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 10.0;
-            let w = ui.available_width();
-            select(ui, "Style: Star", w);
-            stepper(ui, 5.0, "Sides", "Sides", "", 0, w);
-            stepper(ui, 0.5, "Point size", "Point size", "", 2, w);
-            caption(ui, "Point size 0–1: smaller = sharper points");
-        });
-    });
-    buttons(ui, &["Cancel", "OK"]);
 }
 
 /// Right-aligned dialog buttons (last = primary), no separator.

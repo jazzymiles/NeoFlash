@@ -610,55 +610,6 @@ fn prefs_updates(ui: &mut Ui) {
 
 // ── Document and publish ──
 
-/// Dialog / Document settings.
-pub(super) fn document_settings(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    const L: f32 = 100.0;
-    ui.spacing_mut().item_spacing.y = space::S3;
-    ui.horizontal(|ui| {
-        form_label(ui, "Stage size", L);
-        num(ui, 960.0, "Stage width", "W", "", 0, 120.0);
-        num(ui, 600.0, "Stage height", "H", "", 0, 120.0);
-        let _ = ui.add(c::IconButton::new(i16::LINK, "Constrain proportions").selected(true));
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "", L);
-        let _ = ui.add(c::Button::ghost("Match contents"));
-        let _ = ui.add(c::Button::ghost("Match printer"));
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "Scale", L);
-        check(ui, true, "Scale content with stage");
-        let mut point = c::RegistrationPoint::TopLeft;
-        ui.add(c::RegistrationPicker { point: &mut point });
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "Units", L);
-        select(ui, "Pixels", 160.0);
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "Background", L);
-        let mut color = nf.bg_stage;
-        c::ColorField::new(&mut color, "Background")
-            .width(200.0)
-            .show(ui);
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "Frame rate", L);
-        stepper(ui, 24.0, "Frame rate", "fps", "", 2, 140.0);
-        caption(ui, "120 frames · 5.00 s");
-    });
-    ui.horizontal(|ui| {
-        form_label(ui, "Script", L);
-        select(ui, "ActionScript 3.0 · strict", 220.0);
-    });
-    caption(
-        ui,
-        "Stage size, background and frame rate are editable now in Properties › Document.",
-    );
-    footer(ui, "", Some("Make default"), &["Cancel", "OK"]);
-}
-
 /// Dialog / Publish settings.
 pub(super) fn publish_settings(ui: &mut Ui) {
     let nf = neoflash_ui::palette(ui.ctx());
