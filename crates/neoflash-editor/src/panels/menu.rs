@@ -46,7 +46,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Panel menus (§6).
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
     ("Library menu ▸ Sound properties…", P::SoundProperties),
-    ("Library menu ▸ Edit envelope…", P::EditEnvelope),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
     ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
@@ -102,6 +101,7 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
 enum ConvertedTrigger {
     DocumentSettings,
     AddSwatch,
+    EditEnvelope,
 }
 
 fn converted_triggers_id() -> egui::Id {
@@ -118,6 +118,7 @@ impl Editor {
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
+            "Library menu ▸ Edit envelope…" => Some(ConvertedTrigger::EditEnvelope),
             _ => None,
         };
         if let Some(trigger) = converted {
@@ -147,6 +148,7 @@ impl Editor {
                     self.add_active_swatch(ctx);
                     self.show_panel(PanelId::Swatches);
                 }
+                ConvertedTrigger::EditEnvelope => self.open_edit_envelope(),
             }
         }
     }

@@ -57,7 +57,8 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
                         Some(old_key) if old_key.keyed_properties.is_some() => {
                             old_key.elements.clone()
                         }
-                        _ => sample_layer(old, key.frame),
+                        _ if keyed.is_empty() => sample_layer(old, key.frame),
+                        _ => continue,
                     };
                     for element in &key.elements {
                         let Some(previous) = reference.iter().find(|e| e.id == element.id) else {
@@ -194,10 +195,18 @@ impl Editor {
                     };
                     key.tween = Some(key.tween.unwrap_or(default));
                     key.tween_kind = kind;
+                    if kind != TweenKind::Motion {
+                        key.property_eases.clear();
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
+                    }
                 } else if in_span && key.frame > start && key.keyed_properties.is_some() {
                     if kind != TweenKind::Motion {
                         key.keyed_properties = None;
                         key.tween_kind = kind;
+                        key.property_eases.clear();
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
                     }
                 } else if key.frame > start {
                     in_span = false;
@@ -236,6 +245,9 @@ impl Editor {
                 key.tween = None;
                 key.tween_kind = TweenKind::Classic;
                 key.orient_to_path = false;
+                key.property_eases.clear();
+                key.sync_symbols = false;
+                key.snap_to_guide = false;
             }
         });
     }

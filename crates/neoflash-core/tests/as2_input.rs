@@ -381,6 +381,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
             orient_to_path: false,
             sound: None,
             label: "ready".into(),
+            ..Default::default()
         });
     project.symbols[0].timeline.scripts = vec![
         FrameScript {
@@ -436,6 +437,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
                         orient_to_path: false,
                         sound: None,
                         label: "".into(),
+                        ..Default::default()
                     },
                     Keyframe {
                         frame: 1,
@@ -446,6 +448,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
                         orient_to_path: false,
                         sound: None,
                         label: "helper".into(),
+                        ..Default::default()
                     },
                 ],
             }],

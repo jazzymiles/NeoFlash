@@ -13,7 +13,7 @@
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
-//! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Edit envelope, Stroke style, Font
+//! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Stroke style, Font
 //! embedding, Test Movie window, Find and replace, Movie Explorer, Symbols & scenes popover).
 use crate::app::Editor;
 use crate::theme::ThemeMode;
@@ -44,7 +44,6 @@ pub(crate) enum PlannedPanel {
     BoneProperties,
     GraphicProperties,
     LayerProperties,
-    EditEnvelope,
     StrokeStyle,
     FontEmbedding,
     TestMovie,
@@ -70,7 +69,7 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 26] = [
+    pub(crate) const ALL: [Self; 25] = [
         Self::Debugger,
         Self::CodeSnippets,
         Self::CompilerErrors,
@@ -90,7 +89,6 @@ impl PlannedPanel {
         Self::BoneProperties,
         Self::GraphicProperties,
         Self::LayerProperties,
-        Self::EditEnvelope,
         Self::StrokeStyle,
         Self::FontEmbedding,
         Self::TestMovie,
@@ -121,7 +119,6 @@ impl PlannedPanel {
             Self::BoneProperties => "Properties — IK bone",
             Self::GraphicProperties => "Properties — Graphic looping",
             Self::LayerProperties => "Layer properties",
-            Self::EditEnvelope => "Edit envelope",
             Self::StrokeStyle => "Stroke style",
             Self::FontEmbedding => "Font embedding",
             Self::TestMovie => "Test Movie",
@@ -141,9 +138,7 @@ impl PlannedPanel {
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
-            Self::SoundProperties | Self::EditEnvelope | Self::StrokeStyle => {
-                "dialogs-sound-stroke.png"
-            }
+            Self::SoundProperties | Self::StrokeStyle => "dialogs-sound-stroke.png",
             Self::PropertiesOvalPrimitive => "panel-properties-oval-primitive.png",
             Self::PropertiesRectPrimitive => "drawing-tools-panels.png",
             Self::DecoTool | Self::SprayBrush | Self::BoneProperties => {
@@ -202,7 +197,6 @@ impl PlannedPanel {
             Self::CodeSnippets => 340.,
             Self::PropertiesFilters => 324.,
             Self::TestMovie => 1000.,
-            Self::EditEnvelope => 680.,
             Self::FindReplace => 640.,
             Self::FontEmbedding => 760.,
             Self::StrokeStyle => 480.,
@@ -616,7 +610,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::BoneProperties => super::planned_drawing::bone(ui),
             P::GraphicProperties => super::planned_documents::graphic_properties(ui),
             P::LayerProperties => super::planned_documents::layer_properties(ui),
-            P::EditEnvelope => super::planned_documents::edit_envelope(ui),
             P::StrokeStyle => super::planned_documents::stroke_style(ui),
             P::FontEmbedding => super::planned_documents::font_embedding(ui),
             P::TestMovie => super::planned_documents::test_movie(ui),

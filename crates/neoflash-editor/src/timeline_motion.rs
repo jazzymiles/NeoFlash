@@ -20,6 +20,7 @@ pub(crate) struct MotionState {
 pub(crate) struct MotionClip {
     kind: TweenKind,
     ease: Easing,
+    property_eases: Vec<(TweenProperty, Easing)>,
     orient_to_path: bool,
     /// Frames from the span start to its end key (classic) or span end (motion).
     length: u32,
@@ -176,6 +177,7 @@ impl Editor {
             return Ok(MotionClip {
                 kind: TweenKind::Motion,
                 ease: start.tween.unwrap_or(Easing::Linear),
+                property_eases: start.property_eases.clone(),
                 orient_to_path: start.orient_to_path,
                 length: end - start.frame,
                 keys,
@@ -206,6 +208,7 @@ impl Editor {
         Ok(MotionClip {
             kind: TweenKind::Classic,
             ease,
+            property_eases: vec![],
             orient_to_path: key.orient_to_path,
             length: next.frame - key.frame,
             keys: vec![
@@ -307,6 +310,11 @@ impl Editor {
                 if i == 0 {
                     key.tween = Some(clip.ease);
                     key.tween_kind = clip.kind;
+                    key.property_eases = if clip.kind == TweenKind::Motion {
+                        clip.property_eases.clone()
+                    } else {
+                        vec![]
+                    };
                     key.orient_to_path = clip.orient_to_path;
                     key.keyed_properties = None;
                 } else if clip.kind == TweenKind::Motion {
@@ -378,8 +386,9 @@ impl Editor {
         })
     }
 
-    fn motion_paths_interactive(&self) -> bool {
-        matches!(self.tool, Tool::Select | Tool::Transform)
+    pub(crate) fn motion_paths_interactive(&self) -> bool {
+        self.workspace.timeline.show_motion_path
+            && matches!(self.tool, Tool::Select | Tool::Transform)
             && self
                 .selection
                 .single()
@@ -388,6 +397,9 @@ impl Editor {
 
     /// Start dragging the key point at `frame` of the selected object's motion path.
     pub(crate) fn begin_motion_key_drag(&mut self, frame: u32, press: [f64; 2]) -> bool {
+        if !self.workspace.timeline.show_motion_path {
+            return false;
+        }
         let Some(path) = self.motion_path() else {
             return false;
         };
@@ -418,10 +430,28 @@ impl Editor {
             self.timeline_motion.drag = None;
             return;
         }
-        let to = [
+        let mut to = [
             drag.start[0] + pointer[0] - drag.press[0],
             drag.start[1] + pointer[1] - drag.press[1],
         ];
+        {
+            let timeline = &self.symbol().timeline;
+            if let Some(layer) = timeline.layers.iter().find(|l| l.id == drag.layer)
+                && let Some((start, _, _)) = motion_span(layer, drag.frame)
+                && start.snap_to_guide
+                && let Some(guide_id) = layer.properties.motion_guide.as_deref()
+                && let Some(guide) = timeline
+                    .layers
+                    .iter()
+                    .find(|l| l.id == guide_id && l.properties.role == LayerRole::Guide)
+                && let Some(path) = guide_polyline(guide, start.frame)
+            {
+                let snapped = path.point_at(path.nearest(to));
+                if (snapped[0] - to[0]).hypot(snapped[1] - to[1]) <= 12.0 {
+                    to = snapped;
+                }
+            }
+        }
         if !drag.began {
             if (to[0] - drag.start[0]).abs() < 1e-9 && (to[1] - drag.start[1]).abs() < 1e-9 {
                 return;
@@ -546,13 +576,24 @@ impl Editor {
 
     /// `NF2/Motion Path` for the selected motion-tweened object, in screen points.
     pub(crate) fn paint_motion_path(&self, painter: &egui::Painter, origin: Pos2) {
+        if !self.workspace.timeline.show_motion_path {
+            return;
+        }
         let Some(path) = self.motion_path() else {
             return;
         };
         let zoom = self.zoom;
         let screen = |p: [f64; 2]| origin + egui::vec2(p[0] as f32, p[1] as f32) * zoom;
         let frames: Vec<Pos2> = path.frames.iter().map(|p| screen(*p)).collect();
-        cv::paint_motion_path(painter, painter.ctx(), &frames);
+        if self.workspace.timeline.show_motion_frame_dots {
+            cv::paint_motion_path(painter, painter.ctx(), &frames);
+        } else if frames.len() >= 2 {
+            let nf = neoflash_ui::palette(painter.ctx());
+            painter.add(egui::Shape::line(
+                frames,
+                egui::Stroke::new(1.0_f32, nf.guide),
+            ));
+        }
         let dragged = self.timeline_motion.drag.as_ref().map(|d| d.frame);
         for (frame, at) in &path.keys {
             let state = if dragged == Some(*frame) {

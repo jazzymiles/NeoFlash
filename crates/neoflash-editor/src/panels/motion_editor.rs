@@ -3,9 +3,9 @@
 //! navigation — and a curve lane through the property's keys over the span.
 //!
 //! ◆ toggles the property's key at the playhead; the value field keys the property there; dragging a
-//! key on the selected (expanded) lane edits its value; clicking a lane moves the playhead. Each
-//! change is one Undo step (one per drag). Per-property eases need per-property ease data in the
-//! document, so the Ease column shows the span ease.
+//! key on the selected (expanded) lane edits its value and frame (◆ interior keys); clicking a lane
+//! moves the playhead; the Ease column edits per-property ease overrides. Each change is one Undo
+//! step (one per drag).
 use super::planned::caption;
 use crate::app::Editor;
 use crate::theme::ScrollTheme as _;
@@ -103,7 +103,7 @@ fn state_id() -> egui::Id {
     egui::Id::new("nf2-motion-editor")
 }
 
-/// Name of the span ease in the Ease column.
+/// Name of an ease in the Ease column.
 fn ease_name(easing: Easing) -> &'static str {
     match easing {
         Easing::Linear => "No ease",
@@ -112,6 +112,11 @@ fn ease_name(easing: Easing) -> &'static str {
         Easing::EaseIn => "Ease in",
         Easing::EaseOut => "Ease out",
         Easing::EaseInOut => "Ease in-out",
+        Easing::Bounce => "Bounce",
+        Easing::Elastic => "Elastic",
+        Easing::CubicBezier { x1, y1, x2, y2 } if [x1, y1, x2, y2] == super::ease::BACK_OUT => {
+            "Back"
+        }
         Easing::CubicBezier { .. } => "Custom",
     }
 }
@@ -298,12 +303,34 @@ impl Editor {
                         if lane_response.dragged()
                             && let Some(p) = lane_response.interact_pointer_pos()
                         {
+                            let active_frame = if drag.frame > span.start
+                                && span.end > span.start + 1
+                            {
+                                let target = frame_at(p.x).clamp(span.start + 1, span.end - 1);
+                                if target != drag.frame {
+                                    self.move_motion_key(
+                                        &span,
+                                        property,
+                                        drag.frame,
+                                        target,
+                                        Some(lane_response.id),
+                                    )
+                                    .unwrap_or(drag.frame)
+                                } else {
+                                    drag.frame
+                                }
+                            } else {
+                                drag.frame
+                            };
+                            if let Some(d) = &mut state.drag {
+                                d.frame = active_frame;
+                            }
                             let t = f64::from((inner.bottom() - p.y) / inner.height());
                             let value = drag.range.0 + t * (drag.range.1 - drag.range.0);
                             self.set_motion_value(
                                 &span,
                                 property,
-                                drag.frame,
+                                active_frame,
                                 value,
                                 Some(lane_response.id),
                             );
@@ -359,15 +386,72 @@ impl Editor {
                                 Some(response.id),
                             );
                         }
-                        ui.add_enabled_ui(false, |ui| {
-                            let (ease, _) = c::Select::new(
+                        let override_ease = span.property_override(property);
+                        let shown_ease = override_ease.unwrap_or(span.easing);
+                        let mut picked_ease: Option<Option<Easing>> = None;
+                        let mut open_curve = false;
+                        ui.add_enabled_ui(editable, |ui| {
+                            c::Select::new(
                                 ("motion-editor-ease", *name),
-                                ease_name(span.easing),
+                                ease_name(shown_ease),
                             )
                             .width(120.0)
-                            .show(ui, |_| {});
-                            c::not_available(ease, "Per-property ease");
+                            .show(ui, |ui| {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new("Same as span")
+                                            .checked(override_ease.is_none()),
+                                    )
+                                    .clicked()
+                                {
+                                    picked_ease = Some(None);
+                                    ui.close();
+                                }
+                                c::menu_separator(ui);
+                                let [bx1, by1, bx2, by2] = super::ease::BACK_OUT;
+                                for (choice, label) in [
+                                    (Easing::Linear, "No ease"),
+                                    (Easing::EaseIn, "Ease in"),
+                                    (Easing::EaseOut, "Ease out"),
+                                    (Easing::EaseInOut, "Ease in-out"),
+                                    (
+                                        Easing::CubicBezier {
+                                            x1: bx1,
+                                            y1: by1,
+                                            x2: bx2,
+                                            y2: by2,
+                                        },
+                                        "Back",
+                                    ),
+                                    (Easing::Bounce, "Bounce"),
+                                    (Easing::Elastic, "Elastic"),
+                                ] {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(label)
+                                                .checked(override_ease == Some(choice)),
+                                        )
+                                        .clicked()
+                                    {
+                                        picked_ease = Some(Some(choice));
+                                        ui.close();
+                                    }
+                                }
+                                c::menu_separator(ui);
+                                if ui.add(c::MenuItem::new("Edit curve…")).clicked() {
+                                    open_curve = true;
+                                    ui.close();
+                                }
+                            });
                         });
+                        if let Some(choice) = picked_ease {
+                            state.selected = property;
+                            self.set_motion_property_ease(&span, property, choice);
+                        }
+                        if open_curve {
+                            state.selected = property;
+                            self.open_ease_for_property(&ctx, property);
+                        }
                         let previous = key_frames.iter().rev().find(|f| **f < self.frame).copied();
                         let next = key_frames.iter().find(|f| **f > self.frame).copied();
                         if ui

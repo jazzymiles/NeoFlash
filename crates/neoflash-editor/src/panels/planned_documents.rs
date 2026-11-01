@@ -1,5 +1,5 @@
-//! Planned previews of symbol, layer, sound, stroke, font and document surfaces: Properties — Graphic looping and
-//! Layer properties (`symbols-panels.png`), Edit envelope and Stroke style (`dialogs-sound-stroke.png`), Font
+//! Planned previews of symbol, layer, stroke, font and document surfaces: Properties — Graphic looping and
+//! Layer properties (`symbols-panels.png`), Stroke style (`dialogs-sound-stroke.png`), Font
 //! embedding and the Test Movie window (`publish-misc-dialogs.png`), Find and replace and Movie Explorer
 //! (`document-dialogs.png`), Symbols & scenes popover (`interface/*/png/editor-editing-symbol-in-place.png`).
 //! Fixed sample values; sample artwork / document colours are HSV data, never UI tokens.
@@ -154,68 +154,6 @@ pub(super) fn layer_properties(ui: &mut Ui) {
     });
     select(ui, "Layer height: 100 %", 200.0);
     buttons(ui, &["Cancel", "OK"]);
-}
-
-/// Dialog / Edit envelope.
-pub(super) fn edit_envelope(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.spacing_mut().item_spacing.y = space::S3;
-    ui.horizontal(|ui| {
-        select(ui, "Effect: Fade in", 200.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut unit = 0;
-            c::Segmented::show(ui, &mut unit, &[(0, "Seconds"), (1, "Frames")], false);
-        });
-    });
-    let mut left = vec![(0.0, 0.0), (0.19, 1.0), (0.75, 1.0), (1.0, 0.4)];
-    ui.add(c::EnvelopeLane {
-        channel: "L",
-        points: &mut left,
-        selected: Some(1),
-        height: 96.0,
-    });
-    // Time ruler: 0–32 s of the 32.4 s sound.
-    let (ruler, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-    for s in (0..=32).step_by(4) {
-        let x = ruler.left() + s as f32 / 32.4 * ruler.width();
-        let align = if s == 0 {
-            egui::Align2::LEFT_CENTER
-        } else {
-            egui::Align2::CENTER_CENTER
-        };
-        ui.painter().text(
-            egui::pos2(x, ruler.center().y),
-            align,
-            format!("{s}s"),
-            neoflash_ui::typography::font(TextStyle::MonoSmall),
-            nf.text_tertiary,
-        );
-    }
-    let mut right = vec![(0.0, 0.0), (0.24, 1.0), (0.75, 1.0), (1.0, 0.4)];
-    ui.add(c::EnvelopeLane {
-        channel: "R",
-        points: &mut right,
-        selected: None,
-        height: 96.0,
-    });
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S1;
-        let _ = ui.add(c::IconButton::new(i16::PLAY, "Play"));
-        let _ = ui.add(c::IconButton::new(i16::STOP, "Stop"));
-        let _ = ui.add(c::IconButton::new(i16::ZOOMIN, "Zoom in"));
-        let _ = ui.add(c::IconButton::new(i16::ZOOMOUT, "Zoom out"));
-        ui.add_space(space::S2);
-        caption(
-            ui,
-            "Drag handles to shape volume · click a lane to add a point",
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let _ = ui.add(c::Button::primary("OK"));
-            let _ = ui.add(c::Button::new("Cancel"));
-        });
-    });
 }
 
 /// Dialog / Stroke style.

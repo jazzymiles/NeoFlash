@@ -64,8 +64,8 @@ pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };
 pub use evaluate::{
-    DrawItem, GuidePath, affine_multiply, easing, evaluate, guide_polyline, motion_span,
-    property_value, sample_layer, sample_layer_in, transform_matrix,
+    DrawItem, GuidePath, affine_multiply, easing, effective_property_ease, evaluate,
+    guide_polyline, motion_span, property_value, sample_layer, sample_layer_in, transform_matrix,
 };
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, MAX_FILTER_PIXELS, MAX_OBJECT_FILTERS, filter_padding,
@@ -115,6 +115,7 @@ pub use text::{
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
+    sync_layer_symbols,
 };
 pub use timeline_sound::{SoundCommand, envelope_gains, sound_span_end, timeline_sound_resources};
 pub use validation::{ProjectError, ValidationIssue, validate};

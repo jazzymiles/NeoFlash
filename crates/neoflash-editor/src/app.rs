@@ -97,6 +97,7 @@ pub struct Editor {
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
+    pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
     pub(crate) project_panel: crate::panels::project::ProjectPanelState,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
@@ -208,8 +209,10 @@ impl Editor {
                 }
             }
         }
-        if std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() == Ok("document_settings") {
-            s.open_document_settings();
+        match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
+            Ok("document_settings") => s.open_document_settings(),
+            Ok("edit_envelope") => s.open_edit_envelope(),
+            _ => {}
         }
         s
     }
@@ -234,7 +237,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, project_panel: Default::default(),
+            document_settings: None, edit_envelope: None, project_panel: Default::default(),
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -341,7 +344,9 @@ impl Editor {
             || self.saved_project.as_ref() != Some(&self.project)
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
-        self.symbol_conversion.is_some() || self.document_settings.is_some()
+        self.symbol_conversion.is_some()
+            || self.document_settings.is_some()
+            || self.edit_envelope.is_some()
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
@@ -1158,6 +1163,7 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        self.edit_envelope_dialog(ctx);
         self.polystar_settings_modal(ctx);
         use neoflash_ui::{
             TextStyle,

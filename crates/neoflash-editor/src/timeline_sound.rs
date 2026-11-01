@@ -320,16 +320,11 @@ impl TimelineAudio {
         }
     }
 
-    /// Properties ▸ Sound ▸ Play: hear the keyframe's sound once with its effect.
+    /// Properties ▸ Sound ▸ Play / Edit envelope ▸ Play: hear the sound once with its envelope.
     pub(crate) fn audition(&mut self, project: &Project, sound: &FrameSound) {
         self.voices
             .retain(|v| v.channel.as_deref() != Some(AUDITION));
-        let envelope = sound
-            .effect
-            .envelope()
-            .iter()
-            .map(|&(position, left, right)| [position, left, right])
-            .collect();
+        let envelope = sound.envelope_points();
         self.start(
             project,
             sound.resource.clone(),
@@ -338,6 +333,11 @@ impl TimelineAudio {
             (1, false),
             envelope,
         );
+    }
+
+    pub(crate) fn stop_audition(&mut self) {
+        self.voices
+            .retain(|v| v.channel.as_deref() != Some(AUDITION));
     }
 
     pub(crate) fn set_muted(&mut self, muted: bool) {

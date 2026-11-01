@@ -247,7 +247,15 @@ impl Editor {
                     inspector_section(ui, "Tween", |ui| {
                         ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
-                                let mut options = vec![(None, "No tween"), (Some(Easing::Linear), "Linear"), (Some(Easing::EaseIn), "Ease in"), (Some(Easing::EaseOut), "Ease out"), (Some(Easing::EaseInOut), "Ease in/out")];
+                                let mut options = vec![
+                                    (None, "No tween"),
+                                    (Some(Easing::Linear), "Linear"),
+                                    (Some(Easing::EaseIn), "Ease in"),
+                                    (Some(Easing::EaseOut), "Ease out"),
+                                    (Some(Easing::EaseInOut), "Ease in/out"),
+                                    (Some(Easing::Bounce), "Bounce"),
+                                    (Some(Easing::Elastic), "Elastic"),
+                                ];
                                 options.push((if let Some(curve @ Easing::CubicBezier { .. }) = key.tween { Some(curve) } else { Some(Easing::CubicBezier { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1. }) }, "Custom curve"));
                                 options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
@@ -305,6 +313,7 @@ impl Editor {
                             if matches!(draft.layers[layer].key_at(frame).and_then(|k| k.tween), Some(Easing::Flash { .. })) { self.project.format_version = self.project.format_version.max(5); }
                         }
                     }
+                    self.project.upgrade_format_for_features();
                     self.normalize_selection();
                 }
             }

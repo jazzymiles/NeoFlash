@@ -23,12 +23,14 @@
 //! | `info.rs` | Info (selection bounds and live stage cursor / RGBA readout) |
 //! | `project.rs` | Project (source/asset file tree, search, create/delete/publish) |
 //! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
+//! | `edit_envelope.rs` | Edit envelope modal dialog (`Properties ▸ Sound ▸ Envelope…`, `Library menu ▸ Edit envelope…`) |
 //! | `planned.rs` | NF2 panels the engine does not support yet (read-only previews; bodies in `planned_*.rs`) |
 pub(crate) mod accessibility;
 mod actions;
 pub(crate) mod actions_sidebar;
 pub(crate) mod document_settings;
 pub(crate) mod ease;
+pub(crate) mod edit_envelope;
 mod history;
 mod info;
 pub(crate) mod library;

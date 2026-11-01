@@ -97,15 +97,10 @@ fn start_key(editor: &Editor) -> &Keyframe {
 #[test]
 fn ease_presets_round_trip_and_flash_curves_match_the_engine() {
     for preset in EasePresetKind::ALL {
-        match preset_easing(preset, Easing::Linear) {
-            Some(easing) if preset != EasePresetKind::Custom => {
-                assert_eq!(preset_of(easing), preset, "{preset:?}");
-            }
-            Some(_) => {}
-            None => assert!(matches!(
-                preset,
-                EasePresetKind::Bounce | EasePresetKind::Elastic
-            )),
+        let easing = preset_easing(preset, Easing::Linear)
+            .unwrap_or_else(|| panic!("{preset:?} should be enabled"));
+        if preset != EasePresetKind::Custom {
+            assert_eq!(preset_of(easing), preset, "{preset:?}");
         }
     }
     // The graph draws Flash acceleration as the exact cubic form of the engine's quadratic.
@@ -440,4 +435,75 @@ fn ease_scene_motion_panels_paint_without_editing() {
         );
     }
     assert_eq!(editor.project, before, "drawing the panels never edits");
+}
+
+#[test]
+fn per_property_eases_and_move_motion_key_with_single_undo() {
+    let ctx = egui::Context::default();
+    let mut editor = motion_editor();
+    let span = editor.motion_tween_span().unwrap();
+    editor.set_motion_value(&span, TweenProperty::X, 9, 100., None);
+    editor.set_motion_value(&span, TweenProperty::Y, 9, 200., None);
+
+    let span = editor.motion_tween_span().unwrap();
+    let before_ease = editor.project.clone();
+    assert!(editor.set_motion_property_ease(&span, TweenProperty::X, Some(Easing::Bounce)));
+    assert_eq!(editor.project.format_version, 7);
+    editor.project.validate().unwrap();
+    let span = editor.motion_tween_span().unwrap();
+    assert_eq!(span.property_override(TweenProperty::X), Some(Easing::Bounce));
+    assert_eq!(span.property_override(TweenProperty::Y), None);
+    let x5 = editor.motion_value(&span, TweenProperty::X, 5).unwrap();
+    let y5 = editor.motion_value(&span, TweenProperty::Y, 5).unwrap();
+    let expected_x5 = (easing(5.0 / 10.0, Easing::Bounce) * 10.0 / 9.0).min(1.0) * 100.0;
+    assert!(
+        (x5 - expected_x5).abs() < 1e-6,
+        "X uses Bounce: {x5} vs {expected_x5}"
+    );
+    assert!(
+        (y5 - (5.0 / 9.0) * 200.0).abs() < 1e-6,
+        "Y inherits Linear span ease: {y5}"
+    );
+    editor.open_ease_for_property(&ctx, TweenProperty::X);
+    assert!(editor.workspace.is_panel_visible(PanelId::Ease));
+    undo_restores(&mut editor, &before_ease);
+
+    // Move ◆ key in time: place X at frame 4 (value 80) and Y at frame 4 (value 30).
+    let span = editor.motion_tween_span().unwrap();
+    editor.set_motion_value(&span, TweenProperty::X, 4, 80., None);
+    editor.set_motion_value(&span, TweenProperty::Y, 4, 30., None);
+    let span = editor.motion_tween_span().unwrap();
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::X),
+        vec![0, 4, 9]
+    );
+    // Start key at frame 0 is never movable.
+    assert_eq!(
+        editor.move_motion_key(&span, TweenProperty::X, 0, 3, None),
+        None
+    );
+
+    // Moving X from 4 -> 6 -> 7 inside one drag control commits as ONE Undo step and leaves Y at 4.
+    let before_move = editor.project.clone();
+    let drag_id = egui::Id::new("test-lane-drag");
+    assert_eq!(
+        editor.move_motion_key(&span, TweenProperty::X, 4, 6, Some(drag_id)),
+        Some(6)
+    );
+    assert_eq!(
+        editor.move_motion_key(&span, TweenProperty::X, 6, 7, Some(drag_id)),
+        Some(7)
+    );
+    editor.finish_edits();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::X),
+        vec![0, 7, 9]
+    );
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::Y),
+        vec![0, 4, 9]
+    );
+    assert_eq!(editor.motion_key_value(&span, TweenProperty::X, 7), Some(80.));
+    undo_restores(&mut editor, &before_move);
 }
