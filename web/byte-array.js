@@ -267,11 +267,45 @@
       static createFromBase64(value){const result=fromBytes(transformed('writeBase64',new Uint8Array(0),primitiveText(value,'base64 input')));state(result).position=state(result).length;return result;}
       static createFromHexString(value){const result=fromBytes(transformed('writeHexString',new Uint8Array(0),primitiveText(value,'hex input')));state(result).position=state(result).length;return result;}
       toString(){const record=state(this);return decoded(record.bytes.subarray(0,record.length),false);}
+      toJSON(){state(this);return 'ByteArray';}
+      atomicCompareAndSwapIntAt(byteIndex,expectedValue,newValue){
+        const record=state(this),idx=Number(byteIndex);
+        if(!Number.isInteger(idx)||idx<0||idx%4!==0||idx+4>record.length)throw new RangeError('ByteArray.atomicCompareAndSwapIntAt requires a 4-byte-aligned byteIndex within length.');
+        const expected=Number(expectedValue)|0,next=Number(newValue)|0,dv=view(record),current=dv.getInt32(idx,record.little);
+        if(current===expected)dv.setInt32(idx,next,record.little);
+        return current;
+      }
+      atomicCompareAndSwapLength(expectedLength,newLength){
+        const record=state(this),expected=Number(expectedLength)|0,next=size(Number(newLength),'newLength'),current=record.length;
+        if(current===expected)this.length=next;
+        return current;
+      }
     }
+    const CompressionAlgorithm=Object.assign(function CompressionAlgorithm(){throw new TypeError('CompressionAlgorithm supplies DEFLATE, LZMA and ZLIB constants and cannot be constructed.');},{DEFLATE:'deflate',LZMA:'lzma',ZLIB:'zlib'});
+    Object.defineProperties(CompressionAlgorithm,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('CompressionAlgorithm cannot be subclassed.');}},[Symbol.hasInstance]:{value:()=>false}});
+    Object.freeze(CompressionAlgorithm);
+    function binaryInterface(shortName,qualifiedName){
+      const check=value=>states.has(value);
+      const iface=function(value){
+        if(new.target)throw new TypeError(`${shortName} is an interface and cannot be constructed.`);
+        if(arguments.length!==1)throw new TypeError(`${shortName} conversion expects one value.`);
+        if(value==null)return null;
+        if(check(value))return value;
+        throw new TypeError(`AS3 ${qualifiedName} value required.`);
+      };
+      Object.defineProperty(iface,'name',{value:shortName});
+      Object.defineProperties(iface,{__nfIs:{value:check},__nfInitialize:{value:()=>{throw new TypeError(`${shortName} is an interface and cannot be extended by a class.`);}},[Symbol.hasInstance]:{value:check}});
+      return Object.freeze(iface);
+    }
+    const IDataInput=binaryInterface('IDataInput','flash.utils.IDataInput');
+    const IDataOutput=binaryInterface('IDataOutput','flash.utils.IDataOutput');
     Object.defineProperties(ByteArray,{__nfIs:{value:value=>states.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native ByteArray subclass initialization requires indexed proxy construction and is not implemented.');}}});
-    for(const name of ['shareable'])Object.defineProperty(ByteArray.prototype,name,{get(){unsupported(name);},set(){unsupported(name);}});
+    Object.defineProperty(ByteArray.prototype,'shareable',{
+      get(){state(this);return false;},
+      set(value){state(this);if(typeof value!=='boolean')throw new TypeError('ByteArray.shareable requires a Boolean.');if(value)unsupported('shareable Worker memory');},
+    });
     Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){open();return defaultEncoding;},set(value){open();defaultEncoding=encoding(value);}});
-    for(const name of ['atomicCompareAndSwapIntAt','atomicCompareAndSwapLength','writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
+    for(const name of ['writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
     // Host-only copies for resource/network adapters. No mutable backing storage
     // escapes, and transfers never change an existing ByteArray cursor.
     function fromBytes(bytes){
@@ -307,7 +341,7 @@
     }
     function reset(){open();for(const record of records)free(record);records.clear();generation++;defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,fromBytes,fromByteArrays,toBytes,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
+    return Object.freeze({ByteArray,Endian,CompressionAlgorithm,IDataInput,IDataOutput,fromBytes,fromByteArrays,toBytes,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

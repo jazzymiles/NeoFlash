@@ -124,8 +124,8 @@
   {
    "catalogId": "AS3:class:flash/display/SimpleButton.html#",
    "owner": "flash.display.SimpleButton",
-   "code": "__r = typeof SimpleButton;",
-   "expect": "notundefined"
+   "code": "__o = new SimpleButton(); __r = String((__o is SimpleButton) && (__o is InteractiveObject) && !(__o is Sprite));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/display/SpreadMethod.html#",
@@ -172,14 +172,14 @@
   {
    "catalogId": "AS3:class:flash/events/Event.html#",
    "owner": "flash.events.Event",
-   "code": "__r = typeof Event;",
-   "expect": "notundefined"
+   "code": "__o = new Event(Event.CHANGE); __r = String(__o is Event);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/events/EventDispatcher.html#",
    "owner": "flash.events.EventDispatcher",
-   "code": "__r = typeof EventDispatcher;",
-   "expect": "notundefined"
+   "code": "__o = new EventDispatcher(); __r = String((__o is EventDispatcher) && (__o is IEventDispatcher));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/events/EventPhase.html#",
@@ -202,8 +202,8 @@
   {
    "catalogId": "AS3:class:flash/events/MouseEvent.html#",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = typeof MouseEvent;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(MouseEvent.CLICK); __r = String((__o is MouseEvent) && (__o is Event));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/events/TextEvent.html#",
@@ -220,26 +220,26 @@
   {
    "catalogId": "AS3:class:flash/filters/BlurFilter.html#",
    "owner": "flash.filters.BlurFilter",
-   "code": "__r = typeof BlurFilter;",
-   "expect": "notundefined"
+   "code": "__o = new BlurFilter(); __r = String(__o is BlurFilter);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/filters/ColorMatrixFilter.html#",
    "owner": "flash.filters.ColorMatrixFilter",
-   "code": "__r = typeof ColorMatrixFilter;",
-   "expect": "notundefined"
+   "code": "__o = new ColorMatrixFilter(); __r = String(__o is ColorMatrixFilter);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/filters/DropShadowFilter.html#",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__r = typeof DropShadowFilter;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __r = String(__o is DropShadowFilter);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/filters/GlowFilter.html#",
    "owner": "flash.filters.GlowFilter",
-   "code": "__r = typeof GlowFilter;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __r = String(__o is GlowFilter);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/geom/Transform.html#",
@@ -328,8 +328,8 @@
   {
    "catalogId": "AS3:class:flash/utils/ByteArray.html#",
    "owner": "flash.utils.ByteArray",
-   "code": "__r = typeof ByteArray;",
-   "expect": "notundefined"
+   "code": "__o = new ByteArray(); __r = String((__o is ByteArray) && (__o is IDataInput) && (__o is IDataOutput));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:class:flash/utils/Dictionary.html#",
@@ -886,55 +886,55 @@
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#DOUBLE_CLICK",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.DOUBLE_CLICK);",
+   "code": "__r = MouseEvent.DOUBLE_CLICK;",
    "expect": "eq:doubleClick"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_DOWN",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_DOWN);",
+   "code": "__r = MouseEvent.MOUSE_DOWN;",
    "expect": "eq:mouseDown"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_MOVE",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_MOVE);",
+   "code": "__r = MouseEvent.MOUSE_MOVE;",
    "expect": "eq:mouseMove"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OUT",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_OUT);",
+   "code": "__r = MouseEvent.MOUSE_OUT;",
    "expect": "eq:mouseOut"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_OVER",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_OVER);",
+   "code": "__r = MouseEvent.MOUSE_OVER;",
    "expect": "eq:mouseOver"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_UP",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_UP);",
+   "code": "__r = MouseEvent.MOUSE_UP;",
    "expect": "eq:mouseUp"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#MOUSE_WHEEL",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.MOUSE_WHEEL);",
+   "code": "__r = MouseEvent.MOUSE_WHEEL;",
    "expect": "eq:mouseWheel"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OUT",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.ROLL_OUT);",
+   "code": "__r = MouseEvent.ROLL_OUT;",
    "expect": "eq:rollOut"
   },
   {
    "catalogId": "AS3:constant:flash/events/MouseEvent.html#ROLL_OVER",
    "owner": "flash.events.MouseEvent",
-   "code": "__r = String(MouseEvent.ROLL_OVER);",
+   "code": "__r = MouseEvent.ROLL_OVER;",
    "expect": "eq:rollOver"
   },
   {
@@ -2830,8 +2830,8 @@
   {
    "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
    "owner": "flash.events.EventDispatcher",
-   "code": "__o = new EventDispatcher(); __r = __o == null ? \"null\" : \"ok\";",
-   "expect": "ok"
+   "code": "__a = new ProbeDispatcher(); __o = new EventDispatcher(__a); __b = null; __o.addEventListener(\"t\", function(e:Event):void { __b = e.target; }); __o.dispatchEvent(new Event(\"t\")); __r = String(__b === __a);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:constructor:flash/events/FocusEvent.html#FocusEvent()",
@@ -2848,8 +2848,8 @@
   {
    "catalogId": "AS3:constructor:flash/events/MouseEvent.html#MouseEvent()",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = __o == null ? \"null\" : \"ok\";",
-   "expect": "ok"
+   "code": "__o = new MouseEvent(MouseEvent.CLICK, true, false, 12, 34, null, true, false, true, true, 3, true, false, 2); __r = __o.localX + \":\" + __o.localY + \":\" + __o.delta + \":\" + __o.clickCount;",
+   "expect": "eq:12:34:3:2"
   },
   {
    "catalogId": "AS3:constructor:flash/events/TextEvent.html#TextEvent()",
@@ -3022,92 +3022,92 @@
   {
    "catalogId": "AS3:method:Vector.html#concat()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.concat(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2]); __v = __o.concat(Vector.<int>([3])); __r = __v.join(\",\");",
+   "expect": "eq:1,2,3"
   },
   {
    "catalogId": "AS3:method:Vector.html#every()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.every(function(...a):* {return 0;}); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([2, 4, 6]); __r = String(__o.every(function(n:int, i:int, v:Vector.<int>):Boolean { return n % 2 === 0; }));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:method:Vector.html#filter()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.filter(function(...a):* {return 0;}); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2, 3, 4]); __v = __o.filter(function(n:int, i:int, v:Vector.<int>):Boolean { return n > 2; }); __r = __v.join(\",\");",
+   "expect": "eq:3,4"
   },
   {
    "catalogId": "AS3:method:Vector.html#forEach()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.forEach(function(...a):* {return 0;}); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2, 3]); __a = 0; __o.forEach(function(n:int, i:int, v:Vector.<int>):void { __a += n; }); __r = String(__a);",
+   "expect": "eq:6"
   },
   {
    "catalogId": "AS3:method:Vector.html#join()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.join(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<String>([\"x\", \"y\"]); __r = __o.join(\"-\");",
+   "expect": "eq:x-y"
   },
   {
    "catalogId": "AS3:method:Vector.html#map()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.map(function(...a):* {return 0;}); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([2, 3]); __v = __o.map(function(n:int, i:int, v:Vector.<int>):int { return n * 10; }); __r = __v.join(\",\");",
+   "expect": "eq:20,30"
   },
   {
    "catalogId": "AS3:method:Vector.html#pop()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.pop(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([5, 8]); __r = __o.pop() + \":\" + __o.length;",
+   "expect": "eq:8:1"
   },
   {
    "catalogId": "AS3:method:Vector.html#reverse()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.reverse(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2, 3]); __o.reverse(); __r = __o.join(\",\");",
+   "expect": "eq:3,2,1"
   },
   {
    "catalogId": "AS3:method:Vector.html#slice()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.slice(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2, 3, 4]); __r = __o.slice(1, 3).join(\",\");",
+   "expect": "eq:2,3"
   },
   {
    "catalogId": "AS3:method:Vector.html#some()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.some(function(...a):* {return 0;}); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 3, 4]); __r = String(__o.some(function(n:int, i:int, v:Vector.<int>):Boolean { return n === 4; }));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:method:Vector.html#sort()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.sort(null); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([3, 1, 2]); __o.sort(function(a:int, b:int):Number { return a - b; }); __r = __o.join(\",\");",
+   "expect": "eq:1,2,3"
   },
   {
    "catalogId": "AS3:method:Vector.html#splice()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.splice(1); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([1, 2, 3]); __v = __o.splice(1, 1, 9); __r = __v[0] + \":\" + __o.join(\",\");",
+   "expect": "eq:2:1,9,3"
   },
   {
    "catalogId": "AS3:method:Vector.html#toLocaleString()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.toLocaleString(); __r = String(__v);",
-   "expect": "not:[object Object]"
+   "code": "__o = Vector.<int>([4, 5]); __r = __o.toLocaleString();",
+   "expect": "eq:4,5"
   },
   {
    "catalogId": "AS3:method:Vector.html#toString()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.toString(); __r = String(__v);",
-   "expect": "not:[object Object]"
+   "code": "__o = Vector.<int>([4, 5]); __r = __o.toString();",
+   "expect": "eq:4,5"
   },
   {
    "catalogId": "AS3:method:Vector.html#unshift()",
    "owner": "Vector",
-   "code": "__o = new Vector.<int>(); __v = __o.unshift(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = Vector.<int>([3]); __v = __o.unshift(1, 2); __r = __v + \":\" + __o.join(\",\");",
+   "expect": "eq:3:1,2,3"
   },
   {
    "catalogId": "AS3:method:flash/display/BitmapData.html#applyFilter()",
@@ -3370,32 +3370,32 @@
   {
    "catalogId": "AS3:method:flash/events/Event.html#clone()",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __v = __o.clone(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new Event(\"x\", true, false); __v = __o.clone(); __r = __v.type + \":\" + __v.bubbles + \":\" + (__v !== __o);",
+   "expect": "eq:x:true:true"
   },
   {
    "catalogId": "AS3:method:flash/events/Event.html#stopImmediatePropagation()",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __v = __o.stopImmediatePropagation(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new EventDispatcher(); __a = 0; __o.addEventListener(\"s\", function(e:Event):void { __a++; e.stopImmediatePropagation(); }); __o.addEventListener(\"s\", function(e:Event):void { __a += 10; }); __o.dispatchEvent(new Event(\"s\")); __r = String(__a);",
+   "expect": "eq:1"
   },
   {
    "catalogId": "AS3:method:flash/events/Event.html#stopPropagation()",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __v = __o.stopPropagation(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__a = new Sprite(); __b = new Sprite(); __a.addChild(__b); __c = 0; __b.addEventListener(\"s\", function(e:Event):void { __c++; e.stopPropagation(); }); __a.addEventListener(\"s\", function(e:Event):void { __c += 10; }); __b.dispatchEvent(new Event(\"s\", true)); __r = String(__c);",
+   "expect": "eq:1"
   },
   {
    "catalogId": "AS3:method:flash/events/Event.html#toString()",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __v = __o.toString(); __r = String(__v);",
-   "expect": "not:[object Object]"
+   "code": "__o = new Event(\"x\"); __r = String(__o.toString().indexOf(\"[Event type=\\\"x\\\"\") === 0);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:method:flash/events/EventDispatcher.html#willTrigger()",
    "owner": "flash.events.EventDispatcher",
-   "code": "__o = new EventDispatcher(); __v = __o.willTrigger(\"a\"); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__a = new Sprite(); __b = new Sprite(); __a.addChild(__b); __a.addEventListener(\"bub\", function(e:Event):void {}); __r = String(__b.willTrigger(\"bub\"));",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:method:flash/events/FocusEvent.html#clone()",
@@ -3430,20 +3430,20 @@
   {
    "catalogId": "AS3:method:flash/events/MouseEvent.html#clone()",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __v = __o.clone(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new MouseEvent(\"mouseMove\", true, false, 3, 4); __o.movementX = 9; __v = __o.clone(); __r = __v.localX + \":\" + __v.movementX;",
+   "expect": "eq:3:9"
   },
   {
    "catalogId": "AS3:method:flash/events/MouseEvent.html#toString()",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __v = __o.toString(); __r = String(__v);",
-   "expect": "not:[object Object]"
+   "code": "__o = new MouseEvent(\"click\"); __r = String(__o.toString().indexOf(\"[MouseEvent\") === 0);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:method:flash/events/MouseEvent.html#updateAfterEvent()",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __v = __o.updateAfterEvent(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new MouseEvent(\"mouseMove\"); __o.updateAfterEvent(); __r = \"ok\";",
+   "expect": "eq:ok"
   },
   {
    "catalogId": "AS3:method:flash/events/TextEvent.html#clone()",
@@ -3478,20 +3478,20 @@
   {
    "catalogId": "AS3:method:flash/filters/ColorMatrixFilter.html#clone()",
    "owner": "flash.filters.ColorMatrixFilter",
-   "code": "__o = new ColorMatrixFilter(); __v = __o.clone(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new ColorMatrixFilter([2,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0]); __v = __o.clone(); __r = String(__v.matrix[0]);",
+   "expect": "eq:2"
   },
   {
    "catalogId": "AS3:method:flash/filters/DropShadowFilter.html#clone()",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __v = __o.clone(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new DropShadowFilter(5, 30); __v = __o.clone(); __r = __v.distance + \":\" + __v.angle;",
+   "expect": "eq:5:30"
   },
   {
    "catalogId": "AS3:method:flash/filters/GlowFilter.html#clone()",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __v = __o.clone(); __r = \"ok\";",
-   "expect": "ok"
+   "code": "__o = new GlowFilter(0xff, 0.5, 6, 6, 3, 2, true, true); __v = __o.clone(); __r = __v.color + \":\" + __v.knockout;",
+   "expect": "eq:255:true"
   },
   {
    "catalogId": "AS3:method:flash/text/TextField.html#appendText()",
@@ -3898,26 +3898,26 @@
   {
    "catalogId": "AS3:property:flash/events/Event.html#bubbles",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __r = typeof __o.bubbles;",
-   "expect": "notundefined"
+   "code": "__o = new Event(\"x\", true); __r = String(__o.bubbles);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/Event.html#cancelable",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __r = typeof __o.cancelable;",
-   "expect": "notundefined"
+   "code": "__o = new Event(\"x\", false, true); __r = String(__o.cancelable);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/Event.html#currentTarget",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __r = typeof __o.currentTarget;",
-   "expect": "notundefined"
+   "code": "__o = new EventDispatcher(); __a = null; __o.addEventListener(\"t\", function(e:Event):void { __a = e.currentTarget; }); __o.dispatchEvent(new Event(\"t\")); __r = String(__a === __o);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/Event.html#type",
    "owner": "flash.events.Event",
-   "code": "__o = new Event(\"x\"); __r = typeof __o.type;",
-   "expect": "notundefined"
+   "code": "__o = new Event(\"ready\"); __r = __o.type;",
+   "expect": "eq:ready"
   },
   {
    "catalogId": "AS3:property:flash/events/FocusEvent.html#isRelatedObjectInaccessible",
@@ -3970,188 +3970,188 @@
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#altKey",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.altKey;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, true); __r = String(__o.altKey);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#buttonDown",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.buttonDown;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, false, false, true); __r = String(__o.buttonDown);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#ctrlKey",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.ctrlKey;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, true); __r = String(__o.ctrlKey);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#delta",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.delta;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"mouseWheel\", true, false, 0, 0, null, false, false, false, false, -3); __r = String(__o.delta);",
+   "expect": "eq:-3"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#localX",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.localX;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 15, 25); __r = String(__o.localX);",
+   "expect": "eq:15"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#localY",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.localY;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 15, 25); __r = String(__o.localY);",
+   "expect": "eq:25"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#relatedObject",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.relatedObject;",
-   "expect": "notundefined"
+   "code": "__a = new Sprite(); __o = new MouseEvent(\"mouseOut\", true, false, 0, 0, __a); __r = String(__o.relatedObject === __a);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#shiftKey",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.shiftKey;",
-   "expect": "notundefined"
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, false, true); __r = String(__o.shiftKey);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#stageX",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.stageX;",
-   "expect": "notundefined"
+   "code": "__a = new Sprite(); __a.x = 10; addChild(__a); __b = 0; __a.addEventListener(\"click\", function(e:MouseEvent):void { __b = e.stageX; }); __a.dispatchEvent(new MouseEvent(\"click\", true, false, 5, 0)); removeChild(__a); __r = String(__b);",
+   "expect": "eq:15"
   },
   {
    "catalogId": "AS3:property:flash/events/MouseEvent.html#stageY",
    "owner": "flash.events.MouseEvent",
-   "code": "__o = new MouseEvent(\"click\"); __r = typeof __o.stageY;",
-   "expect": "notundefined"
+   "code": "__a = new Sprite(); __a.y = 20; addChild(__a); __b = 0; __a.addEventListener(\"click\", function(e:MouseEvent):void { __b = e.stageY; }); __a.dispatchEvent(new MouseEvent(\"click\", true, false, 0, 6)); removeChild(__a); __r = String(__b);",
+   "expect": "eq:26"
   },
   {
    "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurY",
    "owner": "flash.filters.BlurFilter",
-   "code": "__o = new BlurFilter(); __r = typeof __o.blurY;",
-   "expect": "notundefined"
+   "code": "__o = new BlurFilter(); __o.blurY = 10; __r = String(__o.blurY);",
+   "expect": "eq:10"
   },
   {
    "catalogId": "AS3:property:flash/filters/BlurFilter.html#quality",
    "owner": "flash.filters.BlurFilter",
-   "code": "__o = new BlurFilter(); __r = typeof __o.quality;",
-   "expect": "notundefined"
+   "code": "__o = new BlurFilter(); __o.quality = 3; __r = String(__o.quality);",
+   "expect": "eq:3"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#alpha",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.alpha;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.alpha = 0.5; __r = String(__o.alpha);",
+   "expect": "eq:0.5"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#angle",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.angle;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.angle = 135; __r = String(__o.angle);",
+   "expect": "eq:135"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurX",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.blurX;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.blurX = 7; __r = String(__o.blurX);",
+   "expect": "eq:7"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#blurY",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.blurY;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.blurY = 8; __r = String(__o.blurY);",
+   "expect": "eq:8"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#color",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.color;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.color = 0x220011; __r = String(__o.color);",
+   "expect": "eq:2228241"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#distance",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.distance;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.distance = 12; __r = String(__o.distance);",
+   "expect": "eq:12"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#hideObject",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.hideObject;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.hideObject = true; __r = String(__o.hideObject);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#inner",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.inner;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.inner = true; __r = String(__o.inner);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#knockout",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.knockout;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.knockout = true; __r = String(__o.knockout);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#quality",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.quality;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.quality = 2; __r = String(__o.quality);",
+   "expect": "eq:2"
   },
   {
    "catalogId": "AS3:property:flash/filters/DropShadowFilter.html#strength",
    "owner": "flash.filters.DropShadowFilter",
-   "code": "__o = new DropShadowFilter(); __r = typeof __o.strength;",
-   "expect": "notundefined"
+   "code": "__o = new DropShadowFilter(); __o.strength = 3; __r = String(__o.strength);",
+   "expect": "eq:3"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#alpha",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.alpha;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.alpha = 0.25; __r = String(__o.alpha);",
+   "expect": "eq:0.25"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurX",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.blurX;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.blurX = 9; __r = String(__o.blurX);",
+   "expect": "eq:9"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#blurY",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.blurY;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.blurY = 11; __r = String(__o.blurY);",
+   "expect": "eq:11"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#color",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.color;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.color = 0x112233; __r = String(__o.color);",
+   "expect": "eq:1122867"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#inner",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.inner;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.inner = true; __r = String(__o.inner);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#knockout",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.knockout;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.knockout = true; __r = String(__o.knockout);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#quality",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.quality;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.quality = 3; __r = String(__o.quality);",
+   "expect": "eq:3"
   },
   {
    "catalogId": "AS3:property:flash/filters/GlowFilter.html#strength",
    "owner": "flash.filters.GlowFilter",
-   "code": "__o = new GlowFilter(); __r = typeof __o.strength;",
-   "expect": "notundefined"
+   "code": "__o = new GlowFilter(); __o.strength = 4; __r = String(__o.strength);",
+   "expect": "eq:4"
   },
   {
    "catalogId": "AS3:property:flash/geom/Transform.html#pixelBounds",
@@ -4558,8 +4558,8 @@
   {
    "catalogId": "AS3:property:flash/utils/ByteArray.html#defaultObjectEncoding",
    "owner": "flash.utils.ByteArray",
-   "code": "__r = String(ByteArray.defaultObjectEncoding);",
-   "expect": "notundefined"
+   "code": "__a = ByteArray.defaultObjectEncoding; ByteArray.defaultObjectEncoding = 0; __b = new ByteArray().objectEncoding; ByteArray.defaultObjectEncoding = __a; __r = __a + \":\" + __b;",
+   "expect": "eq:3:0"
   },
   {
    "catalogId": "AS3:property:flash/utils/Timer.html#delay",
@@ -4572,6 +4572,2790 @@
    "owner": "flash.utils.Timer",
    "code": "__o = new Timer(1000); __r = typeof __o.repeatCount;",
    "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:constant:package.html#-Infinity",
+   "owner": "<global>",
+   "code": "__r = String(-Infinity < 0 && !isFinite(-Infinity));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constant:package.html#Infinity",
+   "owner": "<global>",
+   "code": "__r = String(Infinity > 0 && !isFinite(Infinity));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constant:package.html#NaN",
+   "owner": "<global>",
+   "code": "__r = String(isNaN(NaN) && (NaN !== NaN));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constant:package.html#undefined",
+   "owner": "<global>",
+   "code": "__r = String(typeof undefined === \"undefined\");",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:function:package.html#Vector()",
+   "owner": "<global>",
+   "code": "__o = Vector.<int>([3, 7]); __r = __o.length + \":\" + __o[1];",
+   "expect": "eq:2:7"
+  },
+  {
+   "catalogId": "AS3:package:package-detail.html#",
+   "owner": "Top Level",
+   "code": "__r = String((new Object() is Object) && (Vector.<String>([\"a\"]).length === 1));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:class:DefinitionError.html#",
+   "owner": "DefinitionError",
+   "code": "__o = new DefinitionError(\"missing\", 1065); __r = String((__o is DefinitionError) && (__o is Error));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:DefinitionError.html#DefinitionError()",
+   "owner": "DefinitionError",
+   "code": "__o = new DefinitionError(\"missing\", 1065); __r = __o.name + \":\" + __o.errorID + \":\" + __o.message;",
+   "expect": "eq:DefinitionError:1065:missing"
+  },
+  {
+   "catalogId": "AS3:class:SecurityError.html#",
+   "owner": "SecurityError",
+   "code": "__o = new SecurityError(\"denied\", 2048); __r = String((__o is SecurityError) && (__o is Error));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:SecurityError.html#SecurityError()",
+   "owner": "SecurityError",
+   "code": "__o = new SecurityError(\"denied\", 2048); __r = __o.name + \":\" + __o.errorID + \":\" + __o.message;",
+   "expect": "eq:SecurityError:2048:denied"
+  },
+  {
+   "catalogId": "AS3:class:VerifyError.html#",
+   "owner": "VerifyError",
+   "code": "__o = new VerifyError(\"bad\", 1014); __r = String((__o is VerifyError) && (__o is Error));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:VerifyError.html#VerifyError()",
+   "owner": "VerifyError",
+   "code": "__o = new VerifyError(\"bad\", 1014); __r = __o.name + \":\" + __o.errorID + \":\" + __o.message;",
+   "expect": "eq:VerifyError:1014:bad"
+  },
+  {
+   "catalogId": "AS3:class:Error.html#",
+   "owner": "Error",
+   "code": "__o = new Error(\"boom\", 7); __r = String(__o is Error);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:Error.html#Error()",
+   "owner": "Error",
+   "code": "__o = new Error(\"boom\", 7); __r = __o.message + \":\" + __o.errorID;",
+   "expect": "eq:boom:7"
+  },
+  {
+   "catalogId": "AS3:property:Error.html#errorID",
+   "owner": "Error",
+   "code": "__o = new Error(\"boom\", 77); __r = String(__o.errorID);",
+   "expect": "eq:77"
+  },
+  {
+   "catalogId": "AS3:property:Error.html#message",
+   "owner": "Error",
+   "code": "__o = new Error(\"hello\"); __r = __o.message;",
+   "expect": "eq:hello"
+  },
+  {
+   "catalogId": "AS3:property:Error.html#name",
+   "owner": "Error",
+   "code": "__o = new Error(\"hello\"); __r = __o.name;",
+   "expect": "eq:Error"
+  },
+  {
+   "catalogId": "AS3:method:Error.html#toString()",
+   "owner": "Error",
+   "code": "__o = new Error(\"hello\"); __r = __o.toString();",
+   "expect": "eq:Error: hello"
+  },
+  {
+   "catalogId": "AS3:method:Error.html#getStackTrace()",
+   "owner": "Error",
+   "code": "__o = new Error(\"traceMe\", 9); __v = __o.getStackTrace(); __r = String(typeof __v === \"string\" && __v.indexOf(\"Error: traceMe\") === 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:class:Vector.html#",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(); __r = String(__o is Vector.<int>);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:Vector.html#Vector()",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(2, true); __o[1] = 9; __r = __o.length + \":\" + __o.fixed + \":\" + __o[1];",
+   "expect": "eq:2:true:9"
+  },
+  {
+   "catalogId": "AS3:property:Vector.html#fixed",
+   "owner": "Vector",
+   "code": "__o = new Vector.<int>(1, true); __a = __o.fixed; __o.fixed = false; __r = __a + \":\" + __o.fixed;",
+   "expect": "eq:true:false"
+  },
+  {
+   "catalogId": "AS3:property:Vector.html#length",
+   "owner": "Vector",
+   "code": "__o = Vector.<int>([4, 5, 6]); __o.length = 2; __r = __o.length + \":\" + __o.join(\",\");",
+   "expect": "eq:2:4,5"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#indexOf()",
+   "owner": "Vector",
+   "code": "__o = Vector.<String>([\"a\", \"b\", \"a\"]); __r = __o.indexOf(\"a\") + \":\" + __o.indexOf(\"a\", 1) + \":\" + __o.indexOf(\"z\");",
+   "expect": "eq:0:2:-1"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#lastIndexOf()",
+   "owner": "Vector",
+   "code": "__o = Vector.<String>([\"a\", \"b\", \"a\"]); __r = __o.lastIndexOf(\"a\") + \":\" + __o.lastIndexOf(\"a\", 1);",
+   "expect": "eq:2:0"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#insertAt()",
+   "owner": "Vector",
+   "code": "__o = Vector.<int>([10, 30]); __o.insertAt(1, 20); __o.insertAt(-1, 25); __r = __o.join(\",\");",
+   "expect": "eq:10,20,25,30"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#removeAt()",
+   "owner": "Vector",
+   "code": "__o = Vector.<int>([10, 20, 30]); __v = __o.removeAt(1); __r = __v + \":\" + __o.join(\",\");",
+   "expect": "eq:20:10,30"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#push()",
+   "owner": "Vector",
+   "code": "__o = Vector.<int>([5]); __v = __o.push(6, 7); __r = __v + \":\" + __o.join(\",\");",
+   "expect": "eq:3:5,6,7"
+  },
+  {
+   "catalogId": "AS3:method:Vector.html#shift()",
+   "owner": "Vector",
+   "code": "__o = Vector.<int>([9, 4]); __r = __o.shift() + \":\" + __o[0];",
+   "expect": "eq:9:4"
+  },
+  {
+   "catalogId": "AS3:class:Namespace.html#",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"urn:demo\"); __r = String(__o is Namespace);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:Namespace.html#Namespace()",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"urn:demo\"); __r = __o.uri;",
+   "expect": "eq:urn:demo"
+  },
+  {
+   "catalogId": "AS3:constructor:Namespace.html#Namespace():variant:b74c3ffc7e9e",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"d\", \"urn:demo\"); __r = __o.prefix + \":\" + __o.uri;",
+   "expect": "eq:d:urn:demo"
+  },
+  {
+   "catalogId": "AS3:property:Namespace.html#prefix",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"ns\", \"urn:test\"); __r = String(__o.prefix);",
+   "expect": "eq:ns"
+  },
+  {
+   "catalogId": "AS3:property:Namespace.html#uri",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"ns\", \"urn:test\"); __r = __o.uri;",
+   "expect": "eq:urn:test"
+  },
+  {
+   "catalogId": "AS3:method:Namespace.html#toString()",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"ns\", \"urn:test\"); __r = __o.toString();",
+   "expect": "eq:urn:test"
+  },
+  {
+   "catalogId": "AS3:method:Namespace.html#valueOf()",
+   "owner": "Namespace",
+   "code": "__o = new Namespace(\"ns\", \"urn:test\"); __r = __o.valueOf();",
+   "expect": "eq:urn:test"
+  },
+  {
+   "catalogId": "AS3:class:QName.html#",
+   "owner": "QName",
+   "code": "__o = new QName(\"urn:q\", \"item\"); __r = String(__o is QName);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:QName.html#QName()",
+   "owner": "QName",
+   "code": "__o = new QName(new Namespace(\"p\", \"urn:q\"), \"item\"); __r = __o.uri + \"::\" + __o.localName;",
+   "expect": "eq:urn:q::item"
+  },
+  {
+   "catalogId": "AS3:constructor:QName.html#QName():variant:ed6d67a1b434",
+   "owner": "QName",
+   "code": "__o = new QName(\"plain\"); __r = __o.localName;",
+   "expect": "eq:plain"
+  },
+  {
+   "catalogId": "AS3:property:QName.html#localName",
+   "owner": "QName",
+   "code": "__o = new QName(\"urn:q\", \"entry\"); __r = __o.localName;",
+   "expect": "eq:entry"
+  },
+  {
+   "catalogId": "AS3:property:QName.html#uri",
+   "owner": "QName",
+   "code": "__o = new QName(\"urn:q\", \"entry\"); __r = String(__o.uri);",
+   "expect": "eq:urn:q"
+  },
+  {
+   "catalogId": "AS3:method:QName.html#toString()",
+   "owner": "QName",
+   "code": "__o = new QName(\"urn:q\", \"entry\"); __r = __o.toString();",
+   "expect": "eq:urn:q::entry"
+  },
+  {
+   "catalogId": "AS3:method:QName.html#valueOf()",
+   "owner": "QName",
+   "code": "__o = new QName(\"urn:q\", \"entry\"); __v = __o.valueOf(); __r = String((__v is QName) && (__v.uri === \"urn:q\") && (__v.localName === \"entry\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:class:XML.html#",
+   "owner": "XML",
+   "code": "__o = new XML(\"<a/>\"); __r = String(__o is XML);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:XML.html#XML()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<root><x>1</x></root>\"); __r = __o.child(\"x\").toString();",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#addNamespace()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<root/>\"); __o.addNamespace(new Namespace(\"p\", \"urn:p\")); __r = String(__o.namespace(\"p\").uri);",
+   "expect": "eq:urn:p"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#appendChild()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/></r>\"); __o.appendChild(new XML(\"<b/>\")); __r = String(__o.children().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#attribute()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r id='42'/>\"); __r = __o.attribute(\"id\").toString();",
+   "expect": "eq:42"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#attributes()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r a='1' b='2'/>\"); __r = String(__o.attributes().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#child()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><x>ok</x></r>\"); __r = __o.child(\"x\").toString();",
+   "expect": "eq:ok"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#childIndex()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __r = String(__o.child(\"b\")[0].childIndex());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#children()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __r = String(__o.children().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#comments()",
+   "owner": "XML",
+   "code": "XML.ignoreComments = false; __o = new XML(\"<r><!--note--><a/></r>\"); __r = String(__o.comments().length()); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#contains()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<a k='1'>hi</a>\"); __r = String(__o.contains(new XML(\"<a k='1'>hi</a>\")) && !__o.contains(new XML(\"<a k='2'>hi</a>\")));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#copy()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/></r>\"); __v = __o.copy(); __v.appendChild(new XML(\"<b/>\")); __r = __o.children().length() + \":\" + __v.children().length();",
+   "expect": "eq:1:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#defaultSettings()",
+   "owner": "XML",
+   "code": "__o = XML.defaultSettings(); __r = __o.ignoreWhitespace + \":\" + __o.prettyIndent + \":\" + __o.prettyPrinting;",
+   "expect": "eq:true:2:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#descendants()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a><x>1</x></a><b><x>2</x></b></r>\"); __r = String(__o.descendants(\"x\").length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#elements()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __r = String(__o.elements().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#hasComplexContent()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/></r>\"); __r = String(__o.hasComplexContent());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#hasOwnProperty()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r id='1'><a/></r>\"); __r = String(__o.hasOwnProperty(\"a\") && __o.hasOwnProperty(\"@id\") && !__o.hasOwnProperty(\"z\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#hasSimpleContent()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<a id='1'>plain</a>\"); __r = String(__o.hasSimpleContent());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#inScopeNamespaces()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r xmlns:p='urn:p'><c/></r>\"); __v = __o.child(\"c\")[0].inScopeNamespaces(); __r = String(__v.length >= 1);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#insertChildAfter()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><c/></r>\"); __o.insertChildAfter(__o.child(\"a\")[0], new XML(\"<b/>\")); __r = __o.children()[1].localName();",
+   "expect": "eq:b"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#insertChildBefore()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><c/></r>\"); __o.insertChildBefore(__o.child(\"c\")[0], new XML(\"<b/>\")); __r = __o.children()[1].localName();",
+   "expect": "eq:b"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#length()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __r = String(__o.length());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#localName()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<p:item xmlns:p='urn:p'/>\"); __r = __o.localName();",
+   "expect": "eq:item"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#name()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<p:item xmlns:p='urn:p'/>\"); __v = __o.name(); __r = __v.uri + \":\" + __v.localName;",
+   "expect": "eq:urn:p:item"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#namespace()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<p:item xmlns:p='urn:p'/>\"); __r = __o.namespace().uri;",
+   "expect": "eq:urn:p"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#namespaceDeclarations()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r xmlns:p='urn:p'/>\"); __v = __o.namespaceDeclarations(); __r = __v.length + \":\" + __v[0].uri;",
+   "expect": "eq:1:urn:p"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#nodeKind()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r id='1'>txt</r>\"); __r = __o.nodeKind() + \":\" + __o.attribute(\"id\")[0].nodeKind();",
+   "expect": "eq:element:attribute"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#normalize()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r/>\"); __o.appendChild(\"he\"); __o.appendChild(\"llo\"); __o.normalize(); __r = __o.text().length() + \":\" + __o.toString();",
+   "expect": "eq:1:hello"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#parent()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/></r>\"); __r = __o.child(\"a\")[0].parent().localName();",
+   "expect": "eq:r"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#prependChild()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><b/></r>\"); __o.prependChild(new XML(\"<a/>\")); __r = __o.children()[0].localName();",
+   "expect": "eq:a"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#processingInstructions()",
+   "owner": "XML",
+   "code": "XML.ignoreProcessingInstructions = false; __o = new XML(\"<r><?pi data?><a/></r>\"); __r = String(__o.processingInstructions().length()); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#propertyIsEnumerable()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r/>\"); __r = String(__o.propertyIsEnumerable(0) && !__o.propertyIsEnumerable(1));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#removeNamespace()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r xmlns:p='urn:p'><a/></r>\"); __o.removeNamespace(new Namespace(\"p\", \"urn:p\")); __r = String(__o.namespaceDeclarations().length);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#replace()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __o.replace(\"a\", new XML(\"<x/>\")); __r = __o.children()[0].localName();",
+   "expect": "eq:x"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#setChildren()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __o.setChildren(new XML(\"<z/>\")); __r = __o.children().length() + \":\" + __o.children()[0].localName();",
+   "expect": "eq:1:z"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#setLocalName()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<old/>\"); __o.setLocalName(\"fresh\"); __r = __o.localName();",
+   "expect": "eq:fresh"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#setName()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<old/>\"); __o.setName(new QName(\"urn:n\", \"fresh\")); __r = __o.name().uri + \":\" + __o.localName();",
+   "expect": "eq:urn:n:fresh"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#setNamespace()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<item/>\"); __o.setNamespace(new Namespace(\"p\", \"urn:p\")); __r = __o.namespace().uri;",
+   "expect": "eq:urn:p"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#setSettings()",
+   "owner": "XML",
+   "code": "XML.setSettings({ prettyIndent: 4, prettyPrinting: false }); __r = XML.prettyIndent + \":\" + XML.prettyPrinting; XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:4:false"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#settings()",
+   "owner": "XML",
+   "code": "__o = XML.settings(); __r = String(__o.ignoreComments && __o.ignoreWhitespace);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#text()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r>alpha</r>\"); __r = __o.text().toString();",
+   "expect": "eq:alpha"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#toJSON()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r/>\"); __r = __o.toJSON(\"k\");",
+   "expect": "eq:XML"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#toString()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r>plain</r>\"); __r = __o.toString();",
+   "expect": "eq:plain"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#toXMLString()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r id='1'/>\"); __r = String(__o.toXMLString().indexOf(\"<r\") === 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XML.html#valueOf()",
+   "owner": "XML",
+   "code": "__o = new XML(\"<r>ok</r>\"); __v = __o.valueOf(); __r = String((__v is XML) && (__v.localName() === \"r\") && (__v.toString() === \"ok\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:XML.html#ignoreComments",
+   "owner": "XML",
+   "code": "XML.ignoreComments = false; __r = String(XML.ignoreComments); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:XML.html#ignoreProcessingInstructions",
+   "owner": "XML",
+   "code": "XML.ignoreProcessingInstructions = false; __r = String(XML.ignoreProcessingInstructions); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:XML.html#ignoreWhitespace",
+   "owner": "XML",
+   "code": "XML.ignoreWhitespace = false; __r = String(XML.ignoreWhitespace); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:XML.html#prettyIndent",
+   "owner": "XML",
+   "code": "XML.prettyIndent = 4; __r = String(XML.prettyIndent); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:property:XML.html#prettyPrinting",
+   "owner": "XML",
+   "code": "XML.prettyPrinting = false; __r = String(XML.prettyPrinting); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:class:XMLList.html#",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __r = String(__o is XMLList);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:XMLList.html#XMLList()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __r = String(__o.length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#attribute()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a id='1'/><b id='2'/>\"); __r = String(__o.attribute(\"id\").length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#attributes()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a x='1'/><b y='2'/>\"); __r = String(__o.attributes().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#child()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<r><k>1</k></r><r><k>2</k></r>\"); __r = String(__o.child(\"k\").length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#children()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<r><a/></r><r><b/></r>\"); __r = String(__o.children().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#comments()",
+   "owner": "XMLList",
+   "code": "XML.ignoreComments = false; __o = new XML(\"<r><!--c--><a/></r>\").children(); __r = String(__o.comments().length() >= 0); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#contains()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b>ok</b>\"); __r = String(__o.contains(new XML(\"<b>ok</b>\")) && !__o.contains(new XML(\"<c/>\")));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#copy()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __v = __o.copy(); __r = String((__v is XMLList) && __v.length() === 2);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#descendants()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<r><a><x/></a></r><r><x/></r>\"); __r = String(__o.descendants(\"x\").length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#elements()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<r>text<a/><b/></r>\"); __r = String(__o.elements().length());",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#hasComplexContent()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __r = String(__o.hasComplexContent());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#hasOwnProperty()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<r id='1'><a/></r>\"); __r = String(__o.hasOwnProperty(0) && __o.hasOwnProperty(\"a\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#hasSimpleContent()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a>hi</a>\"); __r = String(__o.hasSimpleContent());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#length()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/><c/>\"); __r = String(__o.length());",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#normalize()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/>\"); __r = String(__o.normalize().length());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#parent()",
+   "owner": "XMLList",
+   "code": "__o = new XML(\"<r><a/><b/></r>\"); __r = __o.children().parent().localName();",
+   "expect": "eq:r"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#processingInstructions()",
+   "owner": "XMLList",
+   "code": "XML.ignoreProcessingInstructions = false; __o = new XMLList(\"<r><?p 1?></r>\"); __r = String(__o.processingInstructions().length()); XML.setSettings(XML.defaultSettings());",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#propertyIsEnumerable()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __r = String(__o.propertyIsEnumerable(1) && !__o.propertyIsEnumerable(2));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#text()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a>hi</a><b>!</b>\"); __r = __o.text().toString();",
+   "expect": "eq:hi!"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#toString()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a>ok</a>\"); __r = __o.toString();",
+   "expect": "eq:ok"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#toXMLString()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __r = String(__o.toXMLString().indexOf(\"<a/>\") === 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:XMLList.html#valueOf()",
+   "owner": "XMLList",
+   "code": "__o = new XMLList(\"<a/><b/>\"); __v = __o.valueOf(); __r = String((__v is XMLList) && (__v.length() === 2));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/media/Video.html#smoothing",
+   "owner": "flash.media.Video",
+   "code": "__o = new Video(160, 120); __a = __o.smoothing; __o.smoothing = true; __r = __a + \":\" + __o.smoothing;",
+   "expect": "eq:false:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+   "owner": "flash.net.NetStream",
+   "code": "__a = new NetConnection(); __a.connect(null); __o = new NetStream(__a); __o.soundTransform = new SoundTransform(0.5, 0); __r = String(__o.soundTransform.volume); __o.close();",
+   "expect": "eq:0.5"
+  },
+  {
+   "catalogId": "AS3:class:flash/utils/CompressionAlgorithm.html#",
+   "owner": "flash.utils.CompressionAlgorithm",
+   "code": "__r = typeof CompressionAlgorithm;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#DEFLATE",
+   "owner": "flash.utils.CompressionAlgorithm",
+   "code": "__r = CompressionAlgorithm.DEFLATE;",
+   "expect": "eq:deflate"
+  },
+  {
+   "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#LZMA",
+   "owner": "flash.utils.CompressionAlgorithm",
+   "code": "__r = CompressionAlgorithm.LZMA;",
+   "expect": "eq:lzma"
+  },
+  {
+   "catalogId": "AS3:constant:flash/utils/CompressionAlgorithm.html#ZLIB",
+   "owner": "flash.utils.CompressionAlgorithm",
+   "code": "__r = CompressionAlgorithm.ZLIB;",
+   "expect": "eq:zlib"
+  },
+  {
+   "catalogId": "AS3:class:flash/net/ObjectEncoding.html#",
+   "owner": "flash.net.ObjectEncoding",
+   "code": "__r = typeof ObjectEncoding;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF0",
+   "owner": "flash.net.ObjectEncoding",
+   "code": "__r = String(ObjectEncoding.AMF0);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#AMF3",
+   "owner": "flash.net.ObjectEncoding",
+   "code": "__r = String(ObjectEncoding.AMF3);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/net/ObjectEncoding.html#DEFAULT",
+   "owner": "flash.net.ObjectEncoding",
+   "code": "__r = String(ObjectEncoding.DEFAULT);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/net/ObjectEncoding.html#dynamicPropertyWriter",
+   "owner": "flash.net.ObjectEncoding",
+   "code": "__a = ObjectEncoding.dynamicPropertyWriter; __b = { writeDynamicProperties: function(o:Object, w:Object):void {} }; ObjectEncoding.dynamicPropertyWriter = __b; __r = String(__a === null && ObjectEncoding.dynamicPropertyWriter === __b); ObjectEncoding.dynamicPropertyWriter = null;",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:interface:flash/utils/IDataInput.html#",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ByteArray(); __b = new ProbeCodec(); __r = String((__a is IDataInput) && (__b is IDataInput) && (IDataInput(__b) === __b));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/IDataInput.html#bytesAvailable",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeShort(513); __a.resetPosition(); __r = String(IDataInput(__a).bytesAvailable);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/IDataInput.html#endian",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); IDataInput(__a).endian = \"littleEndian\"; __r = IDataInput(__a).endian;",
+   "expect": "eq:littleEndian"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/IDataInput.html#objectEncoding",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); IDataInput(__a).objectEncoding = 0; __r = String(IDataInput(__a).objectEncoding);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readBoolean()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeBoolean(true); __a.resetPosition(); __r = String(IDataInput(__a).readBoolean());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readByte()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeByte(-5); __a.resetPosition(); __r = String(IDataInput(__a).readByte());",
+   "expect": "eq:-5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readBytes()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeShort(0x1234); __a.resetPosition(); __b = new ByteArray(); IDataInput(__a).readBytes(__b, 0, 2); __b.position = 0; __r = String(__b.readUnsignedShort());",
+   "expect": "eq:4660"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readDouble()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeDouble(3.5); __a.resetPosition(); __r = String(IDataInput(__a).readDouble());",
+   "expect": "eq:3.5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readFloat()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeFloat(1.5); __a.resetPosition(); __r = String(IDataInput(__a).readFloat());",
+   "expect": "eq:1.5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readInt()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeInt(-1024); __a.resetPosition(); __r = String(IDataInput(__a).readInt());",
+   "expect": "eq:-1024"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readMultiByte()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeMultiByte(\"neo\", \"utf-8\"); __a.resetPosition(); __r = IDataInput(__a).readMultiByte(3, \"utf-8\");",
+   "expect": "eq:neo"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readObject()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeObject({ k: 9 }); __a.resetPosition(); __r = String(IDataInput(__a).readObject().k);",
+   "expect": "eq:9"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readShort()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeShort(-300); __a.resetPosition(); __r = String(IDataInput(__a).readShort());",
+   "expect": "eq:-300"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readUTF()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeUTF(\"flash\"); __a.resetPosition(); __r = IDataInput(__a).readUTF();",
+   "expect": "eq:flash"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readUTFBytes()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeUTFBytes(\"abc\"); __a.resetPosition(); __r = IDataInput(__a).readUTFBytes(3);",
+   "expect": "eq:abc"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedByte()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeByte(250); __a.resetPosition(); __r = String(IDataInput(__a).readUnsignedByte());",
+   "expect": "eq:250"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedInt()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeUnsignedInt(3000000000); __a.resetPosition(); __r = String(IDataInput(__a).readUnsignedInt());",
+   "expect": "eq:3000000000"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataInput.html#readUnsignedShort()",
+   "owner": "flash.utils.IDataInput",
+   "code": "__a = new ProbeCodec(); __a.writeShort(65000); __a.resetPosition(); __r = String(IDataInput(__a).readUnsignedShort());",
+   "expect": "eq:65000"
+  },
+  {
+   "catalogId": "AS3:interface:flash/utils/IDataOutput.html#",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ByteArray(); __b = new ProbeCodec(); __r = String((__a is IDataOutput) && (__b is IDataOutput) && (IDataOutput(__b) === __b));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/IDataOutput.html#endian",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).endian = \"littleEndian\"; __r = IDataOutput(__a).endian;",
+   "expect": "eq:littleEndian"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/IDataOutput.html#objectEncoding",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).objectEncoding = 0; __r = String(IDataOutput(__a).objectEncoding);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeBoolean()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeBoolean(true); __a.resetPosition(); __r = String(__a.readBoolean());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeByte()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeByte(-12); __a.resetPosition(); __r = String(__a.readByte());",
+   "expect": "eq:-12"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeBytes()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); __b = new ByteArray(); __b.writeByte(77); IDataOutput(__a).writeBytes(__b, 0, 1); __a.resetPosition(); __r = String(__a.readByte());",
+   "expect": "eq:77"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeDouble()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeDouble(6.25); __a.resetPosition(); __r = String(__a.readDouble());",
+   "expect": "eq:6.25"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeFloat()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeFloat(2.5); __a.resetPosition(); __r = String(__a.readFloat());",
+   "expect": "eq:2.5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeInt()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeInt(123456); __a.resetPosition(); __r = String(__a.readInt());",
+   "expect": "eq:123456"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeMultiByte()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeMultiByte(\"hi\", \"utf-8\"); __a.resetPosition(); __r = __a.readUTFBytes(2);",
+   "expect": "eq:hi"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeObject()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeObject([4, 8]); __a.resetPosition(); __r = __a.readObject().join(\",\");",
+   "expect": "eq:4,8"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeShort()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeShort(1025); __a.resetPosition(); __r = String(__a.readShort());",
+   "expect": "eq:1025"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUTF()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeUTF(\"neo\"); __a.resetPosition(); __r = __a.readUTF();",
+   "expect": "eq:neo"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUTFBytes()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeUTFBytes(\"xyz\"); __a.resetPosition(); __r = __a.readUTFBytes(3);",
+   "expect": "eq:xyz"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/IDataOutput.html#writeUnsignedInt()",
+   "owner": "flash.utils.IDataOutput",
+   "code": "__a = new ProbeCodec(); IDataOutput(__a).writeUnsignedInt(4000000000); __a.resetPosition(); __r = String(__a.readUnsignedInt());",
+   "expect": "eq:4000000000"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/utils/ByteArray.html#ByteArray()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __r = __o.length + \":\" + __o.position;",
+   "expect": "eq:0:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapIntAt()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(11); __a = __o.atomicCompareAndSwapIntAt(0, 11, 99); __o.position = 0; __r = __a + \":\" + __o.readInt();",
+   "expect": "eq:11:99"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#atomicCompareAndSwapLength()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(7); __a = __o.atomicCompareAndSwapLength(4, 8); __r = __a + \":\" + __o.length;",
+   "expect": "eq:4:8"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#clear()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(1); __o.clear(); __r = __o.length + \":\" + __o.position;",
+   "expect": "eq:0:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#compress()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"hello hello hello\"); __o.compress(\"zlib\"); __o.uncompress(\"zlib\"); __r = __o.toString();",
+   "expect": "eq:hello hello hello"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#deflate()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"raw deflate payload\"); __o.deflate(); __o.inflate(); __r = __o.toString();",
+   "expect": "eq:raw deflate payload"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#inflate()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"inflate roundtrip\"); __o.deflate(); __o.inflate(); __r = __o.toString();",
+   "expect": "eq:inflate roundtrip"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readBoolean()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeBoolean(true); __o.position = 0; __r = String(__o.readBoolean());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readByte()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeByte(-2); __o.position = 0; __r = String(__o.readByte());",
+   "expect": "eq:-2"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readBytes()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeShort(0x0102); __o.position = 0; __a = new ByteArray(); __o.readBytes(__a, 0, 2); __r = __a[0] + \":\" + __a[1];",
+   "expect": "eq:1:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readDouble()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeDouble(9.5); __o.position = 0; __r = String(__o.readDouble());",
+   "expect": "eq:9.5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readFloat()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeFloat(0.5); __o.position = 0; __r = String(__o.readFloat());",
+   "expect": "eq:0.5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readInt()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(-42); __o.position = 0; __r = String(__o.readInt());",
+   "expect": "eq:-42"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readMultiByte()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeMultiByte(\"abc\", \"iso-8859-1\"); __o.position = 0; __r = __o.readMultiByte(3, \"iso-8859-1\");",
+   "expect": "eq:abc"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeObject({ n: 5 }); __o.position = 0; __r = String(__o.readObject().n);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readShort()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeShort(-1000); __o.position = 0; __r = String(__o.readShort());",
+   "expect": "eq:-1000"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTF()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTF(\"utf\"); __o.position = 0; __r = __o.readUTF();",
+   "expect": "eq:utf"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readUTFBytes()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"raw\"); __o.position = 0; __r = __o.readUTFBytes(3);",
+   "expect": "eq:raw"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedByte()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeByte(0xfe); __o.position = 0; __r = String(__o.readUnsignedByte());",
+   "expect": "eq:254"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedInt()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUnsignedInt(0xf0000001); __o.position = 0; __r = String(__o.readUnsignedInt());",
+   "expect": "eq:4026531841"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#readUnsignedShort()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeShort(0xfffe); __o.position = 0; __r = String(__o.readUnsignedShort());",
+   "expect": "eq:65534"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#toJSON()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __r = __o.toJSON(\"k\");",
+   "expect": "eq:ByteArray"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#toString()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"text\"); __r = __o.toString();",
+   "expect": "eq:text"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#uncompress()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"deflate data\"); __o.compress(\"deflate\"); __o.uncompress(\"deflate\"); __r = __o.toString();",
+   "expect": "eq:deflate data"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBoolean()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeBoolean(false); __o.position = 0; __r = String(__o.readBoolean());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeByte()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeByte(65); __r = __o.toString();",
+   "expect": "eq:A"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeBytes()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__a = new ByteArray(); __a.writeUTFBytes(\"xy\"); __o = new ByteArray(); __o.writeBytes(__a); __r = __o.toString();",
+   "expect": "eq:xy"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeDouble()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeDouble(-4.25); __o.position = 0; __r = String(__o.readDouble());",
+   "expect": "eq:-4.25"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeFloat()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeFloat(-1.25); __o.position = 0; __r = String(__o.readFloat());",
+   "expect": "eq:-1.25"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeInt()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(70000); __o.position = 0; __r = String(__o.readInt());",
+   "expect": "eq:70000"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeMultiByte()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeMultiByte(\"ok\", \"utf-8\"); __r = __o.toString();",
+   "expect": "eq:ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeObject(\"amf\"); __o.position = 0; __r = __o.readObject();",
+   "expect": "eq:amf"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeShort()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeShort(258); __r = __o[0] + \":\" + __o[1];",
+   "expect": "eq:1:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTF()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTF(\"ab\"); __r = String(__o.length);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUTFBytes()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUTFBytes(\"ab\"); __r = String(__o.length);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/utils/ByteArray.html#writeUnsignedInt()",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeUnsignedInt(3500000000); __o.position = 0; __r = String(__o.readUnsignedInt());",
+   "expect": "eq:3500000000"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#bytesAvailable",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(1); __o.position = 1; __r = String(__o.bytesAvailable);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#endian",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.endian = \"littleEndian\"; __o.writeShort(258); __r = __o[0] + \":\" + __o[1];",
+   "expect": "eq:2:1"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#length",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.length = 5; __r = String(__o.length);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#objectEncoding",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.objectEncoding = 0; __o.writeObject({ v: 3 }); __o.position = 0; __r = String(__o.readObject().v);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#position",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.writeInt(1); __o.position = 2; __r = String(__o.position);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/utils/ByteArray.html#shareable",
+   "owner": "flash.utils.ByteArray",
+   "code": "__o = new ByteArray(); __o.shareable = false; __r = String(__o.shareable);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/InteractiveObject.html#",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__r = String((stage is InteractiveObject) && (new Sprite() is InteractiveObject) && (new MovieClip() is InteractiveObject) && (new SimpleButton() is InteractiveObject) && (new TextField() is InteractiveObject) && (new Loader() is InteractiveObject) && !(new Shape() is InteractiveObject) && !(new Bitmap() is InteractiveObject) && !(new Video() is InteractiveObject));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/InteractiveObject.html#InteractiveObject()",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new InteractiveObject(); __r = \"ok\";",
+   "expect": "throws"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#mouseEnabled",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = __o.mouseEnabled; __o.mouseEnabled = false; __r = __a + \":\" + __o.mouseEnabled;",
+   "expect": "eq:true:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#doubleClickEnabled",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = __o.doubleClickEnabled; __o.doubleClickEnabled = true; __r = __a + \":\" + __o.doubleClickEnabled;",
+   "expect": "eq:false:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#tabEnabled",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = __o.tabEnabled; __o.tabEnabled = true; __r = __a + \":\" + __o.tabEnabled;",
+   "expect": "eq:false:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#tabIndex",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = __o.tabIndex; __o.tabIndex = 4; __r = __a + \":\" + __o.tabIndex;",
+   "expect": "eq:-1:4"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#focusRect",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = __o.focusRect; __o.focusRect = false; __r = String(__a) + \":\" + String(__o.focusRect);",
+   "expect": "eq:null:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#contextMenu",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = { items: [] }; __o.contextMenu = __a; __r = String(__o.contextMenu === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/InteractiveObject.html#accessibilityImplementation",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = { role: \"button\" }; __o.accessibilityImplementation = __a; __r = String(__o.accessibilityImplementation === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#tabChildren",
+   "owner": "flash.display.DisplayObjectContainer",
+   "code": "__o = new Sprite(); __a = __o.tabChildren; __o.tabChildren = false; __r = __a + \":\" + __o.tabChildren;",
+   "expect": "eq:true:false"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabEnabledChange",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = 0; __o.addEventListener(Event.TAB_ENABLED_CHANGE, function(e:Event):void { __a++; }); __o.tabEnabled = true; __r = String(__a);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabIndexChange",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = 0; __o.addEventListener(Event.TAB_INDEX_CHANGE, function(e:Event):void { __a++; }); __o.tabIndex = 3; __r = String(__a);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:tabChildrenChange",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = 0; __o.addEventListener(Event.TAB_CHILDREN_CHANGE, function(e:Event):void { __a++; }); __o.tabChildren = false; __r = String(__a);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:click",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.CLICK, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.CLICK)); __r = __a;",
+   "expect": "eq:click"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:doubleClick",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.DOUBLE_CLICK, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.DOUBLE_CLICK)); __r = __a;",
+   "expect": "eq:doubleClick"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseDown",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_DOWN)); __r = __a;",
+   "expect": "eq:mouseDown"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseMove",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_MOVE, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_MOVE)); __r = __a;",
+   "expect": "eq:mouseMove"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseOut",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_OUT, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_OUT)); __r = __a;",
+   "expect": "eq:mouseOut"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseOver",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_OVER, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_OVER)); __r = __a;",
+   "expect": "eq:mouseOver"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseUp",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_UP, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_UP)); __r = __a;",
+   "expect": "eq:mouseUp"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseWheel",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MOUSE_WHEEL, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_WHEEL)); __r = __a;",
+   "expect": "eq:mouseWheel"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rollOut",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.ROLL_OUT, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.ROLL_OUT, false)); __r = __a;",
+   "expect": "eq:rollOut"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rollOver",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.ROLL_OVER, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.ROLL_OVER, false)); __r = __a;",
+   "expect": "eq:rollOver"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleClick",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MIDDLE_CLICK, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MIDDLE_CLICK)); __r = __a;",
+   "expect": "eq:middleClick"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleMouseDown",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MIDDLE_MOUSE_DOWN, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MIDDLE_MOUSE_DOWN)); __r = __a;",
+   "expect": "eq:middleMouseDown"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:middleMouseUp",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.MIDDLE_MOUSE_UP, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.MIDDLE_MOUSE_UP)); __r = __a;",
+   "expect": "eq:middleMouseUp"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightClick",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.RIGHT_CLICK, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.RIGHT_CLICK)); __r = __a;",
+   "expect": "eq:rightClick"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightMouseDown",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.RIGHT_MOUSE_DOWN, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.RIGHT_MOUSE_DOWN)); __r = __a;",
+   "expect": "eq:rightMouseDown"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:rightMouseUp",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.RIGHT_MOUSE_UP, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.RIGHT_MOUSE_UP)); __r = __a;",
+   "expect": "eq:rightMouseUp"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:releaseOutside",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(MouseEvent.RELEASE_OUTSIDE, function(e:MouseEvent):void { __a = e.type; }); __o.dispatchEvent(new MouseEvent(MouseEvent.RELEASE_OUTSIDE)); __r = __a;",
+   "expect": "eq:releaseOutside"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyDown",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(KeyboardEvent.KEY_DOWN, function(e:KeyboardEvent):void { __a = e.type; }); __o.dispatchEvent(new KeyboardEvent(KeyboardEvent.KEY_DOWN)); __r = __a;",
+   "expect": "eq:keyDown"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyUp",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(KeyboardEvent.KEY_UP, function(e:KeyboardEvent):void { __a = e.type; }); __o.dispatchEvent(new KeyboardEvent(KeyboardEvent.KEY_UP)); __r = __a;",
+   "expect": "eq:keyUp"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusIn",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); addChild(__o); __a = \"\"; __o.addEventListener(FocusEvent.FOCUS_IN, function(e:FocusEvent):void { __a = e.type; }); stage.focus = __o; stage.focus = null; removeChild(__o); __r = __a;",
+   "expect": "eq:focusIn"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:focusOut",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); addChild(__o); __a = \"\"; __o.addEventListener(FocusEvent.FOCUS_OUT, function(e:FocusEvent):void { __a = e.type; }); stage.focus = __o; stage.focus = null; removeChild(__o); __r = __a;",
+   "expect": "eq:focusOut"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:keyFocusChange",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(FocusEvent.KEY_FOCUS_CHANGE, function(e:FocusEvent):void { __a = e.type; }); __o.dispatchEvent(new FocusEvent(FocusEvent.KEY_FOCUS_CHANGE, true, true)); __r = __a;",
+   "expect": "eq:keyFocusChange"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:mouseFocusChange",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new Sprite(); __a = \"\"; __o.addEventListener(FocusEvent.MOUSE_FOCUS_CHANGE, function(e:FocusEvent):void { __a = e.type; }); __o.dispatchEvent(new FocusEvent(FocusEvent.MOUSE_FOCUS_CHANGE, true, true)); __r = __a;",
+   "expect": "eq:mouseFocusChange"
+  },
+  {
+   "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:textInput",
+   "owner": "flash.display.InteractiveObject",
+   "code": "__o = new TextField(); __a = \"\"; __o.addEventListener(TextEvent.TEXT_INPUT, function(e:TextEvent):void { __a = e.text; }); __o.dispatchEvent(new TextEvent(TextEvent.TEXT_INPUT, true, true, \"z\")); __r = __a;",
+   "expect": "eq:z"
+  },
+  {
+   "catalogId": "AS3:interface:flash/events/IEventDispatcher.html#",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __b = new Sprite(); __r = String((__a is IEventDispatcher) && (__b is IEventDispatcher) && (IEventDispatcher(__a) === __a));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/IEventDispatcher.html#addEventListener()",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __b = 0; IEventDispatcher(__a).addEventListener(\"ping\", function(e:Event):void { __b++; }); IEventDispatcher(__a).dispatchEvent(new Event(\"ping\")); __r = String(__b);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/IEventDispatcher.html#dispatchEvent()",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __r = String(IEventDispatcher(__a).dispatchEvent(new Event(\"ok\")));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/IEventDispatcher.html#hasEventListener()",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __b = function(e:Event):void {}; IEventDispatcher(__a).addEventListener(\"h\", __b); __r = String(IEventDispatcher(__a).hasEventListener(\"h\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/IEventDispatcher.html#removeEventListener()",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __b = function(e:Event):void {}; IEventDispatcher(__a).addEventListener(\"h\", __b); IEventDispatcher(__a).removeEventListener(\"h\", __b); __r = String(IEventDispatcher(__a).hasEventListener(\"h\"));",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/IEventDispatcher.html#willTrigger()",
+   "owner": "flash.events.IEventDispatcher",
+   "code": "__a = new ProbeDispatcher(); __b = function(e:Event):void {}; IEventDispatcher(__a).addEventListener(\"w\", __b); __r = String(IEventDispatcher(__a).willTrigger(\"w\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/EventDispatcher.html#addEventListener()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __a = \"\"; __o.addEventListener(\"go\", function(e:Event):void { __a += \"2\"; }, false, 1); __o.addEventListener(\"go\", function(e:Event):void { __a += \"1\"; }, false, 5); __o.dispatchEvent(new Event(\"go\")); __r = __a;",
+   "expect": "eq:12"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/EventDispatcher.html#dispatchEvent()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __o.addEventListener(\"c\", function(e:Event):void { e.preventDefault(); }); __r = String(__o.dispatchEvent(new Event(\"c\", false, true)));",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/EventDispatcher.html#hasEventListener()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __a = function(e:Event):void {}; __o.addEventListener(\"x\", __a); __r = String(__o.hasEventListener(\"x\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/EventDispatcher.html#removeEventListener()",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __a = function(e:Event):void {}; __o.addEventListener(\"x\", __a); __o.removeEventListener(\"x\", __a); __r = String(__o.hasEventListener(\"x\"));",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+   "owner": "flash.display.SimpleButton",
+   "code": "__a = new Shape(); __b = new Shape(); __c = new Shape(); __o = new SimpleButton(__a, __b, __c, __a); __r = String(__o.upState === __a && __o.overState === __b && __o.downState === __c && __o.hitTestState === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = new Shape(); __o.upState = __a; __r = String(__o.upState === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = new Shape(); __o.overState = __a; __r = String(__o.overState === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = new Shape(); __o.downState = __a; __r = String(__o.downState === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = new Shape(); __o.hitTestState = __a; __r = String(__o.hitTestState === __a);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#enabled",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = __o.enabled; __o.enabled = false; __r = __a + \":\" + __o.enabled;",
+   "expect": "eq:true:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#trackAsMenu",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = __o.trackAsMenu; __o.trackAsMenu = true; __r = __a + \":\" + __o.trackAsMenu;",
+   "expect": "eq:false:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#useHandCursor",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __a = __o.useHandCursor; __o.useHandCursor = false; __r = __a + \":\" + __o.useHandCursor;",
+   "expect": "eq:true:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+   "owner": "flash.display.SimpleButton",
+   "code": "__o = new SimpleButton(); __o.soundTransform = new SoundTransform(0.25, -0.5); __r = __o.soundTransform.volume + \":\" + __o.soundTransform.pan;",
+   "expect": "eq:0.25:-0.5"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#CLICK",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.CLICK;",
+   "expect": "eq:click"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#CONTEXT_MENU",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.CONTEXT_MENU;",
+   "expect": "eq:contextMenu"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_CLICK",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.MIDDLE_CLICK;",
+   "expect": "eq:middleClick"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_DOWN",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.MIDDLE_MOUSE_DOWN;",
+   "expect": "eq:middleMouseDown"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#MIDDLE_MOUSE_UP",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.MIDDLE_MOUSE_UP;",
+   "expect": "eq:middleMouseUp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#RELEASE_OUTSIDE",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.RELEASE_OUTSIDE;",
+   "expect": "eq:releaseOutside"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_CLICK",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.RIGHT_CLICK;",
+   "expect": "eq:rightClick"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_DOWN",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.RIGHT_MOUSE_DOWN;",
+   "expect": "eq:rightMouseDown"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/MouseEvent.html#RIGHT_MOUSE_UP",
+   "owner": "flash.events.MouseEvent",
+   "code": "__r = MouseEvent.RIGHT_MOUSE_UP;",
+   "expect": "eq:rightMouseUp"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#clickCount",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, false, false, false, 0, false, false, 2); __r = String(__o.clickCount);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#commandKey",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, false, false, false, 0, true); __r = String(__o.commandKey);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#controlKey",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"click\", true, false, 0, 0, null, false, false, false, false, 0, false, true); __r = String(__o.controlKey);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#isRelatedObjectInaccessible",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"mouseOut\"); __a = __o.isRelatedObjectInaccessible; __o.isRelatedObjectInaccessible = true; __r = __a + \":\" + __o.isRelatedObjectInaccessible;",
+   "expect": "eq:false:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#movementX",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"mouseMove\"); __o.movementX = 7; __r = String(__o.movementX);",
+   "expect": "eq:7"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/MouseEvent.html#movementY",
+   "owner": "flash.events.MouseEvent",
+   "code": "__o = new MouseEvent(\"mouseMove\"); __o.movementY = -4; __r = String(__o.movementY);",
+   "expect": "eq:-4"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/events/Event.html#Event()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"custom\", true, true); __r = __o.type + \":\" + __o.bubbles + \":\" + __o.cancelable;",
+   "expect": "eq:custom:true:true"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#DISPLAYING",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.DISPLAYING;",
+   "expect": "eq:displaying"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#HTML_BOUNDS_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.HTML_BOUNDS_CHANGE;",
+   "expect": "eq:htmlBoundsChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#HTML_DOM_INITIALIZE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.HTML_DOM_INITIALIZE;",
+   "expect": "eq:htmlDOMInitialize"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#HTML_RENDER",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.HTML_RENDER;",
+   "expect": "eq:htmlRender"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#LOCATION_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.LOCATION_CHANGE;",
+   "expect": "eq:locationChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#NETWORK_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.NETWORK_CHANGE;",
+   "expect": "eq:networkChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#PREPARING",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.PREPARING;",
+   "expect": "eq:preparing"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_ERROR_CLOSE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.STANDARD_ERROR_CLOSE;",
+   "expect": "eq:standardErrorClose"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_INPUT_CLOSE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.STANDARD_INPUT_CLOSE;",
+   "expect": "eq:standardInputClose"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#STANDARD_OUTPUT_CLOSE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.STANDARD_OUTPUT_CLOSE;",
+   "expect": "eq:standardOutputClose"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#USER_IDLE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.USER_IDLE;",
+   "expect": "eq:userIdle"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#USER_PRESENT",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.USER_PRESENT;",
+   "expect": "eq:userPresent"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#BROWSER_ZOOM_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.BROWSER_ZOOM_CHANGE;",
+   "expect": "eq:browserZoomChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CANCEL",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CANCEL;",
+   "expect": "eq:cancel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CHANGE;",
+   "expect": "eq:change"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CHANNEL_MESSAGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CHANNEL_MESSAGE;",
+   "expect": "eq:channelMessage"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CHANNEL_STATE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CHANNEL_STATE;",
+   "expect": "eq:channelState"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CLEAR",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CLEAR;",
+   "expect": "eq:clear"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CLOSE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CLOSE;",
+   "expect": "eq:close"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CLOSING",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CLOSING;",
+   "expect": "eq:closing"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#COMPLETE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.COMPLETE;",
+   "expect": "eq:complete"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CONNECT",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CONNECT;",
+   "expect": "eq:connect"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CONTEXT3D_CREATE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CONTEXT3D_CREATE;",
+   "expect": "eq:context3DCreate"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#COPY",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.COPY;",
+   "expect": "eq:copy"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#CUT",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.CUT;",
+   "expect": "eq:cut"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#ENTER_FRAME",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.ENTER_FRAME;",
+   "expect": "eq:enterFrame"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#EXITING",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.EXITING;",
+   "expect": "eq:exiting"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#FRAME_LABEL",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.FRAME_LABEL;",
+   "expect": "eq:frameLabel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#FULLSCREEN",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.FULLSCREEN;",
+   "expect": "eq:fullScreen"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#ID3",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.ID3;",
+   "expect": "eq:id3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#INIT",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.INIT;",
+   "expect": "eq:init"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#MOUSE_LEAVE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.MOUSE_LEAVE;",
+   "expect": "eq:mouseLeave"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#PASTE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.PASTE;",
+   "expect": "eq:paste"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#SCROLL",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.SCROLL;",
+   "expect": "eq:scroll"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#SELECT",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.SELECT;",
+   "expect": "eq:select"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#SELECT_ALL",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.SELECT_ALL;",
+   "expect": "eq:selectAll"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#SOUND_COMPLETE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.SOUND_COMPLETE;",
+   "expect": "eq:soundComplete"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#SUSPEND",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.SUSPEND;",
+   "expect": "eq:suspend"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#TAB_CHILDREN_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.TAB_CHILDREN_CHANGE;",
+   "expect": "eq:tabChildrenChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#TAB_ENABLED_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.TAB_ENABLED_CHANGE;",
+   "expect": "eq:tabEnabledChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#TAB_INDEX_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.TAB_INDEX_CHANGE;",
+   "expect": "eq:tabIndexChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#TEXTURE_READY",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.TEXTURE_READY;",
+   "expect": "eq:textureReady"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#TEXT_INTERACTION_MODE_CHANGE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.TEXT_INTERACTION_MODE_CHANGE;",
+   "expect": "eq:textInteractionModeChange"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#UNLOAD",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.UNLOAD;",
+   "expect": "eq:unload"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#VIDEO_FRAME",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.VIDEO_FRAME;",
+   "expect": "eq:videoFrame"
+  },
+  {
+   "catalogId": "AS3:constant:flash/events/Event.html#WORKER_STATE",
+   "owner": "flash.events.Event",
+   "code": "__r = Event.WORKER_STATE;",
+   "expect": "eq:workerState"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#formatToString()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\", true, false); __r = __o.formatToString(\"Event\", \"type\", \"bubbles\");",
+   "expect": "eq:[Event type=\"x\" bubbles=true]"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#isDefaultPrevented()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\", false, true); __o.preventDefault(); __r = String(__o.isDefaultPrevented());",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/events/Event.html#preventDefault()",
+   "owner": "flash.events.Event",
+   "code": "__o = new Event(\"x\", false, false); __o.preventDefault(); __r = String(__o.isDefaultPrevented());",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#eventPhase",
+   "owner": "flash.events.Event",
+   "code": "__o = new EventDispatcher(); __a = 0; __o.addEventListener(\"t\", function(e:Event):void { __a = e.eventPhase; }); __o.dispatchEvent(new Event(\"t\")); __r = String(__a);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/events/Event.html#target",
+   "owner": "flash.events.Event",
+   "code": "__o = new EventDispatcher(); __a = null; __o.addEventListener(\"t\", function(e:Event):void { __a = e.target; }); __o.dispatchEvent(new Event(\"t\")); __r = String(__a === __o);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/Graphics.html#beginBitmapFill()",
+   "owner": "flash.display.Graphics",
+   "code": "__a = new BitmapData(4, 4, false, 0xff0000); __o = new Shape(); __o.graphics.beginBitmapFill(__a, new Matrix(), true, false); __o.graphics.drawRect(0, 0, 12, 10); __o.graphics.endFill(); __r = __o.width + \"x\" + __o.height; __a.dispose();",
+   "expect": "eq:12x10"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/JPEGEncoderOptions.html#",
+   "owner": "flash.display.JPEGEncoderOptions",
+   "code": "__o = new JPEGEncoderOptions(); __r = String(__o is JPEGEncoderOptions);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/JPEGEncoderOptions.html#JPEGEncoderOptions()",
+   "owner": "flash.display.JPEGEncoderOptions",
+   "code": "__a = new JPEGEncoderOptions(); __b = new JPEGEncoderOptions(90); __c = new BitmapData(8, 8, false, 0x3366cc); __v = __c.encode(new Rectangle(0, 0, 8, 8), __b); __c.dispose(); __r = __a.quality + \":\" + __b.quality + \":\" + (__v[0] === 255 && __v[1] === 216);",
+   "expect": "eq:80:90:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/JPEGEncoderOptions.html#quality",
+   "owner": "flash.display.JPEGEncoderOptions",
+   "code": "__o = new JPEGEncoderOptions(75); __o.quality = 60; __r = String(__o.quality);",
+   "expect": "eq:60"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/DisplacementMapFilterMode.html#",
+   "owner": "flash.filters.DisplacementMapFilterMode",
+   "code": "__r = typeof DisplacementMapFilterMode;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#CLAMP",
+   "owner": "flash.filters.DisplacementMapFilterMode",
+   "code": "__r = DisplacementMapFilterMode.CLAMP;",
+   "expect": "eq:clamp"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#COLOR",
+   "owner": "flash.filters.DisplacementMapFilterMode",
+   "code": "__r = DisplacementMapFilterMode.COLOR;",
+   "expect": "eq:color"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#IGNORE",
+   "owner": "flash.filters.DisplacementMapFilterMode",
+   "code": "__r = DisplacementMapFilterMode.IGNORE;",
+   "expect": "eq:ignore"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/DisplacementMapFilterMode.html#WRAP",
+   "owner": "flash.filters.DisplacementMapFilterMode",
+   "code": "__r = DisplacementMapFilterMode.WRAP;",
+   "expect": "eq:wrap"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/DisplacementMapFilter.html#",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __r = String((__o is DisplacementMapFilter) && (__o is flash.filters.BitmapFilter));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__a = new BitmapData(4, 4, false, 0x008080); __b = new BitmapData(4, 4, false, 0x112233); __b.setPixel(0, 0, 0xff0000); __o = new DisplacementMapFilter(__a, new Point(0, 0), 1, 2, 4, 0, \"clamp\", 0, 0); __c = new BitmapData(4, 4, false, 0); __c.applyFilter(__b, new Rectangle(0, 0, 4, 4), new Point(0, 0), __o); __r = __c.getPixel(2, 0).toString(16); __a.dispose(); __b.dispose(); __c.dispose();",
+   "expect": "eq:ff0000"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/DisplacementMapFilter.html#clone()",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(null, new Point(2, 3), 1, 2, 16, 24, \"color\", 0x123456, 0.5); __v = __o.clone(); __r = __v.mapPoint.x + \":\" + __v.scaleX + \":\" + __v.mode;",
+   "expect": "eq:2:16:color"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#alpha",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.alpha = 0.75; __r = String(__o.alpha);",
+   "expect": "eq:0.75"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#color",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.color = 0xabcdef; __r = String(__o.color);",
+   "expect": "eq:11259375"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#componentX",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.componentX = 4; __r = String(__o.componentX);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#componentY",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.componentY = 8; __r = String(__o.componentY);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mapBitmap",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__a = new BitmapData(2, 2, false, 0); __o = new DisplacementMapFilter(); __o.mapBitmap = __a; __r = String(__o.mapBitmap === __a); __a.dispose();",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mapPoint",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.mapPoint = new Point(5, 6); __r = __o.mapPoint.x + \":\" + __o.mapPoint.y;",
+   "expect": "eq:5:6"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#mode",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.mode = DisplacementMapFilterMode.IGNORE; __r = __o.mode;",
+   "expect": "eq:ignore"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#scaleX",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.scaleX = 32; __r = String(__o.scaleX);",
+   "expect": "eq:32"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/DisplacementMapFilter.html#scaleY",
+   "owner": "flash.filters.DisplacementMapFilter",
+   "code": "__o = new DisplacementMapFilter(); __o.scaleY = -16; __r = String(__o.scaleY);",
+   "expect": "eq:-16"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/BitmapFilter.html#",
+   "owner": "flash.filters.BitmapFilter",
+   "code": "__r = String((new BlurFilter() is BitmapFilter) && (new DisplacementMapFilter() is BitmapFilter));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/BitmapFilter.html#clone()",
+   "owner": "flash.filters.BitmapFilter",
+   "code": "__o = new BlurFilter(6, 8, 2); __v = BitmapFilter(__o).clone(); __r = String((__v is BlurFilter) && (__v !== __o));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/BitmapFilterQuality.html#",
+   "owner": "flash.filters.BitmapFilterQuality",
+   "code": "__r = typeof BitmapFilterQuality;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#LOW",
+   "owner": "flash.filters.BitmapFilterQuality",
+   "code": "__r = String(BitmapFilterQuality.LOW);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#MEDIUM",
+   "owner": "flash.filters.BitmapFilterQuality",
+   "code": "__r = String(BitmapFilterQuality.MEDIUM);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterQuality.html#HIGH",
+   "owner": "flash.filters.BitmapFilterQuality",
+   "code": "__r = String(BitmapFilterQuality.HIGH);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/BitmapFilterType.html#",
+   "owner": "flash.filters.BitmapFilterType",
+   "code": "__r = typeof BitmapFilterType;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#FULL",
+   "owner": "flash.filters.BitmapFilterType",
+   "code": "__r = BitmapFilterType.FULL;",
+   "expect": "eq:full"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#INNER",
+   "owner": "flash.filters.BitmapFilterType",
+   "code": "__r = BitmapFilterType.INNER;",
+   "expect": "eq:inner"
+  },
+  {
+   "catalogId": "AS3:constant:flash/filters/BitmapFilterType.html#OUTER",
+   "owner": "flash.filters.BitmapFilterType",
+   "code": "__r = BitmapFilterType.OUTER;",
+   "expect": "eq:outer"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/BlurFilter.html#BlurFilter()",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(8, 6, 2); __r = __o.blurX + \":\" + __o.blurY + \":\" + __o.quality;",
+   "expect": "eq:8:6:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/BlurFilter.html#clone()",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(5, 7, 3); __v = __o.clone(); __r = __v.blurX + \":\" + __v.blurY + \":\" + __v.quality;",
+   "expect": "eq:5:7:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BlurFilter.html#blurX",
+   "owner": "flash.filters.BlurFilter",
+   "code": "__o = new BlurFilter(); __o.blurX = 12; __r = String(__o.blurX);",
+   "expect": "eq:12"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/ColorMatrixFilter.html#ColorMatrixFilter()",
+   "owner": "flash.filters.ColorMatrixFilter",
+   "code": "__o = new ColorMatrixFilter(); __r = String(__o.matrix.length);",
+   "expect": "eq:20"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ColorMatrixFilter.html#matrix",
+   "owner": "flash.filters.ColorMatrixFilter",
+   "code": "__o = new ColorMatrixFilter(); __a = __o.matrix; __a[4] = 15; __o.matrix = __a; __r = String(__o.matrix[4]);",
+   "expect": "eq:15"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/ConvolutionFilter.html#",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3, [0,0,0,0,1,0,0,0,0]); __r = String(__o is ConvolutionFilter);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/ConvolutionFilter.html#ConvolutionFilter()",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3, [0,0,0,0,2,0,0,0,0], 2, 5, false, false, 0x112233, 0.5); __r = __o.matrixX + \":\" + __o.divisor + \":\" + __o.bias;",
+   "expect": "eq:3:2:5"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/ConvolutionFilter.html#clone()",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3, [0,0,0,0,1,0,0,0,0], 2, 3); __v = __o.clone(); __r = __v.divisor + \":\" + __v.bias;",
+   "expect": "eq:2:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#alpha",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.alpha = 0.5; __r = String(__o.alpha);",
+   "expect": "eq:0.5"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#bias",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.bias = 10; __r = String(__o.bias);",
+   "expect": "eq:10"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#clamp",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.clamp = false; __r = String(__o.clamp);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#color",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.color = 0x224466; __r = String(__o.color);",
+   "expect": "eq:2245734"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#divisor",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.divisor = 4; __r = String(__o.divisor);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrix",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3); __o.matrix = [0,0,0,0,3,0,0,0,0]; __r = String(__o.matrix[4]);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrixX",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3, [0,0,0,0,1,0,0,0,0]); __r = String(__o.matrixX);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#matrixY",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(3, 3, [0,0,0,0,1,0,0,0,0]); __r = String(__o.matrixY);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/ConvolutionFilter.html#preserveAlpha",
+   "owner": "flash.filters.ConvolutionFilter",
+   "code": "__o = new ConvolutionFilter(); __o.preserveAlpha = false; __r = String(__o.preserveAlpha);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/GlowFilter.html#GlowFilter()",
+   "owner": "flash.filters.GlowFilter",
+   "code": "__o = new GlowFilter(0x00ff00, 0.5, 8, 8, 2, 2, true, false); __r = __o.color + \":\" + __o.inner;",
+   "expect": "eq:65280:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/DropShadowFilter.html#DropShadowFilter()",
+   "owner": "flash.filters.DropShadowFilter",
+   "code": "__o = new DropShadowFilter(6, 90, 0x33, 0.5, 4, 4, 2, 2, false, false, true); __r = __o.distance + \":\" + __o.angle + \":\" + __o.hideObject;",
+   "expect": "eq:6:90:true"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/BevelFilter.html#",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __r = String(__o is BevelFilter);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/BevelFilter.html#BevelFilter()",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(5, 60, 0xffffff, 1, 0x111111, 0.5, 4, 4, 2, 2, \"outer\", true); __r = __o.distance + \":\" + __o.type + \":\" + __o.knockout;",
+   "expect": "eq:5:outer:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/BevelFilter.html#clone()",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(3, 45); __v = __o.clone(); __r = __v.distance + \":\" + __v.angle;",
+   "expect": "eq:3:45"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#angle",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.angle = 90; __r = String(__o.angle);",
+   "expect": "eq:90"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#blurX",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.blurX = 6; __r = String(__o.blurX);",
+   "expect": "eq:6"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#blurY",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.blurY = 7; __r = String(__o.blurY);",
+   "expect": "eq:7"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#distance",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.distance = 8; __r = String(__o.distance);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#highlightAlpha",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.highlightAlpha = 0.5; __r = String(__o.highlightAlpha);",
+   "expect": "eq:0.5"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#highlightColor",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.highlightColor = 0xffeedd; __r = String(__o.highlightColor);",
+   "expect": "eq:16772829"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#knockout",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.knockout = true; __r = String(__o.knockout);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#quality",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.quality = 3; __r = String(__o.quality);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#shadowAlpha",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.shadowAlpha = 0.25; __r = String(__o.shadowAlpha);",
+   "expect": "eq:0.25"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#shadowColor",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.shadowColor = 0x112233; __r = String(__o.shadowColor);",
+   "expect": "eq:1122867"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#strength",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.strength = 2; __r = String(__o.strength);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/BevelFilter.html#type",
+   "owner": "flash.filters.BevelFilter",
+   "code": "__o = new BevelFilter(); __o.type = \"full\"; __r = __o.type;",
+   "expect": "eq:full"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/GradientBevelFilter.html#",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __r = String(__o is GradientBevelFilter);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/GradientBevelFilter.html#GradientBevelFilter()",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(4, 45, [0, 0xffffff], [1, 1], [0, 255], 4, 4, 2, 2, \"inner\", false); __r = __o.colors.length + \":\" + __o.type;",
+   "expect": "eq:2:inner"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/GradientBevelFilter.html#clone()",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(6, 30, [0, 255], [1, 1], [0, 255]); __v = __o.clone(); __r = __v.distance + \":\" + __v.colors[1];",
+   "expect": "eq:6:255"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#alphas",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(4, 45, [0, 255], [0.5, 1], [0, 255]); __r = String(__o.alphas[0]);",
+   "expect": "eq:0.5"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#angle",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.angle = 60; __r = String(__o.angle);",
+   "expect": "eq:60"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#blurX",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.blurX = 5; __r = String(__o.blurX);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#blurY",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.blurY = 6; __r = String(__o.blurY);",
+   "expect": "eq:6"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#colors",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(4, 45, [0x10, 0x20], [1, 1], [0, 255]); __r = String(__o.colors[1]);",
+   "expect": "eq:32"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#distance",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.distance = 9; __r = String(__o.distance);",
+   "expect": "eq:9"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#knockout",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.knockout = true; __r = String(__o.knockout);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#quality",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.quality = 2; __r = String(__o.quality);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#ratios",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(4, 45, [0, 255], [1, 1], [10, 240]); __r = __o.ratios[0] + \":\" + __o.ratios[1];",
+   "expect": "eq:10:240"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#strength",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.strength = 3; __r = String(__o.strength);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientBevelFilter.html#type",
+   "owner": "flash.filters.GradientBevelFilter",
+   "code": "__o = new GradientBevelFilter(); __o.type = \"outer\"; __r = __o.type;",
+   "expect": "eq:outer"
+  },
+  {
+   "catalogId": "AS3:class:flash/filters/GradientGlowFilter.html#",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __r = String(__o is GradientGlowFilter);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/filters/GradientGlowFilter.html#GradientGlowFilter()",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(4, 45, [0, 0xff0000], [0, 1], [0, 255], 4, 4, 2, 2, \"outer\", false); __r = __o.colors.length + \":\" + __o.type;",
+   "expect": "eq:2:outer"
+  },
+  {
+   "catalogId": "AS3:method:flash/filters/GradientGlowFilter.html#clone()",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(5, 30, [0, 255], [1, 1], [0, 255]); __v = __o.clone(); __r = __v.distance + \":\" + __v.colors[1];",
+   "expect": "eq:5:255"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#alphas",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(4, 45, [0, 255], [0.25, 1], [0, 255]); __r = String(__o.alphas[0]);",
+   "expect": "eq:0.25"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#angle",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.angle = 75; __r = String(__o.angle);",
+   "expect": "eq:75"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#blurX",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.blurX = 8; __r = String(__o.blurX);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#blurY",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.blurY = 9; __r = String(__o.blurY);",
+   "expect": "eq:9"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#colors",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(4, 45, [0x30, 0x40], [1, 1], [0, 255]); __r = String(__o.colors[1]);",
+   "expect": "eq:64"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#distance",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.distance = 7; __r = String(__o.distance);",
+   "expect": "eq:7"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#knockout",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.knockout = true; __r = String(__o.knockout);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#quality",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.quality = 3; __r = String(__o.quality);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#ratios",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(4, 45, [0, 255], [1, 1], [20, 200]); __r = __o.ratios[0] + \":\" + __o.ratios[1];",
+   "expect": "eq:20:200"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#strength",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.strength = 2; __r = String(__o.strength);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/filters/GradientGlowFilter.html#type",
+   "owner": "flash.filters.GradientGlowFilter",
+   "code": "__o = new GradientGlowFilter(); __o.type = \"full\"; __r = __o.type;",
+   "expect": "eq:full"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/FontStyle.html#",
+   "owner": "flash.text.FontStyle",
+   "code": "__r = typeof FontStyle;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontStyle.html#BOLD",
+   "owner": "flash.text.FontStyle",
+   "code": "__r = FontStyle.BOLD;",
+   "expect": "eq:bold"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontStyle.html#BOLD_ITALIC",
+   "owner": "flash.text.FontStyle",
+   "code": "__r = FontStyle.BOLD_ITALIC;",
+   "expect": "eq:boldItalic"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontStyle.html#ITALIC",
+   "owner": "flash.text.FontStyle",
+   "code": "__r = FontStyle.ITALIC;",
+   "expect": "eq:italic"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontStyle.html#REGULAR",
+   "owner": "flash.text.FontStyle",
+   "code": "__r = FontStyle.REGULAR;",
+   "expect": "eq:regular"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/FontType.html#",
+   "owner": "flash.text.FontType",
+   "code": "__r = typeof FontType;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontType.html#DEVICE",
+   "owner": "flash.text.FontType",
+   "code": "__r = FontType.DEVICE;",
+   "expect": "eq:device"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontType.html#EMBEDDED",
+   "owner": "flash.text.FontType",
+   "code": "__r = FontType.EMBEDDED;",
+   "expect": "eq:embedded"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/FontType.html#EMBEDDED_CFF",
+   "owner": "flash.text.FontType",
+   "code": "__r = FontType.EMBEDDED_CFF;",
+   "expect": "eq:embeddedCFF"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextColorType.html#",
+   "owner": "flash.text.TextColorType",
+   "code": "__r = typeof TextColorType;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextColorType.html#DARK_COLOR",
+   "owner": "flash.text.TextColorType",
+   "code": "__r = TextColorType.DARK_COLOR;",
+   "expect": "eq:dark"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextColorType.html#LIGHT_COLOR",
+   "owner": "flash.text.TextColorType",
+   "code": "__r = TextColorType.LIGHT_COLOR;",
+   "expect": "eq:light"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+   "owner": "flash.text.TextDisplayMode",
+   "code": "__r = typeof TextDisplayMode;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+   "owner": "flash.text.TextDisplayMode",
+   "code": "__r = TextDisplayMode.CRT;",
+   "expect": "eq:crt"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+   "owner": "flash.text.TextDisplayMode",
+   "code": "__r = TextDisplayMode.DEFAULT;",
+   "expect": "eq:default"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+   "owner": "flash.text.TextDisplayMode",
+   "code": "__r = TextDisplayMode.LCD;",
+   "expect": "eq:lcd"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+   "owner": "flash.text.TextInteractionMode",
+   "code": "__r = typeof TextInteractionMode;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#NORMAL",
+   "owner": "flash.text.TextInteractionMode",
+   "code": "__r = TextInteractionMode.NORMAL;",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+   "owner": "flash.text.TextInteractionMode",
+   "code": "__r = TextInteractionMode.SELECTION;",
+   "expect": "eq:selection"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __r = __o.textInteractionMode;",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+   "owner": "flash.text.CSMSettings",
+   "code": "__o = new CSMSettings(12, 0.4, -0.4); __r = String(__o is CSMSettings);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+   "owner": "flash.text.CSMSettings",
+   "code": "__o = new CSMSettings(16, 0.5, -0.25); __r = __o.fontSize + \":\" + __o.insideCutoff + \":\" + __o.outsideCutoff;",
+   "expect": "eq:16:0.5:-0.25"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+   "owner": "flash.text.CSMSettings",
+   "code": "__o = new CSMSettings(12, 0.4, -0.4); __o.fontSize = 20; __r = String(__o.fontSize);",
+   "expect": "eq:20"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+   "owner": "flash.text.CSMSettings",
+   "code": "__o = new CSMSettings(12, 0.4, -0.4); __o.insideCutoff = 0.75; __r = String(__o.insideCutoff);",
+   "expect": "eq:0.75"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+   "owner": "flash.text.CSMSettings",
+   "code": "__o = new CSMSettings(12, 0.4, -0.4); __o.outsideCutoff = -0.5; __r = String(__o.outsideCutoff);",
+   "expect": "eq:-0.5"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+   "owner": "flash.text.TextRenderer",
+   "code": "__r = typeof TextRenderer;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+   "owner": "flash.text.TextRenderer",
+   "code": "__a = TextRenderer.displayMode; TextRenderer.displayMode = \"lcd\"; __b = TextRenderer.displayMode; TextRenderer.displayMode = \"default\"; __r = __a + \":\" + __b;",
+   "expect": "eq:default:lcd"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+   "owner": "flash.text.TextRenderer",
+   "code": "__a = TextRenderer.maxLevel; TextRenderer.maxLevel = 8; __b = TextRenderer.maxLevel; TextRenderer.maxLevel = 4; __r = __a + \":\" + __b;",
+   "expect": "eq:4:8"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+   "owner": "flash.text.TextRenderer",
+   "code": "TextRenderer.setAdvancedAntiAliasingTable(\"Verdana\", \"regular\", \"dark\", [new flash.text.CSMSettings(12, 0.4, -0.4)]); __r = \"ok\";",
+   "expect": "eq:ok"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/Font.html#",
+   "owner": "flash.text.Font",
+   "code": "__o = new ProbeEmbeddedFont(); __r = String(__o is Font);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/Font.html#registerFont()",
+   "owner": "flash.text.Font",
+   "code": "Font.registerFont(ProbeEmbeddedFont); __a = Font.enumerateFonts(false); __r = __a.length + \":\" + __a[0].fontName;",
+   "expect": "eq:1:ProbeEmbeddedFont"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/Font.html#enumerateFonts()",
+   "owner": "flash.text.Font",
+   "code": "Font.registerFont(ProbeEmbeddedFont); __a = Font.enumerateFonts(false); __b = Font.enumerateFonts(true); __r = String(__a.length === 1 && __b.length > __a.length);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+   "owner": "flash.text.Font",
+   "code": "__o = new ProbeEmbeddedFont(); __r = String(__o.hasGlyphs(\"Hello 123\") && !__o.hasGlyphs(\"a\\nb\"));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/Font.html#fontName",
+   "owner": "flash.text.Font",
+   "code": "__o = new ProbeEmbeddedFont(); __r = __o.fontName;",
+   "expect": "eq:ProbeEmbeddedFont"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/Font.html#fontStyle",
+   "owner": "flash.text.Font",
+   "code": "__o = new ProbeEmbeddedFont(); __r = __o.fontStyle;",
+   "expect": "eq:regular"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/Font.html#fontType",
+   "owner": "flash.text.Font",
+   "code": "__o = new ProbeEmbeddedFont(); __r = __o.fontType;",
+   "expect": "eq:embedded"
+  },
+  {
+   "catalogId": "AS3:class:flash/text/StyleSheet.html#",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __r = String((__o is StyleSheet) && (__o is EventDispatcher) && (__o is IEventDispatcher));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/text/StyleSheet.html#StyleSheet()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __r = String(__o.styleNames.length);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/StyleSheet.html#parseCSS()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __o.parseCSS(\"h1 { color: #ff0000; font-size: 20px; }\"); __r = __o.getStyle(\"h1\").color;",
+   "expect": "eq:#ff0000"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/StyleSheet.html#styleNames",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __o.parseCSS(\"h1 { color: #112233; } p { font-size: 12px; }\"); __r = String(__o.styleNames.length);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/StyleSheet.html#getStyle()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __o.setStyle(\"lead\", { fontWeight: \"bold\" }); __r = __o.getStyle(\"lead\").fontWeight + \":\" + String(__o.getStyle(\"missing\"));",
+   "expect": "eq:bold:null"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/StyleSheet.html#setStyle()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __o.setStyle(\"tag\", { color: \"#00ff00\" }); __r = __o.getStyle(\"tag\").color;",
+   "expect": "eq:#00ff00"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/StyleSheet.html#transform()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __v = __o.transform({ color: \"#336699\", fontSize: 18, fontWeight: \"bold\", textAlign: \"center\" }); __r = __v.color + \":\" + __v.size + \":\" + __v.bold + \":\" + __v.align;",
+   "expect": "eq:3368601:18:true:center"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/StyleSheet.html#clear()",
+   "owner": "flash.text.StyleSheet",
+   "code": "__o = new StyleSheet(); __o.setStyle(\"a\", { color: \"#000000\" }); __o.clear(); __r = String(__o.styleNames.length);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:event:flash/events/EventDispatcher.html#event:activate",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __a = \"\"; __o.addEventListener(Event.ACTIVATE, function(e:Event):void { __a = e.type; }); __o.dispatchEvent(new Event(Event.ACTIVATE)); __r = __a;",
+   "expect": "eq:activate"
+  },
+  {
+   "catalogId": "AS3:event:flash/events/EventDispatcher.html#event:deactivate",
+   "owner": "flash.events.EventDispatcher",
+   "code": "__o = new EventDispatcher(); __a = \"\"; __o.addEventListener(Event.DEACTIVATE, function(e:Event):void { __a = e.type; }); __o.dispatchEvent(new Event(Event.DEACTIVATE)); __r = __a;",
+   "expect": "eq:deactivate"
   }
  ],
  "controls": [

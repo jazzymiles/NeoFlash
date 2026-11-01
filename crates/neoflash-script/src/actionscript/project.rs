@@ -34,8 +34,6 @@ const AS2_BUILTINS: &[&str] = &[
     "mx.lang.Locale",
     "TextSnapshot",
     "TextField.StyleSheet",
-    "flash.text.TextRenderer",
-    "flash.filters.DisplacementMapFilter",
     "mx.utils.Collection",
     "mx.utils.CollectionImpl",
     "mx.utils.Iterator",
@@ -78,8 +76,6 @@ const BUILTINS: &[&str] = &[
     "mx.lang.Locale",
     "TextSnapshot",
     "TextField.StyleSheet",
-    "flash.text.TextRenderer",
-    "flash.filters.DisplacementMapFilter",
     "mx.utils.Collection",
     "mx.utils.CollectionImpl",
     "mx.utils.Iterator",
@@ -97,6 +93,7 @@ const BUILTINS: &[&str] = &[
     "Object",
     "Array",
     "flash.display.DisplayObject",
+    "flash.display.InteractiveObject",
     "flash.display.DisplayObjectContainer",
     "flash.display.MovieClip",
     "flash.display.FrameLabel",
@@ -119,6 +116,7 @@ const BUILTINS: &[&str] = &[
     "flash.display.BitmapDataChannel",
     "flash.display.PixelSnapping",
     "flash.display.PNGEncoderOptions",
+    "flash.display.JPEGEncoderOptions",
     "flash.display.Loader",
     "flash.display.LoaderInfo",
     "flash.display.Stage",
@@ -134,6 +132,15 @@ const BUILTINS: &[&str] = &[
     "flash.text.AntiAliasType",
     "flash.text.GridFitType",
     "flash.text.TextLineMetrics",
+    "flash.text.FontStyle",
+    "flash.text.FontType",
+    "flash.text.TextColorType",
+    "flash.text.TextDisplayMode",
+    "flash.text.TextInteractionMode",
+    "flash.text.CSMSettings",
+    "flash.text.Font",
+    "flash.text.StyleSheet",
+    "flash.text.TextRenderer",
     "flash.ui.Keyboard",
     "flash.ui.KeyLocation",
     "flash.ui.KeyboardType",
@@ -158,6 +165,8 @@ const BUILTINS: &[&str] = &[
     "flash.filters.GradientGlowFilter",
     "flash.filters.GradientBevelFilter",
     "flash.filters.BitmapFilterType",
+    "flash.filters.DisplacementMapFilter",
+    "flash.filters.DisplacementMapFilterMode",
     "mx.transitions.easing.Back",
     "mx.transitions.easing.Bounce",
     "mx.transitions.easing.Elastic",
@@ -205,6 +214,9 @@ const BUILTINS: &[&str] = &[
     "flash.utils.Timer",
     "flash.utils.ByteArray",
     "flash.utils.Endian",
+    "flash.utils.CompressionAlgorithm",
+    "flash.utils.IDataInput",
+    "flash.utils.IDataOutput",
     "flash.utils.Dictionary",
     "flash.net.URLRequest",
     "flash.net.URLRequestHeader",
@@ -219,6 +231,7 @@ const BUILTINS: &[&str] = &[
     "flash.events.IOErrorEvent",
     "flash.events.HTTPStatusEvent",
     "flash.events.TimerEvent",
+    "flash.events.IEventDispatcher",
     "flash.events.EventDispatcher",
     "flash.events.Event",
     "flash.events.MouseEvent",
@@ -458,6 +471,44 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "registerCursor"
                 | "unregisterCursor"
                 | "isAccessible"
+                | "atomicCompareAndSwapIntAt"
+                | "atomicCompareAndSwapLength"
+                | "readBoolean"
+                | "readByte"
+                | "readBytes"
+                | "readDouble"
+                | "readFloat"
+                | "readInt"
+                | "readMultiByte"
+                | "readShort"
+                | "readUnsignedByte"
+                | "readUnsignedInt"
+                | "readUnsignedShort"
+                | "readUTF"
+                | "readUTFBytes"
+                | "writeBoolean"
+                | "writeByte"
+                | "writeBytes"
+                | "writeDouble"
+                | "writeFloat"
+                | "writeInt"
+                | "writeMultiByte"
+                | "writeShort"
+                | "writeUnsignedInt"
+                | "writeUTF"
+                | "writeUTFBytes"
+                | "compress"
+                | "uncompress"
+                | "deflate"
+                | "parseCSS"
+                | "getStyle"
+                | "setStyle"
+                | "transform"
+                | "enumerateFonts"
+                | "registerFont"
+                | "hasGlyphs"
+                | "setAdvancedAntiAliasingTable"
+                | "setAdvancedAntialiasingTable"
         )
 }
 
@@ -578,13 +629,20 @@ fn visible_names(
                                 || AS2_BUILTINS.contains(&name.as_str())))
                         || name.starts_with("flash.geom.")
                         || (name.starts_with("flash.filters.")
-                            && name.as_str() != "flash.filters.BitmapFilterQuality"
+                            && !matches!(
+                                name.as_str(),
+                                "flash.filters.BitmapFilterQuality"
+                                    | "flash.filters.DisplacementMapFilterMode"
+                            )
                             && (language == ScriptLanguage::ActionScript2
                                 || !AS2_BUILTINS.contains(&name.as_str())))
                         || *name == "flash.display.BitmapData"
                         || *name == "flash.external.ExternalInterface"
                         || (language == ScriptLanguage::ActionScript2
-                            && *name == "flash.media.Video")
+                            && matches!(
+                                name.as_str(),
+                                "flash.media.Video" | "flash.text.TextRenderer"
+                            ))
                 },
                 |owner| {
                     *owner == language
@@ -1067,14 +1125,26 @@ fn parse_class(
             "Native subclass initialization for geometry/motion values and utilities, and Dictionary is outside this profile; use native instances through composition.",
         ));
     }
+    if base.as_deref() == Some("flash.display.InteractiveObject") {
+        return Err(Diagnostic::at(
+            &header.script,
+            0,
+            "InteractiveObject is an abstract native base class and cannot be extended directly; extend Sprite, MovieClip or SimpleButton.",
+        ));
+    }
     if matches!(
         base.as_deref(),
-        Some("flash.utils.ByteArray" | "flash.utils.Endian" | "flash.display.Graphics")
+        Some(
+            "flash.utils.ByteArray"
+                | "flash.utils.Endian"
+                | "flash.utils.CompressionAlgorithm"
+                | "flash.display.Graphics"
+        )
     ) {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian supplies constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
+            "ByteArray indexed storage cannot initialize an existing native subclass receiver; Endian and CompressionAlgorithm supply constants and Graphics comes from its display owner. Inheritance from these built-ins is unsupported.",
         ));
     }
     if matches!(
@@ -1085,6 +1155,7 @@ fn parse_class(
                 | "flash.display.BitmapDataChannel"
                 | "flash.display.PixelSnapping"
                 | "flash.display.PNGEncoderOptions"
+                | "flash.display.JPEGEncoderOptions"
                 | "flash.display.Stage"
                 | "flash.display.StageScaleMode"
                 | "flash.display.StageAlign"
@@ -1095,7 +1166,7 @@ fn parse_class(
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; PNGEncoderOptions is final.",
+            "Bitmap, BitmapData and Stage native subclass initialization is outside this profile; construct or read the native facade and use composition. PixelSnapping, BitmapDataChannel and Stage enum classes provide constants; PNGEncoderOptions and JPEGEncoderOptions are final.",
         ));
     }
     if base
@@ -1130,12 +1201,12 @@ fn parse_class(
     }
     if base
         .as_ref()
-        .is_some_and(|base| base.starts_with("flash.text."))
+        .is_some_and(|base| base.starts_with("flash.text.") && base != "flash.text.Font")
     {
         return Err(Diagnostic::at(
             &header.script,
             0,
-            "TextField and TextFormat native subclass initialization is outside this profile; construct the native facade and use composition. TextFormatAlign and TextFieldType supply constants only.",
+            "TextField, TextFormat, StyleSheet, TextRenderer and CSMSettings native subclass initialization is outside this profile; construct the native facade and use composition. Text enum classes supply constants only.",
         ));
     }
     if base
@@ -1587,6 +1658,7 @@ fn native_member(base: &str, name: &str) -> bool {
                 | "createGradientBox"
                 | "toString"
         ),
+        "flash.text.Font" => matches!(name, "fontName" | "fontStyle" | "fontType" | "hasGlyphs"),
         _ => false,
     };
     if value_member {
@@ -1678,6 +1750,233 @@ fn native_member(base: &str, name: &str) -> bool {
             ))
 }
 
+fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKind), MethodContract>>
+{
+    let entry =
+        |owner: &str, name: &str, kind: MethodKind, params: &[(&str, bool)], returns: &str| {
+            (
+                (name.to_owned(), kind),
+                MethodContract {
+                    signature: Signature {
+                        params: params.iter().map(|(ty, _)| (*ty).to_owned()).collect(),
+                        optional: params.iter().map(|(_, opt)| *opt).collect(),
+                        rest: false,
+                        returns: returns.to_owned(),
+                    },
+                    access: Access::Public,
+                    owner: owner.to_owned(),
+                    final_: false,
+                },
+            )
+        };
+    let ev = "flash.events.IEventDispatcher";
+    let di = "flash.utils.IDataInput";
+    let do_ = "flash.utils.IDataOutput";
+    BTreeMap::from([
+        (
+            ev.to_owned(),
+            BTreeMap::from([
+                entry(
+                    ev,
+                    "addEventListener",
+                    MethodKind::Method,
+                    &[
+                        ("String", false),
+                        ("Function", false),
+                        ("Boolean", true),
+                        ("int", true),
+                        ("Boolean", true),
+                    ],
+                    "void",
+                ),
+                entry(
+                    ev,
+                    "removeEventListener",
+                    MethodKind::Method,
+                    &[("String", false), ("Function", false), ("Boolean", true)],
+                    "void",
+                ),
+                entry(
+                    ev,
+                    "dispatchEvent",
+                    MethodKind::Method,
+                    &[("flash.events.Event", false)],
+                    "Boolean",
+                ),
+                entry(
+                    ev,
+                    "hasEventListener",
+                    MethodKind::Method,
+                    &[("String", false)],
+                    "Boolean",
+                ),
+                entry(
+                    ev,
+                    "willTrigger",
+                    MethodKind::Method,
+                    &[("String", false)],
+                    "Boolean",
+                ),
+            ]),
+        ),
+        (
+            di.to_owned(),
+            BTreeMap::from([
+                entry(di, "bytesAvailable", MethodKind::Get, &[], "uint"),
+                entry(di, "endian", MethodKind::Get, &[], "String"),
+                entry(di, "endian", MethodKind::Set, &[("String", false)], "void"),
+                entry(di, "objectEncoding", MethodKind::Get, &[], "uint"),
+                entry(
+                    di,
+                    "objectEncoding",
+                    MethodKind::Set,
+                    &[("uint", false)],
+                    "void",
+                ),
+                entry(di, "readBoolean", MethodKind::Method, &[], "Boolean"),
+                entry(di, "readByte", MethodKind::Method, &[], "int"),
+                entry(
+                    di,
+                    "readBytes",
+                    MethodKind::Method,
+                    &[
+                        ("flash.utils.ByteArray", false),
+                        ("uint", true),
+                        ("uint", true),
+                    ],
+                    "void",
+                ),
+                entry(di, "readDouble", MethodKind::Method, &[], "Number"),
+                entry(di, "readFloat", MethodKind::Method, &[], "Number"),
+                entry(di, "readInt", MethodKind::Method, &[], "int"),
+                entry(
+                    di,
+                    "readMultiByte",
+                    MethodKind::Method,
+                    &[("uint", false), ("String", false)],
+                    "String",
+                ),
+                entry(di, "readObject", MethodKind::Method, &[], "*"),
+                entry(di, "readShort", MethodKind::Method, &[], "int"),
+                entry(di, "readUnsignedByte", MethodKind::Method, &[], "uint"),
+                entry(di, "readUnsignedInt", MethodKind::Method, &[], "uint"),
+                entry(di, "readUnsignedShort", MethodKind::Method, &[], "uint"),
+                entry(di, "readUTF", MethodKind::Method, &[], "String"),
+                entry(
+                    di,
+                    "readUTFBytes",
+                    MethodKind::Method,
+                    &[("uint", false)],
+                    "String",
+                ),
+            ]),
+        ),
+        (
+            do_.to_owned(),
+            BTreeMap::from([
+                entry(do_, "endian", MethodKind::Get, &[], "String"),
+                entry(do_, "endian", MethodKind::Set, &[("String", false)], "void"),
+                entry(do_, "objectEncoding", MethodKind::Get, &[], "uint"),
+                entry(
+                    do_,
+                    "objectEncoding",
+                    MethodKind::Set,
+                    &[("uint", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeBoolean",
+                    MethodKind::Method,
+                    &[("Boolean", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeByte",
+                    MethodKind::Method,
+                    &[("int", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeBytes",
+                    MethodKind::Method,
+                    &[
+                        ("flash.utils.ByteArray", false),
+                        ("uint", true),
+                        ("uint", true),
+                    ],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeDouble",
+                    MethodKind::Method,
+                    &[("Number", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeFloat",
+                    MethodKind::Method,
+                    &[("Number", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeInt",
+                    MethodKind::Method,
+                    &[("int", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeMultiByte",
+                    MethodKind::Method,
+                    &[("String", false), ("String", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeObject",
+                    MethodKind::Method,
+                    &[("*", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeShort",
+                    MethodKind::Method,
+                    &[("int", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeUnsignedInt",
+                    MethodKind::Method,
+                    &[("uint", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeUTF",
+                    MethodKind::Method,
+                    &[("String", false)],
+                    "void",
+                ),
+                entry(
+                    do_,
+                    "writeUTFBytes",
+                    MethodKind::Method,
+                    &[("String", false)],
+                    "void",
+                ),
+            ]),
+        ),
+    ])
+}
+
 pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
     let mut headers = vec![];
     let mut errors = vec![];
@@ -1713,10 +2012,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .filter(|h| h.public)
         .map(|h| h.name.clone())
         .collect();
+    let builtin_interfaces = builtin_interface_contracts();
     let interfaces: BTreeSet<_> = headers
         .iter()
         .filter(|h| h.is_interface)
         .map(|h| h.name.clone())
+        .chain(builtin_interfaces.keys().cloned())
         .collect();
     let mut classes = BTreeMap::new();
     for h in headers {
@@ -1817,8 +2118,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut class_contracts =
         BTreeMap::<String, Vec<((String, MethodKind), MethodContract)>>::new();
     let mut native_bases = BTreeMap::<String, String>::new();
-    let mut contracts = BTreeMap::<String, BTreeMap<(String, MethodKind), MethodContract>>::new();
-    let mut interface_closures = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut contracts = builtin_interfaces.clone();
+    let mut interface_closures: BTreeMap<String, BTreeSet<String>> = builtin_interfaces
+        .keys()
+        .map(|name| (name.clone(), BTreeSet::from([name.clone()])))
+        .collect();
     let mut reflection_types = BUILTINS
         .iter()
         .filter(|name| !name.starts_with("mx.transitions.") && !AS2_BUILTINS.contains(name))
@@ -1929,6 +2233,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .map(|base| native_bases.get(base).unwrap_or(base).clone());
         if let Some(base) = &native_base {
             native_bases.insert(name.clone(), base.clone());
+            if base == "flash.events.EventDispatcher" || base.starts_with("flash.display.") {
+                for (key, item) in &builtin_interfaces["flash.events.IEventDispatcher"] {
+                    contract.entry(key.clone()).or_insert_with(|| item.clone());
+                }
+            }
             for member in c
                 .fields
                 .iter()

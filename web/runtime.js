@@ -379,9 +379,9 @@
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
-      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,
@@ -707,7 +707,23 @@
       builtins.__nfHasNativeProperty=(receiver,name)=>Boolean(references.get(receiver)?.nativeHas(name));
       builtins.__nfIsNativeDisplay=receiver=>references.has(receiver);
       if(xmlHost){builtins.__nfXML=xmlHost;builtins.XML=xmlHost.XML;builtins.XMLList=xmlHost.XMLList;}
-      if(global.NeoFlashEvents)for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
+      const nativeInterface=(qname,baseIface)=>{
+        const facade=function(value){
+          if(new.target)throw new TypeError(`Interface ${qname} cannot be constructed.`);
+          if(arguments.length!==1)throw new TypeError(`Interface ${qname} conversion expects one value.`);
+          return program?program.cast(qname,value):baseIface(value);
+        };
+        Object.defineProperties(facade,{
+          __nfIs:{value:baseIface.__nfIs},
+          __nfInitialize:{value:baseIface.__nfInitialize},
+          [Symbol.hasInstance]:{value:value=>program?program.is(value,qname):baseIface.__nfIs(value)},
+        });
+        return Object.freeze(facade);
+      };
+      if(global.NeoFlashEvents){
+        for(const name of ['Event','MouseEvent','KeyboardEvent','FocusEvent','TextEvent','EventDispatcher','EventPhase'])builtins['flash.events.'+name]=global.NeoFlashEvents[name];
+        if(global.NeoFlashEvents.IEventDispatcher)builtins['flash.events.IEventDispatcher']=nativeInterface('flash.events.IEventDispatcher',global.NeoFlashEvents.IEventDispatcher);
+      }
       for(const [name,type] of Object.entries(eventFamilies))builtins['flash.events.'+name]=type;
       if(global.NeoFlashStage){
         for(const name of ['Stage','StageScaleMode','StageAlign','StageDisplayState','StageQuality'])builtins['flash.display.'+name]=global.NeoFlashStage[name];
@@ -717,16 +733,23 @@
       }
       if(timerHost){builtins['flash.utils.Timer']=timerHost.Timer;builtins['flash.events.TimerEvent']=timerHost.TimerEvent;builtins['flash.utils.getTimer']=timerHost.getTimer;}
       if(timerHost)for(const name of ['setInterval','setTimeout','clearInterval','clearTimeout'])builtins['flash.utils.'+name]=timerHost[name];
-      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.BitmapDataChannel']=bitmapHost.BitmapDataChannel;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;builtins.__nfBitmapUintVector=bitmapHost.setUintVectorFactory;}
-      else if(global.NeoFlashBitmap?.BitmapDataChannel)builtins['flash.display.BitmapDataChannel']=global.NeoFlashBitmap.BitmapDataChannel;
+      if(bitmapHost){builtins['flash.display.BitmapData']=bitmapHost.BitmapData;builtins['flash.display.BitmapDataChannel']=bitmapHost.BitmapDataChannel;builtins['flash.display.PixelSnapping']=bitmapHost.PixelSnapping;builtins['flash.display.PNGEncoderOptions']=bitmapHost.PNGEncoderOptions;if(bitmapHost.JPEGEncoderOptions)builtins['flash.display.JPEGEncoderOptions']=bitmapHost.JPEGEncoderOptions;builtins.__nfBitmapUintVector=bitmapHost.setUintVectorFactory;}
+      else if(global.NeoFlashBitmap?.BitmapDataChannel){builtins['flash.display.BitmapDataChannel']=global.NeoFlashBitmap.BitmapDataChannel;if(global.NeoFlashBitmap.JPEGEncoderOptions)builtins['flash.display.JPEGEncoderOptions']=global.NeoFlashBitmap.JPEGEncoderOptions;}
       const textSource=textHost||global.NeoFlashText;
-      if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','TextLineMetrics'])if(textSource[name])builtins['flash.text.'+name]=textSource[name];
-      if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality','ConvolutionFilter','BevelFilter','GradientGlowFilter','GradientBevelFilter','BitmapFilterType'])builtins['flash.filters.'+name]=filterHost[name];
+      if(textSource)for(const name of ['TextFormat','TextFormatAlign','TextFieldType','TextFieldAutoSize','AntiAliasType','GridFitType','FontStyle','FontType','TextColorType','TextDisplayMode','TextInteractionMode','CSMSettings','TextRenderer','Font','StyleSheet','TextLineMetrics'])if(textSource[name])builtins['flash.text.'+name]=textSource[name];
+      if(filterHost)for(const name of ['BitmapFilter','BlurFilter','GlowFilter','DropShadowFilter','ColorMatrixFilter','BitmapFilterQuality','ConvolutionFilter','BevelFilter','GradientGlowFilter','GradientBevelFilter','BitmapFilterType','DisplacementMapFilter','DisplacementMapFilterMode'])if(filterHost[name])builtins['flash.filters.'+name]=filterHost[name];
+      else if(global.NeoFlashFilters?.DisplacementMapFilterMode)builtins['flash.filters.DisplacementMapFilterMode']=global.NeoFlashFilters.DisplacementMapFilterMode;
       if(storageHost)for(const name of ['SharedObject','SharedObjectFlushStatus','ObjectEncoding'])builtins['flash.net.'+name]=storageHost[name];
       if(loaderHost)for(const name of ['Loader','LoaderInfo'])builtins['flash.display.'+name]=loaderHost[name];
       if(videoHost){builtins['flash.media.Video']=videoHost.Video;builtins['flash.events.NetStatusEvent']=videoHost.NetStatusEvent;for(const name of ['NetConnection','NetStream'])builtins['flash.net.'+name]=videoHost[name];}
       if(audioHost){for(const name of ['Sound','SoundChannel','SoundTransform'])builtins['flash.media.'+name]=audioHost[name];builtins['flash.media.SoundMixer']=SoundMixer;}
-      if(binaryHost){builtins['flash.utils.ByteArray']=binaryHost.ByteArray;builtins['flash.utils.Endian']=binaryHost.Endian;}
+      if(binaryHost){
+        builtins['flash.utils.ByteArray']=binaryHost.ByteArray;
+        builtins['flash.utils.Endian']=binaryHost.Endian;
+        if(binaryHost.CompressionAlgorithm)builtins['flash.utils.CompressionAlgorithm']=binaryHost.CompressionAlgorithm;
+        if(binaryHost.IDataInput)builtins['flash.utils.IDataInput']=nativeInterface('flash.utils.IDataInput',binaryHost.IDataInput);
+        if(binaryHost.IDataOutput)builtins['flash.utils.IDataOutput']=nativeInterface('flash.utils.IDataOutput',binaryHost.IDataOutput);
+      }
       if(externalHost)builtins['flash.external.ExternalInterface']=externalHost.ExternalInterface;
       if(netHost){
         for(const name of ['URLRequest','URLRequestHeader','URLRequestMethod','URLVariables','URLLoader','URLLoaderDataFormat'])builtins['flash.net.'+name]=netHost[name];

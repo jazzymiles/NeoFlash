@@ -622,6 +622,17 @@ impl<'a> Analysis<'a> {
                                         | "registerCursor"
                                         | "unregisterCursor"
                                         | "isAccessible"
+                                        | "beginBitmapFill"
+                                        | "atomicCompareAndSwapIntAt"
+                                        | "atomicCompareAndSwapLength"
+                                        | "parseCSS"
+                                        | "getStyle"
+                                        | "setStyle"
+                                        | "transform"
+                                        | "enumerateFonts"
+                                        | "registerFont"
+                                        | "hasGlyphs"
+                                        | "setAdvancedAntiAliasingTable"
                                 )
                         ));
                 if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {

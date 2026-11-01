@@ -52,6 +52,35 @@
   Object.assign(AntiAliasType,{ADVANCED:'advanced',NORMAL:'normal'});Object.freeze(AntiAliasType);
   class GridFitType {constructor(){throw new TypeError('GridFitType supplies NONE, PIXEL and SUBPIXEL constants.');}}
   Object.assign(GridFitType,{NONE:'none',PIXEL:'pixel',SUBPIXEL:'subpixel'});Object.freeze(GridFitType);
+  function defineTextEnum(name,constants){
+    const EnumType=function(){throw new TypeError(`${name} supplies constants and cannot be instantiated.`);};
+    Object.assign(EnumType,constants);
+    Object.defineProperties(EnumType,{
+      __nfIs:{value:()=>false},
+      __nfInitialize:{value:()=>{throw new TypeError(`${name} cannot be subclassed.`);}},
+      [Symbol.hasInstance]:{value:()=>false},
+    });
+    return Object.freeze(EnumType);
+  }
+  const FontStyle=defineTextEnum('FontStyle',{BOLD:'bold',BOLD_ITALIC:'boldItalic',ITALIC:'italic',REGULAR:'regular'});
+  const FontType=defineTextEnum('FontType',{DEVICE:'device',EMBEDDED:'embedded',EMBEDDED_CFF:'embeddedCFF'});
+  const TextColorType=defineTextEnum('TextColorType',{DARK_COLOR:'dark',LIGHT_COLOR:'light'});
+  const TextDisplayMode=defineTextEnum('TextDisplayMode',{CRT:'crt',DEFAULT:'default',LCD:'lcd'});
+  const TextInteractionMode=defineTextEnum('TextInteractionMode',{NORMAL:'normal',SELECTION:'selection'});
+  const csmRecords=new WeakMap(),csmFields=['fontSize','insideCutoff','outsideCutoff'];
+  class CSMSettings {
+    constructor(fontSize,insideCutoff,outsideCutoff){
+      if(arguments.length!==3)throw new TypeError('CSMSettings requires three Number arguments: fontSize, insideCutoff and outsideCutoff.');
+      csmRecords.set(this,{fontSize:Number(fontSize),insideCutoff:Number(insideCutoff),outsideCutoff:Number(outsideCutoff)});
+      Object.seal(this);
+    }
+  }
+  for(const name of csmFields)Object.defineProperty(CSMSettings.prototype,name,{enumerable:true,
+    get(){const record=csmRecords.get(this);if(!record)throw new TypeError('Expected CSMSettings.');return record[name];},
+    set(value){const record=csmRecords.get(this);if(!record)throw new TypeError('Expected CSMSettings.');record[name]=Number(value);}});
+  CSMSettings.__nfIs=value=>csmRecords.has(value);
+  CSMSettings.__nfInitialize=()=>{throw new TypeError('Native CSMSettings subclassing is not supported.');};
+  Object.defineProperty(CSMSettings,Symbol.hasInstance,{value:CSMSettings.__nfIs});
   const lineMetrics=new WeakMap(),metricFields=['x','width','height','ascent','descent','leading'];
   class TextLineMetrics {
     constructor(x,width,height,ascent,descent,leading){
@@ -86,7 +115,7 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,geometry,measureText,onUpdate=()=>{}}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,onUpdate=()=>{}}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
     let as2Execute=null,as2Layout=null,as2Wheel=null;
     class As2TextFormat extends TextFormat {
@@ -133,9 +162,10 @@
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
     function get(ref,name){
-      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection'];
+      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
+      if(name==='textInteractionMode')return TextInteractionMode.NORMAL;
       const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret',antiAliasType:'anti_alias_type',gridFitType:'grid_fit_type',sharpness:'sharpness',thickness:'thickness',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'};
       if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0,embedFonts:false,condenseWhite:false,alwaysShowSelection:false}[name]);
       if(name==='autoSize')return field.as2_viewport?.auto_size??'none';
@@ -191,7 +221,7 @@
         if(!field.box){const result=layout(field);patch[axis==='width'?'height':'width']=axis==='width'?result.text_height:result.text_width;}
         update(ref,patch);return true;
       }
-      if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
+      if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV','textInteractionMode'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       return false;
     }
     function methods(ref){return {
@@ -253,10 +283,163 @@
       }finally{context.restore();}
     }
     function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
-    function reset(){active();cache.clear();cacheBytes=0;}
+    function textKernel(request){
+      active();
+      if(as2Execute)return as2Execute(request);
+      const runtimeWasm=wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
+      if(typeof runtimeWasm?.as2_text_json!=='function')throw new Error('Rust text kernel is unavailable; rebuild and re-export this project.');
+      try{return JSON.parse(runtimeWasm.as2_text_json(JSON.stringify(request)));}
+      catch(error){throw error instanceof Error?error:new TypeError(String(error));}
+    }
+    const defaultRenderer=()=>({displayMode:'default',maxLevel:4,tables:{}});
+    let rendererState=defaultRenderer(),rendererAntiAliasType=AntiAliasType.NORMAL;
+    class TextRenderer {
+      constructor(){throw new TypeError('TextRenderer supplies static properties and methods and cannot be constructed.');}
+      static setAdvancedAntiAliasingTable(fontName,fontStyle,colorType,table){
+        active();
+        if(typeof fontName!=='string'||typeof fontStyle!=='string'||typeof colorType!=='string'||!Array.isArray(table)){
+          throw new TypeError('TextRenderer.setAdvancedAntiAliasingTable requires (fontName:String, fontStyle:String, colorType:String, table:Array).');
+        }
+        const entries=table.map(item=>{
+          if(!item||typeof item!=='object')throw new TypeError('TextRenderer antialiasing entries require objects with fontSize, insideCutoff and outsideCutoff.');
+          return {fontSize:Number(item.fontSize),insideCutoff:Number(item.insideCutoff),outsideCutoff:Number(item.outsideCutoff)};
+        });
+        const kernelStyle=fontStyle==='regular'?'none':fontStyle;
+        rendererState=textKernel({op:'renderer_table',state:rendererState,font_name:fontName,font_style:kernelStyle,color_type:colorType,table:entries}).state;
+      }
+    }
+    TextRenderer.setAdvancedAntialiasingTable=TextRenderer.setAdvancedAntiAliasingTable;
+    Object.defineProperty(TextRenderer,'antiAliasType',{enumerable:true,
+      get(){active();return rendererAntiAliasType;},
+      set(value){active();if(!['normal','advanced'].includes(value))throw new TypeError('TextRenderer.antiAliasType requires normal or advanced.');rendererAntiAliasType=value;}});
+    for(const name of ['displayMode','maxLevel']){
+      Object.defineProperty(TextRenderer,name,{enumerable:true,
+        get(){active();return rendererState[name];},
+        set(value){active();rendererState=textKernel({op:'renderer_set',state:rendererState,name,value}).state;}});
+    }
+    Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}},[Symbol.hasInstance]:{value:()=>false}});
+    Object.freeze(TextRenderer);
+
+    const fontRecords=new WeakMap(),fontToken=Symbol('Font'),registeredFonts=[],registeredFontClasses=new Set();
+    class Font {
+      constructor(token,record){
+        active();
+        if(token===fontToken){fontRecords.set(this,record);Object.freeze(this);return;}
+        if(arguments.length>0)throw new TypeError('Font constructor accepts no arguments.');
+        fontRecords.set(this,{fontName:null,fontStyle:FontStyle.REGULAR,fontType:FontType.EMBEDDED});
+      }
+      get fontName(){const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');return record.fontName;}
+      get fontStyle(){const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');return record.fontStyle;}
+      get fontType(){const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');return record.fontType;}
+      hasGlyphs(str){
+        const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');
+        if(str===null||str===undefined)throw new TypeError('Font.hasGlyphs requires a non-null String.');
+        const value=String(str);
+        for(const ch of value){
+          const cp=ch.codePointAt(0);
+          if(cp<0x20||(cp>=0x7f&&cp<=0x9f)||(cp>=0xd800&&cp<=0xdfff)||cp===0xfffd||(cp>=0xfdd0&&cp<=0xfdef)||(cp&0xfffe)===0xfffe)return false;
+        }
+        return true;
+      }
+      static registerFont(fontClass){
+        active();
+        if(typeof fontClass!=='function'||fontClass===Font)throw new TypeError('ArgumentError: Font.registerFont requires a Font subclass.');
+        const prog=getProgram?.();
+        const instance=prog?.isClass?.(fontClass)?prog.constructClass(fontClass,[]):new fontClass();
+        if(!Font.__nfIs(instance))throw new TypeError('ArgumentError: Font.registerFont requires a Font subclass.');
+        if(!registeredFontClasses.has(fontClass)){registeredFontClasses.add(fontClass);registeredFonts.push(instance);}
+      }
+      static enumerateFonts(enumerateDeviceFonts=false){
+        active();
+        const list=registeredFonts.slice();
+        if(Boolean(enumerateDeviceFonts)){
+          const candidates=['sans-serif','serif','monospace','Arial','Helvetica','Times New Roman','Courier New','Verdana','Georgia','Trebuchet MS'];
+          if(document?.fonts&&typeof document.fonts[Symbol.iterator]==='function'){
+            for(const face of document.fonts){if(typeof face?.family==='string')candidates.push(face.family);if(candidates.length>=4096)break;}
+          }
+          if(Array.isArray(project?.symbols)){
+            for(const symbol of project.symbols)for(const layer of symbol?.timeline?.layers||[])for(const keyframe of layer?.keyframes||[])for(const element of keyframe?.elements||[]){
+              const family=element?.kind?.font_family||element?.kind?.field?.format?.font;
+              if(typeof family==='string'&&candidates.length<4096)candidates.push(family);
+            }
+          }
+          let families;
+          try{families=textKernel({op:'font_list',candidates}).result;}
+          catch(_){families=[...new Set(candidates)].sort((a,b)=>a.localeCompare(b));}
+          for(const family of families)list.push(new Font(fontToken,{fontName:family,fontStyle:FontStyle.REGULAR,fontType:FontType.DEVICE}));
+        }
+        return list;
+      }
+    }
+    Font.__nfIs=value=>fontRecords.has(value);
+    Font.__nfAllocate=({className}={})=>{
+      const instance=Object.create(Font.prototype);
+      const shortName=typeof className==='string'&&className.length?className.split('.').pop():'EmbeddedFont';
+      fontRecords.set(instance,{fontName:shortName,fontStyle:FontStyle.REGULAR,fontType:FontType.EMBEDDED});
+      return instance;
+    };
+    Font.__nfInitialize=(receiver,args=[])=>{
+      if(!fontRecords.has(receiver))throw new TypeError('Font base initialization requires a Font instance.');
+      if(args.length)throw new TypeError('Font base constructor accepts no arguments.');
+    };
+    Object.defineProperty(Font,Symbol.hasInstance,{value:Font.__nfIs});
+
+    function styleObjectRecord(value){
+      if(value===null||value===undefined)return null;
+      if(typeof value!=='object')throw new TypeError('StyleSheet styles require ordinary data objects.');
+      const result=Object.create(null),entries=Object.entries(Object.getOwnPropertyDescriptors(value));
+      if(entries.length>128)throw new RangeError('StyleSheet styles support at most 128 properties.');
+      for(const [name,item]of entries){
+        if(!item.enumerable||item.value===undefined)continue;
+        if(!Object.hasOwn(item,'value')||(!['string','number','boolean'].includes(typeof item.value)&&item.value!==null)){
+          throw new TypeError('StyleSheet styles require primitive own data properties.');
+        }
+        result[name]=item.value;
+      }
+      return result;
+    }
+    const styleSheetRecords=new WeakMap();
+    const EventDispatcherBase=events?.EventDispatcher||class{};
+    function requireStyleSheet(target){active();const found=styleSheetRecords.get(target);if(!found)throw new TypeError('Expected flash.text.StyleSheet.');return found;}
+    class StyleSheet extends EventDispatcherBase {
+      constructor(...args){
+        active();
+        if(args.length)throw new TypeError('StyleSheet constructor accepts no arguments.');
+        super();
+        styleSheetRecords.set(this,{state:{styles:{}}});
+      }
+      get styleNames(){return textKernel({op:'names',state:requireStyleSheet(this).state}).result;}
+      clear(){requireStyleSheet(this).state=textKernel({op:'clear'}).state;}
+      getStyle(styleName){
+        if(typeof styleName!=='string')throw new TypeError('StyleSheet.getStyle requires a String.');
+        return textKernel({op:'get_style',state:requireStyleSheet(this).state,selector:styleName}).result;
+      }
+      setStyle(styleName,styleObject){
+        if(typeof styleName!=='string')throw new TypeError('StyleSheet.setStyle requires a String.');
+        const current=requireStyleSheet(this);
+        current.state=textKernel({op:'set_style',state:current.state,selector:styleName,style:styleObjectRecord(styleObject)}).state;
+      }
+      parseCSS(cssText){
+        if(typeof cssText!=='string')throw new TypeError('StyleSheet.parseCSS requires a String.');
+        const current=requireStyleSheet(this);
+        const packet=textKernel({op:'parse_css',state:current.state,source:cssText});
+        if(packet.result)current.state=packet.state;
+      }
+      transform(formatObject){
+        requireStyleSheet(this);
+        if(formatObject===undefined||formatObject===null)return null;
+        const patch=textKernel({op:'transform',style:styleObjectRecord(formatObject)}).result;
+        return formatCopy(patch);
+      }
+    }
+    StyleSheet.__nfIs=value=>styleSheetRecords.has(value);
+    StyleSheet.__nfInitialize=()=>{throw new TypeError('Native StyleSheet subclassing is not supported.');};
+    Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
+
+    function reset(){active();cache.clear();cacheBytes=0;rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
+  const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);

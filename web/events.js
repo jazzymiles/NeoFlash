@@ -45,8 +45,18 @@
     toString() { return `[Event type="${this.type}" bubbles=${this.bubbles} cancelable=${this.cancelable} eventPhase=${this.eventPhase}]`; }
   }
   Object.assign(Event, { ENTER_FRAME: 'enterFrame', EXIT_FRAME: 'exitFrame', FRAME_CONSTRUCTED: 'frameConstructed',
-    ADDED: 'added', REMOVED: 'removed', ADDED_TO_STAGE: 'addedToStage', REMOVED_FROM_STAGE: 'removedFromStage',
-    RESIZE: 'resize', RENDER: 'render', CHANGE: 'change', OPEN: 'open', INIT:'init',UNLOAD:'unload',COMPLETE: 'complete', SOUND_COMPLETE: 'soundComplete', ACTIVATE: 'activate', DEACTIVATE: 'deactivate' });
+    FRAME_LABEL: 'frameLabel', ADDED: 'added', REMOVED: 'removed', ADDED_TO_STAGE: 'addedToStage', REMOVED_FROM_STAGE: 'removedFromStage',
+    RESIZE: 'resize', RENDER: 'render', CHANGE: 'change', OPEN: 'open', INIT:'init',UNLOAD:'unload',COMPLETE: 'complete',
+    SOUND_COMPLETE: 'soundComplete', ACTIVATE: 'activate', DEACTIVATE: 'deactivate', BROWSER_ZOOM_CHANGE: 'browserZoomChange',
+    CANCEL: 'cancel', CLEAR: 'clear', CLOSE: 'close', CLOSING: 'closing', CONNECT: 'connect', COPY: 'copy', CUT: 'cut',
+    DISPLAYING: 'displaying', EXITING: 'exiting', FULLSCREEN: 'fullScreen', HTML_BOUNDS_CHANGE: 'htmlBoundsChange',
+    HTML_DOM_INITIALIZE: 'htmlDOMInitialize', HTML_RENDER: 'htmlRender', ID3: 'id3', LOCATION_CHANGE: 'locationChange',
+    MOUSE_LEAVE: 'mouseLeave', NETWORK_CHANGE: 'networkChange', PASTE: 'paste', PREPARING: 'preparing', SCROLL: 'scroll',
+    SELECT: 'select', SELECT_ALL: 'selectAll', STANDARD_ERROR_CLOSE: 'standardErrorClose', STANDARD_INPUT_CLOSE: 'standardInputClose',
+    STANDARD_OUTPUT_CLOSE: 'standardOutputClose', SUSPEND: 'suspend', TAB_CHILDREN_CHANGE: 'tabChildrenChange',
+    TAB_ENABLED_CHANGE: 'tabEnabledChange', TAB_INDEX_CHANGE: 'tabIndexChange', TEXT_INTERACTION_MODE_CHANGE: 'textInteractionModeChange',
+    TEXTURE_READY: 'textureReady', USER_IDLE: 'userIdle', USER_PRESENT: 'userPresent', VIDEO_FRAME: 'videoFrame',
+    WORKER_STATE: 'workerState', CHANNEL_MESSAGE: 'channelMessage', CHANNEL_STATE: 'channelState', CONTEXT3D_CREATE: 'context3DCreate' });
 
   class MouseEvent extends Event {
     constructor(type, bubbles = true, cancelable = false, localX = 0, localY = 0, relatedObject = null,
@@ -58,6 +68,7 @@
       this.ctrlKey = Boolean(ctrlKey); this.altKey = Boolean(altKey); this.shiftKey = Boolean(shiftKey);
       this.buttonDown = Boolean(buttonDown); this.delta = Number(delta) | 0;
       this.commandKey = Boolean(commandKey); this.controlKey = Boolean(controlKey); this.clickCount = Number(clickCount) | 0;
+      this.movementX = 0; this.movementY = 0; this.isRelatedObjectInaccessible = false;
       Object.assign(state(this), { stageX: this.localX, stageY: this.localY, stagePointSet: false, kind: 'mouse' });
     }
     get stageX() { return state(this).stageX; }
@@ -66,6 +77,9 @@
       const copy = new MouseEvent(this.type, this.bubbles, this.cancelable, this.localX, this.localY,
         this.relatedObject, this.ctrlKey, this.altKey, this.shiftKey, this.buttonDown, this.delta,
         this.commandKey, this.controlKey, this.clickCount);
+      copy.movementX = numeric(this.movementX, 'movementX');
+      copy.movementY = numeric(this.movementY, 'movementY');
+      copy.isRelatedObjectInaccessible = Boolean(this.isRelatedObjectInaccessible);
       const s = state(this);
       if (s.stagePointSet) setStagePoint(copy, s.stageX, s.stageY);
       return copy;
@@ -73,9 +87,12 @@
     updateAfterEvent() { state(this).updateRequested = true; }
     toString() { return `[MouseEvent type="${this.type}" bubbles=${this.bubbles} localX=${this.localX} localY=${this.localY}]`; }
   }
-  Object.assign(MouseEvent, { CLICK: 'click', DOUBLE_CLICK: 'doubleClick', MOUSE_DOWN: 'mouseDown',
-    MOUSE_UP: 'mouseUp', MOUSE_MOVE: 'mouseMove', MOUSE_OVER: 'mouseOver', MOUSE_OUT: 'mouseOut',
-    MOUSE_WHEEL: 'mouseWheel', ROLL_OVER: 'rollOver', ROLL_OUT: 'rollOut' });
+  Object.assign(MouseEvent, { CLICK: 'click', CONTEXT_MENU: 'contextMenu', DOUBLE_CLICK: 'doubleClick',
+    MIDDLE_CLICK: 'middleClick', MIDDLE_MOUSE_DOWN: 'middleMouseDown', MIDDLE_MOUSE_UP: 'middleMouseUp',
+    MOUSE_DOWN: 'mouseDown', MOUSE_UP: 'mouseUp', MOUSE_MOVE: 'mouseMove', MOUSE_OVER: 'mouseOver',
+    MOUSE_OUT: 'mouseOut', MOUSE_WHEEL: 'mouseWheel', RELEASE_OUTSIDE: 'releaseOutside',
+    RIGHT_CLICK: 'rightClick', RIGHT_MOUSE_DOWN: 'rightMouseDown', RIGHT_MOUSE_UP: 'rightMouseUp',
+    ROLL_OVER: 'rollOver', ROLL_OUT: 'rollOut' });
 
   class KeyboardEvent extends Event {
     constructor(type, bubbles = true, cancelable = false, charCode = 0, keyCode = 0, keyLocation = 0,
@@ -299,10 +316,10 @@
       }
       return result;
     }
-    function invoke(target, event, phase, capture) {
+    function invoke(target, event, phase, capture, currentTarget = target) {
       if (!alive(target)) return;
       const s = state(event);
-      s.currentTarget = target; s.phase = phase;
+      s.currentTarget = currentTarget; s.phase = phase;
       // Flash snapshots this node's current phase. Removals still run in that snapshot;
       // additions may run on a later phase but cannot join the phase in progress.
       const snapshot = (records.get(target)?.get(s.type) || [])
@@ -310,11 +327,12 @@
       for (const listener of snapshot) {
         if (s.immediate || !alive(target)) break;
         if (++invocations > maxInvocations) throw new Error('Event listener work limit exceeded.');
-        Reflect.apply(listener, target, [event]);
+        Reflect.apply(listener, currentTarget, [event]);
       }
     }
-    function dispatch(target, original, capturedRoute) {
+    function dispatch(target, original, capturedRoute, eventTarget = target) {
       assertTarget(target);
+      if (eventTarget !== target) assertTarget(eventTarget);
       const captured = capturedRoute === undefined ? null : capturedParents(target, capturedRoute);
       const previous = state(original);
       const event = previous.target !== null || previous.dispatching ? original.clone() : original;
@@ -331,10 +349,10 @@
         }
       }
       if (depth === 0 && batches === 0) invocations = 0;
-      depth++; s.target = target; s.dispatching = true;
+      depth++; s.target = eventTarget; s.dispatching = true;
       try {
         for (let i = parents.length - 1; i >= 0 && !s.stopped; i--) invoke(parents[i], event, EventPhase.CAPTURING_PHASE, true);
-        if (!s.stopped && alive(target)) invoke(target, event, EventPhase.AT_TARGET, false);
+        if (!s.stopped && alive(target)) invoke(target, event, EventPhase.AT_TARGET, false, eventTarget);
         if (s.bubbles) for (const parent of parents) {
           if (s.stopped) break;
           invoke(parent, event, EventPhase.BUBBLING_PHASE, false);
@@ -344,14 +362,14 @@
         s.currentTarget = null; s.dispatching = false; depth--;
       }
     }
-    function methods(target) {
+    function methods(target, eventTarget = target) {
       dispatchers.add(target);
       if (!bindings.has(target)) bindings.set(target, Object.freeze({
         addEventListener: (type, listener, capture = false, priority = 0, weak = false) => add(target, type, listener, capture, priority, weak),
         removeEventListener: (type, listener, capture = false) => remove(target, type, listener, capture),
         hasEventListener: type => has(target, type),
         willTrigger: type => will(target, type),
-        dispatchEvent: event => dispatch(target, event),
+        dispatchEvent: event => dispatch(target, event, undefined, eventTarget),
       }));
       return bindings.get(target);
     }
@@ -381,16 +399,37 @@
   const standalone = create({ weakTargets: true });
   class EventDispatcher {
     constructor(target = null) {
-      if (target !== null) throw new TypeError('Aggregated EventDispatcher targets are not supported yet; use an ordinary dispatcher.');
-      Object.assign(this, standalone.methods(this));
+      if (target !== null && target !== undefined && typeof target !== 'object' && typeof target !== 'function') {
+        throw new TypeError('EventDispatcher target must be an object or null.');
+      }
+      Object.assign(this, standalone.methods(this, target ?? this));
     }
   }
   EventDispatcher.__nfIs = value => dispatchers.has(value);
   EventDispatcher.__nfInitialize = (receiver, args = []) => {
-    if (args.length && args[0] !== null && args[0] !== undefined) throw new TypeError('Aggregated EventDispatcher targets are not supported yet.');
+    const target = args.length ? args[0] : null;
+    if (target !== null && target !== undefined && typeof target !== 'object' && typeof target !== 'function') {
+      throw new TypeError('EventDispatcher target must be an object or null.');
+    }
     // Display proxies already carry the host's lifetime-aware hub. Never replace it.
-    if (!dispatchers.has(receiver)) Object.assign(receiver, standalone.methods(receiver));
+    if (!dispatchers.has(receiver)) Object.assign(receiver, standalone.methods(receiver, target ?? receiver));
   };
+  const IEventDispatcher = Object.freeze((() => {
+    const check = value => dispatchers.has(value);
+    const iface = function IEventDispatcher(value) {
+      if (new.target) throw new TypeError('IEventDispatcher is an interface and cannot be constructed.');
+      if (arguments.length !== 1) throw new TypeError('IEventDispatcher conversion expects one value.');
+      if (value == null) return null;
+      if (check(value)) return value;
+      throw new TypeError('AS3 flash.events.IEventDispatcher value required.');
+    };
+    Object.defineProperties(iface, {
+      __nfIs: { value: check },
+      __nfInitialize: { value: () => { throw new TypeError('IEventDispatcher is an interface and cannot be extended by a class.'); } },
+      [Symbol.hasInstance]: { value: check },
+    });
+    return iface;
+  })());
   for (const [Constructor, kind] of [[Event, 'event'], [MouseEvent, 'mouse'], [KeyboardEvent, 'keyboard'], [FocusEvent,'focus'], [TextEvent,'text']]) {
     Constructor.__nfIs = value => states.has(value) && (kind === 'event' || state(value).kind === kind || value instanceof Constructor);
     Constructor.__nfInitialize = (receiver, args = []) => {
@@ -399,7 +438,7 @@
       Object.assign(receiver, initialized);
     };
   }
-  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, FocusEvent, TextEvent, EventPhase, EventDispatcher, create, createFamilies, setStagePoint });
+  const api = Object.freeze({ Event, MouseEvent, KeyboardEvent, FocusEvent, TextEvent, EventPhase, EventDispatcher, IEventDispatcher, create, createFamilies, setStagePoint });
   global.NeoFlashEvents = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

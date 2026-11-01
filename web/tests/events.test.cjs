@@ -133,7 +133,7 @@ test('standalone and project-initialized dispatcher/event facades share type che
   dispatcher.dispatchEvent(new Event('ready'));
   assert.deepEqual(value, [dispatcher, dispatcher]);
   assert.equal(EventDispatcher.__nfIs(dispatcher), true);
-  assert.throws(() => new EventDispatcher({}), /Aggregated/);
+  assert.throws(() => new EventDispatcher(42), /target must be an object or null/);
   const { child } = tree();
   const original = child.addEventListener;
   EventDispatcher.__nfInitialize(child, []);
@@ -181,4 +181,19 @@ test('one broadcast shares a work budget and failure does not poison a later eve
   child.addEventListener('frame', () => {});
   assert.throws(() => hub.broadcast('frame', [root, child]), /work limit/);
   assert.equal(child.dispatchEvent(new Event('frame')), true);
+});
+
+test('aggregated EventDispatcher reports outer target and keeps isolated listener tables', () => {
+  const { EventDispatcher, IEventDispatcher } = require('../events.js');
+  const outer = { name: 'aggregator' };
+  const first = new EventDispatcher(outer);
+  const second = new EventDispatcher(outer);
+  const seen = [];
+  first.addEventListener(Event.CHANGE, e => seen.push(['first', e.target, e.currentTarget]));
+  second.addEventListener(Event.CHANGE, e => seen.push(['second', e.target, e.currentTarget]));
+  assert.equal(first.dispatchEvent(new Event(Event.CHANGE)), true);
+  assert.deepEqual(seen, [['first', outer, outer]]);
+  assert.equal(IEventDispatcher(first), first);
+  assert.equal(MouseEvent.RELEASE_OUTSIDE, 'releaseOutside');
+  assert.equal(MouseEvent.RIGHT_CLICK, 'rightClick');
 });

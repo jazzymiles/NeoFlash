@@ -187,6 +187,14 @@ impl Player {
     ) -> Result<Vec<u8>, BitmapError> {
         self.graph.pixels.encode_png(reference, rect, fast)
     }
+    pub fn bitmap_encode_jpeg(
+        &self,
+        reference: &PixelRef,
+        rect: crate::BitmapRect,
+        quality: u8,
+    ) -> Result<Vec<u8>, BitmapError> {
+        self.graph.pixels.encode_jpeg(reference, rect, quality)
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn bitmap_draw_rgba(
         &mut self,

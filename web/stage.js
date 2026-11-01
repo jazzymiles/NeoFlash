@@ -140,7 +140,7 @@
     let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null;
     let scaleMode = 'showAll', align = '', quality = 'HIGH', displayState = 'normal';
     let stageColor = stageRgbValue(options.color ?? 0xffffff), colorAssigned = false;
-    let mouseChildren = true, tabChildren = true, showDefaultContextMenu = true, stageFocusRect = true, invalidated = false;
+    let mouseChildren = true, tabChildren = true, doubleClickEnabled = false, showDefaultContextMenu = true, stageFocusRect = true, invalidated = false;
     const initial = { width, height, frameRate, color: stageColor };
     const keyboardState = { capsLock: Boolean(options.capsLock), numLock: Boolean(options.numLock),
       hasVirtualKeyboard: Boolean(options.hasVirtualKeyboard), physicalKeyboardType: options.physicalKeyboardType || KeyboardType.ALPHANUMERIC,
@@ -222,7 +222,21 @@
       mouseChildren: { enumerable: true, get: () => mouseChildren,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.mouseChildren requires a Boolean.'); mouseChildren = value; } },
       tabChildren: { enumerable: true, get: () => tabChildren,
-        set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.tabChildren requires a Boolean.'); tabChildren = value; } },
+        set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.tabChildren requires a Boolean.'); const changed = tabChildren !== value; tabChildren = value; if (changed) hub.dispatch(stage, new Event(Event.TAB_CHILDREN_CHANGE || 'tabChildrenChange', true, false)); } },
+      doubleClickEnabled: { enumerable: true, get: () => doubleClickEnabled,
+        set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.doubleClickEnabled requires a Boolean.'); doubleClickEnabled = value; } },
+      mouseEnabled: { enumerable: true, get: () => true,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+      tabEnabled: { enumerable: true, get: () => false,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+      tabIndex: { enumerable: true, get: () => -1,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+      focusRect: { enumerable: true, get: () => null,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+      contextMenu: { enumerable: true, get: () => null,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
+      accessibilityImplementation: { enumerable: true, get: () => null,
+        set() { throw new Error('Error #2071: The Stage class does not implement this property or method.'); } },
       showDefaultContextMenu: { enumerable: true, get: () => showDefaultContextMenu,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.showDefaultContextMenu requires a Boolean.'); showDefaultContextMenu = value; } },
       stageFocusRect: { enumerable: true, get: () => stageFocusRect,
@@ -290,10 +304,12 @@
     }
     function mouse(type, target, domEvent, related = null) {
       const point = target === stage ? [mouseX, mouseY] : options.localPoint?.(target, mouseX, mouseY) || [mouseX, mouseY];
-      const event = new MouseEvent(type, ![MouseEvent.ROLL_OVER,MouseEvent.ROLL_OUT].includes(type), true, point[0], point[1], related,
+      const event = new MouseEvent(type, ![MouseEvent.ROLL_OVER,MouseEvent.ROLL_OUT].includes(type), type === MouseEvent.CONTEXT_MENU ? false : true, point[0], point[1], related,
         Boolean(domEvent.ctrlKey || domEvent.metaKey), domEvent.altKey, domEvent.shiftKey,
         Boolean((domEvent.buttons || 0) & 1), type === MouseEvent.MOUSE_WHEEL ? -Math.sign(domEvent.deltaY || 0) : 0,
         domEvent.metaKey, domEvent.ctrlKey, domEvent.detail || 0);
+      if (Number.isFinite(domEvent.movementX)) event.movementX = Number(domEvent.movementX);
+      if (Number.isFinite(domEvent.movementY)) event.movementY = Number(domEvent.movementY);
       return setStagePoint(event, mouseX, mouseY);
     }
     function deliver(target, event, domEvent) {
@@ -316,14 +332,21 @@
       if(['pointercancel','lostpointercapture','cancel'].includes(type)){if((type!=='lostpointercapture'||captured!==null)&&cancelPointer())options.afterInput?.();return true;}
       if(!enabled()||domEvent.pointerType==='touch')return true;
       if(domEvent.isPrimary===false&&/^(?:pointerdown|pointerup|pointermove)$/.test(type))return true;
+      if((type==='pointerdown'||type==='mousedown')&&domEvent.button===1)type='middleMouseDown';
+      else if((type==='pointerdown'||type==='mousedown')&&domEvent.button===2)type='rightMouseDown';
+      else if((type==='pointerup'||type==='mouseup')&&domEvent.button===1)type='middleMouseUp';
+      else if((type==='pointerup'||type==='mouseup')&&domEvent.button===2)type='rightMouseUp';
+      else if(type==='auxclick'&&domEvent.button===1)type='middleClick';
+      else if(type==='auxclick'&&domEvent.button===2)type='rightClick';
       const mapped={pointerdown:'mouseDown',pointerup:'mouseUp',pointermove:'mouseMove',pointerleave:'mouseMove',mousedown:'mouseDown',mouseup:'mouseUp',mousemove:'mouseMove',dblclick:'doubleClick',wheel:'mouseWheel'};
       type=mapped[type]||type;
-      if(!['mouseDown','mouseUp','mouseMove','mouseWheel','click','doubleClick'].includes(type))throw new Error(`Unsupported native mouse event '${type}'.`);
+      if(!['mouseDown','mouseUp','mouseMove','mouseWheel','click','doubleClick','middleMouseDown','middleMouseUp','middleClick','rightMouseDown','rightMouseUp','rightClick','contextMenu','releaseOutside'].includes(type))throw new Error(`Unsupported native mouse event '${type}'.`);
       // Native editor events are forwarded directly, then bubble to the outer
       // pointer listener. One physical Event must enter the host only once.
       if(domEvent&&typeof domEvent==='object'&&typeof domEvent.type==='string'){let seen=deliveredPointers.get(domEvent);if(seen?.has(type))return true;if(!seen){seen=new Set();deliveredPointers.set(domEvent,seen);}seen.add(type);}
       updatePoint(domEvent);options.beforePointer?.(type,domEvent);
       const target=targetAt(domEvent,explicitTarget),primary=domEvent.button===undefined||domEvent.button===0;
+      if(type==='doubleClick'&&target?.doubleClickEnabled===false)return true;
       if(type==='click'&&(!explicitTarget||physicalPick)&&hadPress&&clickTarget!==target)return false;
       if(type===MouseEvent.MOUSE_DOWN&&primary){
         pressedTarget=target;clickTarget=null;hadPress=true;
@@ -333,7 +356,13 @@
       }
       if(type===MouseEvent.MOUSE_MOVE||type===MouseEvent.MOUSE_DOWN)hover(target,domEvent);
       if(target!==stage&&!alive(target)){over=null;options.afterInput?.();return true;}
-      if(type===MouseEvent.MOUSE_UP&&primary){clickTarget=pressedTarget===target?target:null;pressedTarget=null;releaseCapture();}
+      if(type===MouseEvent.MOUSE_UP&&primary){
+        const oldPressed=pressedTarget;
+        clickTarget=oldPressed===target?target:null;pressedTarget=null;releaseCapture();
+        if(oldPressed&&oldPressed!==target&&oldPressed!==stage&&alive(oldPressed)){
+          deliver(oldPressed,mouse(MouseEvent.RELEASE_OUTSIDE||'releaseOutside',oldPressed,domEvent,target),domEvent);
+        }
+      }
       const result=deliver(target,mouse(type,target,domEvent),domEvent);
       if(target===stage||alive(target))options.onLegacyInput?.(type,target,domEvent);
       options.onPointerTarget?.(target,type);options.afterInput?.();return result;
@@ -415,7 +444,7 @@
     function resetState() {
       scaleMode = 'showAll'; align = ''; quality = 'HIGH'; displayState = 'normal';
       stageColor = initial.color; colorAssigned = false;
-      mouseChildren = true; tabChildren = true; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
+      mouseChildren = true; tabChildren = true; doubleClickEnabled = false; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
       keyboardState.capsLock = Boolean(options.capsLock); keyboardState.numLock = Boolean(options.numLock);
       mouseStateRecord.cursor = 'auto'; mouseStateRecord.visible = true;
       options.onMouseChanged?.();
