@@ -16,6 +16,7 @@ fn string(stream: &BinaryTimelineStream, value: Option<&TimelineString>) -> Resu
 fn format(
     stream: &BinaryTimelineStream,
     style: &TimelineTextStyle,
+    lossy: &mut Vec<&'static str>,
 ) -> Result<(TextFormat, f64), String> {
     if style.revision < 2 {
         return Err(
@@ -24,10 +25,10 @@ fn format(
         );
     }
     if style.vertical.unwrap_or(0) != 0 || style.rotation.unwrap_or(0) != 0 {
-        return Err("Vertical text or rotated characters require a text-layout adapter.".into());
+        lossy.push("vertical or rotated characters are laid out horizontally");
     }
     if style.character_position.unwrap_or(0) != 0 {
-        return Err("Superscript/subscript text requires a styled-run layout adapter.".into());
+        lossy.push("superscript/subscript is shown on the baseline");
     }
     let face = string(stream, style.font_face.as_ref())?;
     let family = string(stream, style.font_family.as_ref())?;
@@ -35,16 +36,15 @@ fn format(
         .color_rgba
         .ok_or("Text style has no archived color")?
         .to_le_bytes();
-    let align =
-        match style.alignment.unwrap_or(0) {
-            0 => TextAlign::Left,
-            1 => TextAlign::Right,
-            2 => TextAlign::Center,
-            _ => return Err(
-                "Justified or unknown text alignment is not supported by the shared text layout."
-                    .into(),
-            ),
-        };
+    let align = match style.alignment.unwrap_or(0) {
+        0 => TextAlign::Left,
+        1 => TextAlign::Right,
+        2 => TextAlign::Center,
+        _ => {
+            lossy.push("justified alignment is shown left-aligned");
+            TextAlign::Left
+        }
+    };
     let twips = |value: Option<i16>| f64::from(value.unwrap_or(0)) / 20.;
     let value = TextFormat {
         font: if face.is_empty() { family } else { face },
@@ -67,6 +67,23 @@ fn format(
         target: string(stream, style.target.as_ref())?,
         ..TextFormat::default()
     };
+    let mut value = value;
+    if value.validate().is_err() {
+        value.size = value.size.clamp(1., 9999.);
+        value.leading = value.leading.clamp(-9999., 9999.);
+        for v in [
+            &mut value.left_margin,
+            &mut value.right_margin,
+            &mut value.indent,
+        ] {
+            *v = v.clamp(-9999., 9999.);
+        }
+        value.letter_spacing = value.letter_spacing.clamp(-9999., 9999.);
+        if value.size + value.leading <= 0. {
+            value.leading = 0.;
+        }
+        lossy.push("out-of-range size, spacing or margins are clamped");
+    }
     value.validate().map_err(|error| error.to_string())?;
     Ok((
         value,
@@ -85,23 +102,29 @@ pub(super) fn convert_text(
     name: &str,
     report: &mut ImportReport,
 ) -> Result<Element, String> {
+    // The shared model has one uniform static text box. Everything it cannot
+    // express is listed in one warning; the original record stays embedded.
+    let mut lossy = Vec::new();
     if text.flags.unwrap_or(0) & 1 != 0 {
-        return Err("Dynamic/input text needs authored field-type and binding conversion; its original record is retained.".into());
+        lossy.push("dynamic/input field is imported as static text");
     }
-    if !string(stream, text.variable_name.as_ref())?.is_empty()
-        || !string(stream, text.instance_name.as_ref())?.is_empty()
-    {
-        return Err("Named or variable-bound text needs script-addressable field conversion; its original strings are retained.".into());
+    let variable = string(stream, text.variable_name.as_ref())?;
+    if !variable.is_empty() {
+        lossy.push("the field's variable binding is not connected");
     }
+    let instance_name = string(stream, text.instance_name.as_ref())?;
     if text
         .accessibility
         .as_ref()
         .is_some_and(|value| value.revision != 0)
     {
-        return Err("Text accessibility metadata requires a text accessibility adapter.".into());
+        lossy.push("text accessibility metadata is not imported");
     }
     if text.scrollable.unwrap_or(0) != 0 {
-        return Err("Authored scrollable text needs viewport-state conversion.".into());
+        lossy.push("scrollable viewport state is not imported");
+    }
+    if !text.filters.is_empty() {
+        lossy.push("text filters are not rendered");
     }
     let style = text
         .runs
@@ -109,15 +132,22 @@ pub(super) fn convert_text(
         .map(|run| &run.style)
         .or(text.default_style.as_ref())
         .ok_or("Text has no run or default style")?;
-    let (format, alpha) = format(stream, style)?;
+    let (format, alpha) = format(stream, style, &mut lossy)?;
     let mut characters = String::new();
+    let mut mixed = false;
     for run in &text.runs {
-        let candidate = self::format(stream, &run.style)?;
-        if candidate != (format.clone(), alpha) {
-            return Err("Text contains different styled runs; all original runs are retained, but uniform text cannot represent them.".into());
-        }
+        let mut ignored = Vec::new();
+        mixed |= self::format(stream, &run.style, &mut ignored)? != (format.clone(), alpha);
         characters.push_str(&string(stream, Some(&run.characters))?);
     }
+    if mixed {
+        lossy.push("styled runs use the first run's style");
+    }
+    let name = if name.is_empty() {
+        instance_name.as_str()
+    } else {
+        name
+    };
     let bounds = text.bounds_words.ok_or("Text has no archived bounds")?;
     let [left, right, top, bottom] = bounds.map(|value| f64::from(value) / 20.);
     let dimensions = TextBoxSize {
@@ -141,6 +171,18 @@ pub(super) fn convert_text(
     .ok_or("Text matrix is outside supported transform bounds")?;
     transform.alpha = alpha;
     let location = if name.is_empty() { id } else { name };
+    if !lossy.is_empty() {
+        lossy.dedup();
+        report.warning(
+            "fla_text_approximated",
+            location,
+            format!(
+                "Text imported with approximations: {}{}. The original text record is retained in the embedded source.",
+                lossy.join("; "),
+                if variable.is_empty() { String::new() } else { format!(" (variable \"{variable}\")") }
+            ),
+        );
+    }
     if !report
         .diagnostics
         .iter()
@@ -253,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn static_text_preserves_uniform_runs_geometry_fonts_and_rejects_semantic_loss() {
+    fn static_text_preserves_geometry_fonts_and_reports_approximations() {
         let (stream, text, mut report) = fixture();
         let element = convert_text(&stream, &text, "t", "Clock text", &mut report).unwrap();
         let ElementKind::TextBox {
@@ -296,7 +338,14 @@ mod tests {
                 3 => changed.variable_name = Some(changed.runs[0].characters.clone()),
                 _ => changed.flags = Some(1),
             }
-            assert!(convert_text(&stream, &changed, "unsupported", "Text", &mut report).is_err());
+            let before = report.diagnostics.len();
+            let element = convert_text(&stream, &changed, "approx", "Text", &mut report).unwrap();
+            assert!(matches!(element.kind, ElementKind::TextBox { .. }));
+            assert_eq!(report.diagnostics.len(), before + 1);
+            assert_eq!(report.diagnostics[before].code, "fla_text_approximated");
         }
+        let mut styleless = text.clone();
+        styleless.runs[0].style.revision = 1;
+        assert!(convert_text(&stream, &styleless, "unsupported", "Text", &mut report).is_err());
     }
 }

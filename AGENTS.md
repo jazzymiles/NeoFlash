@@ -46,6 +46,16 @@ Full rules: `docs/progress/README.md` (methodology v3). There are two measures o
 
 **Every delivery:** run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. Commit code, review file, regenerated catalogue and reports together, and record user-visible changes in CHANGELOG. Never edit generated `README.md` progress blocks, `DETAILS.md` or `ACTIONSCRIPT.md` by hand.
 
+## Legacy FLA import
+
+Rules and the full boundary: `docs/IMPORTS.md` and `docs/decisions/0036-legacy-fla-partial-import.md`.
+
+- Binary FLA (Flash 3–CS4) opens whenever its container and Contents settings are readable. Never reintroduce whole-document refusal for a feature the model cannot express: convert to the nearest representable form or an explicit placeholder, add a warning with a location (`report.warning(code, location, message)`), and add the code to the approximation table in IMPORTS.md. Errors are only for unsafe containers, missing settings and invalid resulting projects.
+- Decoders stay sequential and exact (no byte scanning or resynchronization). An undecoded record stops its stream; conversion keeps the complete records before it.
+- Keep generated IDs stable: stream inventory order follows the `cfb` crate's pre-order walk (`legacy/compound.rs`). Changing it changes every imported symbol ID.
+- Before and after importer work run `python3 scripts/survey-legacy-fla.py` (private corpus in ignored `examples/old flash files`, aggregate output only), `cargo test -p neoflash-import`, `cargo test --release -p neoflash-import --test legacy_samples -- --ignored` and `python3 scripts/check-fla-corpus.py`. Pick work by the most frequent approximation codes in the survey. Never commit private FLA files or bytes derived from them.
+- JPEXS FLA Convert (LGPL, checkout under `target/fla-research/jpexs-fla-convert`) is a source of format facts only; write independent Rust.
+
 ## Design system (NF2) — locked
 
 The NF2 design system is owned by the design track (the project owner with the Figma file `BUz3pseopiuOg2Uiy3Fog7`). Implementation agents, including Codex, use it and never change it.

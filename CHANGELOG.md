@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Legacy FLA import
+
+- Old binary FLA files from Flash 3, 5, MX, 8, CS3 and CS4 now open: 101 of 106 real local documents import (previously 5), and all 8 public binary FLA samples import as checked projects.
+- Files that Flash left with stale container metadata (most CS3/CS4 sites) are read the way Flash reads them, following only live streams; nothing is repaired or rewritten.
+- A feature NeoFlash cannot represent yet no longer refuses the whole document. Filters, blend modes, bitmap fills, dynamic/rich text styling, sounds and similar details are approximated or kept as a visible "Unsupported source object" placeholder, and the import report lists each case once with a count and location.
+- Imports keep more structure: multiple scenes, motion guides, shape tweens, graphic first-frame offsets, zero-length keys and morph data. Legacy Flash 3–MX Actions-panel commands (button handlers, tellTarget, ifFrameLoaded, gotoAndPlay …) are translated to ActionScript 1; anything untranslated stays as a marked comment.
+- Russian and other 8-bit names, text and scripts are decoded (Windows-1251/1252, guessed from content and reported).
+- The original FLA is embedded in the project in parts up to 16 MiB when it fits; otherwise the report says to keep the original file.
+- `scripts/survey-legacy-fla.py` reports how many documents in a folder import and which approximations they need.
+
 ## Unreleased — Timeline
 
 - Shape tweens (green spans): create them from the Timeline controls, the frame menu or Insert ▸ Shape tween. Rectangles, ovals and paths morph between keyframes even when their contours differ; fills, strokes and compatible gradients blend. A keyframe without shapes gets an explanation instead of a jump.

@@ -36,12 +36,15 @@ displays one-based frame numbers.
 
 The real [Ruffle frame-labels FLA](upstream/ruffle/avm1-frame-labels/test.fla)
 now imports as [an editable native project](imported/ruffle-avm1-frame-labels.nflash),
-including its solid vector shapes and all nine AS2 scripts. The two binary MX
-button/static-text fixtures also import, with model checks for button states,
-Hit geometry and archived text style. The other **12 external inputs still block
+including its solid vector shapes and all nine AS2 scripts. All eight binary
+FLA inputs (Flash 5, MX, 8 and CS4: buttons, static and dynamic text, a shape
+tween, nested layers, AS2 scripts and a motion tween) import as checked native
+projects; their reports list each approximation. The two binary MX
+button/static-text fixtures also have model checks for button states,
+Hit geometry and archived text style. The other **6 external inputs (XFL clip
+events, AS3 document classes and Flump animation timelines) still block
 editable conversion**. Inspect reports identify
-unsupported structures, media, ordinary shape geometry, tweens and script
-configuration. Original Ruffle `.as` files, reference SWFs, test configuration
+unsupported structures, media, tweens and script configuration. Original Ruffle `.as` files, reference SWFs, test configuration
 and expected traces are retained where present. Only the frame-labels case has
 an executable NeoFlash comparison against its upstream trace; the other expected
 outputs are reference material, not claims of execution compatibility.
@@ -68,8 +71,8 @@ python3 scripts/check-fla-corpus.py
 
 The script builds the current importer with the pinned Cargo lockfile, verifies
 all source hashes, inspects 21 entry points (15 external FLA plus three original
-examples in both XFL and FLA form), and tests actual conversion/refusal: nine
-successful imports and 12 explicit refusals. Positive
+examples in both XFL and FLA form), and tests actual conversion/refusal: 15
+successful imports and 6 explicit refusals. Positive
 imports must equal the checked-in native project; blocked inputs must produce a
 normal diagnostic refusal without writing a partial project. An existing output
 must remain unchanged. Source hashes are rechecked afterwards. Detailed reports

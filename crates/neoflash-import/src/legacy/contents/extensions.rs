@@ -113,21 +113,25 @@ impl Reader<'_> {
         self.revision(0)?;
         let count = self.count(1)?;
         for _ in 0..count {
-            let revision = self.revision(2)?;
-            self.string()?;
-            let length = self.u32()? as usize;
-            self.take(length)?;
-            if revision >= 1 {
-                let count = self.count(1)?;
-                for _ in 0..count {
-                    self.string()?;
-                }
+            self.shared_library()?;
+        }
+        Ok(())
+    }
+    pub(super) fn shared_library(&mut self) -> Result<()> {
+        let revision = self.revision(2)?;
+        self.string()?;
+        let length = self.u32()? as usize;
+        self.take(length)?;
+        if revision >= 1 {
+            let count = self.count(1)?;
+            for _ in 0..count {
+                self.string()?;
             }
-            if revision == 1 {
-                let count = self.count(1)?;
-                for _ in 0..count {
-                    self.string()?;
-                }
+        }
+        if revision == 1 {
+            let count = self.count(1)?;
+            for _ in 0..count {
+                self.string()?;
             }
         }
         Ok(())
@@ -149,41 +153,61 @@ impl Reader<'_> {
             writer_data,
         })
     }
-    pub(super) fn extensions(&mut self, out: &mut BinaryContentsPrefix, version: u8) -> Result<()> {
+    /// Publish settings: one legacy key/value list before revision 0x2C, then
+    /// optional document properties and counted profiles; two words and two
+    /// strings follow either form.
+    fn publish(&mut self, out: &mut BinaryContentsPrefix, version: u8) -> Result<()> {
         let start = self.at;
-        // Store incremental typed evidence even if a later extension stops.
-        out.extensions = Some(ContentsExtensions::default());
-        if version < 0x2c {
+        let extensions = out.extensions.get_or_insert_with(Default::default);
+        let legacy = if version < 0x2c {
             let properties = self.properties_map()?;
-            out.extensions.as_mut().unwrap().profiles.push(properties);
+            extensions.profiles.push(properties.clone());
+            Some(properties)
         } else {
             if version >= 0x2d {
-                out.extensions.as_mut().unwrap().document_properties = self.properties_map()?;
+                extensions.document_properties = self.properties_map()?;
             }
             let count = self.count(2)?;
             for _ in 0..count {
                 let properties = self.properties_map()?;
-                out.extensions.as_mut().unwrap().profiles.push(properties);
+                extensions.profiles.push(properties);
             }
+            None
+        };
+        let first_word = self.u32()?;
+        let first_string = self.string()?;
+        let second_string = self.string()?;
+        let second_word = self.u32()?;
+        if let Some(entries) = legacy {
+            out.legacy_publish = Some(ContentsLegacyPublish {
+                encoded: ContentsByteSpan {
+                    start,
+                    end: self.at,
+                },
+                entries,
+                first_word,
+                first_string,
+                second_string,
+                second_word,
+            });
         }
-        self.take(4)?;
-        self.string()?;
-        self.string()?;
-        self.take(4)?;
-        out.extensions.as_mut().unwrap().extension_properties = self.properties_map()?;
-        self.color_list(0)?;
-        self.color_list(0)?;
-        let library_view_revision = self.u32()?;
-        if library_view_revision > 3 {
+        Ok(())
+    }
+    fn library_view(&mut self) -> Result<()> {
+        let revision = self.u32()?;
+        if revision > 3 {
             return self.unsupported("Library-view revision is unsupported.");
         }
         self.take(28)?;
-        if library_view_revision >= 2 {
+        if revision >= 2 {
             self.take(8)?;
         }
-        if library_view_revision >= 3 {
+        if revision >= 3 {
             self.take(4)?;
         }
+        Ok(())
+    }
+    fn folders(&mut self, out: &mut BinaryContentsPrefix) -> Result<()> {
         self.take(4)?; // folder collection header
         let count = self.count(13)?;
         for _ in 0..count {
@@ -210,32 +234,79 @@ impl Reader<'_> {
                     },
                 });
         }
-        if version >= 0x2d {
-            self.object_properties()?;
+        Ok(())
+    }
+    /// The whole Contents suffix after document settings. Every field is gated
+    /// by the declared save-target revision (Flash 3 through CS4); a later
+    /// writer may append a compatibility tail when that revision predates the
+    /// native writer-identity record.
+    pub(super) fn extensions(&mut self, out: &mut BinaryContentsPrefix, version: u8) -> Result<()> {
+        let start = self.at;
+        // Store incremental typed evidence even if a later extension stops.
+        out.extensions = Some(ContentsExtensions::default());
+        self.publish(out, version)?;
+        if version >= 0x15 {
+            out.extensions.as_mut().unwrap().extension_properties = self.properties_map()?;
         }
-        let count = if version < 0x2c {
-            1
-        } else {
-            out.extensions.as_ref().unwrap().profiles.len()
-        };
-        for _ in 0..count {
-            self.object_properties()?;
+        if version >= 0x16 {
+            self.color_list(0)?;
+            self.color_list(0)?;
         }
-        self.take(2)?; // next symbol identifier
-        self.take(7)?; // guides color and three flags
-        self.take(4)?; // font library header
-        let fonts = self.count(1)?;
-        if fonts != 0 {
-            return self
-                .unsupported("Embedded font library records require typed font preservation.");
+        if version >= 0x18 {
+            self.library_view()?;
         }
-        out.extensions.as_mut().unwrap().shared_library_url = Some(self.string()?);
-        self.take(14)?; // grid flags, accuracy and Y spacing
-        self.string()?;
-        self.string()?; // template description and filename
-        self.take(12)?; // preview frame, pixel grid and snap
-        self.document_accessibility(version >= 0x2f)?;
-        self.take(4)?; // next media identifier
+        if version >= 0x19 {
+            self.folders(out)?;
+        }
+        if version >= 0x1a {
+            if version >= 0x2d {
+                self.object_properties()?;
+            }
+            let count = if version < 0x2c {
+                1
+            } else {
+                out.extensions.as_ref().unwrap().profiles.len()
+            };
+            for _ in 0..count {
+                self.object_properties()?;
+            }
+        }
+        if version >= 0x1b {
+            self.take(2)?; // next symbol identifier
+        }
+        if version >= 0x1c {
+            self.take(7)?; // guides color and three flags
+        }
+        if version >= 0x1d {
+            self.take(4)?; // font library header
+            let fonts = self.count(1)?;
+            if fonts != 0 {
+                return self
+                    .unsupported("Embedded font library records require typed font preservation.");
+            }
+        }
+        if version >= 0x1e {
+            out.extensions.as_mut().unwrap().shared_library_url = Some(self.string()?);
+        }
+        if version >= 0x1f {
+            self.take(14)?; // grid flags, accuracy and Y spacing
+        }
+        if version >= 0x22 {
+            self.string()?;
+            self.string()?; // template description and filename
+        }
+        if version >= 0x23 {
+            self.take(4)?; // preview frame
+        }
+        if version >= 0x24 {
+            self.take(8)?; // pixel grid and snap
+        }
+        if version >= 0x26 {
+            self.document_accessibility(version >= 0x2f)?;
+        }
+        if version >= 0x27 {
+            self.take(4)?; // next media identifier
+        }
         if version >= 0x2e {
             self.take(16)?;
         }
@@ -295,7 +366,10 @@ impl Reader<'_> {
             self.take(count as usize)?;
         }
         if version >= 0x3f {
-            self.take(8)?;
+            self.take(8)?; // timeline height and label width
+        }
+        if version == 0x41 {
+            self.take(4)?;
         }
         if version >= 0x42 {
             self.shared_libraries()?;
@@ -312,6 +386,8 @@ impl Reader<'_> {
         if version >= 0x47 {
             self.take(4)?;
         }
+        // Exact EOF is accepted here; otherwise a later writer appended its
+        // shared libraries (if the revision predates them) and identity.
         if self.at != self.bytes.len() && version < 0x43 {
             if version < 0x42 {
                 self.shared_libraries()?;

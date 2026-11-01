@@ -162,6 +162,32 @@ impl Reader<'_> {
                         self.take(4)?;
                     }
                 }
+                Class::SwfPage => {
+                    // Compiled-clip media: component envelope, then its own
+                    // revision. The SWF payload stream itself is not read.
+                    self.component()?;
+                    let v = self.revision(5)?;
+                    result.subtype_revision = Some(v);
+                    if v >= 1 {
+                        self.string()?; // source name
+                    }
+                    if v >= 2 {
+                        self.take(16)?; // bounds words
+                    }
+                    if v >= 3 {
+                        self.swf_metadata(0)?;
+                    }
+                    if v >= 4 {
+                        self.take(12)?; // legacy word, player and AS versions
+                    }
+                    if v >= 5 {
+                        if self.u32()? != 0 {
+                            self.shared_library()?;
+                        } else {
+                            self.string()?; // export name
+                        }
+                    }
+                }
                 Class::Media | Class::Video => {}
                 Class::DocumentPage
                 | Class::Color
@@ -256,6 +282,92 @@ impl Reader<'_> {
         }
         Ok(())
     }
+    /// A component icon: an inline bitmap media record (no MFC envelope)
+    /// followed by its payload. Only the boundary is read; pixels stay in the
+    /// enclosing descriptor span and are neither inflated nor decoded.
+    fn embedded_bitmap(&mut self) -> Result<()> {
+        let media = self.descriptor(0, Class::Bitmap, 1)?;
+        let encoded = media.bitmap.map_or(0, |b| b.encoded_byte_count);
+        if encoded > 0 {
+            self.take(encoded as usize)?;
+            self.take(16)?; // bounds words
+            return Ok(());
+        }
+        let revision = self.revision(3)?;
+        let format = self.u8()?;
+        let stride = usize::from(self.u16()?);
+        self.take(2)?; // width
+        let height = usize::from(self.u16()?);
+        self.take(16)?; // bounds words
+        if revision >= 3 {
+            self.take(1)?; // alpha flag
+        }
+        if format < 4 {
+            let count = usize::from(self.u16()?);
+            if count > 256 {
+                return self.invalid("Embedded bitmap palette exceeds 256 entries.");
+            }
+            let width = if revision >= 3 { 4 } else { 6 };
+            self.count_value(count, width)?;
+            self.take(count * width)?;
+        }
+        let compressed = if revision >= 2 {
+            self.u8()? != 0
+        } else {
+            revision == 1
+        };
+        if !compressed {
+            // stride and height are 16-bit, so the product cannot overflow.
+            self.take(stride * height)?;
+            return Ok(());
+        }
+        loop {
+            let length = usize::from(self.u16()?);
+            if length == 0 {
+                return Ok(());
+            }
+            self.budget(1)?;
+            self.take(length)?;
+        }
+    }
+    /// Inline recursive compiled-clip dependency metadata (no MFC envelopes).
+    fn swf_metadata(&mut self, depth: usize) -> Result<()> {
+        if depth >= 32 {
+            return self.unsupported("Compiled-clip metadata nesting exceeds 32.");
+        }
+        let v = self.revision(4)?;
+        self.string()?; // name
+        self.string()?; // implementation
+        self.take(4)?; // version
+        match v {
+            1 => {
+                self.take(1)?;
+            }
+            2.. => {
+                self.take(4)?;
+            }
+            _ => {}
+        }
+        let lists: &[bool] = match v {
+            2 => &[false],
+            3.. => &[true, false, false],
+            _ => &[],
+        };
+        for &named in lists {
+            let count = self.count(if named { 8 } else { 7 })?;
+            for _ in 0..count {
+                if named {
+                    self.string()?;
+                }
+                self.swf_metadata(depth + 1)?;
+            }
+        }
+        if v >= 4 {
+            self.string()?;
+            self.string()?; // intrinsic class and script
+        }
+        Ok(())
+    }
     fn component(&mut self) -> Result<()> {
         let v = self.revision(8)?;
         self.take(4)?;
@@ -282,7 +394,7 @@ impl Reader<'_> {
             }
         }
         if v >= 5 && self.u32()? != 0 {
-            return self.unsupported("Embedded component bitmap payload is unsupported.");
+            self.embedded_bitmap()?;
         }
         if v >= 6 {
             self.take(4)?;

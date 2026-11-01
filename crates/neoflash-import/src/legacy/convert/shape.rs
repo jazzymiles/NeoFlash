@@ -113,19 +113,18 @@ fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
     Ok(commands)
 }
 
-fn paint(fill: &BinaryFill) -> Result<(Color, Option<GradientPaint>), String> {
+/// A paint and, when it is only approximated, the reason for the report.
+type Paint = (Color, Option<GradientPaint>, Option<&'static str>);
+
+fn paint(fill: &BinaryFill) -> Paint {
+    const STANDIN: Color = [128, 128, 128, 255];
     match &fill.encoding {
-        BinaryFillEncoding::Legacy { word } => {
-            if *word != 0 {
-                return Err("Legacy non-solid paint is outside this import profile".into());
-            }
-            Ok((color(fill.packed_value), None))
-        }
+        BinaryFillEncoding::Legacy { word: 0 } => (color(fill.packed_value), None, None),
         BinaryFillEncoding::Extended {
             flags,
             secondary_flags: _,
             payload: BinaryFillPayload::Plain,
-        } if flags & 0x70 == 0 => Ok((color(fill.packed_value), None)),
+        } if flags & 0x70 == 0 => (color(fill.packed_value), None, None),
         BinaryFillEncoding::Extended {
             flags,
             payload:
@@ -136,14 +135,22 @@ fn paint(fill: &BinaryFill) -> Result<(Color, Option<GradientPaint>), String> {
                 },
             ..
         } => {
-            let kind = match *flags {
-                0x10 => GradientKind::Linear,
-                0x12 | 0x13 => GradientKind::Radial,
-                _ => return Err("Unknown gradient kind".into()),
+            let Some(kind) = (match *flags {
+                0x10 => Some(GradientKind::Linear),
+                0x12 | 0x13 => Some(GradientKind::Radial),
+                _ => None,
+            }) else {
+                let first = stops.first().map_or(STANDIN, |s| color(s.color_word));
+                return (
+                    first,
+                    None,
+                    Some("an unknown gradient kind is shown in its first color"),
+                );
             };
-            if extension.as_ref().is_some_and(|e| e.flags & 13 != 0) {
-                return Err("Gradient spread/interpolation profile is unsupported".into());
-            }
+            let note = extension
+                .as_ref()
+                .is_some_and(|e| e.flags & 13 != 0)
+                .then_some("gradient spread/interpolation modes are drawn as pad/RGB");
             let gradient = GradientPaint {
                 kind,
                 matrix: matrix(*matrix_words),
@@ -158,9 +165,13 @@ fn paint(fill: &BinaryFill) -> Result<(Color, Option<GradientPaint>), String> {
                     .as_ref()
                     .map_or(0., |e| (e.focal_point as i16) as f64 / 255.),
             };
-            Ok(([0, 0, 0, 255], Some(gradient)))
+            ([0, 0, 0, 255], Some(gradient), note)
         }
-        _ => Err("Bitmap or unresolved vector paint requires a separate authoring adapter".into()),
+        _ => (
+            STANDIN,
+            None,
+            Some("bitmap fills are not rendered yet and are shown as neutral gray"),
+        ),
     }
 }
 
@@ -173,6 +184,8 @@ pub(super) fn convert_shape(
     let transform =
         Transform::from_matrix(matrix(shape.matrix_words)).ok_or("Invalid shape matrix")?;
     let mut output = Vec::new();
+    // Each paint converts independently; approximations are reported once per shape.
+    let mut notes = Vec::new();
     for (i, fill) in shape.fills.iter().enumerate() {
         let index = (i + 1) as u16;
         let edges: Vec<_> = shape
@@ -195,8 +208,15 @@ pub(super) fn convert_shape(
         if edges.is_empty() {
             continue;
         }
-        let commands = paths(edges, true)?;
-        let (fill, fill_gradient) = paint(fill)?;
+        let commands = match paths(edges, true) {
+            Ok(commands) => commands,
+            Err(e) => {
+                notes.push(format!("fill {} skipped: {e}", i + 1));
+                continue;
+            }
+        };
+        let (fill, fill_gradient, note) = paint(fill);
+        notes.extend(note.map(str::to_owned));
         output.push(Element {
             id: format!("{id}-fill-{i}"),
             name: format!("Fill {}", i + 1),
@@ -226,10 +246,12 @@ pub(super) fn convert_shape(
             continue;
         }
         if stroke.style_words[0] != 0 || stroke.style_words[1] & 7 != 0 {
-            return Err("Procedural stroke requires a separate adapter".into());
+            notes.push("dashed/dotted/hatched strokes are drawn solid".into());
         }
         let (stroke_color, stroke_gradient) = if let Some(e) = &stroke.extension {
-            paint(&e.paint)?
+            let (c, g, note) = paint(&e.paint);
+            notes.extend(note.map(str::to_owned));
+            (c, g)
         } else {
             (color(stroke.color_word), None)
         };
@@ -250,7 +272,13 @@ pub(super) fn convert_shape(
             name: format!("Stroke {}", i + 1),
             transform,
             kind: ElementKind::PaintedPath {
-                commands: paths(edges, false)?,
+                commands: match paths(edges, false) {
+                    Ok(commands) => commands,
+                    Err(e) => {
+                        notes.push(format!("stroke {} skipped: {e}", i + 1));
+                        continue;
+                    }
+                },
                 fill_rule: FillRule::NonZero,
                 fill: [0; 4],
                 stroke: stroke_color,
@@ -261,6 +289,14 @@ pub(super) fn convert_shape(
             scripts: vec![],
             accessibility: None,
         });
+    }
+    if !notes.is_empty() {
+        notes.dedup();
+        report.warning(
+            "fla_shape_approximated",
+            location,
+            format!("Shape imported with approximations: {}. The original shape remains in the embedded source.", notes.join("; ")),
+        );
     }
     if !shape.auxiliary.is_empty() {
         report.warning("fla_cubic_editing_metadata",location,"Rendered quadratic edges are preserved; auxiliary cubic editing handles remain in source provenance.")

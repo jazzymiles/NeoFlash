@@ -22,6 +22,13 @@ pub enum TimelineClass {
     Sprite,
     Button,
     Morph,
+    MorphSegment,
+    MorphCurve,
+    MorphHint,
+    Rect,
+    Oval,
+    CompiledClip,
+    VideoStream,
     Unknown,
 }
 impl TimelineClass {
@@ -37,6 +44,13 @@ impl TimelineClass {
             b"CPicSprite" => Self::Sprite,
             b"CPicButton" => Self::Button,
             b"CPicMorphShape" => Self::Morph,
+            b"CMorphSegment" => Self::MorphSegment,
+            b"CMorphCurve" => Self::MorphCurve,
+            b"CMorphHintItem" => Self::MorphHint,
+            b"CPicRect" => Self::Rect,
+            b"CPicOval" => Self::Oval,
+            b"CPicSwf" => Self::CompiledClip,
+            b"CPicVideoStream" => Self::VideoStream,
             _ => Self::Unknown,
         }
     }
@@ -52,6 +66,13 @@ impl TimelineClass {
             Self::Sprite => "CPicSprite",
             Self::Button => "CPicButton",
             Self::Morph => "CPicMorphShape",
+            Self::MorphSegment => "CMorphSegment",
+            Self::MorphCurve => "CMorphCurve",
+            Self::MorphHint => "CMorphHintItem",
+            Self::Rect => "CPicRect",
+            Self::Oval => "CPicOval",
+            Self::CompiledClip => "CPicSwf",
+            Self::VideoStream => "CPicVideoStream",
             Self::Unknown => "Unknown",
         }
     }
@@ -78,6 +99,12 @@ pub enum TimelineRelation {
     LegacyRelatedLayer,
     MorphShape,
     SoundSettings,
+    /// Ordered CMorphSegment pointer of a CPicMorphShape. Null entries are values.
+    MorphSegment,
+    /// Ordered CMorphHintItem pointer of a CPicMorphShape.
+    MorphHint,
+    /// Ordered CMorphCurve pointer of a CMorphSegment.
+    MorphCurve,
 }
 
 /// Every successfully resolved pointer, including nulls, in wire order. A new
@@ -159,6 +186,69 @@ pub struct TimelineActions {
     /// Raw count word. Compiled lists encode it as signed; negative values stay
     /// unsupported with Unknown presence, rather than asserting nonempty code.
     pub command_count: Option<u32>,
+    /// Typed historical (Flash 2–4) or compiled-mode (Flash 5/MX) authoring
+    /// commands, retained even when a later command stops decoding.
+    #[serde(default)]
+    pub decoded: Option<TimelineDecodedActions>,
+}
+/// Container that held the typed commands. These are Actions-panel authoring
+/// commands, not SWF bytecode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineActionForm {
+    /// One inline historical command (frame revisions 4–9, button revision 2).
+    HistoricalCommand,
+    /// Counted historical commands (frame revisions 10–18, button revisions 3–4).
+    HistoricalList,
+    /// Compiled-mode command list inside an action-source container (mode 0).
+    Compiled,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TimelineActionValue {
+    Byte(u8),
+    Word(u16),
+    Signed(i32),
+    Dword(u32),
+    String(TimelineString),
+    /// Compiled-mode parameter: text plus flags (0 = literal string, else expression).
+    Parameter {
+        text: TimelineString,
+        flags: u32,
+    },
+    Bytes(TimelineByteSpan),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimelineActionField {
+    pub name: String,
+    pub value: TimelineActionValue,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimelineActionCommand {
+    /// Exact command bytes; `end` is consumed progress when `complete` is false.
+    pub encoded: TimelineByteSpan,
+    pub complete: bool,
+    /// Historical command kind byte or compiled command type word.
+    pub kind: u32,
+    pub revision: Option<u32>,
+    /// Compiled lists with revision 0 omit the bodies of simple commands.
+    pub body_present: bool,
+    /// Fields in archive order.
+    pub fields: Vec<TimelineActionField>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimelineDecodedActions {
+    pub form: TimelineActionForm,
+    pub list_revision: Option<u32>,
+    pub commands: Vec<TimelineActionCommand>,
+    /// Importer-generated ActionScript 1 translation; empty while decoding is
+    /// incomplete. Never executed by the importer.
+    pub source: String,
+    /// Commands kept only as marked `// NeoFlash: untranslated` comments in `source`.
+    pub untranslated: Vec<usize>,
+    /// True when the translation is incomplete: untranslated commands, block
+    /// repairs or text that needs an explicit code page.
+    pub needs_review: bool,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TimelineFrame {
@@ -179,7 +269,13 @@ pub struct TimelineFrame {
     pub rotation_mode: Option<u32>,
     pub rotation_count: Option<u32>,
     pub label_type: Option<u32>,
+    /// Shape-tween mapping (XFL names): 0 distributive, 1 angular vertex,
+    /// 2 random distribution, 3 linear walk.
     pub shape_tween_blend: Option<u32>,
+    /// CPicMorphShape object ID of a shape-tween keyframe (revision >= 13);
+    /// `None` for a null pointer or when absent.
+    #[serde(default)]
+    pub morph_shape: Option<u32>,
     pub extension: Option<TimelineString>,
     pub reserved: Option<u32>,
     pub sound_effect: Option<u32>,
@@ -222,6 +318,51 @@ pub struct TimelineAccessibility {
     pub auto_labeling: Option<u32>,
 }
 
+/// Component instance parameters, in archive order. Revision 0 lists carry a
+/// legacy type word and a single value string per entry.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineComponentProperties {
+    pub encoded: TimelineByteSpan,
+    pub revision: u8,
+    pub entries: Vec<TimelineComponentProperty>,
+    pub parameters_are_new: Option<u32>,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineComponentProperty {
+    pub encoded: TimelineByteSpan,
+    pub revision: Option<u8>,
+    pub name: Option<TimelineString>,
+    pub legacy_type: Option<u32>,
+    pub legacy_value: Option<TimelineString>,
+    pub value: Option<TimelinePropertyValue>,
+    pub variable_name: Option<TimelineString>,
+    /// Identifier revision byte plus 16 identifier bytes.
+    pub identifier: Option<TimelineByteSpan>,
+    pub category: Option<TimelineString>,
+    pub verbosity: Option<u32>,
+}
+/// Typed parameter value: `value_type` is the archive type word (13 is a
+/// table, whose exact span is retained in `table`). List-like values keep
+/// every entry and the selected index.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelinePropertyValue {
+    pub encoded: TimelineByteSpan,
+    pub revision: u8,
+    pub value_type: u16,
+    pub selection_word: Option<u16>,
+    pub selected_index: Option<u32>,
+    pub named_entries: Option<u32>,
+    pub entries: Vec<TimelinePropertyValueEntry>,
+    pub table: Option<TimelineByteSpan>,
+    pub data: Option<TimelineByteSpan>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimelinePropertyValueEntry {
+    pub name: Option<TimelineString>,
+    pub value: TimelineString,
+    pub value_type: Option<u16>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TimelineInstance {
     pub revision: Option<u8>,
@@ -232,6 +373,14 @@ pub struct TimelineInstance {
     pub legacy_name: Option<TimelineString>,
     pub library_id: Option<u32>,
     pub is_extensible: Option<u8>,
+    /// Instance graphic filters in authored (application) order. Empty when the
+    /// revision has no filter field or its presence byte is zero.
+    #[serde(default)]
+    pub filters: Vec<TimelineFilter>,
+    /// Filter presence byte through the end of the last filter (revision >= 15).
+    #[serde(default)]
+    pub filters_encoded: Option<TimelineByteSpan>,
+    /// Raw blend byte (revision >= 16); see [`TimelineBlendMode::from_archive`].
     pub blend_mode: Option<u8>,
     pub selected_effect_index: Option<u16>,
     pub matrix_3d: Option<[f32; 16]>,
@@ -243,6 +392,8 @@ pub struct TimelineInstance {
     pub actions: Option<TimelineActions>,
     pub track_as_menu: Option<u8>,
     pub property_count: Option<u32>,
+    #[serde(default)]
+    pub properties: Option<TimelineComponentProperties>,
     pub property_inspector_state: Option<u32>,
     pub accessibility: Option<TimelineAccessibility>,
     pub component_xml: Option<TimelineString>,
@@ -308,6 +459,11 @@ pub struct TimelineText {
     pub scrollable: Option<u32>,
     pub localization_id: Option<TimelineString>,
     pub embed_ranges: Option<TimelineString>,
+    /// Classic-text graphic filters (text revision >= 13), in authored order.
+    #[serde(default)]
+    pub filters: Vec<TimelineFilter>,
+    #[serde(default)]
+    pub filters_encoded: Option<TimelineByteSpan>,
     pub selected_effect_index: Option<u16>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -317,6 +473,236 @@ pub struct TimelineBitmap {
     pub media_id: Option<u16>,
     pub extension_present: Option<u8>,
 }
+
+/// Instance blend modes. Archive byte 0 and 1 are both normal; values above 14
+/// are unknown and remain raw in [`TimelineInstance::blend_mode`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineBlendMode {
+    Normal,
+    Layer,
+    Multiply,
+    Screen,
+    Lighten,
+    Darken,
+    Difference,
+    Add,
+    Subtract,
+    Invert,
+    Alpha,
+    Erase,
+    Overlay,
+    Hardlight,
+}
+impl TimelineBlendMode {
+    pub fn from_archive(value: u8) -> Option<Self> {
+        Some(match value {
+            0 | 1 => Self::Normal,
+            2 => Self::Layer,
+            3 => Self::Multiply,
+            4 => Self::Screen,
+            5 => Self::Lighten,
+            6 => Self::Darken,
+            7 => Self::Difference,
+            8 => Self::Add,
+            9 => Self::Subtract,
+            10 => Self::Invert,
+            11 => Self::Alpha,
+            12 => Self::Erase,
+            13 => Self::Overlay,
+            14 => Self::Hardlight,
+            _ => return None,
+        })
+    }
+}
+impl TimelineInstance {
+    /// Typed blend mode; `None` when absent from this revision or unknown.
+    pub fn blend(&self) -> Option<TimelineBlendMode> {
+        self.blend_mode.and_then(TimelineBlendMode::from_archive)
+    }
+}
+
+/// Authoring filter types. The archive type byte is retained in
+/// [`TimelineFilter::type_code`]; 5 (convolution) and unknown codes stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineFilterKind {
+    DropShadow,
+    Blur,
+    Glow,
+    Bevel,
+    GradientGlow,
+    AdjustColor,
+    GradientBevel,
+}
+
+/// One gradient-glow/bevel ramp entry: ratio 0..=255 and packed color
+/// (low byte R, then G, B, A).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineFilterGradientStop {
+    pub ratio: u32,
+    pub color_rgba: u32,
+}
+
+/// Archive filter values. Fields are present only when the filter's revision
+/// stores them. Colors pack low byte R, then G, B, A. `blur_x`/`blur_y` and
+/// `distance` are pixels; `angle_radians` is radians; `strength_percent` is
+/// percent (100 = 1.0); `quality` is the pass count (1 low, 2 medium, 3 high).
+/// Booleans are nonzero archive words. Bevel/gradient type: `full` nonzero is
+/// full, otherwise `inner` nonzero is inner, otherwise outer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TimelineFilterParams {
+    /// Revision of the nested shared shadow-settings block, when present.
+    pub settings_revision: Option<u8>,
+    /// Revision of the nested enabled-state block, when present.
+    pub state_revision: Option<u8>,
+    pub enabled_word: Option<u32>,
+    /// Shadow/glow color; bevel shadow color.
+    pub color_rgba: Option<u32>,
+    pub highlight_color_rgba: Option<u32>,
+    /// Unused color word of revision-1 blur records.
+    pub legacy_color_rgba: Option<u32>,
+    pub blur_x: Option<f32>,
+    pub blur_y: Option<f32>,
+    pub distance: Option<f32>,
+    pub angle_radians: Option<f32>,
+    pub strength_percent: Option<u32>,
+    pub quality: Option<u32>,
+    pub inner: Option<u32>,
+    pub knockout: Option<u32>,
+    pub hide_object: Option<u32>,
+    pub full: Option<u32>,
+    /// Revision-2 bevel compatibility fields with no known visual meaning.
+    pub legacy_byte: Option<u8>,
+    pub legacy_word: Option<u32>,
+    /// Adjust-color values in authoring units: brightness/contrast/saturation
+    /// -100..=100, hue -180..=180 degrees.
+    pub brightness: Option<f32>,
+    pub contrast: Option<f32>,
+    pub saturation: Option<f32>,
+    pub hue: Option<f32>,
+    /// Revision of the gradient block (gradient glow/bevel).
+    pub gradient_revision: Option<u8>,
+    /// Raw gradient word preceding `full`; semantics unresolved.
+    pub gradient_value: Option<u32>,
+    #[serde(default)]
+    pub gradient_stops: Vec<TimelineFilterGradientStop>,
+}
+
+/// One authored filter. A revision-0 record stores no settings at all.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TimelineFilter {
+    /// Type byte through the end of this filter.
+    pub encoded: TimelineByteSpan,
+    pub type_code: u8,
+    pub kind: TimelineFilterKind,
+    pub revision: u8,
+    /// Decoded enabled state; `None` when this revision stores none (enabled).
+    pub enabled: Option<bool>,
+    pub params: TimelineFilterParams,
+}
+
+/// CPicMorphShape: shape-tween correspondence between a start shape (A) and
+/// end shape (B). It is not a CPicObj; it is reached from a CPicFrame morph
+/// pointer. Matrix words are a,b,c,d signed 16.16 and tx,ty twips.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineMorphShape {
+    pub revision: Option<u8>,
+    pub matrix_words_start: Option<[i32; 6]>,
+    pub matrix_words_end: Option<[i32; 6]>,
+    /// Revision >= 2 raw word with unresolved meaning.
+    pub extension_value: Option<u32>,
+    /// Revision >= 2 signed easing, nominally -100..=100.
+    pub acceleration: Option<i32>,
+    /// Ordered CMorphSegment object IDs; `None` retains a null pointer entry.
+    pub segments: Vec<Option<u32>>,
+    /// Ordered CMorphHintItem object IDs; `None` retains a null pointer entry.
+    pub hints: Vec<Option<u32>>,
+    /// Shared style tables referenced by segment indices (zero-based, -1 none).
+    /// Encoded like revision-0 extended shape styles: no stroke extensions.
+    pub fills: Vec<super::geometry::BinaryFill>,
+    pub strokes: Vec<super::geometry::BinaryStroke>,
+}
+/// CMorphSegment: one contour, with style indices named as in XFL
+/// `MorphSegment` (zero-based into the morph style tables; -1 means none).
+/// Points are integer twips; A is the start shape, B the end shape.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineMorphSegment {
+    pub stroke_index_1: Option<i32>,
+    pub stroke_index_2: Option<i32>,
+    pub fill_index_1: Option<i32>,
+    pub fill_index_2: Option<i32>,
+    pub start_point_a: Option<[i32; 2]>,
+    pub start_point_b: Option<[i32; 2]>,
+    /// Ordered CMorphCurve object IDs; `None` retains a null pointer entry.
+    pub curves: Vec<Option<u32>>,
+}
+/// CMorphCurve: one quadratic step from the previous anchor, in integer twips.
+/// A nonzero `line_flags` dword marks a straight segment.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineMorphCurve {
+    pub control_point_a: Option<[i32; 2]>,
+    pub anchor_point_a: Option<[i32; 2]>,
+    pub control_point_b: Option<[i32; 2]>,
+    pub anchor_point_b: Option<[i32; 2]>,
+    pub line_flags: Option<u32>,
+}
+/// CMorphHintItem: shape hint correspondence in integer twips; `index` is the
+/// hint key (0 = "a").
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineMorphHint {
+    pub point_a: Option<[i32; 2]>,
+    pub point_b: Option<[i32; 2]>,
+    pub index: Option<u32>,
+}
+
+/// Rectangle/oval primitive fields following the inherited CPicShape body
+/// (whose drawn edges are in the object's `shape_index`). Bit 0 of `flags` is
+/// the rectangle lock / oval close-path flag; other bits are unresolved.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelinePrimitive {
+    pub revision: Option<u8>,
+    pub flags: Option<u8>,
+    /// Rectangle corner radii in twips: top-left, top-right, bottom-left,
+    /// bottom-right.
+    pub corner_radii: Option<[i32; 4]>,
+    /// Oval bounds in twips, `xmin,xmax,ymin,ymax` order.
+    pub bounds_words: Option<[i32; 4]>,
+    pub start_angle_degrees: Option<f32>,
+    pub end_angle_degrees: Option<f32>,
+    pub inner_radius_percent: Option<f32>,
+}
+/// CPicSwf: placement of a compiled-clip library item (`media_id` names its
+/// Contents media descriptor). Actions use the frame source-action encoding.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineCompiledClip {
+    pub revision: Option<u8>,
+    pub matrix_words: Option<[i32; 6]>,
+    pub media_present: Option<u32>,
+    pub media_id: Option<u16>,
+    pub actions: Option<TimelineActions>,
+    pub instance_name: Option<TimelineString>,
+    pub property_count: Option<u32>,
+    pub properties: Option<TimelineComponentProperties>,
+    pub accessibility: Option<TimelineAccessibility>,
+    pub component_xml: Option<TimelineString>,
+    pub reserved_byte: Option<u8>,
+    pub metadata: Vec<TimelineByteSpan>,
+}
+/// CPicVideoStream: embedded/linked video placement. Bounds are twips in
+/// `xmin,xmax,ymin,ymax` order. `media_id` is absent when `media_present` is 0.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TimelineVideo {
+    pub revision: Option<u8>,
+    pub matrix_words: Option<[i32; 6]>,
+    pub bounds_words: Option<[i32; 4]>,
+    pub reserved_byte: Option<u8>,
+    pub reserved_string: Option<TimelineString>,
+    pub instance_name: Option<TimelineString>,
+    pub media_present: Option<u32>,
+    pub media_id: Option<u16>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "fields", rename_all = "snake_case")]
 pub enum TimelinePayload {
@@ -327,6 +713,13 @@ pub enum TimelinePayload {
     Instance(Box<TimelineInstance>),
     Text(Box<TimelineText>),
     Shape,
+    Morph(Box<TimelineMorphShape>),
+    MorphSegment(TimelineMorphSegment),
+    MorphCurve(TimelineMorphCurve),
+    MorphHint(TimelineMorphHint),
+    Primitive(Box<TimelinePrimitive>),
+    CompiledClip(Box<TimelineCompiledClip>),
+    Video(Box<TimelineVideo>),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimelineObject {
@@ -346,7 +739,8 @@ pub struct TimelineObject {
     pub complete: bool,
     pub base: Option<TimelineBase>,
     pub payload: Option<TimelinePayload>,
-    /// Index into this stream's shapes, including inherited CPicFrame geometry.
+    /// Index into this stream's shapes, including inherited CPicFrame and
+    /// CPicRect/CPicOval geometry.
     pub shape_index: Option<usize>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

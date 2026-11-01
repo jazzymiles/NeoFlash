@@ -122,6 +122,16 @@ impl Writer {
         id
     }
     fn frame_fields(&mut self, rev: u8, duration: u16, label: &str, source: Option<&str>) {
+        self.frame_fields_with(rev, duration, label, source, |w| w.word(0));
+    }
+    fn frame_fields_with(
+        &mut self,
+        rev: u8,
+        duration: u16,
+        label: &str,
+        source: Option<&str>,
+        morph: impl FnOnce(&mut Self),
+    ) {
         self.byte(rev);
         self.word(duration);
         self.word(0);
@@ -151,7 +161,7 @@ impl Writer {
             self.dword(0);
         }
         if rev >= 13 {
-            self.word(0);
+            morph(self);
         }
         if rev >= 14 {
             self.dword(0);
@@ -242,7 +252,10 @@ fn assert_graph(stream: &BinaryTimelineStream) {
         if let Some(shape) = o.shape_index {
             assert!(matches!(
                 o.class,
-                TimelineClass::Shape | TimelineClass::Frame
+                TimelineClass::Shape
+                    | TimelineClass::Frame
+                    | TimelineClass::Rect
+                    | TimelineClass::Oval
             ));
             let s = &stream.shapes[shape];
             assert_eq!(
@@ -517,9 +530,19 @@ fn empty_f3_actions_can_finish_but_nonempty_and_revision17_are_explicit_stops() 
                 Some("fla_historical_frame_extension_unsupported")
             );
         }
+        // One historical "stop" command (revision 4): kind, three empty
+        // strings, frame word, no-wait sentinel, label, three operands, level
+        // and seven button-event words.
         let action_start = f.actions.as_ref().unwrap().encoded.start;
+        let mut command = vec![4, 2, 0, 0, 0, 1, 0, 0x80, 0xc1, 0, 0, 0, 0, 1, 0, 0, 0];
+        command.extend([0; 28]);
         let mut nonempty = w.bytes.clone();
-        nonempty[action_start..action_start + 4].copy_from_slice(&1u32.to_le_bytes());
+        nonempty.splice(
+            action_start..action_start + 4,
+            1u32.to_le_bytes()
+                .into_iter()
+                .chain(command.iter().copied()),
+        );
         let d = a.read(&nonempty);
         let s = &d.streams[0];
         let frame = s
@@ -530,12 +553,27 @@ fn empty_f3_actions_can_finish_but_nonempty_and_revision17_are_explicit_stops() 
         let TimelinePayload::Frame(f) = frame.payload.as_ref().unwrap() else {
             panic!()
         };
-        assert_eq!(
-            f.actions.as_ref().unwrap().presence,
-            TimelineActionPresence::Historical
-        );
-        assert!(!f.actions.as_ref().unwrap().complete);
-        assert!(!frame.complete);
+        let actions = f.actions.as_ref().unwrap();
+        assert_eq!(actions.presence, TimelineActionPresence::Historical);
+        assert!(actions.complete);
+        assert_eq!(actions.encoded.end, action_start + 4 + command.len());
+        let decoded = actions.decoded.as_ref().unwrap();
+        assert_eq!(decoded.form, TimelineActionForm::HistoricalList);
+        assert_eq!(decoded.source, "stop();\n");
+        assert_eq!(frame.complete, rev != 17);
+        // A truncated command is an explicit stop, never a guessed boundary.
+        let d = a.read(&nonempty[..action_start + 4 + 20]);
+        let frame = d.streams[0]
+            .objects
+            .iter()
+            .find(|o| o.class == TimelineClass::Frame)
+            .unwrap();
+        let TimelinePayload::Frame(f) = frame.payload.as_ref().unwrap() else {
+            panic!()
+        };
+        let actions = f.actions.as_ref().unwrap();
+        assert!(!actions.complete && !frame.complete);
+        assert!(!actions.decoded.as_ref().unwrap().commands[0].complete);
     }
 }
 #[test]
@@ -658,8 +696,10 @@ fn action_presence_requires_proven_content_and_nonempty_compiled_actions_stop() 
         (1, TimelineActionPresence::Compiled),
         (u32::MAX, TimelineActionPresence::Unknown),
     ] {
+        // Compiled list revision 0 stores the simple "play" command as its type only.
         let payload: Vec<_> = [0u32, 0, 0, count]
             .into_iter()
+            .chain((count == 1).then_some(1))
             .flat_map(u32::to_le_bytes)
             .collect();
         let mut changed = bytes.clone();
@@ -674,10 +714,16 @@ fn action_presence_requires_proven_content_and_nonempty_compiled_actions_stop() 
         let actions = fields.actions.as_ref().unwrap();
         assert_eq!(actions.presence, expected);
         assert_eq!(actions.command_count, Some(count));
-        assert_eq!(actions.complete, count == 0);
-        assert_eq!(frame.complete, count == 0);
-        assert_eq!(actions.encoded.end, span.start + 16);
-        if count != 0 {
+        assert_eq!(actions.complete, count != u32::MAX);
+        assert_eq!(frame.complete, count != u32::MAX);
+        assert_eq!(
+            actions.encoded.end,
+            span.start + if count == 1 { 20 } else { 16 }
+        );
+        if count == 1 {
+            assert_eq!(actions.decoded.as_ref().unwrap().source, "play();\n");
+        }
+        if count == u32::MAX {
             assert_eq!(
                 parsed
                     .inspection
@@ -709,11 +755,18 @@ fn timeline_retention_budget_is_shared_and_keeps_a_valid_partial_graph() {
     let mut w = Writer::new();
     w.begin("CPicPage");
     w.base_start();
+    let mut last = 0;
     for _ in 0..12_600 {
-        w.begin("CPicShape");
+        last = w.begin("CPicShape");
         w.base_start();
         w.base_end();
         w.shape();
+    }
+    // Repeated child references to a complete identity each retain a pointer.
+    // About 650000 items per stream; two streams exceed the shared
+    // 1000000-item document budget.
+    for _ in 0..600_000 {
+        w.word(last);
     }
     w.base_end();
     w.page_tail();
@@ -729,15 +782,17 @@ fn timeline_retention_budget_is_shared_and_keeps_a_valid_partial_graph() {
             .iter()
             .any(|s| s.stop_code.as_deref() == Some("fla_timeline_document_limit"))
     );
-    assert!(d.streams[1].objects.len() < d.streams[0].objects.len());
-    // Import readiness now uses the same retained graph as editable conversion.
-    // Aggregate reporting must not bypass the shared document budget and claim
-    // completeness for a document that cannot be represented safely.
+    assert!(d.streams[1].pointers.len() < d.streams[0].pointers.len());
+    // Import readiness uses the same retained graph as editable conversion.
+    // A budget stop is always reported; only the records read before it can
+    // be converted, never content fabricated past the stop.
     let report = inspect(&path).unwrap();
-    assert!(!report.can_import);
-    assert!(report.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "fla_timeline_document_limit" && diagnostic.severity == Severity::Error
-    }));
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "fla_timeline_document_limit")
+    );
     let ordinary = report.binary_fla.unwrap();
     let retained: Vec<_> = d
         .inspection
@@ -959,4 +1014,808 @@ fn placements_text_actions_and_custom_ease_keep_typed_ownership_and_raw_spans() 
         assert!(status.bytes_consumed <= end);
         assert!(!object(p, p.root.unwrap()).complete);
     }
+}
+
+impl Writer {
+    fn float(&mut self, v: f32) {
+        self.bytes.extend(v.to_le_bytes());
+    }
+    fn ints(&mut self, values: &[i32]) {
+        for v in values {
+            self.dword(*v as u32);
+        }
+    }
+    /// One page, one layer, one frame whose display children are written by
+    /// `children`; the frame tail optionally carries a morph pointer.
+    fn single_frame(
+        &mut self,
+        duration: u16,
+        children: impl FnOnce(&mut Self),
+        morph: impl FnOnce(&mut Self),
+    ) {
+        self.begin("CPicPage");
+        self.base_start();
+        self.begin("CPicLayer");
+        self.base_start();
+        self.begin("CPicFrame");
+        self.base_start();
+        children(self);
+        self.base_end();
+        self.shape();
+        self.frame_fields_with(21, duration, "", None, morph);
+        self.base_end();
+        self.layer_tail("layer", 0);
+        self.base_end();
+        self.page_tail();
+    }
+    /// CPicSymbol revision 16: filters (revision >= 15) then blend (>= 16).
+    fn filtered_symbol(&mut self, filters: impl FnOnce(&mut Self), blend: u8) {
+        self.begin("CPicSymbol");
+        self.base_start();
+        self.base_end();
+        self.byte(16);
+        self.ints(&[65536, 0, 0, 65536, 20, 40]);
+        self.word(0);
+        self.word(0);
+        self.byte(1);
+        for _ in 0..4 {
+            self.word(256);
+            self.word(0);
+        }
+        self.word(0);
+        self.word(0);
+        self.dword(0);
+        self.string("");
+        self.dword(5);
+        self.bytes.extend([0, 0, 0]); // effect, persistent data, extensible.
+        filters(self);
+        self.byte(blend);
+    }
+    fn filter_state(&mut self, enabled: u32) {
+        self.byte(1);
+        self.dword(enabled);
+    }
+    /// Shared shadow settings, revision 3 or 4.
+    fn shadow_settings(&mut self, rev: u8, color: u32) {
+        self.byte(rev);
+        self.filter_state(1);
+        self.dword(color);
+        self.float(2.); // distance
+        self.float(5.); // blur x
+        self.float(6.); // blur y
+        self.float(0.5); // angle
+        self.ints(&[0, 1, 3, 150]); // inner, knockout, quality, strength
+        if rev >= 4 {
+            self.dword(1);
+        }
+    }
+    fn gradient_block(&mut self) {
+        self.byte(1);
+        self.shadow_settings(4, 0xff00_0000);
+        self.dword(2);
+        self.dword(9); // gradient value
+        self.dword(1); // full
+        self.dword(0);
+        self.dword(0xff00_00ff);
+        self.dword(255);
+        self.dword(0x8000_ff00);
+    }
+}
+
+fn status(d: &BinaryTimelineDocument) -> &BinaryStreamInspection {
+    d.inspection
+        .streams
+        .iter()
+        .find(|x| x.index == d.streams[0].index)
+        .unwrap()
+}
+
+fn all_filters(w: &mut Writer) {
+    w.byte(1);
+    w.dword(12);
+    // Drop shadow, shared settings revision 4.
+    w.byte(0);
+    w.shadow_settings(4, 0x8000_0000);
+    // Blur revisions 1, 2 and 3.
+    w.byte(1);
+    w.byte(1);
+    w.dword(0xffff_ffff);
+    w.float(3.);
+    w.float(4.);
+    w.byte(1);
+    w.byte(2);
+    w.float(7.);
+    w.float(8.);
+    w.filter_state(0);
+    w.dword(2);
+    w.byte(1);
+    w.byte(3);
+    w.shadow_settings(3, 0);
+    // Glow revisions 1 and 2.
+    w.byte(2);
+    w.byte(1);
+    w.dword(0xff00_00ff);
+    w.float(10.);
+    w.ints(&[1, 0]);
+    w.byte(2);
+    w.byte(2);
+    w.dword(0xff00_00ff);
+    w.float(10.);
+    w.ints(&[0, 0]);
+    w.filter_state(1);
+    w.dword(3);
+    // Bevel revisions 2 and 3.
+    w.byte(3);
+    w.byte(2);
+    w.float(0.25);
+    w.dword(0xff00_0000);
+    w.float(4.);
+    w.float(1.);
+    w.ints(&[1, 0]);
+    w.filter_state(1);
+    w.dword(1);
+    w.byte(7);
+    w.dword(0xffff_ffff);
+    w.dword(11);
+    w.dword(0);
+    w.byte(3);
+    w.byte(3);
+    w.shadow_settings(4, 0xff00_0000);
+    w.dword(0xffff_ffff);
+    w.dword(1);
+    // Gradient glow; adjust color; gradient bevel; settings-free shadow.
+    w.byte(4);
+    w.gradient_block();
+    w.byte(6);
+    w.byte(1);
+    w.filter_state(1);
+    for v in [10., -20., -8., -115.] {
+        w.float(v);
+    }
+    w.byte(7);
+    w.byte(1);
+    w.gradient_block();
+    w.byte(0);
+    w.byte(0);
+}
+
+#[test]
+fn every_filter_kind_and_blend_mode_is_typed_and_parsing_continues() {
+    let archive = Archive::new();
+    let mut w = Writer::new();
+    w.single_frame(
+        1,
+        |w| {
+            w.filtered_symbol(all_filters, 3);
+            w.filtered_symbol(|w| w.byte(0), 1);
+        },
+        |w| w.word(0),
+    );
+    let bytes = w.bytes.clone();
+    let d = archive.read(&bytes);
+    assert!(status(&d).structure_complete, "{:?}", status(&d));
+    let s = &d.streams[0];
+    assert_graph(s);
+    let instances: Vec<_> = s
+        .objects
+        .iter()
+        .filter_map(|o| match o.payload.as_ref() {
+            Some(TimelinePayload::Instance(i)) => Some(i),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(instances.len(), 2);
+    let (filtered, plain) = (instances[0], instances[1]);
+    assert!(plain.filters.is_empty());
+    assert_eq!(plain.blend(), Some(TimelineBlendMode::Normal));
+    assert_eq!(filtered.blend(), Some(TimelineBlendMode::Multiply));
+    assert_eq!(filtered.library_id, Some(5));
+    let f = &filtered.filters;
+    use TimelineFilterKind::*;
+    assert_eq!(
+        f.iter().map(|f| (f.kind, f.revision)).collect::<Vec<_>>(),
+        [
+            (DropShadow, 4),
+            (Blur, 1),
+            (Blur, 2),
+            (Blur, 3),
+            (Glow, 1),
+            (Glow, 2),
+            (Bevel, 2),
+            (Bevel, 3),
+            (GradientGlow, 1),
+            (AdjustColor, 1),
+            (GradientBevel, 1),
+            (DropShadow, 0),
+        ]
+    );
+    // Exact contiguous spans from the count word through the blend byte.
+    let list = filtered.filters_encoded.unwrap();
+    assert_eq!(f[0].encoded.start, list.start + 5);
+    for pair in f.windows(2) {
+        assert_eq!(pair[0].encoded.end, pair[1].encoded.start);
+    }
+    assert_eq!(f[11].encoded.end, list.end);
+    assert_eq!(bytes[list.end], 3);
+    let shadow = &f[0].params;
+    assert_eq!(f[0].enabled, Some(true));
+    assert_eq!(shadow.color_rgba, Some(0x8000_0000));
+    assert_eq!(
+        (
+            shadow.distance,
+            shadow.blur_x,
+            shadow.blur_y,
+            shadow.angle_radians
+        ),
+        (Some(2.), Some(5.), Some(6.), Some(0.5))
+    );
+    assert_eq!(
+        (
+            shadow.knockout,
+            shadow.quality,
+            shadow.strength_percent,
+            shadow.hide_object
+        ),
+        (Some(1), Some(3), Some(150), Some(1))
+    );
+    assert_eq!(f[1].enabled, None);
+    assert_eq!(f[1].params.legacy_color_rgba, Some(0xffff_ffff));
+    assert_eq!(
+        (f[1].params.blur_x, f[1].params.blur_y),
+        (Some(3.), Some(4.))
+    );
+    assert_eq!(f[2].enabled, Some(false));
+    assert_eq!(f[2].params.quality, Some(2));
+    assert_eq!(f[3].params.settings_revision, Some(3));
+    assert_eq!(f[3].params.hide_object, None);
+    assert_eq!(f[4].params.inner, Some(1));
+    assert_eq!(f[5].params.quality, Some(3));
+    assert_eq!(f[6].params.legacy_byte, Some(7));
+    assert_eq!(f[6].params.legacy_word, Some(11));
+    assert_eq!(f[6].params.highlight_color_rgba, Some(0xffff_ffff));
+    assert_eq!(f[7].params.full, Some(1));
+    for gradient in [&f[8], &f[10]] {
+        let p = &gradient.params;
+        assert_eq!(p.gradient_revision, Some(1));
+        assert_eq!(p.gradient_value, Some(9));
+        assert_eq!(p.full, Some(1));
+        assert_eq!(
+            p.gradient_stops,
+            [
+                TimelineFilterGradientStop {
+                    ratio: 0,
+                    color_rgba: 0xff00_00ff
+                },
+                TimelineFilterGradientStop {
+                    ratio: 255,
+                    color_rgba: 0x8000_ff00
+                }
+            ]
+        );
+    }
+    let adjust = &f[9].params;
+    assert_eq!(
+        (
+            adjust.brightness,
+            adjust.contrast,
+            adjust.saturation,
+            adjust.hue
+        ),
+        (Some(10.), Some(-20.), Some(-8.), Some(-115.))
+    );
+    assert_eq!(
+        f[11].params,
+        TimelineFilterParams {
+            settings_revision: Some(0),
+            ..Default::default()
+        }
+    );
+    // Every cut inside the filter list leaves an incomplete instance and a
+    // valid partial graph; no later field is guessed.
+    for end in list.start + 1..list.end {
+        let partial = archive.read(&bytes[..end]);
+        assert_graph(&partial.streams[0]);
+        // A count larger than the remaining input is rejected before reading.
+        assert!(
+            matches!(
+                status(&partial).stop_code.as_deref(),
+                Some("fla_truncated_record" | "fla_record_limit")
+            ),
+            "cut {end}"
+        );
+    }
+}
+
+#[test]
+fn unknown_filter_types_and_unproven_revisions_stop_explicitly() {
+    let archive = Archive::new();
+    for (filter, code) in [
+        (vec![5, 1], "fla_filter_type_unsupported"),
+        (vec![3, 1], "fla_record_revision_unsupported"),
+        (vec![0, 5], "fla_record_revision_unsupported"),
+        (vec![4, 1, 0, 16, 0, 0, 0], "fla_gradient_stop_limit"),
+    ] {
+        let mut w = Writer::new();
+        let mut list = 0;
+        w.single_frame(
+            1,
+            |w| {
+                w.filtered_symbol(
+                    |w| {
+                        w.byte(1);
+                        w.dword(1);
+                        list = w.bytes.len();
+                        w.bytes.extend(&filter);
+                    },
+                    1,
+                )
+            },
+            |w| w.word(0),
+        );
+        let d = archive.read(&w.bytes);
+        assert_graph(&d.streams[0]);
+        assert_eq!(status(&d).stop_code.as_deref(), Some(code), "{filter:?}");
+        assert!(status(&d).bytes_consumed > list);
+    }
+}
+
+fn morph_shape(w: &mut Writer) {
+    w.begin("CPicMorphShape");
+    w.byte(2);
+    w.ints(&[65536, 0, 0, 65536, 0, 0]);
+    w.ints(&[65536, 0, 0, 65536, 200, -100]);
+    w.dword(7);
+    w.ints(&[-30]);
+    w.word(2); // segments
+    w.begin("CMorphSegment");
+    w.ints(&[0, 0, 0, 1, 100, 200, 300, 400]);
+    w.word(2); // curves
+    w.begin("CMorphCurve");
+    w.ints(&[1, 2, 3, 4, 5, 6, 7, 8]);
+    w.dword(1);
+    w.word(0); // A null curve entry is a value, not a terminator.
+    w.word(0); // Null segment entry.
+    w.word(0xffff); // Extended count form.
+    w.dword(1);
+    w.begin("CMorphHintItem");
+    w.ints(&[10, 20, 30, 40, 0]);
+    w.word(2); // Fills: plain, then a gradient without the focal extension.
+    w.dword(0xff33_2211);
+    w.bytes.extend([0, 0]);
+    w.dword(0xff00_0000);
+    w.bytes.extend([0x10, 0]);
+    w.ints(&[1392, 0, 0, 1392, -200, -105]);
+    w.byte(1);
+    w.byte(255);
+    w.dword(0xff00_00ff);
+    w.word(1); // Strokes, without extension fields.
+    w.dword(0xff00_0000);
+    w.word(20);
+    w.word(0);
+    w.word(1);
+}
+
+#[test]
+fn shape_tween_morph_records_are_typed_identities_and_parsing_continues() {
+    let archive = Archive::new();
+    let mut w = Writer::new();
+    let mut morph_start = 0;
+    let mut morph_end = 0;
+    w.single_frame(
+        5,
+        |_| {},
+        |w| {
+            morph_start = w.bytes.len();
+            morph_shape(w);
+            morph_end = w.bytes.len();
+        },
+    );
+    let bytes = w.bytes.clone();
+    let d = archive.read(&bytes);
+    assert!(status(&d).structure_complete, "{:?}", status(&d));
+    let s = &d.streams[0];
+    assert_graph(s);
+    let frame = s
+        .objects
+        .iter()
+        .find(|o| o.class == TimelineClass::Frame)
+        .unwrap();
+    let TimelinePayload::Frame(fields) = frame.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    let morph = object(s, fields.morph_shape.unwrap());
+    assert_eq!(morph.class, TimelineClass::Morph);
+    assert!(morph.complete && morph.base.is_none() && morph.owner.is_none());
+    assert_eq!(
+        (morph.encoded.start, morph.encoded.end),
+        (morph_start, morph_end)
+    );
+    let TimelinePayload::Morph(m) = morph.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    assert_eq!(m.matrix_words_end, Some([65536, 0, 0, 65536, 200, -100]));
+    assert_eq!((m.extension_value, m.acceleration), (Some(7), Some(-30)));
+    assert_eq!(m.segments.len(), 2);
+    assert_eq!(m.segments[1], None);
+    assert_eq!(m.hints.len(), 1);
+    assert_eq!(m.fills.len(), 2);
+    assert!(matches!(
+        &m.fills[1].encoding,
+        BinaryFillEncoding::Extended {
+            payload: BinaryFillPayload::Gradient { extension: None, stops, .. },
+            ..
+        } if stops.len() == 1
+    ));
+    assert_eq!(m.strokes.len(), 1);
+    assert!(m.strokes[0].extension.is_none());
+    let segment = object(s, m.segments[0].unwrap());
+    let TimelinePayload::MorphSegment(seg) = segment.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        (seg.fill_index_1, seg.fill_index_2, seg.start_point_b),
+        (Some(0), Some(1), Some([300, 400]))
+    );
+    assert_eq!(seg.curves.len(), 2);
+    assert_eq!(seg.curves[1], None);
+    let curve = object(s, seg.curves[0].unwrap());
+    let TimelinePayload::MorphCurve(curve) = curve.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    assert_eq!(curve.anchor_point_b, Some([7, 8]));
+    assert_eq!(curve.line_flags, Some(1));
+    let hint = object(s, m.hints[0].unwrap());
+    let TimelinePayload::MorphHint(hint) = hint.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    assert_eq!((hint.point_b, hint.index), (Some([30, 40]), Some(0)));
+    for (relation, source) in [
+        (TimelineRelation::MorphShape, frame.object_id),
+        (TimelineRelation::MorphSegment, morph.object_id),
+        (TimelineRelation::MorphCurve, segment.object_id),
+        (TimelineRelation::MorphHint, morph.object_id),
+    ] {
+        assert!(
+            s.pointers
+                .iter()
+                .any(|p| p.relation == relation && p.source == Some(source))
+        );
+    }
+    for end in morph_start..morph_end {
+        let partial = archive.read(&bytes[..end]);
+        assert_graph(&partial.streams[0]);
+        assert!(!status(&partial).structure_complete);
+        assert!(status(&partial).bytes_consumed <= end);
+    }
+}
+
+#[test]
+fn morph_classes_are_only_accepted_through_their_owning_pointer() {
+    let archive = Archive::new();
+    // A morph segment where a morph shape is expected.
+    let mut w = Writer::new();
+    w.single_frame(
+        1,
+        |_| {},
+        |w| {
+            w.begin("CMorphSegment");
+            w.bytes.extend([0; 40]);
+        },
+    );
+    let d = archive.read(&w.bytes);
+    assert_graph(&d.streams[0]);
+    assert_eq!(
+        status(&d).stop_code.as_deref(),
+        Some("fla_mfc_class_unsupported")
+    );
+    // A display record inside a morph segment list.
+    let mut w = Writer::new();
+    w.single_frame(
+        1,
+        |_| {},
+        |w| {
+            w.begin("CPicMorphShape");
+            w.byte(0);
+            w.ints(&[0; 12]);
+            w.word(1);
+            w.begin("CPicShape");
+            w.bytes.extend([0; 40]);
+        },
+    );
+    let d = archive.read(&w.bytes);
+    assert_graph(&d.streams[0]);
+    assert_eq!(
+        status(&d).stop_code.as_deref(),
+        Some("fla_mfc_class_unsupported")
+    );
+}
+
+#[test]
+fn zero_duration_leading_frame_occupies_no_time_and_parsing_continues() {
+    let archive = Archive::new();
+    let mut w = Writer::new();
+    w.begin("CPicPage");
+    w.base_start();
+    w.begin("CPicLayer");
+    w.base_start();
+    w.frame(0, "", None, false);
+    w.frame(4, "", None, false);
+    w.base_end();
+    w.layer_tail("layer", 0);
+    w.base_end();
+    w.page_tail();
+    let d = archive.read(&w.bytes);
+    assert!(status(&d).structure_complete);
+    let durations: Vec<_> = d.streams[0]
+        .objects
+        .iter()
+        .filter_map(|o| match o.payload.as_ref() {
+            Some(TimelinePayload::Frame(f)) => f.duration,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(durations, [0, 4]);
+}
+
+fn typed_placements(w: &mut Writer) {
+    w.begin("CPicRect");
+    w.base_start();
+    w.base_end();
+    w.shape();
+    w.byte(1);
+    w.byte(1);
+    w.ints(&[20, 40, 60, 80]);
+    w.begin("CPicOval");
+    w.base_start();
+    w.base_end();
+    w.shape();
+    w.byte(3);
+    w.byte(0);
+    w.ints(&[0, 2000, 0, 1000]);
+    w.float(0.);
+    w.float(90.);
+    w.float(25.);
+    w.begin("CPicSwf");
+    w.base_start();
+    w.base_end();
+    w.byte(7);
+    w.ints(&[65536, 0, 0, 65536, 0, 0]);
+    w.dword(1);
+    w.word(12);
+    w.ints(&[1, 1, 77, 0]); // Source actions: revision, mode, id, breakpoints.
+    w.string("");
+    w.string("clip");
+    w.byte(2); // Property list revision 2 with two typed entries.
+    w.dword(2);
+    w.byte(3);
+    w.string("speed");
+    w.byte(8);
+    w.word(17);
+    w.word(4); // Selection word of list type 17.
+    w.dword(1);
+    w.dword(0);
+    w.dword(1);
+    w.string("fast");
+    w.string("10");
+    w.word(3);
+    w.dword(2);
+    w.bytes.extend([9, 9]);
+    w.string("speedVar");
+    w.bytes.extend([1; 17]);
+    w.string("Motion");
+    w.dword(1);
+    w.byte(3);
+    w.string("rows");
+    w.byte(5);
+    w.word(13);
+    w.dword(0);
+    w.dword(0);
+    w.dword(0);
+    w.string("Collection");
+    w.string("Item");
+    w.string("label");
+    w.dword(1);
+    w.string("label");
+    w.word(1);
+    w.string("");
+    w.string("");
+    w.dword(2);
+    w.string("a");
+    w.string("b");
+    w.string("rowsVar");
+    w.bytes.extend([2; 17]);
+    w.string("");
+    w.dword(0);
+    w.dword(1); // Parameters are new.
+    w.dword(0); // Accessibility revision 0.
+    w.byte(1);
+    w.dword(5);
+    w.string("");
+    w.byte(0);
+    w.begin("CPicSwf");
+    w.base_start();
+    w.base_end();
+    w.byte(4);
+    w.ints(&[65536, 0, 0, 65536, 0, 0]);
+    w.dword(0);
+    w.ints(&[1, 2, 0, 0]); // Empty source actions.
+    w.string("legacy");
+    w.byte(0); // Legacy property list.
+    w.dword(1);
+    w.dword(3);
+    w.string("name");
+    w.string("value");
+    w.begin("CPicVideoStream");
+    w.base_start();
+    w.base_end();
+    w.byte(4);
+    w.ints(&[65536, 0, 0, 65536, 0, 0]);
+    w.ints(&[0, 3200, 0, 2400]);
+    w.byte(0);
+    w.string("");
+    w.string("video");
+    w.dword(1);
+    w.word(6);
+}
+
+#[test]
+fn primitives_compiled_clips_video_and_component_parameters_are_typed() {
+    let archive = Archive::new();
+    let mut w = Writer::new();
+    w.single_frame(1, typed_placements, |w| w.word(0));
+    let d = archive.read(&w.bytes);
+    assert!(status(&d).structure_complete, "{:?}", status(&d));
+    let s = &d.streams[0];
+    assert_graph(s);
+    let mut seen = [0; 3];
+    for o in &s.objects {
+        match o.payload.as_ref().unwrap() {
+            TimelinePayload::Primitive(p) => {
+                seen[0] += 1;
+                assert!(o.shape_index.is_some());
+                if o.class == TimelineClass::Rect {
+                    assert_eq!(p.corner_radii, Some([20, 40, 60, 80]));
+                } else {
+                    assert_eq!(p.bounds_words, Some([0, 2000, 0, 1000]));
+                    assert_eq!(p.inner_radius_percent, Some(25.));
+                }
+            }
+            TimelinePayload::CompiledClip(c) => {
+                seen[1] += 1;
+                let props = c.properties.as_ref().unwrap();
+                if c.revision == Some(7) {
+                    assert_eq!(c.media_id, Some(12));
+                    assert_eq!(text(s, c.instance_name.as_ref().unwrap()), b"clip");
+                    assert_eq!(props.entries.len(), 2);
+                    assert_eq!(props.parameters_are_new, Some(1));
+                    let speed = props.entries[0].value.as_ref().unwrap();
+                    assert_eq!((speed.value_type, speed.selection_word), (17, Some(4)));
+                    assert_eq!(text(s, &speed.entries[0].value), b"10");
+                    assert_eq!(speed.data.map(|d| d.end - d.start), Some(2));
+                    assert_eq!(props.entries[0].verbosity, Some(1));
+                    assert!(props.entries[1].value.as_ref().unwrap().table.is_some());
+                    assert_eq!(c.reserved_byte, Some(0));
+                } else {
+                    assert_eq!(c.media_id, None);
+                    assert_eq!(props.revision, 0);
+                    assert_eq!(props.entries[0].legacy_type, Some(3));
+                    assert_eq!(
+                        text(s, props.entries[0].legacy_value.as_ref().unwrap()),
+                        b"value"
+                    );
+                }
+            }
+            TimelinePayload::Video(v) => {
+                seen[2] += 1;
+                assert_eq!(v.media_id, Some(6));
+                assert_eq!(v.bounds_words, Some([0, 3200, 0, 2400]));
+                assert_eq!(text(s, v.instance_name.as_ref().unwrap()), b"video");
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(seen, [2, 2, 1]);
+}
+
+/// Revision-4 historical command: kind, empty URL/window/scene, frame, no wait,
+/// label, three operands, level 1 and seven button-event words.
+fn historical_command(kind: u8, label: &str, release: bool) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.bytes.clear();
+    w.byte(4);
+    w.byte(kind);
+    w.bytes.extend([0, 0, 0]);
+    w.word(1);
+    w.word(0xc180);
+    w.string(label);
+    w.bytes.extend([0, 0, 0]);
+    w.dword(1);
+    w.dword(u32::from(release));
+    w.bytes.extend([0; 24]);
+    w.bytes
+}
+
+#[test]
+fn historical_frame_and_button_actions_decode_through_the_timeline_reader() {
+    let archive = Archive::new();
+    // Frame revision 9 stores exactly one inline historical command.
+    let mut w = Writer::new();
+    w.begin("CPicPage");
+    w.base_start();
+    w.begin("CPicFrame");
+    w.base_start();
+    w.base_end();
+    w.shape();
+    w.byte(9);
+    w.word(1);
+    for v in [0, 7, 0, 0, 1] {
+        w.word(v);
+    }
+    w.byte(0);
+    w.dword(0);
+    w.dword(0);
+    w.word(0);
+    w.string("");
+    let command = historical_command(10, "intro", false);
+    w.bytes.extend(&command);
+    w.base_end();
+    w.page_tail();
+    let d = archive.read(&w.bytes);
+    let s = &d.streams[0];
+    assert!(d.inspection.streams[0].structure_complete);
+    let frame = s
+        .objects
+        .iter()
+        .find(|o| o.class == TimelineClass::Frame)
+        .unwrap();
+    let TimelinePayload::Frame(f) = frame.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    let actions = f.actions.as_ref().unwrap();
+    assert_eq!(actions.presence, TimelineActionPresence::Historical);
+    assert_eq!(actions.encoded.end - actions.encoded.start, command.len());
+    let decoded = actions.decoded.as_ref().unwrap();
+    assert_eq!(decoded.form, TimelineActionForm::HistoricalCommand);
+    assert_eq!(decoded.source, "gotoAndPlay(\"intro\");\n");
+
+    // Button revision 4 stores a counted list followed by track-as-menu.
+    let bytes = placement_text_ease_family();
+    let before = archive.read(&bytes);
+    let s = &before.streams[0];
+    let button = s
+        .objects
+        .iter()
+        .find(|o| o.class == TimelineClass::Button)
+        .unwrap();
+    let TimelinePayload::Instance(i) = button.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    let start = i.actions.as_ref().unwrap().encoded.start;
+    let mut list = vec![4];
+    list.extend(3u32.to_le_bytes());
+    for (kind, label, release) in [(20, "", true), (10, "next", false), (21, "", false)] {
+        list.extend(historical_command(kind, label, release));
+    }
+    list.push(1);
+    let mut changed = bytes.clone();
+    changed.splice(start - 1..button.encoded.end, list);
+    let d = archive.read(&changed);
+    let status = &d.inspection.streams[0];
+    assert!(status.structure_complete, "{status:?}");
+    let button = d.streams[0]
+        .objects
+        .iter()
+        .find(|o| o.class == TimelineClass::Button)
+        .unwrap();
+    let TimelinePayload::Instance(i) = button.payload.as_ref().unwrap() else {
+        panic!()
+    };
+    assert_eq!(i.extension_revision, Some(4));
+    assert_eq!(i.track_as_menu, Some(1));
+    let decoded = i.actions.as_ref().unwrap().decoded.as_ref().unwrap();
+    assert_eq!(decoded.commands.len(), 3);
+    assert_eq!(
+        decoded.source,
+        "on (release) {\n    gotoAndPlay(\"next\");\n}\n"
+    );
 }

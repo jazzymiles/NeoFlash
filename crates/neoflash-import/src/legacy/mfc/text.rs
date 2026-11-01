@@ -200,7 +200,10 @@ impl Reader<'_> {
                 text.embed_ranges = Some(self.string()?);
             }
             if revision >= 13 {
-                self.absent_filters()?;
+                let (filters, span, result) = self.filters();
+                text.filters = filters;
+                text.filters_encoded = Some(span);
+                result?;
                 text.selected_effect_index = Some(self.word()?);
             }
             Ok(())

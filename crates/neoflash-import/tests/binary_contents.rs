@@ -1,6 +1,7 @@
 //! Original synthetic archives only. No private document bytes or strings.
 use neoflash_import::{
-    BinaryContentsPrefix, BinaryStreamRole, ContentsReference, inspect, read_binary_contents,
+    BinaryContentsPrefix, BinaryStreamRole, ContentsByteSpan, ContentsDescriptorClass,
+    ContentsReference, inspect, read_binary_contents,
 };
 use std::{
     fs,
@@ -153,6 +154,9 @@ fn movie(out: &mut Vec<u8>, v: u8) {
     }
 }
 fn component(out: &mut Vec<u8>, v: u8) {
+    component_icon(out, v, None);
+}
+fn component_icon(out: &mut Vec<u8>, v: u8, icon: Option<&[u8]>) {
     out.push(v);
     u32b(out, 0);
     string(out, "");
@@ -172,7 +176,8 @@ fn component(out: &mut Vec<u8>, v: u8) {
         u32b(out, u32::MAX);
     }
     if v >= 5 {
-        u32b(out, 0);
+        u32b(out, u32::from(icon.is_some()));
+        out.extend(icon.unwrap_or_default());
     }
     if v >= 6 {
         u32b(out, 0);
@@ -267,6 +272,11 @@ fn page_fields(out: &mut Vec<u8>, v: u8, name: &str, meta: Option<&[u8]>, props:
     }
 }
 fn media(out: &mut Vec<u8>, base: u8, sub: u8, sound: bool) {
+    media_base(out, base);
+    out.push(sub);
+    media_rest(out, sub, sound);
+}
+fn media_base(out: &mut Vec<u8>, base: u8) {
     out.push(base);
     compact(out, "Media 1", base >= 6);
     string(out, "private media name");
@@ -283,7 +293,8 @@ fn media(out: &mut Vec<u8>, base: u8, sub: u8, sound: bool) {
     if base >= 5 {
         u32b(out, 0);
     }
-    out.push(sub);
+}
+fn media_rest(out: &mut Vec<u8>, sub: u8, sound: bool) {
     if sound {
         if sub == 2 {
             string(out, "");
@@ -343,6 +354,17 @@ fn settings(out: &mut Vec<u8>) {
     out.extend([0; 3]);
     u32b(out, 20);
 }
+/// Every save target with a decoded Contents layout, with a page revision.
+const REVISIONS: [(u8, u8); 8] = [
+    (0x14, 4),
+    (0x1b, 8),
+    (0x20, 12),
+    (0x29, 17),
+    (0x38, 20),
+    (0x3f, 23),
+    (0x43, 24),
+    (0x47, 25),
+];
 fn fixture(v: u8, pv: u8, with_media: bool) -> (Vec<u8>, usize) {
     let mut out = header(v);
     class(&mut out, "CDocumentPage");
@@ -367,30 +389,26 @@ fn fixture(v: u8, pv: u8, with_media: bool) -> (Vec<u8>, usize) {
     }
     let end = out.len();
     if v != 0x14 {
-        out.extend([91, 17, 231, 33]);
+        // One byte cannot hold the first suffix count.
+        out.push(91);
     }
     (out, end)
 }
 
 #[test]
-fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
+fn every_revision_prefix_preserves_identity_raw_settings_and_exact_suffix() {
     let archive = Archive::new();
-    for (v, pv) in [(0x14, 4), (0x20, 12), (0x29, 17), (0x3f, 23)] {
+    for (v, pv) in REVISIONS {
         let (bytes, end) = fixture(v, pv, true);
         let path = archive.path(&bytes, &["Page 1", "Symbol 1", "Media 1"]);
         let document = read_binary_contents(&path).unwrap();
         let prefix = document.contents;
         if v == 0x14 {
             assert!(prefix.stop.is_none(), "{:?}", prefix.stop);
-        } else if v == 0x29 {
-            assert_eq!(prefix.stop.as_ref().unwrap().code, "fla_truncated_record");
         } else {
-            assert_eq!(
-                prefix.stop.as_ref().unwrap().code,
-                "fla_contents_suffix_unsupported"
-            );
+            assert_eq!(prefix.stop.as_ref().unwrap().code, "fla_truncated_record");
         }
-        assert_eq!(prefix.bytes_consumed, end + if v == 0x29 { 2 } else { 0 });
+        assert_eq!(prefix.bytes_consumed, end);
         assert_eq!(prefix.original_bytes, bytes);
         assert_eq!(prefix.scenes, vec![2]);
         assert_eq!(prefix.selected_scene, Some(2));
@@ -442,7 +460,7 @@ fn four_revision_prefixes_preserve_identity_raw_settings_and_exact_suffix() {
 #[test]
 fn every_truncated_prefix_stops_without_settings_or_resynchronization() {
     let archive = Archive::new();
-    for (v, pv) in [(0x14, 4), (0x20, 12), (0x29, 17), (0x3f, 23)] {
+    for (v, pv) in REVISIONS {
         let (bytes, _) = fixture(v, pv, true);
         let end = archive
             .read(&bytes, &["Page 1", "Symbol 1", "Media 1"])
@@ -582,7 +600,8 @@ fn one_scene(v: u8, body: &[u8]) -> (Vec<u8>, usize) {
     u16b(&mut out, 0);
     settings(&mut out);
     let end = out.len();
-    out.extend([199, 200]);
+    // One byte cannot hold the first suffix count.
+    out.push(199);
     (out, end)
 }
 fn rich_metadata() -> Vec<u8> {
@@ -936,13 +955,34 @@ fn f3_suffix_unknown_tail_and_work_limits_are_explicit() {
             .code,
         "fla_contents_record_unsupported"
     );
+    // A nonempty shared-library list is decoded generically; truncation stops.
     let mut bytes = base.clone();
     bytes.push(0);
     u32b(&mut bytes, 1);
     bytes.push(0);
     let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-    assert_eq!(p.stop.unwrap().code, "fla_contents_record_unsupported");
+    assert_eq!(p.stop.unwrap().code, "fla_truncated_record");
     assert!(p.legacy_publish.is_some());
+    let mut bytes = base.clone();
+    bytes.push(0);
+    u32b(&mut bytes, 1);
+    shared_library(&mut bytes, 2);
+    let identity = bytes.len();
+    bytes.extend([0; 8]);
+    u16b(&mut bytes, 0);
+    let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
+    assert!(p.stop.is_none(), "{:?}", p.stop);
+    assert_eq!(p.compatibility_tail.unwrap().encoded.start, identity);
+    let mut bad = bytes.clone();
+    bad[base.len() + 5] = 3;
+    assert_eq!(
+        archive
+            .read(&bad, &["Page 1", "Symbol 1"])
+            .stop
+            .unwrap()
+            .code,
+        "fla_contents_record_unsupported"
+    );
     let mut bytes = base.clone();
     bytes.push(0);
     u32b(&mut bytes, 0);
@@ -970,6 +1010,19 @@ fn f3_suffix_unknown_tail_and_work_limits_are_explicit() {
     );
 }
 
+fn shared_library(out: &mut Vec<u8>, revision: u8) {
+    out.push(revision);
+    string(out, "lib.swf");
+    u32b(out, 2);
+    out.extend([5, 6]);
+    if revision >= 1 {
+        u32b(out, 1);
+        string(out, "Shared");
+    }
+    if revision == 1 {
+        u32b(out, 0);
+    }
+}
 fn wide_string(out: &mut Vec<u8>, value: &str) {
     let words: Vec<_> = value.encode_utf16().collect();
     assert!(words.len() < 255);
@@ -978,9 +1031,13 @@ fn wide_string(out: &mut Vec<u8>, value: &str) {
         u16b(out, word);
     }
 }
-fn modern_extensions(out: &mut Vec<u8>, version: u8) {
-    if version >= 0x2d {
-        u16b(out, 0);
+/// Appends a complete synthetic suffix for any save target and returns the
+/// offset where the shared-library/writer-identity tail begins.
+fn modern_extensions(out: &mut Vec<u8>, version: u8) -> usize {
+    if version >= 0x2c {
+        if version >= 0x2d {
+            u16b(out, 0);
+        }
         u32b(out, 1);
     }
     u16b(out, 3);
@@ -996,48 +1053,79 @@ fn modern_extensions(out: &mut Vec<u8>, version: u8) {
     string(out, "");
     string(out, "");
     u32b(out, 0);
-    u16b(out, 0);
-    // A swatch, an identity reference to it, and an empty nested color list.
-    u16b(out, 2);
-    u16b(out, 0xffff);
-    u16b(out, 0);
-    u16b(out, 9);
-    out.extend(b"CColorDef");
-    out.push(4);
-    u32b(out, 0xff123456);
-    out.extend([0; 8]);
-    u16b(out, 5);
-    out.extend([1, 1]);
-    u16b(out, 0);
-    out.push(0);
-    u16b(out, 0);
-    out.push(0);
-    u32b(out, 3);
-    out.extend([0; 40]);
-    u32b(out, 0);
-    u32b(out, 1);
-    u32b(out, 4);
-    wide_string(out, "Папка");
-    out.extend(rich_metadata());
-    if version >= 0x2d {
+    if version >= 0x15 {
         u16b(out, 0);
     }
-    u16b(out, 1);
-    string(out, "QuickTime::Audio");
-    class(out, "CQTAudioSettings");
-    u32b(out, 3);
-    out.extend([1, 2, 3]);
-    u16b(out, 10);
-    out.extend([0; 7]);
-    u32b(out, 0);
-    u32b(out, 0);
-    string(out, "");
-    out.extend([0; 14]);
-    string(out, "");
-    string(out, "");
-    out.extend([0; 12]);
-    u32b(out, 0);
-    u32b(out, 20);
+    if version >= 0x16 {
+        // A swatch, an identity reference to it, and an empty nested color list.
+        u16b(out, 2);
+        u16b(out, 0xffff);
+        u16b(out, 0);
+        u16b(out, 9);
+        out.extend(b"CColorDef");
+        out.push(4);
+        u32b(out, 0xff123456);
+        out.extend([0; 8]);
+        u16b(out, 5);
+        out.extend([1, 1]);
+        u16b(out, 0);
+        out.push(0);
+        u16b(out, 0);
+        out.push(0);
+    }
+    if version >= 0x18 {
+        u32b(out, 3);
+        out.extend([0; 40]);
+    }
+    if version >= 0x19 {
+        u32b(out, 0);
+        u32b(out, 1);
+        u32b(out, 4);
+        wide_string(out, "Папка");
+        out.extend(rich_metadata());
+    }
+    if version >= 0x1a {
+        if version >= 0x2d {
+            u16b(out, 0);
+        }
+        u16b(out, 1);
+        string(out, "QuickTime::Audio");
+        class(out, "CQTAudioSettings");
+        u32b(out, 3);
+        out.extend([1, 2, 3]);
+    }
+    if version >= 0x1b {
+        u16b(out, 10);
+    }
+    if version >= 0x1c {
+        out.extend([0; 7]);
+    }
+    if version >= 0x1d {
+        u32b(out, 0);
+        u32b(out, 0);
+    }
+    if version >= 0x1e {
+        string(out, "");
+    }
+    if version >= 0x1f {
+        out.extend([0; 14]);
+    }
+    if version >= 0x22 {
+        string(out, "");
+        string(out, "");
+    }
+    if version >= 0x23 {
+        u32b(out, 0);
+    }
+    if version >= 0x24 {
+        out.extend([0; 8]);
+    }
+    if version >= 0x26 {
+        u32b(out, 0);
+    }
+    if version >= 0x27 {
+        u32b(out, 20);
+    }
     if version >= 0x2e {
         out.extend([0; 16]);
     }
@@ -1081,7 +1169,8 @@ fn modern_extensions(out: &mut Vec<u8>, version: u8) {
     if version >= 0x3f {
         out.extend([0; 8]);
     }
-    // Native tail for CS4, compatibility writer tail for MX.
+    // Native tail from CS3 on, compatibility writer tail before it.
+    let tail = out.len();
     out.push(0);
     u32b(out, 0);
     for word in [1, 2, 3, 4, 3] {
@@ -1097,20 +1186,28 @@ fn modern_extensions(out: &mut Vec<u8>, version: u8) {
     if version >= 0x47 {
         u32b(out, 1);
     }
+    tail
 }
 
 #[test]
-fn mx_and_cs4_document_extensions_preserve_publish_folders_linkage_and_auxiliary_identity() {
+fn every_revision_suffix_preserves_publish_folders_linkage_and_auxiliary_identity() {
     let archive = Archive::new();
-    for (version, page_revision) in [(0x29, 17), (0x47, 25)] {
-        let (mut bytes, suffix) = fixture(version, page_revision, false);
+    for (version, page_revision) in REVISIONS {
+        let (mut bytes, _) = fixture(version, page_revision, false);
+        let suffix = archive
+            .read(&bytes, &["Page 1", "Symbol 1"])
+            .settings
+            .unwrap()
+            .encoded
+            .end;
         bytes.truncate(suffix);
-        modern_extensions(&mut bytes, version);
+        let tail = modern_extensions(&mut bytes, version);
         let document = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-        assert!(document.stop.is_none(), "{:?}", document.stop);
+        assert!(document.stop.is_none(), "v={version:x} {:?}", document.stop);
         assert_eq!(document.bytes_consumed, bytes.len());
         assert_eq!(document.original_bytes, bytes);
         assert_eq!(document.descriptors.len(), 2);
+        // The legacy single list (before 0x2C) is publish profile 0.
         assert_eq!(
             document
                 .publish_property(0, "Vector::ActionScriptVersion")
@@ -1127,36 +1224,166 @@ fn mx_and_cs4_document_extensions_preserve_publish_folders_linkage_and_auxiliary
                 .as_deref(),
             Some("1")
         );
+        assert_eq!(document.legacy_publish.is_some(), version < 0x2c);
         let extensions = document.extensions.as_ref().unwrap();
+        assert_eq!(extensions.profiles.len(), 1);
         assert_eq!(extensions.encoded.start, suffix);
         assert_eq!(extensions.encoded.end, bytes.len());
-        assert_eq!(extensions.folders.len(), 1);
-        let folder = &extensions.folders[0];
-        assert_eq!(document.string_text(&folder.name).as_deref(), Some("Папка"));
-        assert_eq!(folder.metadata.parent, Some([0x10203040, 0x50607080]));
-        assert_eq!(folder.metadata.item, Some([0x90a0b0c0, 0xd0e0f000]));
-        let linkage = folder.metadata.linkage.as_ref().unwrap();
+        assert_eq!(extensions.document_type, (version >= 0x34).then_some(3));
         assert_eq!(
-            document.string_text(&linkage.identifier).as_deref(),
-            Some("id")
+            extensions.metadata_xml.is_some(),
+            version >= 0x3a,
+            "v={version:x}"
         );
-        assert_eq!(extensions.document_type, (version == 0x47).then_some(3));
         assert_eq!(
             document.compatibility_tail.as_ref().unwrap().writer_words,
             [1, 2, 3, 4]
         );
-        assert_eq!(
-            document
-                .references
-                .iter()
-                .filter(|r| matches!(r, ContentsReference::AuxiliaryObject { .. }))
-                .count(),
-            2
-        );
-        for end in [suffix, suffix + 1, folder.encoded.end - 1, bytes.len() - 1] {
+        let auxiliary = document
+            .references
+            .iter()
+            .filter(|r| matches!(r, ContentsReference::AuxiliaryObject { .. }))
+            .count();
+        assert_eq!(auxiliary, if version >= 0x1a { 2 } else { 0 });
+        assert_eq!(extensions.folders.len(), usize::from(version >= 0x19));
+        if let Some(folder) = extensions.folders.first() {
+            assert_eq!(document.string_text(&folder.name).as_deref(), Some("Папка"));
+            assert_eq!(folder.metadata.parent, Some([0x10203040, 0x50607080]));
+            assert_eq!(folder.metadata.item, Some([0x90a0b0c0, 0xd0e0f000]));
+            let linkage = folder.metadata.linkage.as_ref().unwrap();
+            assert_eq!(
+                document.string_text(&linkage.identifier).as_deref(),
+                Some("id")
+            );
+        }
+        // Exact EOF is accepted only where the compatibility tail is optional.
+        for end in suffix..bytes.len() {
             let partial = archive.read(&bytes[..end], &["Page 1", "Symbol 1"]);
-            assert!(partial.stop.is_some());
+            if version < 0x43 && end == tail {
+                assert!(partial.stop.is_none(), "v={version:x} {:?}", partial.stop);
+                assert!(partial.compatibility_tail.is_none());
+            } else {
+                assert_eq!(
+                    partial.stop.as_ref().unwrap().code,
+                    "fla_truncated_record",
+                    "v={version:x} end={end}"
+                );
+            }
             assert!(partial.bytes_consumed <= end);
+            assert!(partial.settings.is_some());
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert_eq!(
+            archive
+                .read(&trailing, &["Page 1", "Symbol 1"])
+                .stop
+                .unwrap()
+                .code,
+            "fla_contents_trailing_data"
+        );
+    }
+}
+
+fn swf_metadata(out: &mut Vec<u8>, revision: u8, children: bool) {
+    out.push(revision);
+    string(out, "dependency");
+    string(out, "");
+    u32b(out, 1);
+    match revision {
+        1 => out.push(1),
+        2.. => u32b(out, 1),
+        _ => {}
+    }
+    if revision == 2 {
+        u32b(out, 0);
+    } else if revision >= 3 {
+        u32b(out, u32::from(children));
+        if children {
+            string(out, "asset");
+            swf_metadata(out, 0, false);
+        }
+        u32b(out, 0);
+        u32b(out, 0);
+    }
+    if revision >= 4 {
+        string(out, "");
+        string(out, "");
+    }
+}
+/// Raster icon payloads: palette/uncompressed and true-color/zlib chunks.
+fn icon_raster(out: &mut Vec<u8>, palette: bool) {
+    out.push(3);
+    out.push(if palette { 1 } else { 5 });
+    u16b(out, 4);
+    u16b(out, 1);
+    u16b(out, 2);
+    out.extend([0; 16]);
+    out.push(1);
+    if palette {
+        u16b(out, 2);
+        out.extend([0; 8]);
+        out.push(0);
+        out.extend([7; 8]);
+    } else {
+        out.push(1);
+        u16b(out, 3);
+        out.extend([1, 2, 3]);
+        u16b(out, 0);
+    }
+}
+
+#[test]
+fn compiled_clip_media_and_embedded_component_icons_have_exact_boundaries() {
+    let archive = Archive::new();
+    for (swf_revision, palette, shared) in [(5, false, true), (5, true, false), (3, false, false)] {
+        let mut out = header(0x43);
+        class(&mut out, "CDocumentPage");
+        page(&mut out, 24, "Page 1");
+        u16b(&mut out, 0);
+        for word in [0, 0, 2, 0, 0] {
+            u16b(&mut out, word);
+        }
+        let start = out.len();
+        class(&mut out, "CSwfPage");
+        media_base(&mut out, 6);
+        // An embedded component icon: inline bitmap media and its raster.
+        let mut icon = Vec::new();
+        media(&mut icon, 6, 3, false);
+        icon_raster(&mut icon, palette);
+        component_icon(&mut out, 8, Some(&icon));
+        out.push(swf_revision);
+        string(&mut out, "clip.swf");
+        out.extend([0; 16]);
+        swf_metadata(&mut out, 4, true);
+        if swf_revision >= 4 {
+            out.extend([0; 12]);
+        }
+        if swf_revision >= 5 {
+            u32b(&mut out, u32::from(shared));
+            if shared {
+                shared_library(&mut out, 1);
+            } else {
+                string(&mut out, "Export");
+            }
+        }
+        let end = out.len();
+        u16b(&mut out, 0);
+        u16b(&mut out, 1);
+        settings(&mut out);
+        let settings_end = out.len();
+        let p = archive.read(&out, &["Page 1", "Media 1"]);
+        assert!(p.settings.is_some(), "{:?}", p.stop);
+        assert_eq!(p.bytes_consumed, settings_end);
+        let d = &p.descriptors[1];
+        assert_eq!(d.class, ContentsDescriptorClass::SwfPage);
+        assert_eq!(d.subtype_revision, Some(swf_revision));
+        assert_eq!(d.encoded, ContentsByteSpan { start, end });
+        assert_eq!(p.media, vec![4]);
+        for n in start..end {
+            let p = archive.read(&out[..n], &["Page 1", "Media 1"]);
+            assert_eq!(p.stop.unwrap().code, "fla_truncated_record", "n={n}");
+            assert!(p.settings.is_none());
         }
     }
 }

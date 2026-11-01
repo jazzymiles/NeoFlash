@@ -1,6 +1,6 @@
 //! Bounded, read-only CFB and binary FLA structure inspection.
 //! No byte-pattern recovery: unknown records stop the current stream.
-mod container_compat;
+mod compound;
 pub(crate) mod contents;
 pub(crate) mod contours;
 pub(crate) mod convert;
@@ -11,16 +11,18 @@ pub(crate) mod timeline;
 
 use crate::ImportError;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeSet,
-    fs::File,
-    io::{Cursor, Read},
-    path::Path,
-};
+use std::{fs::File, io::Read, path::Path};
 
-const MAX_CONTAINER: u64 = 64 * 1024 * 1024;
-const MAX_STREAM: u64 = 8 * 1024 * 1024;
+const MAX_CONTAINER: u64 = 512 * 1024 * 1024;
+const MAX_STREAM: u64 = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 10_000;
+const LIMITS: compound::Limits = compound::Limits {
+    entries: MAX_ENTRIES,
+    depth: 16,
+    stream: MAX_STREAM,
+    fat_bytes: 16 * 1024 * 1024,
+    difat_bytes: 1024 * 1024,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,10 +72,11 @@ pub struct BinaryFlaInspection {
     pub storage_count: usize,
     pub logical_bytes: u64,
     pub streams: Vec<BinaryStreamInspection>,
-    /// Narrow CFB metadata compatibility applied to an in-memory reading view.
-    /// The original input is retained unchanged by the preservation API.
+    /// Tolerated non-canonical CFB metadata outside the live stream chains
+    /// (stale allocation slots, reserved timestamps, directory colors). Stream
+    /// bytes are read unchanged from the chains their directory entries name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub metadata_compatibility_offsets: Vec<usize>,
+    pub container_tolerances: Vec<String>,
 }
 
 /// Explicit opt-in preservation API. Contains private artwork; unlike inspect(),
@@ -184,94 +187,42 @@ fn read(
 ) -> Result<Option<ReadDocument>, ImportError> {
     let file = File::open(path)?;
     if file.metadata()?.len() > MAX_CONTAINER {
-        return Err(container("CFB exceeds 64 MiB"));
+        return Err(container("CFB exceeds 512 MiB"));
     }
     let mut bytes = Vec::new();
     file.take(MAX_CONTAINER + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_CONTAINER {
-        return Err(container("CFB grew beyond 64 MiB"));
+        return Err(container("CFB grew beyond 512 MiB"));
     }
     let major = preflight(&bytes)?;
-    let original_bytes = bytes.clone();
-    let metadata_compatibility_offsets = container_compat::normalize_timestamps(&mut bytes)?;
-    // This second reader is only a byte-integrity cross-check, never the source
-    // of structural acceptance. The reading view below must pass strict mode.
-    let mut original_view = if metadata_compatibility_offsets.is_empty() {
-        None
-    } else {
-        Some(
-            cfb::OpenOptions::new()
-                .max_buffer_size(8192)
-                .open_with(Cursor::new(original_bytes.as_slice()))
-                .map_err(|_| container("cannot verify original CFB stream bytes"))?,
-        )
-    };
-    // Snapshot bounds allocation and makes concurrent source changes harmless.
-    let mut compound = cfb::OpenOptions::new()
-        .strict()
-        .max_buffer_size(8192)
-        .open_with(Cursor::new(bytes))
-        .map_err(|e| {
-            let text = e.to_string();
-            // Never forward library errors containing document stream names.
-            let category = [
-                "root entry name",
-                "name not null-terminated",
-                "name ordering",
-                "adjacent red nodes",
-                "loop in tree",
-                "root stream len",
-                "FAT has",
-                "not marked",
-                "MiniFAT",
-                "directory",
-                "DIFAT",
-                "FAT",
-                "sector",
-            ]
-            .into_iter()
-            .find(|s| text.contains(s))
-            .unwrap_or("header or directory metadata");
-            container(format!("invalid CFB structure ({category})"))
-        })?;
-    let mut paths = BTreeSet::new();
+    // The snapshot bounds allocation and makes concurrent source changes harmless.
+    let mut compound = compound::Compound::open(&bytes, &LIMITS)?;
     let mut entries = Vec::new();
-    let mut storage_count = 0;
+    // The root entry counts as a storage, as in the reference reader.
+    let mut storage_count = 1;
     let mut logical_bytes = 0u64;
-    for (count, entry) in compound.walk().enumerate() {
-        if count >= MAX_ENTRIES {
-            return Err(container("CFB exceeds 10000 directory entries"));
-        }
-        if entry.path().components().count() > 17 {
-            return Err(container("CFB storage nesting exceeds 16"));
-        }
-        if !paths.insert(entry.path().to_string_lossy().to_uppercase()) {
-            return Err(container("duplicate CFB directory path"));
-        }
-        if !entry.is_stream() {
+    for entry in compound.entries.clone() {
+        if entry.kind == compound::EntryKind::Storage {
             storage_count += 1;
             continue;
         }
-        if entry.len() > MAX_STREAM {
-            return Err(container("CFB stream exceeds 8 MiB"));
-        }
         logical_bytes = logical_bytes
-            .checked_add(entry.len())
+            .checked_add(entry.len)
             .ok_or_else(|| container("CFB logical size overflow"))?;
         if logical_bytes > MAX_CONTAINER {
-            return Err(container("CFB logical streams exceed 64 MiB"));
+            return Err(container("CFB logical streams exceed 512 MiB"));
         }
-        let role = if entry.path().parent() == Some(Path::new("/")) {
-            role(entry.name())
+        let role = if entry.depth == 1 {
+            role(&entry.name)
         } else {
             BinaryStreamRole::Other
         };
-        entries.push((entry.path().to_path_buf(), entry.len(), role));
+        entries.push((entry, role));
     }
-    let has_contents = entries.iter().any(|e| e.2 == BinaryStreamRole::Contents);
+    let has_contents = entries.iter().any(|e| e.1 == BinaryStreamRole::Contents);
     let has_timeline = entries
         .iter()
-        .any(|e| matches!(e.2, BinaryStreamRole::Scene | BinaryStreamRole::Symbol));
+        .any(|e| matches!(e.1, BinaryStreamRole::Scene | BinaryStreamRole::Symbol));
     if !has_contents || !has_timeline {
         return Ok(None);
     }
@@ -282,56 +233,40 @@ fn read(
         storage_count,
         logical_bytes,
         streams: vec![],
-        metadata_compatibility_offsets,
+        container_tolerances: compound
+            .tolerances
+            .describe()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
     };
     let inventory: contents::Inventory = entries
         .iter()
         .enumerate()
-        .filter(|(_, (path, _, _))| path.parent() == Some(Path::new("/")))
-        .map(|(index, (path, _, role))| {
+        .filter(|(_, (entry, _))| entry.depth == 1)
+        .map(|(index, (entry, role))| {
             (
-                path.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_ascii_uppercase(),
+                entry.name.to_ascii_uppercase(),
                 contents::InventoryEntry { index, role: *role },
             )
         })
         .collect();
     let mut contents_prefix = None;
     let mut geometry_streams = Vec::new();
-    let mut retained_items_remaining = 250_000;
+    let mut retained_items_remaining = mfc::DOCUMENT_GEOMETRY_ITEMS;
     let mut timeline_streams = Vec::new();
-    let mut timeline_items_remaining = 100_000;
+    let mut timeline_items_remaining = mfc::DOCUMENT_TIMELINE_ITEMS;
     let mut raw_streams = Vec::new();
-    for (index, (path, byte_length, role)) in entries.into_iter().enumerate() {
-        let mut data = Vec::new();
-        compound
-            .open_stream(&path)
-            .map_err(|_| container("cannot open CFB stream"))?
-            .take(MAX_STREAM + 1)
-            .read_to_end(&mut data)
-            .map_err(|_| container("invalid or truncated CFB stream chain"))?;
+    for (index, (entry, role)) in entries.into_iter().enumerate() {
+        let data = compound.read(&entry)?;
+        let byte_length = entry.len;
         if data.len() as u64 != byte_length {
             return Err(container("CFB stream length mismatch"));
-        }
-        if let Some(original) = original_view.as_mut() {
-            let mut unchanged = Vec::new();
-            original
-                .open_stream(&path)
-                .map_err(|_| container("original CFB stream cannot be verified"))?
-                .take(MAX_STREAM + 1)
-                .read_to_end(&mut unchanged)?;
-            if unchanged != data {
-                return Err(container(
-                    "CFB metadata compatibility would alter application bytes",
-                ));
-            }
         }
         if retain_timeline {
             raw_streams.push(BinaryRawStream {
                 index,
-                name: path.to_string_lossy().into_owned(),
+                name: entry.path.clone(),
                 role,
                 bytes: data.clone(),
             });
@@ -401,11 +336,7 @@ fn read(
         timeline: timeline_streams,
         contents: contents_prefix,
         raw_streams,
-        original_bytes: if retain_timeline {
-            original_bytes
-        } else {
-            Vec::new()
-        },
+        original_bytes: if retain_timeline { bytes } else { Vec::new() },
     }))
 }
 
@@ -432,12 +363,12 @@ fn preflight(bytes: &[u8]) -> Result<u16, ImportError> {
     // Extra, free FAT slots are legal. Bound allocation by a resource budget,
     // not by the minimum number of table sectors implied by the file size.
     if dword(44) > sectors
-        || dword(44) > 4 * 1024 * 1024 / sector
+        || dword(44) * sector > LIMITS.fat_bytes
         || dword(72) > sectors
-        || dword(72) > 1024 * 1024 / sector
+        || dword(72) * sector > LIMITS.difat_bytes
     {
         return Err(container(
-            "CFB FAT/DIFAT allocation exceeds 4 MiB/1 MiB table budgets",
+            "CFB FAT/DIFAT allocation exceeds 16 MiB/1 MiB table budgets",
         ));
     }
     Ok(major)

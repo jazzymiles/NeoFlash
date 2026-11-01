@@ -41,6 +41,8 @@ pub enum ContentsDescriptorClass {
     Bitmap,
     Sound,
     Video,
+    /// Compiled-clip (`CSwfPage`) media descriptor.
+    SwfPage,
     Color,
     ColorList,
     QuickTimeAudioSettings,
@@ -258,6 +260,8 @@ impl BinaryContentsPrefix {
                 .then(|| String::from_utf8_lossy(bytes).into_owned())
         }
     }
+    /// Looks up one key in a publish profile. Before revision 0x2C the single
+    /// legacy key/value list is profile 0.
     pub fn publish_property(&self, profile: usize, key: &str) -> Option<String> {
         let properties = self.extensions.as_ref()?.profiles.get(profile)?;
         let mut values = properties
@@ -443,9 +447,11 @@ impl Reader<'_> {
                 "Contents save-target revision is unknown.",
             ));
         }
-        if !matches!(v, 0x14 | 0x20 | 0x29 | 0x3f | 0x47) {
+        // Flash 1 and 2 predate the reserved-byte, library-list and settings
+        // layout shared by every later save target.
+        if v < 0x14 {
             return self.unsupported(
-                "Contents prefix revision is unsupported; only Flash 3, 5, MX, 8 and CS4 are decoded.",
+                "Contents prefix revision is unsupported; Flash 3 through CS4 are decoded.",
             );
         }
         if v >= 0x20 {
@@ -484,81 +490,7 @@ impl Reader<'_> {
         self.list(BinaryStreamRole::Media, &mut out.media)?;
         out.media_counter = Some(self.u16()?);
         out.settings = Some(self.settings()?);
-        if v == 0x14 {
-            self.f3_suffix(out)
-        } else if matches!(v, 0x29 | 0x47) {
-            self.extensions(out, v)
-        } else {
-            Err(self.error("fla_contents_suffix_unsupported", "Contents settings prefix read; this revision's extensions and compatibility suffix are not decoded."))
-        }
-    }
-    fn f3_suffix(&mut self, out: &mut BinaryContentsPrefix) -> Result<()> {
-        let start = self.at;
-        let short = self.u16()?;
-        let count = if short == 0xffff {
-            self.u32()? as usize
-        } else {
-            usize::from(short)
-        };
-        self.count_value(count, 2)?;
-        let mut entries = Vec::new();
-        for _ in 0..count {
-            entries.push(ContentsProperty {
-                key: self.string()?,
-                value: self.string()?,
-            });
-        }
-        let first_word = self.u32()?;
-        let first_string = self.string()?;
-        let second_string = self.string()?;
-        let second_word = self.u32()?;
-        out.legacy_publish = Some(ContentsLegacyPublish {
-            encoded: ContentsByteSpan {
-                start,
-                end: self.at,
-            },
-            entries,
-            first_word,
-            first_string,
-            second_string,
-            second_word,
-        });
-        if self.at != self.bytes.len() {
-            let start = self.at;
-            if self.u8()? != 0 {
-                return self
-                    .unsupported("Shared-library compatibility-tail revision is unsupported.");
-            }
-            let count = self.u32()? as usize;
-            self.count_value(count, 1)?;
-            if count != 0 {
-                return self
-                    .unsupported("Nonempty shared-library compatibility tail is unsupported.");
-            }
-            let writer_words = [self.u16()?, self.u16()?, self.u16()?, self.u16()?];
-            let count = usize::from(self.u16()?);
-            if count > 256 {
-                return self.unsupported(
-                    "Writer-identity count above 256 requires further compatibility validation.",
-                );
-            }
-            let writer_data = self.span(count)?;
-            out.compatibility_tail = Some(ContentsCompatibilityTail {
-                encoded: ContentsByteSpan {
-                    start,
-                    end: self.at,
-                },
-                writer_words,
-                writer_data,
-            });
-        }
-        if self.at != self.bytes.len() {
-            return Err(self.error(
-                "fla_contents_trailing_data",
-                "Trailing bytes remain after the supported Contents suffix.",
-            ));
-        }
-        Ok(())
+        self.extensions(out, v)
     }
     fn list(&mut self, role: BinaryStreamRole, values: &mut Vec<u32>) -> Result<()> {
         let mut members = BTreeSet::new();
@@ -662,6 +594,7 @@ impl Reader<'_> {
                 b"CMediaBits" => Some(ContentsDescriptorClass::Bitmap),
                 b"CMediaSound" => Some(ContentsDescriptorClass::Sound),
                 b"CMediaVideoStream" => Some(ContentsDescriptorClass::Video),
+                b"CSwfPage" => Some(ContentsDescriptorClass::SwfPage),
                 b"CColorDef" => Some(ContentsDescriptorClass::Color),
                 b"CColorList" => Some(ContentsDescriptorClass::ColorList),
                 b"CQTAudioSettings" => Some(ContentsDescriptorClass::QuickTimeAudioSettings),

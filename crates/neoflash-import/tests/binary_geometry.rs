@@ -313,7 +313,7 @@ fn archive_coordinate_addition_uses_defined_wrapping_not_debug_overflow() {
 
 #[test]
 fn allocation_and_revision_limits_fail_before_large_allocations() {
-    let error = decode_binary_shape(&vec![0; 8 * 1024 * 1024 + 1]).unwrap_err();
+    let error = decode_binary_shape(&vec![0; 64 * 1024 * 1024 + 1]).unwrap_err();
     assert_eq!(error.code, "fla_shape_limit");
     let mut count = Bytes::header(6, 5);
     count.w(0);
@@ -425,7 +425,9 @@ fn document_retention_budget_is_shared_across_streams_and_stops_explicitly() {
         .unwrap()
         .write_all(&[0x20])
         .unwrap();
-    for index in 1..=3 {
+    // Each shape retains 100001 items; the shared document budget is 4000000,
+    // so 39 streams fit and the 40th stops before retaining its shape.
+    for index in 1..=40 {
         cfb.create_stream(format!("Symbol {index}"))
             .unwrap()
             .write_all(&stream.0)
@@ -444,14 +446,14 @@ fn document_retention_budget_is_shared_across_streams_and_stops_explicitly() {
     drop(file);
     let document = read_binary_geometry(&path).unwrap();
     fs::remove_file(path).unwrap();
-    assert_eq!(document.streams.len(), 2);
+    assert_eq!(document.streams.len(), 39);
     assert_eq!(
         document
             .streams
             .iter()
             .map(|s| s.shapes.len())
             .sum::<usize>(),
-        2
+        39
     );
     let stopped = document
         .inspection

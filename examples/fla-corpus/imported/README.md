@@ -1,5 +1,14 @@
 # Imported public projects
 
+Every binary FLA input of the corpus has a pinned direct import here, named after
+its manifest case: `ruffle-mx-shape-tween`, `ruffle-avm1-nested-button-text`,
+`flacomdoc-flash5-shapes`, `flacomdoc-mx-layers`, `flacomdoc-flash8-scripts` and
+`flacomdoc-cs4-motion-tween` join the two MX fixtures below. Each embeds its
+unchanged original; the source collection's license notices
+([Ruffle](../upstream/ruffle/LICENSE.md), [flacomdoc](../upstream/flacomdoc/LICENSE.md))
+apply to the derived project. The manifest records the warnings each import must
+report, for example approximated dynamic text or motion-tween XML kept as poses.
+
 [ruffle-mx-button.nflash](ruffle-mx-button.nflash) and
 [ruffle-mx-static-text.nflash](ruffle-mx-static-text.nflash) are direct imports of
 the unchanged [MX button](../upstream/ruffle/mx-button/DefineButton-MX.fla) and

@@ -1,12 +1,19 @@
 //! Sequential bounded MFC structure reader. Unknown data stops parsing;
 //! neither byte-pattern scans nor guessed record boundaries are used.
 use super::{BinaryStreamInspection, RecordCounts, geometry, timeline::*};
+mod actions;
+mod filters;
 mod instances;
+mod morph;
+mod properties;
 mod text;
 
 const MAX_RECORDS: usize = 50_000;
 const MAX_DEPTH: usize = 32;
 const MAX_STRING: usize = 1024 * 1024;
+/// Opt-in document retention budgets, shared across all timeline streams.
+pub(super) const DOCUMENT_GEOMETRY_ITEMS: usize = 4_000_000;
+pub(super) const DOCUMENT_TIMELINE_ITEMS: usize = 1_000_000;
 type Class = TimelineClass;
 struct Stop {
     code: String,
@@ -181,7 +188,7 @@ impl<'a> Reader<'a> {
             if *self.timeline_items_remaining == 0 {
                 return stop(
                     "fla_timeline_document_limit",
-                    "Retained timeline identity/pointer/object data exceeds 100000 items across this document.",
+                    "Retained timeline identity/pointer/object data exceeds 1000000 items across this document.",
                 );
             }
             *self.timeline_items_remaining -= 1;
@@ -371,8 +378,15 @@ impl<'a> Reader<'a> {
                     // Layers may first be serialized through a mask/folder link,
                     // then referenced in the page's ordered child list. Reuse the
                     // completed object identity instead of reparsing or cloning it.
-                    if matches!(relation, TimelineRelation::Child | TimelineRelation::Root)
-                        && !self.objects[self.object_index(tag)].complete
+                    if matches!(
+                        relation,
+                        TimelineRelation::Child
+                            | TimelineRelation::Root
+                            | TimelineRelation::MorphShape
+                            | TimelineRelation::MorphSegment
+                            | TimelineRelation::MorphCurve
+                            | TimelineRelation::MorphHint
+                    ) && !self.objects[self.object_index(tag)].complete
                     {
                         return stop(
                             "fla_mfc_object_reference_unsupported",
@@ -394,7 +408,7 @@ impl<'a> Reader<'a> {
         if self.retain_timeline && *self.timeline_items_remaining < 3 {
             return stop(
                 "fla_timeline_document_limit",
-                "Retained timeline identity/pointer/object data exceeds 100000 items across this document.",
+                "Retained timeline identity/pointer/object data exceeds 1000000 items across this document.",
             );
         }
         self.retain_budget()?;
@@ -436,6 +450,44 @@ impl<'a> Reader<'a> {
                     format!("MFC schema {schema} is not implemented."),
                 );
             }
+            // Morph records are not CPicObj subclasses; each is accepted only
+            // through the typed pointer that owns it in the archive layout.
+            let expected = match class {
+                Class::Morph => Some(TimelineRelation::MorphShape),
+                Class::MorphSegment => Some(TimelineRelation::MorphSegment),
+                Class::MorphCurve => Some(TimelineRelation::MorphCurve),
+                Class::MorphHint => Some(TimelineRelation::MorphHint),
+                _ => None,
+            };
+            if let Some(expected) = expected {
+                if relation != expected {
+                    return stop(
+                        "fla_mfc_class_unsupported",
+                        format!(
+                            "{} is only decoded through its morph-shape pointer; parsing stops at its header.",
+                            class.name()
+                        ),
+                    );
+                }
+                return match class {
+                    Class::Morph => self.morph_shape(id, depth),
+                    Class::MorphSegment => self.morph_segment(id, depth),
+                    Class::MorphCurve => self.morph_curve(id),
+                    _ => self.morph_hint(id),
+                };
+            }
+            if matches!(
+                relation,
+                TimelineRelation::MorphSegment
+                    | TimelineRelation::MorphCurve
+                    | TimelineRelation::MorphHint
+                    | TimelineRelation::MorphShape
+            ) {
+                return stop(
+                    "fla_mfc_class_unsupported",
+                    "A morph pointer targets a non-morph record; parsing stops at its header.",
+                );
+            }
             if !matches!(
                 class,
                 Class::Page
@@ -447,13 +499,23 @@ impl<'a> Reader<'a> {
                     | Class::Sprite
                     | Class::Button
                     | Class::Text
+                    | Class::Rect
+                    | Class::Oval
+                    | Class::CompiledClip
+                    | Class::VideoStream
             ) {
+                // Unrecognized archive class names may be private; only
+                // known Flash class names appear in public diagnostics.
                 return stop(
                     "fla_mfc_class_unsupported",
-                    format!(
-                        "{} payload is not implemented; parsing stops at its header.",
-                        class.name()
-                    ),
+                    if class == Class::Unknown {
+                        "An unrecognized MFC class payload is not implemented; parsing stops at its header.".to_owned()
+                    } else {
+                        format!(
+                            "{} payload is not implemented; parsing stops at its header.",
+                            class.name()
+                        )
+                    },
                 );
             }
             self.base(id, depth)?;
@@ -471,7 +533,13 @@ impl<'a> Reader<'a> {
                 Class::Bitmap => self.bitmap(id)?,
                 Class::Symbol | Class::Sprite | Class::Button => self.instance(id, class)?,
                 Class::Text => self.text(id)?,
-                _ => unreachable!(),
+                Class::Rect | Class::Oval => {
+                    self.shape(id)?;
+                    self.primitive(id, class)?;
+                }
+                Class::CompiledClip => self.compiled_clip(id)?,
+                Class::VideoStream => self.video(id)?,
+                _ => unreachable!("class checked above"),
             }
             Ok(())
         })();
@@ -483,7 +551,7 @@ impl<'a> Reader<'a> {
                 Class::Page => self.counts.pages += 1,
                 Class::Layer => self.counts.layers += 1,
                 Class::Frame => self.counts.frames += 1,
-                Class::Shape => self.counts.shapes += 1,
+                Class::Shape | Class::Rect | Class::Oval => self.counts.shapes += 1,
                 _ => {}
             }
         }
@@ -630,7 +698,7 @@ impl<'a> Reader<'a> {
                 if self.retain_geometry && shape.item_count() > *self.retained_items_remaining {
                     return stop(
                         "fla_geometry_document_limit",
-                        "Retained geometry exceeds 250000 items across this document.",
+                        "Retained geometry exceeds 4000000 items across this document.",
                     );
                 }
                 let offset = self.pos;
@@ -661,11 +729,7 @@ impl<'a> Reader<'a> {
         let parsed = (|| {
             let rev = self.revision(29, "CPicFrame")?;
             frame.revision = Some(rev);
-            let duration = self.word()?;
-            frame.duration = Some(duration);
-            if duration == 0 {
-                return stop("fla_frame_duration", "Frame duration must be nonzero.");
-            }
+            frame.duration = Some(self.word()?);
             frame.key_mode = Some(if rev <= 2 {
                 u16::from(self.byte()?)
             } else {
@@ -707,7 +771,8 @@ impl<'a> Reader<'a> {
                 frame.label_type = Some(self.dword()?);
             }
             if rev >= 13 {
-                self.object(depth + 1, Some(id), TimelineRelation::MorphShape)?;
+                frame.morph_shape =
+                    self.object(depth + 1, Some(id), TimelineRelation::MorphShape)?;
             }
             if rev >= 14 {
                 frame.shape_tween_blend = Some(self.dword()?);
@@ -800,12 +865,18 @@ impl<'a> Reader<'a> {
             source: None,
             compiled_revision: None,
             command_count: None,
+            decoded: None,
         };
         let parsed = (|| {
+            // Frame revisions 4-9 (and button revision 2, passed as 9) hold one
+            // inline historical command; 10-18 (buttons 3-4, passed as 18) a list.
             if frame_revision <= 9 {
-                return stop(
-                    "fla_historical_actions_unsupported",
-                    "Historical frame action records are not implemented.",
+                actions.presence = TimelineActionPresence::Historical;
+                return self.decode_actions(
+                    &mut actions,
+                    TimelineActionForm::HistoricalCommand,
+                    None,
+                    1,
                 );
             }
             if frame_revision <= 18 {
@@ -817,9 +888,11 @@ impl<'a> Reader<'a> {
                     TimelineActionPresence::Historical
                 };
                 if count != 0 {
-                    return stop(
-                        "fla_historical_actions_unsupported",
-                        "Nonempty historical frame action lists are not implemented.",
+                    return self.decode_actions(
+                        &mut actions,
+                        TimelineActionForm::HistoricalList,
+                        None,
+                        count,
                     );
                 }
                 return Ok(());
@@ -861,18 +934,25 @@ impl<'a> Reader<'a> {
                     Ok(())
                 }
                 0 => {
-                    actions.compiled_revision = Some(self.dword()?);
+                    let list_revision = self.dword()?;
+                    actions.compiled_revision = Some(list_revision);
                     let count = self.dword()?;
                     actions.command_count = Some(count);
                     if count != 0 {
                         // The compiled count word is signed in the archive.
                         // Preserve negative sentinels without calling them code.
-                        if (count as i32) > 0 {
-                            actions.presence = TimelineActionPresence::Compiled;
+                        if (count as i32) < 0 {
+                            return stop(
+                                "fla_compiled_actions_unsupported",
+                                "Negative compiled action counts are not decoded.",
+                            );
                         }
-                        return stop(
-                            "fla_compiled_actions_unsupported",
-                            "Nonzero compiled action counts require a dedicated decoder.",
+                        actions.presence = TimelineActionPresence::Compiled;
+                        return self.decode_actions(
+                            &mut actions,
+                            TimelineActionForm::Compiled,
+                            Some(list_revision),
+                            count,
                         );
                     }
                     actions.presence = TimelineActionPresence::Empty;

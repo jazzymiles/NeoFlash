@@ -122,15 +122,15 @@
     },
     {
       "path": "imported/ruffle-mx-button.nflash",
-      "sha256": "1e2be8ca6a76a5cf35c30afb744b87ceb89408c7c0da25711c1a2aaa27c571b1",
-      "bytes": 34055,
+      "sha256": "cc6f269400c6abc56ebff65383623afad08664c1a359bd15850f54756dd7ed96",
+      "bytes": 34215,
       "derived_from": "upstream/ruffle/mx-button/DefineButton-MX.fla",
       "license": "MIT OR Apache-2.0"
     },
     {
       "path": "imported/ruffle-mx-static-text.nflash",
-      "sha256": "c6b46f9287bbf6a57e423b91499d17ae4f074037de1f773f16fd1c17adb4e90f",
-      "bytes": 21971,
+      "sha256": "0b2437e032aed480c70983899891202463affb8c07adafd25e2dbd1c91cf38c6",
+      "bytes": 22131,
       "derived_from": "upstream/ruffle/mx-static-text/DefineText2-MX.fla",
       "license": "MIT OR Apache-2.0"
     },
@@ -504,6 +504,48 @@
       "url": "https://raw.githubusercontent.com/ruffle-rs/ruffle/fe6cfc545405b888ebb478ce1c211d63147ca49b/swf/tests/swfs/DefineText2-MX.swf",
       "sha256": "b73ecba34aad826b966c5609236c7e1d259b83c3e6ca5bb0698c4317e1da7b47",
       "bytes": 144
+    },
+    {
+      "path": "imported/ruffle-mx-shape-tween.nflash",
+      "derived_from": "upstream/ruffle/mx-shape-tween/DefineMorphShape-MX.fla",
+      "license": "MIT OR Apache-2.0",
+      "sha256": "4567ec695c08eb3bc1efc66e84b21b023fa366b5b72be4e4ecffd79762fdd5d0",
+      "bytes": 66619
+    },
+    {
+      "path": "imported/ruffle-avm1-nested-button-text.nflash",
+      "derived_from": "upstream/ruffle/avm1-nested-button-text/test.fla",
+      "license": "MIT OR Apache-2.0",
+      "sha256": "95970636e2056f3fe79762f916361bf472c2a4365ce4f4249a9029156e9080b8",
+      "bytes": 79580
+    },
+    {
+      "path": "imported/flacomdoc-flash5-shapes.nflash",
+      "derived_from": "upstream/flacomdoc/flash5-shapes/0002_shapes.fla",
+      "license": "LGPL-2.1",
+      "sha256": "079d8f7492698759862837c330448e632cd56fb1367f572221a9a7d24bc00358",
+      "bytes": 37789
+    },
+    {
+      "path": "imported/flacomdoc-mx-layers.nflash",
+      "derived_from": "upstream/flacomdoc/mx-layers/0008_nested_layers.fla",
+      "license": "LGPL-2.1",
+      "sha256": "d8dc4fca66342083d607862424c86891b56673d5aef3cd0a6760708a27de1728",
+      "bytes": 56084
+    },
+    {
+      "path": "imported/flacomdoc-flash8-scripts.nflash",
+      "derived_from": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
+      "license": "LGPL-2.1",
+      "sha256": "c4ba085e36caaf93c415a83f1b1dd4bd8cc788179d5c2d31ab8c65ac5e1e756c",
+      "bytes": 54380
+    },
+    {
+      "path": "imported/flacomdoc-cs4-motion-tween.nflash",
+      "derived_from": "upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
+      "license": "LGPL-2.1",
+      "sha256": "648ee91b15cc2e01c7ea8fa7172bf04930ff9ecdb251bbace269d23ff9397b5c",
+      "bytes": 81642
     }
   ],
   "cases": [
@@ -571,11 +613,17 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
-        "required_diagnostics": [
-          "fla_mfc_class_unsupported"
-        ]
-      }
+        "can_import": true,
+        "required_diagnostics": [],
+        "statistics": {
+          "symbols": 5,
+          "layers": 5,
+          "keyframes": 6,
+          "elements": 10,
+          "scripts": 1
+        }
+      },
+      "native_project": "imported/ruffle-mx-shape-tween.nflash"
     },
     {
       "id": "ruffle-avm1-frame-labels",
@@ -637,11 +685,20 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "fla_contents_suffix_unsupported"
-        ]
-      }
+          "fla_text_approximated",
+          "fla_text_metrics"
+        ],
+        "statistics": {
+          "symbols": 3,
+          "layers": 3,
+          "keyframes": 3,
+          "elements": 7,
+          "scripts": 1
+        }
+      },
+      "native_project": "imported/ruffle-avm1-nested-button-text.nflash"
     },
     {
       "id": "ruffle-avm2-button-frame-scripts",
@@ -764,11 +821,17 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
-        "required_diagnostics": [
-          "fla_contents_suffix_unsupported"
-        ]
-      }
+        "can_import": true,
+        "required_diagnostics": [],
+        "statistics": {
+          "symbols": 1,
+          "layers": 2,
+          "keyframes": 2,
+          "elements": 5,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flacomdoc-flash5-shapes.nflash"
     },
     {
       "id": "flacomdoc-mx-layers",
@@ -781,11 +844,17 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
-        "required_diagnostics": [
-          "fla_semantic_conversion"
-        ]
-      }
+        "can_import": true,
+        "required_diagnostics": [],
+        "statistics": {
+          "symbols": 1,
+          "layers": 37,
+          "keyframes": 32,
+          "elements": 0,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flacomdoc-mx-layers.nflash"
     },
     {
       "id": "flacomdoc-flash8-scripts",
@@ -799,11 +868,22 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "fla_contents_suffix_unsupported"
-        ]
-      }
+          "fla_contents_partial",
+          "fla_contents_record_unsupported",
+          "fla_text_approximated",
+          "fla_text_metrics"
+        ],
+        "statistics": {
+          "symbols": 2,
+          "layers": 3,
+          "keyframes": 3,
+          "elements": 4,
+          "scripts": 2
+        }
+      },
+      "native_project": "imported/flacomdoc-flash8-scripts.nflash"
     },
     {
       "id": "flacomdoc-cs4-motion-tween",
@@ -816,11 +896,21 @@
       ],
       "expected": {
         "format": "legacy_binary_fla",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "fla_semantic_conversion"
-        ]
-      }
+          "fla_cubic_editing_metadata",
+          "fla_layer_animation",
+          "fla_motion_xml"
+        ],
+        "statistics": {
+          "symbols": 2,
+          "layers": 3,
+          "keyframes": 3,
+          "elements": 4,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flacomdoc-cs4-motion-tween.nflash"
     },
     {
       "id": "primitives-and-holds-fla",

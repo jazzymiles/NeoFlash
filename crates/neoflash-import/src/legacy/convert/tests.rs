@@ -114,6 +114,12 @@ fn timeline_fixture() -> BinaryTimelineStream {
 }
 
 fn convert_timeline(stream: &BinaryTimelineStream) -> Result<Timeline, String> {
+    convert_timeline_reporting(stream).map(|(timeline, _)| timeline)
+}
+
+fn convert_timeline_reporting(
+    stream: &BinaryTimelineStream,
+) -> Result<(Timeline, ImportReport), String> {
     let mut report = report();
     let mut context = Context {
         report: &mut report,
@@ -125,7 +131,8 @@ fn convert_timeline(stream: &BinaryTimelineStream) -> Result<Timeline, String> {
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
     };
-    context.timeline(stream)
+    let timeline = context.timeline(stream)?;
+    Ok((timeline, report))
 }
 
 #[test]
@@ -175,8 +182,9 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
     assert!(sample_layer(short, 3).is_empty());
     assert!(sample_layer(short, 13).is_empty());
 
-    // A mismatched library at a tween endpoint must not silently turn motion
-    // into a hold. A final tween without its endpoint is equally incomplete.
+    // A tween whose endpoint is a different placement cannot interpolate; the
+    // span holds its poses and the report says so. A final tween without an
+    // endpoint holds too, as in Flash.
     let mut mismatch = source.clone();
     if let Some(TimelinePayload::Instance(instance)) = &mut mismatch
         .objects
@@ -192,10 +200,13 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
         });
     }
     mismatch.original_bytes.push(b'x');
+    let (held, report) = convert_timeline_reporting(&mismatch).unwrap();
+    assert_eq!(held.layers[0].keyframes[0].tween, None);
     assert!(
-        convert_timeline(&mismatch)
-            .unwrap_err()
-            .contains("stable symbol placement")
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_tween_dropped")
     );
     let mut unfinished = source;
     if let Some(TimelinePayload::Frame(frame)) = &mut unfinished
@@ -207,11 +218,8 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
     {
         frame.key_mode = Some(1);
     }
-    assert!(
-        convert_timeline(&unfinished)
-            .unwrap_err()
-            .contains("unresolved tween")
-    );
+    let held = convert_timeline(&unfinished).unwrap();
+    assert!(held.layers[0].keyframes.last().unwrap().tween.is_none());
 }
 
 fn edge(
@@ -376,9 +384,62 @@ fn synthetic_shape_keeps_touching_contours_holes_reversed_fills_and_stroke_segme
     }
     let mut unclosed = shape;
     unclosed.edges.remove(0);
+    let mut diagnostics = report();
+    let partial = shape::convert_shape(&unclosed, "broken", &mut diagnostics, "synthetic").unwrap();
+    assert!(partial.iter().all(|e| !e.name.starts_with("Fill")));
     assert!(
-        shape::convert_shape(&unclosed, "broken", &mut report(), "synthetic")
-            .unwrap_err()
-            .contains("unmatched endpoints")
+        diagnostics.diagnostics.iter().any(
+            |d| d.code == "fla_shape_approximated" && d.message.contains("unmatched endpoints")
+        )
     );
+}
+
+#[test]
+fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
+    let stream = timeline_fixture();
+    let mut report = report();
+    let mut context = Context {
+        report: &mut report,
+        library: BTreeMap::new(),
+        bitmaps: BTreeMap::new(),
+        language: ScriptLanguage::ActionScript2,
+        include_hidden: true,
+        generated: vec![],
+        provenance: vec![],
+        missing_bitmaps: BTreeMap::new(),
+    };
+    let mut actions = TimelineActions {
+        encoded: TimelineByteSpan { start: 7, end: 9 },
+        complete: true,
+        presence: TimelineActionPresence::Compiled,
+        revision: Some(0),
+        mode: Some(0),
+        identifier: None,
+        breakpoint_count: None,
+        breakpoints: None,
+        collapse_word_count: None,
+        collapse_words: None,
+        source: None,
+        compiled_revision: Some(0),
+        command_count: Some(1),
+        decoded: Some(TimelineDecodedActions {
+            form: TimelineActionForm::Compiled,
+            list_revision: Some(0),
+            commands: vec![],
+            source: "stop();\n".into(),
+            untranslated: vec![],
+            needs_review: false,
+        }),
+    };
+    let script = context.actions(&stream, Some(&actions)).unwrap().unwrap();
+    assert_eq!(script.language, ScriptLanguage::ActionScript1);
+    assert_eq!(script.source, "stop();\n");
+    assert!(context.report.diagnostics.is_empty());
+    let decoded = actions.decoded.as_mut().unwrap();
+    decoded.needs_review = true;
+    decoded.untranslated = vec![0];
+    context.actions(&stream, Some(&actions)).unwrap();
+    assert_eq!(context.report.diagnostics[0].code, "fla_actions_translated");
+    actions.complete = false;
+    assert!(context.actions(&stream, Some(&actions)).is_err());
 }

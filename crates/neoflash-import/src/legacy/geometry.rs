@@ -5,7 +5,7 @@
 //! Format references and provenance are documented in docs/IMPORTS.md.
 use serde::{Deserialize, Serialize};
 
-const MAX_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ITEMS: usize = 100_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,7 +239,7 @@ pub(super) fn decode_prefix(data: &[u8]) -> Result<BinaryShapeRecord> {
         items: 0,
     };
     if data.len() > MAX_BYTES {
-        return r.fail("fla_shape_limit", "Shape input exceeds 8 MiB.");
+        return r.fail("fla_shape_limit", "Shape input exceeds 64 MiB.");
     }
     let shape_revision = r.u8()?;
     if shape_revision > 6 {
@@ -415,6 +415,40 @@ pub(super) fn decode_prefix(data: &[u8]) -> Result<BinaryShapeRecord> {
         auxiliary,
         original_bytes: data[..r.pos].to_vec(),
     })
+}
+
+/// Morph style tables: counted fills then counted strokes, both in the
+/// extended encoding without the revision >= 3 gradient/stroke extensions.
+/// Returns the tables and the number of bytes consumed.
+pub(super) fn decode_morph_styles(
+    data: &[u8],
+) -> Result<(Vec<BinaryFill>, Vec<BinaryStroke>, usize)> {
+    let mut r = Cursor {
+        data,
+        pos: 0,
+        items: 0,
+    };
+    if data.len() > MAX_BYTES {
+        return r.fail("fla_shape_limit", "Morph style input exceeds 64 MiB.");
+    }
+    let fill_count = usize::from(r.u16()?);
+    r.budget(fill_count, 6)?;
+    let mut fills = Vec::with_capacity(fill_count);
+    for _ in 0..fill_count {
+        fills.push(r.fill(0)?);
+    }
+    let stroke_count = usize::from(r.u16()?);
+    r.budget(stroke_count, 10)?;
+    let mut strokes = Vec::with_capacity(stroke_count);
+    for _ in 0..stroke_count {
+        strokes.push(BinaryStroke {
+            color_word: r.u32()?,
+            width_word: r.u16()?,
+            style_words: [r.u16()?, r.u16()?],
+            extension: None,
+        });
+    }
+    Ok((fills, strokes, r.pos))
 }
 
 fn add(a: [i32; 2], b: [i32; 2]) -> [i32; 2] {

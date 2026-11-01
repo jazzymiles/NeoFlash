@@ -4,6 +4,9 @@ use crate::legacy::media::decode_binary_bitmap;
 use neoflash_core::{MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, valid_library_folder};
 use std::collections::BTreeMap;
 
+/// Budget kept free for the provenance record within the project's resources.
+const PROVENANCE_RESERVE: usize = 8 * 1024 * 1024;
+
 #[derive(Clone, Debug)]
 pub(super) struct BitmapAsset {
     pub resource_id: String,
@@ -26,7 +29,7 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
     let mut identities = BTreeMap::new();
     let mut names = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
-        let name = contents.string_text(&entry.name).ok_or("A library-folder name has an unknown ANSI encoding or invalid UTF-16; its raw bytes are preserved.")?;
+        let name = super::read_string(&contents.original_bytes, &entry.name)?;
         if name.is_empty() || name.contains('/') || !valid_library_folder(&name) {
             return Err(
                 "A library-folder name cannot be represented as a normalized NeoFlash folder."
@@ -113,13 +116,19 @@ pub(super) fn resources(
         if descriptor.media_id.is_none() {
             continue;
         }
-        if descriptor.class != ContentsDescriptorClass::Bitmap {
-            return Err("The binary library contains sound, video, or another media class whose native payload conversion is not supported yet; source bytes are preserved.".into());
-        }
-        if resources.len() >= MAX_RESOURCES {
-            return Err("The bitmap library exceeds the project resource limit.".into());
-        }
         let id = descriptor.media_id.unwrap();
+        let location = format!("media {id}");
+        if descriptor.class != ContentsDescriptorClass::Bitmap {
+            report.warning("fla_media_not_imported",&location,"Sound and video library items are not imported yet; their bytes remain in the embedded source.");
+            if let Some(index) = descriptor.stream_index {
+                decoded_streams.insert(index);
+            }
+            continue;
+        }
+        if resources.len() >= MAX_RESOURCES - 2 {
+            report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
+            continue;
+        }
         let settings = descriptor
             .bitmap
             .as_ref()
@@ -140,19 +149,33 @@ pub(super) fn resources(
         {
             return Err("The bitmap descriptor and immutable media stream disagree.".into());
         }
-        let decoded = decode_binary_bitmap(&stream.bytes, settings.encoded_byte_count)
-            .map_err(|e| e.to_string())?;
-        if decoded.original_bytes != stream.bytes
-            || decoded.bounds_words[0] != 0
-            || decoded.bounds_words[2] != 0
-        {
-            return Err("Bitmap source identity or nonzero media bounds origin requires an explicit adapter.".into());
+        decoded_streams.insert(stream.index);
+        let decoded = match decode_binary_bitmap(&stream.bytes, settings.encoded_byte_count) {
+            Ok(decoded) if decoded.original_bytes == stream.bytes => decoded,
+            Ok(_) => {
+                report.warning("fla_bitmap_skipped",&location,"The bitmap payload does not match its media stream; it becomes an unresolved placeholder.");
+                continue;
+            }
+            Err(e) => {
+                report.warning("fla_bitmap_skipped",&location,format!("The bitmap could not be decoded ({e}); it becomes an unresolved placeholder and its bytes remain in the embedded source."));
+                continue;
+            }
+        };
+        if decoded.bounds_words[0] != 0 || decoded.bounds_words[2] != 0 {
+            report.warning("fla_bitmap_origin",&location,"The bitmap's stored bounds start away from 0,0; the image is placed at its instance origin.");
         }
         let png = decoded.png_bytes().map_err(|e| e.to_string())?;
-        total = total
+        // Keep room for the embedded original FLA and provenance.
+        match total
             .checked_add(png.len())
-            .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES)
-            .ok_or("Decoded bitmap resources exceed the project's 64 MiB byte limit.")?;
+            .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE)
+        {
+            Some(n) => total = n,
+            None => {
+                report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
+                continue;
+            }
+        }
         let resource_id = format!("legacy-bitmap-{id}");
         let fallback = format!("legacy/bitmaps/{id}/bitmap.png");
         let parent = descriptor
@@ -160,14 +183,18 @@ pub(super) fn resources(
             .as_ref()
             .and_then(|m| m.parent)
             .filter(|id| *id != [0, 0]);
-        let folder = parent
-            .map(|id| {
-                folders
-                    .get(&id)
-                    .ok_or("A bitmap refers to an absent library-folder identity.")
-            })
-            .transpose()?;
-        let name = document.contents.string_text(&descriptor.name);
+        let folder = match parent.map(|id| folders.get(&id)) {
+            Some(None) => {
+                report.warning(
+                    "fla_library_folder",
+                    &location,
+                    "The bitmap's library folder is unresolved; it is placed at the library root.",
+                );
+                None
+            }
+            other => other.flatten(),
+        };
+        let name = super::read_string(&document.contents.original_bytes, &descriptor.name).ok();
         let path = name.as_deref().map(|name| {
             let name = if let Some(folder) = folder {
                 format!("{folder}/{name}")
@@ -205,17 +232,13 @@ pub(super) fn resources(
         {
             return Err("Bitmap descriptors have duplicate media identifiers.".into());
         }
-        decoded_streams.insert(stream.index);
         resources.push(resource);
     }
     if document.raw_streams.iter().any(|stream| {
         stream.role == crate::legacy::BinaryStreamRole::Media
             && !decoded_streams.contains(&stream.index)
     }) {
-        return Err(
-            "An unreferenced media stream has no descriptor; its format cannot be inferred safely."
-                .into(),
-        );
+        report.warning("fla_media_unreferenced","Media streams","Some media streams have no library descriptor (typically deleted items); they remain only in the embedded source.");
     }
     Ok((resources, bitmaps))
 }

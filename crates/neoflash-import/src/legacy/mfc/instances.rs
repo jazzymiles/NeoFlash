@@ -34,27 +34,6 @@ impl Reader<'_> {
         color.effect_rgba = Some(self.dword()?);
         Ok(color)
     }
-    fn empty_properties(&mut self) -> Result<(u32, TimelineByteSpan)> {
-        let start = self.pos;
-        let revision = self.revision(2, "instance properties")?;
-        let count = self.dword()?;
-        if count != 0 {
-            return stop(
-                "fla_instance_properties_unsupported",
-                "Nonempty component instance properties require semantic preservation.",
-            );
-        }
-        if revision >= 2 {
-            self.dword()?;
-        }
-        Ok((
-            count,
-            TimelineByteSpan {
-                start,
-                end: self.pos,
-            },
-        ))
-    }
     pub(super) fn accessibility(&mut self, unicode: bool) -> Result<TimelineAccessibility> {
         let revision = self.dword()?;
         if revision > 2 {
@@ -80,15 +59,6 @@ impl Reader<'_> {
             access.auto_labeling = Some(self.dword()?);
         }
         Ok(access)
-    }
-    pub(super) fn absent_filters(&mut self) -> Result<()> {
-        if self.byte()? != 0 {
-            return stop(
-                "fla_filters_unsupported",
-                "Authored filter records require a dedicated decoder.",
-            );
-        }
-        Ok(())
     }
     pub(super) fn instance(&mut self, id: u32, class: Class) -> Result<()> {
         let mut value = TimelineInstance::default();
@@ -127,8 +97,9 @@ impl Reader<'_> {
                 let start = self.pos;
                 self.string()?;
                 self.string()?;
-                let (count, _) = self.empty_properties()?;
-                value.property_count = Some(count);
+                let properties = self.component_properties()?;
+                value.property_count = Some(properties.entries.len() as u32);
+                value.properties = Some(properties);
                 self.dword()?;
                 if revision == 9 {
                     self.string()?;
@@ -154,7 +125,10 @@ impl Reader<'_> {
                 value.is_extensible = Some(self.byte()?);
             }
             if revision >= 15 {
-                self.absent_filters()?;
+                let (filters, span, result) = self.filters();
+                value.filters = filters;
+                value.filters_encoded = Some(span);
+                result?;
             }
             if revision >= 16 {
                 value.blend_mode = Some(self.byte()?);
@@ -202,9 +176,10 @@ impl Reader<'_> {
                     }
                     value.instance_name = Some(self.string()?);
                     if rev >= 3 {
-                        let (count, span) = self.empty_properties()?;
-                        value.property_count = Some(count);
-                        value.metadata.push(span);
+                        let properties = self.component_properties()?;
+                        value.property_count = Some(properties.entries.len() as u32);
+                        value.metadata.push(properties.encoded);
+                        value.properties = Some(properties);
                     }
                     if rev >= 6 {
                         value.accessibility = Some(self.accessibility(rev >= 7)?);
@@ -226,14 +201,14 @@ impl Reader<'_> {
                 Class::Button => {
                     let rev = self.revision(11, "CPicButton")?;
                     value.extension_revision = Some(rev);
-                    if (2..=4).contains(&rev) {
-                        return stop(
-                            "fla_button_actions_unsupported",
-                            "Historical button commands require a dedicated decoder.",
-                        );
-                    }
-                    if rev >= 5 {
-                        let (actions, result) = self.actions(19);
+                    if rev >= 2 {
+                        // Revision 2 holds one historical command, 3-4 a list.
+                        let container = match rev {
+                            2 => 9,
+                            3 | 4 => 18,
+                            _ => 19,
+                        };
+                        let (actions, result) = self.actions(container);
                         value.actions = Some(actions);
                         result?;
                     }
@@ -258,6 +233,97 @@ impl Reader<'_> {
         })();
         let index = self.object_index(id);
         self.objects[index].payload = Some(TimelinePayload::Instance(Box::new(value)));
+        parsed
+    }
+    pub(super) fn primitive(&mut self, id: u32, class: Class) -> Result<()> {
+        let mut value = TimelinePrimitive::default();
+        let parsed = (|| {
+            value.revision = Some(self.revision(3, class.name())?);
+            value.flags = Some(self.byte()?);
+            if class == Class::Rect {
+                value.corner_radii = Some(self.signed_words()?);
+            } else {
+                value.bounds_words = Some(self.signed_words()?);
+                value.start_angle_degrees = Some(self.float()?);
+                value.end_angle_degrees = Some(self.float()?);
+                value.inner_radius_percent = Some(self.float()?);
+            }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Primitive(Box::new(value)));
+        parsed
+    }
+    /// CPicSwf compiled-clip placement (pinned JPEXS SwfRecordDecoder.java).
+    pub(super) fn compiled_clip(&mut self, id: u32) -> Result<()> {
+        let mut value = TimelineCompiledClip::default();
+        let parsed = (|| {
+            let revision = self.revision(7, "CPicSwf")?;
+            value.revision = Some(revision);
+            value.matrix_words = Some(self.signed_words()?);
+            let present = self.dword()?;
+            value.media_present = Some(present);
+            if present != 0 {
+                value.media_id = Some(self.word()?);
+            }
+            if revision >= 2 {
+                let (actions, result) = self.actions(19);
+                value.actions = Some(actions);
+                result?;
+            }
+            if revision >= 3 {
+                value.instance_name = Some(self.string()?);
+            }
+            if revision >= 4 {
+                let properties = self.component_properties()?;
+                value.property_count = Some(properties.entries.len() as u32);
+                value.metadata.push(properties.encoded);
+                value.properties = Some(properties);
+            }
+            if revision >= 5 {
+                value.accessibility = Some(self.accessibility(true)?);
+            }
+            if revision >= 6 {
+                let start = self.pos;
+                self.byte()?;
+                self.dword()?;
+                value.component_xml = Some(self.string()?);
+                value.metadata.push(TimelineByteSpan {
+                    start,
+                    end: self.pos,
+                });
+            }
+            if revision >= 7 {
+                value.reserved_byte = Some(self.byte()?);
+            }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::CompiledClip(Box::new(value)));
+        parsed
+    }
+    /// CPicVideoStream placement (pinned JPEXS DefaultFlaDecoders.java).
+    pub(super) fn video(&mut self, id: u32) -> Result<()> {
+        let mut value = TimelineVideo::default();
+        let parsed = (|| {
+            let revision = self.revision(4, "CPicVideoStream")?;
+            value.revision = Some(revision);
+            value.matrix_words = Some(self.signed_words()?);
+            value.bounds_words = Some(self.signed_words()?);
+            value.reserved_byte = Some(self.byte()?);
+            value.reserved_string = Some(self.string()?);
+            value.instance_name = Some(self.string()?);
+            let present = if revision >= 3 { self.dword()? } else { 1 };
+            if revision >= 3 {
+                value.media_present = Some(present);
+            }
+            if present != 0 {
+                value.media_id = Some(self.word()?);
+            }
+            Ok(())
+        })();
+        let index = self.object_index(id);
+        self.objects[index].payload = Some(TimelinePayload::Video(Box::new(value)));
         parsed
     }
 }

@@ -237,12 +237,12 @@ fn file_and_stream_budgets_and_fat_corruption_are_rejected() {
     let mut bytes = cfb(cfb::Version::V3, &[0x20], &timeline());
     bytes[44..48].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(inspect(&temp.file(&bytes)).is_err());
-    let bytes = cfb(cfb::Version::V3, &[0x20], &vec![0; 8 * 1024 * 1024 + 1]);
+    let bytes = cfb(cfb::Version::V3, &[0x20], &vec![0; 64 * 1024 * 1024 + 1]);
     assert!(inspect(&temp.file(&bytes)).is_err());
     let path = temp.0.join("oversize.fla");
     fs::File::create(&path)
         .unwrap()
-        .set_len(64 * 1024 * 1024 + 512)
+        .set_len(512 * 1024 * 1024 + 512)
         .unwrap();
     let mut file = fs::OpenOptions::new().write(true).open(&path).unwrap();
     file.write_all(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])
@@ -305,7 +305,13 @@ fn regular_sector_streams_are_read_and_mfc_depth_is_bounded() {
         .find(|s| s.role == BinaryStreamRole::Contents)
         .unwrap();
     assert_eq!(stream.byte_length, 8192);
-    assert_eq!(stream.bytes_consumed, 102); // Empty descriptor lists and raw settings prefix.
+    // Empty descriptor lists, raw settings, an all-empty Flash 5 suffix and a
+    // zero compatibility tail; the remaining zeros are explicit trailing data.
+    assert_eq!(stream.bytes_consumed, 211);
+    assert_eq!(
+        stream.stop_code.as_deref(),
+        Some("fla_contents_trailing_data")
+    );
     assert!(stream.contents.as_ref().unwrap().settings_reached);
     assert!(!stream.structure_complete);
     let mut nested = vec![1];
