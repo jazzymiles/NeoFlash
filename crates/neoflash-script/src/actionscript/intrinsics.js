@@ -59,6 +59,96 @@ function __nfClassConstruct(value,args) {
     if(typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true)return __nfProgram.constructClass(value,args);
     throw new __nfTypeError('Constructor alias must reference a supported AS3 class; arbitrary Function construction is unsupported.');
 }
+const __nfLegacySuperStack = new WeakMap();
+function __nfPushLegacySuper(receiver, proto) {
+    let stack = __nfLegacySuperStack.get(receiver);
+    if (!stack) { stack = []; __nfLegacySuperStack.set(receiver, stack); }
+    stack.push(proto);
+}
+function __nfPopLegacySuper(receiver) {
+    const stack = __nfLegacySuperStack.get(receiver);
+    if (!stack) return;
+    stack.pop();
+    if (!stack.length) __nfLegacySuperStack.delete(receiver);
+}
+function __nfLegacyBaseProto(receiver) {
+    const stack = __nfLegacySuperStack.get(receiver);
+    return stack && stack.length ? stack[stack.length - 1] : Object.getPrototypeOf(receiver);
+}
+function __nfLegacySuperProto(receiver) {
+    const base = __nfLegacyBaseProto(receiver);
+    return base && (typeof base === 'object' || typeof base === 'function') ? Object.getPrototypeOf(base) : null;
+}
+function __nfLegacyConstruct(ctor, args) {
+    if (typeof ctor !== 'function') throw new __nfTypeError('AS1 constructor must resolve to a function.');
+    if (typeof __nfProgram !== 'undefined' && __nfProgram?.isClass?.(ctor) === true) return __nfProgram.constructClass(ctor, args);
+    if (__nfFunctionRecord(ctor)) {
+        if (!ctor.prototype || (typeof ctor.prototype !== 'object' && typeof ctor.prototype !== 'function')) {
+            ctor.prototype = Object.create(Object.prototype);
+            __nfDefineProperty(ctor.prototype, 'constructor', { configurable: true, writable: true, enumerable: false, value: ctor });
+        }
+        const proto = ctor.prototype;
+        const receiver = Object.create(proto);
+        __nfDefineProperty(receiver, '__constructor__', { configurable: true, writable: true, enumerable: false, value: ctor });
+        __nfDefineProperty(receiver, 'constructor', { configurable: true, writable: true, enumerable: false, value: ctor });
+        __nfPushLegacySuper(receiver, proto);
+        try { __nfApply(ctor, receiver, args); }
+        finally { __nfPopLegacySuper(receiver); }
+        return receiver;
+    }
+    if (ctor === __nfObjectClass(false)) return __nfObjectCreate(false, args, true);
+    if (ctor === __nfArrayClass(false)) return __nfArrayCreate(false, args);
+    if (ctor === __nfStringClass(false)) return __nfStringCreate(false, args, true);
+    if (ctor === __nfDateClass(false)) return new (__nfDateClass(false))(...args);
+    return Reflect.construct(ctor, args);
+}
+function __nfLegacyInstanceOf(value, ctor) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function') || typeof ctor !== 'function') return false;
+    if (typeof ctor.__nfIs === 'function' && ctor.__nfIs(value)) return true;
+    if (typeof __nfProgram !== 'undefined' && typeof __nfProgram?.className === 'function') {
+        const qname = __nfProgram.className(ctor);
+        if (qname) return __nfProgram.is(value, qname);
+    }
+    const proto = ctor.prototype;
+    if (proto && (typeof proto === 'object' || typeof proto === 'function')) {
+        let cur = Object.getPrototypeOf(value);
+        while (cur) {
+            if (cur === proto) return true;
+            cur = Object.getPrototypeOf(cur);
+        }
+    }
+    return value instanceof ctor;
+}
+function __nfLegacySuperConstruct(receiver, args) {
+    if (receiver == null || (typeof receiver !== 'object' && typeof receiver !== 'function')) return undefined;
+    const base = __nfLegacyBaseProto(receiver);
+    const superProto = base && (typeof base === 'object' || typeof base === 'function') ? Object.getPrototypeOf(base) : null;
+    if (!superProto && !(base && Object.hasOwn(base, '__constructor__'))) return undefined;
+    const superCtor = base && Object.hasOwn(base, '__constructor__')
+        ? base.__constructor__
+        : superProto && Object.hasOwn(superProto, '__constructor__')
+            ? superProto.__constructor__
+            : superProto?.constructor;
+    if (typeof superCtor !== 'function' || superCtor === Object) return undefined;
+    __nfPushLegacySuper(receiver, superProto);
+    try { return __nfApply(superCtor, receiver, args); }
+    finally { __nfPopLegacySuper(receiver); }
+}
+function __nfLegacySuperMethod(receiver, name, legacyCase) {
+    if (receiver == null || (typeof receiver !== 'object' && typeof receiver !== 'function')) {
+        throw new __nfTypeError('Cannot call super method without an object receiver.');
+    }
+    const superProto = __nfLegacySuperProto(receiver);
+    if (!superProto) return () => undefined;
+    const key = __nfLegacyKey(superProto, name, false, legacyCase);
+    const fn = superProto[key];
+    if (typeof fn !== 'function') throw new __nfTypeError(`Undefined super method ${key}`);
+    return (...args) => {
+        __nfPushLegacySuper(receiver, superProto);
+        try { return __nfApply(fn, receiver, args); }
+        finally { __nfPopLegacySuper(receiver); }
+    };
+}
 function __nfNumericMethod(receiver,name) {
     if(name==='toFixed')return __nfFixedMethod(receiver);
     if(name==='toExponential'||name==='toPrecision')return __nfNumberFormatMethod(receiver,name,true);

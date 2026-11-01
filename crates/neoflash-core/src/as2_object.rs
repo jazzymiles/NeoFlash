@@ -259,7 +259,20 @@ pub fn reference_path(source: &str) -> Result<Vec<String>, As2ObjectError> {
             result.push("_parent".to_owned());
             continue;
         }
-        for component in slash_part.split(['.', ':']) {
+        let segment = if let Some(after_colon) = slash_part.strip_prefix(':') {
+            if after_colon.is_empty() {
+                return Err(As2ObjectError(
+                    "variable path contains an empty component".into(),
+                ));
+            }
+            if result.is_empty() {
+                result.push("this".to_owned());
+            }
+            after_colon
+        } else {
+            slash_part
+        };
+        for component in segment.split(['.', ':']) {
             if component.is_empty() {
                 return Err(As2ObjectError(
                     "variable path contains an empty component".into(),
@@ -285,11 +298,23 @@ mod tests {
             reference_path("/clip:score").unwrap(),
             ["_root", "clip", "score"]
         );
+        assert_eq!(reference_path(":score").unwrap(), ["this", "score"]);
+        assert_eq!(reference_path("/:score").unwrap(), ["_root", "score"]);
+        assert_eq!(reference_path("../:total").unwrap(), ["_parent", "total"]);
+        assert_eq!(
+            reference_path("../../:total").unwrap(),
+            ["_parent", "_parent", "total"]
+        );
         assert_eq!(
             reference_path("../item.value").unwrap(),
             ["_parent", "item", "value"]
         );
         assert!(reference_path("a..b").is_err());
+        assert!(reference_path(":").is_err());
+        assert!(reference_path("/:").is_err());
+        assert!(reference_path("../:").is_err());
+        assert!(reference_path("a::b").is_err());
+        assert!(reference_path("clip:").is_err());
         let mut state = As2ObjectState::default();
         let object = state.new_id().unwrap();
         let first = state.watch(object, "speed").unwrap();

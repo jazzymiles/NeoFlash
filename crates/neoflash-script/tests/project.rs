@@ -253,7 +253,7 @@ fn class_syntax_outside_profile_is_never_erased() {
         "class A extends TextField {}",
         "class A extends TextFormat {}",
         "class A {public function A(){new TextField();}}",
-        "class A {public function A(){new Sound(this);}}",
+        "class A {public function A(){new Sound(this, 1);}}",
         "class A {public function A(){new MovieClipLoader(this);}}",
         "class A extends MovieClipLoader {}",
         "class A {public function A(){new SharedObject();}}",
@@ -1273,4 +1273,203 @@ fn as3_timeline_frame_scripts_auto_import_flash_packages_while_classes_require_e
         "package app { public class Broken { public function handle(e:MouseEvent):void {} } }",
     )]);
     assert!(neoflash_script::compile_project(&unimported_class).is_err());
+}
+
+#[test]
+fn actionscript1_project_compilation_operators_events_and_diagnostics() {
+    use neoflash_core::{FrameScript, ResourceUnit, Script, Symbol, SymbolKind};
+
+    let mut proj = Project::blank();
+    proj.format_version = 5;
+    let empty_timeline = proj.symbols[0].timeline.clone();
+    proj.resources = vec![
+        ResourceUnit::from_bytes(
+            "inc-helper",
+            "as1/helper.as",
+            "text/plain",
+            b"function makeSeed(baseVal) { var LOCALVAL = baseVal + 5; return localval; }",
+        )
+        .unwrap(),
+    ];
+    proj.sources = vec![SourceUnit {
+        id: "as2-helper".into(),
+        path: "Helper2.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class Helper2 { public static function ping():Number { return 7; } }".into(),
+    }];
+    let mut widget_sym = Symbol {
+        id: "widget-sym".into(),
+        name: "WidgetSym".into(),
+        kind: SymbolKind::MovieClip,
+        linkage_id: Some("WidgetLink".into()),
+        class_name: None,
+        folder: String::new(),
+        timeline: empty_timeline.clone(),
+    };
+    widget_sym.timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript1,
+            source: "#initclip\n#include 'as1/helper.as'\nfunction BaseWidget(seed) { this.count = MAKESeed(seed); }\nBaseWidget.prototype.bump = function(delta) { this.COUNT = this.count + DELTA; return this.count; };\nfunction SubWidget(seed) { super(seed); }\nSubWidget.prototype = new BaseWidget(0);\nSubWidget.prototype.bump = function(delta) { return super.BUMP(delta) + 1; };\n_global.SubWidget = SubWidget;\n_global.BaseWidget = BaseWidget;\nObject.registerClass('WidgetLink', SubWidget);\n#endinitclip\nstop();"
+                .into(),
+        },
+    });
+    proj.symbols.push(widget_sym);
+
+    let program = match neoflash_script::compile_project(&proj) {
+        Ok(p) => p,
+        Err(diags) => panic!("AS1 + AS2 project failed to compile: {diags:?}"),
+    };
+    assert!(
+        program.code.contains("const __nfLegacyCase = true;"),
+        "AS1 #initclip must preserve case-insensitive runtime flag"
+    );
+
+    let frame_source = r#"
+        #include "as1/helper.as"
+        var addItem = "item";
+        var equal = "eq-ok";
+        var note = 3;
+        var order = 4;
+        var andGate = true;
+        var banner = addItem add ":" add equal;
+        var check = (banner eq "item:eq-ok") and (banner ne "bad") and ("a" lt "b") and ("b" gt "a")
+            and ("a" le "a") and ("b" ge "b") and (not false or false) and (note <> order);
+        var snd0 = new Sound();
+        var snd1 = new Sound(this);
+        var inst = new SubWidget(10);
+        var okType = (inst instanceof SubWidget) and (inst instanceof BaseWidget);
+        var stepped = inst.BUMP(2);
+        setProperty("/child", _X, 24);
+        setProperty("/child", _ALPHA, 80);
+        var curX = getProperty("/child", _x);
+        var curFrame = getProperty("", _CURRENTFRAME);
+        var mousePos = getProperty("", _xmouse) + getProperty("", _ymouse);
+        tellTarget("/child") {
+            set(":score", 99);
+            var s = eval(":score");
+            setProperty("", _y, s);
+            duplicateMovieClip("sub", "copy", 4);
+            removeMovieClip("copy");
+            GOTOANDSTOP(1);
+        }
+    "#;
+    let compiled_frame = neoflash_script::compile_with_program(
+        &Script {
+            language: ScriptLanguage::ActionScript1,
+            source: frame_source.into(),
+        },
+        &program,
+    )
+    .expect("AS1 frame script compiles with #include, Flash 4 ops, props, tellTarget, Sound, OOP");
+    assert!(compiled_frame.starts_with("const __nfLegacyCase = true;\n"));
+
+    // All 15 special keyPress tokens + single character + chained onClipEvent/on blocks.
+    let all_keys = [
+        "<Left>",
+        "<Right>",
+        "<Up>",
+        "<Down>",
+        "<Enter>",
+        "<Space>",
+        "<Tab>",
+        "<Escape>",
+        "<Backspace>",
+        "<Delete>",
+        "<Home>",
+        "<End>",
+        "<PageUp>",
+        "<PageDown>",
+        "<Insert>",
+        "a",
+        "7",
+    ];
+    let mut object_source = String::from(
+        "onClipEvent(load) { this.ready = 1; }\n\
+         onClipEvent(LOAD) { this.ready = this.READY + 1; }\n\
+         onClipEvent(keyDown) { this.kd = Key.getCode(); }\n\
+         onClipEvent(keyUp) { this.ku = Key.getCode(); }\n\
+         onClipEvent(data) { this.gotData = true; }\n\
+         on(press, release, keyPress \"<Enter>\") { play(); }\n",
+    );
+    for token in all_keys {
+        object_source.push_str(&format!("on(KEYPRESS \"{token}\") {{ stop(); }}\n"));
+    }
+    let compiled_obj = neoflash_script::compile_with_program(
+        &Script {
+            language: ScriptLanguage::ActionScript1,
+            source: object_source,
+        },
+        &program,
+    )
+    .expect("AS1 object script with all legacy clip/button/keyPress events compiles");
+    assert!(compiled_obj.contains("addLegacyEvent"));
+
+    // AS1 SourceUnit is rejected with ActionScript1 diagnostic language.
+    let mut bad_unit_proj = Project::blank();
+    bad_unit_proj.format_version = 5;
+    bad_unit_proj.sources.push(SourceUnit {
+        id: "as1-unit".into(),
+        path: "Legacy.as".into(),
+        language: ScriptLanguage::ActionScript1,
+        source: "function Legacy() {}".into(),
+    });
+    let Err(unit_diags) = neoflash_script::compile_project(&bad_unit_proj) else {
+        panic!("expected AS1 SourceUnit rejection");
+    };
+    assert_eq!(unit_diags[0].language, ScriptLanguage::ActionScript1);
+
+    // Bad #initclip in AS1 reports ActionScript1 diagnostic language.
+    let mut bad_init_proj = Project::blank();
+    bad_init_proj.format_version = 5;
+    let mut bad_sym = Symbol {
+        id: "bad-sym".into(),
+        name: "BadSym".into(),
+        kind: SymbolKind::MovieClip,
+        linkage_id: None,
+        class_name: None,
+        folder: String::new(),
+        timeline: empty_timeline,
+    };
+    bad_sym.timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript1,
+            source: "#initclip\nclass NotAllowedInAs1 {}\n#endinitclip".into(),
+        },
+    });
+    bad_init_proj.symbols.push(bad_sym);
+    let Err(init_diags) = neoflash_script::compile_project(&bad_init_proj) else {
+        panic!("expected AS1 #initclip class rejection");
+    };
+    assert_eq!(init_diags[0].language, ScriptLanguage::ActionScript1);
+
+    // AS2/AS3 declarations, missing #include, and malformed on(keyPress) in AS1 report ActionScript1.
+    for rejected in [
+        "class Widget {}",
+        "interface IWidget {}",
+        "package { }",
+        "import flash.geom.Point;\nvar x = 1;",
+        "#include \"missing_as1_file.as\"",
+        "on(keyPress) { stop(); }",
+        "on(keyPress, \"a\") { stop(); }",
+        "on(keyPress \"\") { stop(); }",
+        "on(keyPress \"ab\") { stop(); }",
+        "on(keyPress \"<Bogus>\") { stop(); }",
+        "var s = new Sound(this, 2);",
+    ] {
+        let diags = neoflash_script::compile_with_program(
+            &Script {
+                language: ScriptLanguage::ActionScript1,
+                source: rejected.into(),
+            },
+            &program,
+        )
+        .expect_err(rejected);
+        assert_eq!(
+            diags[0].language,
+            ScriptLanguage::ActionScript1,
+            "diagnostic for `{rejected}` must report ActionScript1: {diags:?}"
+        );
+    }
 }

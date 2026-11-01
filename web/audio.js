@@ -229,8 +229,9 @@
     }
     class LegacySound {
       constructor(...args){
-        open();if(args.length)fail('AS2 Sound target/MovieClip hierarchy');
-        const sound=new Sound(),record={receiver:this,generation,sound,volume:100,pan:0,matrix:null,id3:undefined,channel:null,owned:new Set(),checkPolicyFile:false};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
+        open();if(args.length>1)throw new TypeError('AS2 Sound accepts at most one optional target MovieClip.');
+        const target=args.length===0?null:(typeof options.resolveSoundTarget==='function'?options.resolveSoundTarget(args[0]):(args[0]??null));
+        const sound=new Sound(),record={receiver:this,target,generation,sound,volume:100,pan:0,matrix:null,id3:undefined,channel:null,owned:new Set(),checkPolicyFile:false};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
         sound.addEventListener('complete',()=>legacyCallback(record,'onLoad',[true]));sound.addEventListener('ioError',()=>legacyCallback(record,'onLoad',[false]));
       }
       loadSound(url,isStreaming=false){const record=state(this,legacy);if(isStreaming!==false)fail('AS2 streaming Sound');record.sound.load(new net.URLRequest(url));}

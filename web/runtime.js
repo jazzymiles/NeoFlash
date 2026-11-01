@@ -58,23 +58,33 @@
     throw new Error('AS2 goto requires a frame label or integer frame; other argument coercions are not supported.');
   }
   function createAs2Methods() {
-    const variants = new WeakMap();let resolve=(receiver,name)=>receiver[name];
+    const variants = new WeakMap();
+    let resolve = (receiver, name) => receiver[name];
+    let resolveKey = (receiver, name) => {
+      const lower = String(name).toLowerCase();
+      for (let cur = Object(receiver), d = 0; cur && d < 256; cur = Object.getPrototypeOf(cur), d++) {
+        for (const k of Object.getOwnPropertyNames(cur)) if (k.toLowerCase() === lower) return k;
+      }
+      return name;
+    };
     function aliasError() {
       return new TypeError('AS2 goto method aliases need receiver semantics not supported yet. Call gotoAndPlay/gotoAndStop directly on the target timeline.');
     }
     return {
       register(method, receiver, name, implementation) { variants.set(method, { receiver, name, implementation }); },
-      setResolver(resolver) { resolve=resolver; },
-      method(receiver, name) {
+      setResolver(resolver) { resolve = resolver; },
+      setKeyResolver(resolver) { resolveKey = resolver; },
+      method(receiver, name, legacyCase = false) {
         // Resolve the getter before arguments, then check callability after
         // argument evaluation, preserving ordinary call evaluation order.
-        const method = resolve(receiver,name);
+        const actual = legacyCase && receiver !== null && receiver !== undefined ? resolveKey(receiver, name) : name;
+        const method = resolve(receiver, actual);
         return (...args) => {
           if (typeof method !== 'function') {
             throw new TypeError(`AS2 timeline function '${name}' is missing or is not callable. Define it on this timeline before calling it.`);
           }
           const variant = variants.get(method);
-          if (variant && (variant.receiver !== receiver || variant.name !== name)) throw aliasError();
+          if (variant && (variant.receiver !== receiver || variant.name !== actual)) throw aliasError();
           return Reflect.apply(variant ? variant.implementation : method, receiver, args);
         };
       },
@@ -429,9 +439,16 @@
         return wasm.legacy_case_name_json(name,JSON.stringify(keys));
       }});
       if(as2PlatformHost)legacyGlobals=Object.freeze({...legacyGlobals,System:as2PlatformHost.System,getVersion:as2PlatformHost.getVersion,updateAfterEvent:as2PlatformHost.updateAfterEvent});
-      function legacyProperty(target, index) {
+      const legacyContext=caller=>{
+        if(caller!==null&&typeof caller==='object'&&Object.hasOwn(caller,'__nfTimeline')){
+          const t=caller.__nfTimeline;
+          return {raw:t,base:references.has(t)&&display?.alive(t)?t:proxyFor([]),legacyCase:Boolean(caller.__nfLegacyCase)};
+        }
+        return {raw:caller,base:references.has(caller)&&display?.alive(caller)?caller:proxyFor([]),legacyCase:false};
+      };
+      function legacyProperty(target, index, base=proxyFor([]), legacyCase=false) {
         if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>21)throw new RangeError('AS2 property index must be between 0 and 21.');
-        const receiver=display.resolveTarget(target,proxyFor([])),name=wasm.as2_property_name(Number(index));
+        const receiver=display.resolveTarget(target,base,legacyCase),name=wasm.as2_property_name(Number(index));
         const native=legacyGlobals.nativeRef?.(receiver,name);
         if(native)return {receiver,name,native};
         if(!references.get(receiver)?.nativeHas(name))throw new Error('AS2 getProperty/setProperty does not yet support '+name+'.');
@@ -481,12 +498,12 @@
         Reflect.apply(found.fn,found.receiver,comma<0?[]:[arg]);
       };
       const resolveLegacyMovieTarget=(caller,target)=>{
-        const base=references.has(caller)&&display.alive(caller)?caller:proxyFor([]);
+        const ctx=legacyContext(caller);
         let receiver;
         if(typeof target==='string'){
           const m=/^_level(\d+)$/i.exec(target);
           if(m){if(Number(m[1])!==0)throw new RangeError('HTML5 loadMovie/unloadMovie supports level 0 only; multi-SWF levels are unavailable.');receiver=proxyFor([]);}
-          else receiver=display.resolveTarget(target,base);
+          else receiver=display.resolveTarget(target,ctx.base,ctx.legacyCase);
         }else receiver=target;
         if(!references.has(receiver)||!display.alive(receiver)||display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 movie target must resolve to a live MovieClip.');
         return receiver;
@@ -505,7 +522,7 @@
         if(!job.start())return;
         if(job.addPage(receiver,null,{printAsBitmap:true}))job.send();
       };
-      const legacyDisplayCall=(target,method,args)=>as2.method(display.resolveTarget(target,proxyFor([])),method)(...args);
+      const legacyDisplayCall=(caller,target,method,args)=>{const ctx=legacyContext(caller);return as2.method(display.resolveTarget(target,ctx.base,ctx.legacyCase),method)(...args);};
       legacyGlobals=Object.freeze({...legacyGlobals,
         __nfCallStack:[],
         MovieClip:display.builtins['flash.display.MovieClip'],
@@ -516,7 +533,7 @@
         }),
         level:n=>n===0?proxyFor([]):undefined,
         levelRef:n=>({has:()=>n===0,delete:()=>false,get:()=>n===0?proxyFor([]):undefined,set:()=>{throw new TypeError('AS2 _level references are read-only.');}}),
-        resolveTarget:(value,relative)=>display.resolveTarget(value,relative??proxyFor([])),
+        resolveTarget:(value,relative,legacyCase=false)=>display.resolveTarget(value,relative??proxyFor([]),legacyCase),
         runInitClip:(key,root,fn)=>{if(executedInitClips.has(key))return;executedInitClips.add(key);fn(root);},
         callFrame(target,spec){
           const ref=references.get(target);
@@ -535,8 +552,9 @@
               const compiled=functions.get(sourceKey(script));
               if(!compiled)throw new Error('A script is missing from the compiled export. Re-export the project.');
               const event=Object.freeze({type:'frame',target:scope,currentTarget:scope});
-              const scriptRoot=script.language==='ActionScript2'?as2RootFor(scope):proxyFor([]);
+              const scriptRoot=['action_script1','action_script2','ActionScript1','ActionScript2'].includes(script.language)?as2RootFor(scope):proxyFor([]);
               compiled.fn.call(scope,event,scriptRoot,scope._parent,trace,scope.play,scope.stop,scope.gotoAndPlay,scope.gotoAndStop,scope.nextFrame,scope.prevFrame,as2.method,as2.value,program,display,legacyGlobals,xmlHost);
+              display?.flushClipLoads?.();
             }
           }finally{callFrameDepth--;}
           return undefined;
@@ -567,13 +585,13 @@
           registeredClasses.set(id,{kind:'function',ctor});
           return true;
         },
-        duplicateMovieClip:(target,name,depth)=>legacyDisplayCall(target,'duplicateMovieClip',[name,depth]),
-        removeMovieClip:target=>legacyDisplayCall(target,'removeMovieClip',[]),
-        startDrag:(target,...args)=>legacyDisplayCall(target,'startDrag',args),
-        stopDrag:()=>legacyDisplayCall(proxyFor([]),'stopDrag',[]),
-        targetPath:target=>display.targetPath(display.resolveTarget(target,proxyFor([]))),
-        getProperty:(target,index)=>{const {receiver,name,native}=legacyProperty(target,index);return native?native.get():receiver[name];},
-        setProperty:(target,index,value)=>{const {receiver,name,native}=legacyProperty(target,index);if(native)native.set(value);else receiver[name]=value;},
+        duplicateMovieClip(target,name,depth){return legacyDisplayCall(this,target,'duplicateMovieClip',[name,depth]);},
+        removeMovieClip(target){return legacyDisplayCall(this,target,'removeMovieClip',[]);},
+        startDrag(target,...args){return legacyDisplayCall(this,target,'startDrag',args);},
+        stopDrag(){return legacyDisplayCall(this,proxyFor([]),'stopDrag',[]);},
+        targetPath(target){const ctx=legacyContext(this);return display.targetPath(display.resolveTarget(target,ctx.base,ctx.legacyCase));},
+        getProperty(target,index){const ctx=legacyContext(this),{receiver,name,native}=legacyProperty(target,index,ctx.base,ctx.legacyCase);return native?native.get():receiver[name];},
+        setProperty(target,index,value){const ctx=legacyContext(this),{receiver,name,native}=legacyProperty(target,index,ctx.base,ctx.legacyCase);if(native)native.set(value);else receiver[name]=value;},
         asfunction(func,param){if(typeof func!=='string'||!func)throw new TypeError('AS2 asfunction requires a function path String.');return param===undefined?`asfunction:${func}`:`asfunction:${func},${String(param)}`;},
         fscommand(command,parameters=''){externalHost?.fscommand(command,parameters);},
         MMExecute(command){if(typeof command!=='string')throw new TypeError('AS2 MMExecute requires a JSFL command String.');return '';},
@@ -611,11 +629,11 @@
       }
       if(global.NeoFlashNet&&binaryHost&&global.NeoFlashEvents){
         netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
-        legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){if(typeof url==='string'&&/^asfunction:/i.test(url)){invokeAsfunction(this,url.slice(11));return;}const owner=this!==null&&typeof this==='object'?this:proxyFor([]);return netHost.getURL(owner,url,target,method);}});
+        legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){const ctx=legacyContext(this);if(typeof url==='string'&&/^asfunction:/i.test(url)){invokeAsfunction(ctx.base,url.slice(11));return;}const owner=ctx.raw!==null&&typeof ctx.raw==='object'?ctx.raw:proxyFor([]);return netHost.getURL(owner,url,target,method);}});
       }
       if(global.NeoFlashAS2Network&&netHost){
-        as2NetworkHost=global.NeoFlashAS2Network.create({wasm,getNet:()=>netHost,resolveTarget:(target,source)=>{const receiver=display.resolveTarget(target,references.has(source)?source:proxyFor([]));if(display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 loadVariables target must be a live MovieClip.');return receiver;},fieldsOf:legacyNavigationVariables,alive:value=>display.alive(value),afterCallback:afterTimerEvent});
-        legacyGlobals=Object.freeze({...legacyGlobals,loadVariables:function(url,target,method){return as2NetworkHost.load(this,url,target,method);},loadVariablesNum:function(url,level,method){if(level!==0)throw new RangeError('HTML5 loadVariablesNum supports level 0 only; additional SWF levels are unavailable.');return as2NetworkHost.load(this,url,proxyFor([]),method);}});
+        as2NetworkHost=global.NeoFlashAS2Network.create({wasm,getNet:()=>netHost,resolveTarget:(target,source,legacyCase=false)=>{const receiver=display.resolveTarget(target,references.has(source)&&display.alive(source)?source:proxyFor([]),legacyCase);if(display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 loadVariables target must be a live MovieClip.');return receiver;},fieldsOf:legacyNavigationVariables,alive:value=>display.alive(value),notifyData:target=>display.notifyData?.(target),afterCallback:afterTimerEvent});
+        legacyGlobals=Object.freeze({...legacyGlobals,loadVariables:function(url,target,method){const ctx=legacyContext(this);return as2NetworkHost.load(ctx.raw,url,target,method,ctx.legacyCase);},loadVariablesNum:function(url,level,method){if(level!==0)throw new RangeError('HTML5 loadVariablesNum supports level 0 only; additional SWF levels are unavailable.');const ctx=legacyContext(this);return as2NetworkHost.load(ctx.raw,url,proxyFor([]),method,ctx.legacyCase);}});
       }
       if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
       if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
@@ -624,7 +642,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
-        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
+        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],resolveSoundTarget:value=>{if(value===undefined||value===null)return null;const resolved=typeof value==='string'?(value===''?proxyFor([]):display.resolveTarget(value,proxyFor([]))):value;if(!resolved||!references.has(resolved)||!display.alive(resolved)||display.descriptor(resolved).owner!=='movie_clip')throw new TypeError('AS2 Sound target must be undefined, null, or a live MovieClip.');return resolved;},onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:stopAllSounds});
       }
       if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,getXML:()=>xmlHost?.LegacyXML,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection,XMLSocket:as2ConnectionsHost.XMLSocket});}
@@ -666,11 +684,12 @@
           return property;
         }});
       }
-      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),globals:frame=>({_root:as2RootFor(frame),_level0:proxyFor([]),_global:legacyGlobals._global}),globalProp:name=>display.as2GlobalPropRef(name),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
+      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),caseKey:(receiver,name)=>legacyGlobals.caseKey(receiver,name),globals:frame=>({_root:as2RootFor(frame),_level0:proxyFor([]),_global:legacyGlobals._global}),globalProp:name=>display.as2GlobalPropRef(name),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
       if(global.NeoFlashAS2Binding)as2BindingHost=global.NeoFlashAS2Binding.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Data)as2DataHost=global.NeoFlashAS2Data.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Services&&netHost&&xmlHost)as2ServicesHost=global.NeoFlashAS2Services.create({wasm,net:netHost,LegacyXML:xmlHost.LegacyXML,EventDispatcher:as2PlatformHost.EventDispatcher,ComponentMixins:as2BindingHost?.builtins["mx.data.binding.ComponentMixins"],onError:netFailure,afterEvent:afterTimerEvent});
       as2.setResolver((receiver,name)=>{const ref=legacyGlobals.nativeRef?.(receiver,name);return ref?ref.get():as2ObjectHost?as2ObjectHost.get(receiver,name):receiver[name];});
+      as2.setKeyResolver((receiver,name)=>legacyGlobals.caseKey(receiver,name));
       if(global.NeoFlashAS2Strings){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         legacyGlobals=Object.freeze({...legacyGlobals,strings:global.NeoFlashAS2Strings.create({execute:request=>wasm.as2_string_json(request)})});
@@ -1163,7 +1182,15 @@
           return true;
         },
       });
-      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes'],customKeys:()=>Object.keys(custom)});
+      const ownerNativeKeys=()=>{
+        const owner=objectRef&&display&&live()?display.descriptor(proxy).owner:null;
+        const common=['_width','_height','_name','_target','_framesloaded','_url','_droptarget','_highquality','_focusrect','_soundbuftime','_quality','_xmouse','_ymouse'];
+        if(owner==='movie_clip')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','tabChildren','trackAsMenu','focusEnabled','hitArea','_lockroot','loadVariables','onLoad','onData','onUnload','onKeyDown','onKeyUp','onMouseDown','onMouseUp','onMouseMove','onSetFocus','onKillFocus'];
+        if(owner==='button')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','trackAsMenu','onKeyDown','onKeyUp','onSetFocus','onKillFocus'];
+        if(owner==='text')return [...common,'text','html','htmlText','variable','selectable','type','multiline','wordWrap','border','background','textColor','borderColor','backgroundColor','scroll','maxscroll','hscroll','maxhscroll','bottomScroll','length','textWidth','textHeight','tabEnabled','tabIndex','onChanged','onScroller','onSetFocus','onKillFocus'];
+        return common;
+      };
+      references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes',...ownerNativeKeys()],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
       // AS2 gotoAndPlay("Scene 2", frame) names the scene first.
@@ -1203,10 +1230,11 @@
             currentTarget: scope,
           });
           try {
-            const scriptRoot = item.script.language === 'ActionScript2' ? as2RootFor(scope) : proxyFor([]);
+            const scriptRoot = ['action_script1', 'action_script2', 'ActionScript1', 'ActionScript2'].includes(item.script.language) ? as2RootFor(scope) : proxyFor([]);
             compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
               scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display,
               legacyGlobals,xmlHost);
+            display?.flushClipLoads?.();
           } catch (error) {
             const cause = unwrapScriptThrow(error);
             throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });

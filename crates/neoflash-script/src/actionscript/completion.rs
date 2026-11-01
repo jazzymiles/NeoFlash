@@ -118,6 +118,8 @@ fn statement(stmt: &Stmt) -> Exits {
             exits.insert(Exit::Throw);
             exits
         }
-        Stmt::Expr(_) | Stmt::Var(_) => [Exit::Normal, Exit::Throw].into(),
+        Stmt::Expr(_) | Stmt::Var(_) | Stmt::LegacyEvent(_, _) => {
+            [Exit::Normal, Exit::Throw].into()
+        }
     }
 }

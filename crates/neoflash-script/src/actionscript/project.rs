@@ -716,6 +716,13 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         language: source.language,
         source: source.source.clone(),
     };
+    if script.language == ScriptLanguage::ActionScript1 {
+        return Err(Diagnostic::at(
+            &script,
+            0,
+            "ActionScript 1.0 does not support AS2/AS3 class or interface source units; use timeline/object prototype functions or #include resource files.",
+        ));
+    }
     if !matches!(
         script.language,
         ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3
@@ -2493,11 +2500,23 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         }
         for (script_idx, entry) in symbol.timeline.scripts.iter().enumerate() {
             if entry.frame != 0
-                || entry.script.language != ScriptLanguage::ActionScript2
+                || !matches!(
+                    entry.script.language,
+                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                )
                 || !entry.script.source.contains("#initclip")
             {
                 continue;
             }
+            if entry.script.source.len() > 1_048_576 {
+                errors.push(Diagnostic::at(
+                    &entry.script,
+                    0,
+                    "A single script is limited to 1 MiB.",
+                ));
+                continue;
+            }
+            let is_as1 = entry.script.language == ScriptLanguage::ActionScript1;
             let expanded = if entry.script.source.contains("#include") {
                 match super::includes::expand(&entry.script, &includes) {
                     Ok(exp) => Some(exp),
@@ -2510,22 +2529,30 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 None
             };
             let source_script = expanded.as_ref().map_or(&entry.script, |exp| &exp.script);
-            let map_err = |err: Diagnostic| {
+            let map_err = |mut err: Diagnostic| {
+                if is_as1 {
+                    err.language = ScriptLanguage::ActionScript1;
+                }
                 expanded
                     .as_ref()
                     .map_or(err.clone(), |exp| exp.diagnostic(err))
             };
-            let mut p = frontend(
-                source_script,
-                TokenCursor::default(),
-                CompileContext::default(),
-            );
-            let imported = match imports(&mut p) {
-                Ok(v) => v,
-                Err(e) => {
-                    errors.push(map_err(e));
-                    continue;
-                }
+            let (imported, end) = if is_as1 {
+                (Vec::new(), 0)
+            } else {
+                let mut p = frontend(
+                    source_script,
+                    TokenCursor::default(),
+                    CompileContext::default(),
+                );
+                let imported = match imports(&mut p) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        errors.push(map_err(e));
+                        continue;
+                    }
+                };
+                (imported, p.token().offset)
             };
             let mut c = match context(
                 &visible_names(
@@ -2546,9 +2573,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     continue;
                 }
             };
+            c.legacy_case = is_as1;
             c.as2_private = as2_private.clone();
-            let end = p.token().offset;
             let mut replaced = source_script.clone();
+            replaced.language = ScriptLanguage::ActionScript2;
             replaced.source = source_script.source[..end]
                 .chars()
                 .map(|ch| if ch == '\n' || ch == '\r' { ch } else { ' ' })
@@ -2572,7 +2600,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             for (stmt_idx, stmt) in statements.iter().enumerate() {
                 if let Stmt::InitClip(order_num, body, id) = stmt {
                     let key = format!("{:016x}:{id}", super::fnv1a64(&replaced.source));
-                    let body_code = Emitter {
+                    let mut body_code = Emitter {
                         as3: false,
                         analysis: &analysis,
                         scope: 0,
@@ -2580,6 +2608,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         tell_target: None,
                     }
                     .body(body);
+                    if is_as1 {
+                        body_code = format!("const __nfLegacyCase = true;\n{body_code}");
+                    }
                     init_clips.push((
                         (
                             order_num.is_some(),
@@ -2638,7 +2669,18 @@ pub fn compile_with_program(
     script: &Script,
     program: &ProjectProgram,
 ) -> Result<String, Vec<Diagnostic>> {
-    if script.language == ScriptLanguage::ActionScript2 && script.source.contains("#include") {
+    if script.source.len() > 1_048_576 {
+        return Err(vec![Diagnostic::at(
+            script,
+            0,
+            "A single script is limited to 1 MiB.",
+        )]);
+    }
+    if matches!(
+        script.language,
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+    ) && script.source.contains("#include")
+    {
         let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
         compile_prepared(&expanded.script, program)
             .map_err(|errors| errors.into_iter().map(|e| expanded.diagnostic(e)).collect())
@@ -2681,41 +2723,54 @@ fn apply_as3_timeline_auto_imports(
 fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String, Vec<Diagnostic>> {
     if !matches!(
         script.language,
-        ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2
+        ScriptLanguage::ActionScript1
+            | ScriptLanguage::ActionScript2
+            | ScriptLanguage::ActionScript3
     ) {
         return crate::compile(script);
     }
-    let tokens = TokenCursor::default();
-    let mut p = frontend(script, tokens, CompileContext::default());
-    let imported = imports(&mut p).map_err(|e| vec![e])?;
+    let is_as1 = script.language == ScriptLanguage::ActionScript1;
+    let dialect = if is_as1 {
+        ScriptLanguage::ActionScript2
+    } else {
+        script.language
+    };
+    let (imported, end) = if is_as1 {
+        (Vec::new(), 0)
+    } else {
+        let tokens = TokenCursor::default();
+        let mut p = frontend(script, tokens, CompileContext::default());
+        let imported = imports(&mut p).map_err(|e| vec![e])?;
+        (imported, p.token().offset)
+    };
     let visible = visible_names(
         &program.names,
         &program.languages,
-        script.language,
+        dialect,
         &program.public_types,
         "",
     );
-    let mut c = context(
-        &visible,
-        "",
-        &imported,
-        script.language,
-        &program.interfaces,
-    )
-    .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
-    if script.language == ScriptLanguage::ActionScript3 {
+    let mut c = context(&visible, "", &imported, dialect, &program.interfaces)
+        .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    if dialect == ScriptLanguage::ActionScript3 {
         apply_as3_timeline_auto_imports(&mut c, &visible, &program.languages);
     }
+    c.legacy_case = is_as1;
     c.as2_private = program.as2_private.clone();
     // Keep original byte positions/line numbers when removing import statements.
-    let end = p.token().offset;
     let mut replaced = script.clone();
+    replaced.language = dialect;
     replaced.source = script.source[..end]
         .chars()
         .map(|c| if c == '\n' || c == '\r' { c } else { ' ' })
         .collect::<String>()
         + &script.source[end..];
-    super::compile_context(&replaced, c).map_err(|e| vec![e])
+    super::compile_context(&replaced, c).map_err(|mut e| {
+        if is_as1 {
+            e.language = ScriptLanguage::ActionScript1;
+        }
+        vec![e]
+    })
 }
 
 fn reflection_metadata(c: &Class) -> serde_json::Value {

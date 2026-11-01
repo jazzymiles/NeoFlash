@@ -8,9 +8,10 @@ function __nfContainerKey(key){
     if(typeof key==='symbol'||typeof key==='bigint')throw new __nfTypeError('ActionScript property keys do not support Symbol or BigInt in this profile.');
     const name=__nfString(key);if(name.length>__nfContainerLimit)throw new __nfTypeError('Property key exceeds 1000000 UTF-16 units.');return name;
 }
-function __nfLegacyKey(receiver,key,as3){
+function __nfLegacyKey(receiver,key,as3,legacyCase){
     const name=__nfContainerKey(key);
-    if(as3||typeof __nfLegacyCase==='undefined'||!__nfLegacyCase)return name;
+    const isLegacyCase=legacyCase===true||(legacyCase===undefined&&typeof __nfLegacyCase!=='undefined'&&Boolean(__nfLegacyCase));
+    if(as3||!isLegacyCase)return name;
     if(typeof __nfLegacy==='undefined'||typeof __nfLegacy.caseKey!=='function')throw new __nfTypeError('ActionScript 1 requires the SWF6 case-name service; rebuild and re-export this project.');
     return __nfLegacy.caseKey(receiver,name);
 }
@@ -56,7 +57,7 @@ function __nfObjectPropertyMethod(receiver,method){
         return method==='setPropertyIsEnumerable'?undefined:result.value;
     };
 }
-function __nfContainerRef(receiver,key,as3,caller){
+function __nfContainerRef(receiver,key,as3,caller,legacyCase){
     if(receiver==null)throw new __nfTypeError('Cannot access a property on null or undefined.');
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.ref(receiver,key,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
@@ -69,7 +70,7 @@ function __nfContainerRef(receiver,key,as3,caller){
     // has run. Compound updates can therefore convert an object key twice.
     return {
         get(){
-            const name=__nfLegacyKey(receiver,key,as3);
+            const name=__nfLegacyKey(receiver,key,as3,legacyCase);
             const arrayMember=as3&&__nfArrayIsArray(receiver),arrayPresent=arrayMember&&(name in object);
             if(as3&&name==='setPropertyIsEnumerable'&&!(name in object))return __nfObjectPropertyMethod(receiver,name);
             const scoped=scopedRef(name),legacyProto=!as3&&!scoped&&name==='__proto__'&&(typeof receiver==='object'||typeof receiver==='function')&&receiver!==null&&!Object.hasOwn(receiver,'__proto__');
@@ -85,7 +86,7 @@ function __nfContainerRef(receiver,key,as3,caller){
             return !as3&&name==='scrollRect'&&value===null&&typeof __nfDisplay!=='undefined'&&__nfDisplay?.alive(receiver)?undefined:value;
         },
         set(value){
-            const name=__nfLegacyKey(receiver,key,as3);
+            const name=__nfLegacyKey(receiver,key,as3,legacyCase);
             const scoped=scopedRef(name),legacyProto=!as3&&!scoped&&name==='__proto__'&&(typeof receiver==='object'||typeof receiver==='function')&&receiver!==null&&!Object.hasOwn(receiver,'__proto__');
             if(__nfArrayIsArray(receiver)){
                 if(name==='length')__nfArrayBound(value);
@@ -103,28 +104,28 @@ function __nfContainerRef(receiver,key,as3,caller){
             };
             return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():legacyProto?(Object.getPrototypeOf(receiver)??undefined):receiver[name],write):write(value);
         },
-        delete(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
-        has(){const name=__nfLegacyKey(receiver,key,as3),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
+        delete(){const name=__nfLegacyKey(receiver,key,as3,legacyCase),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
+        has(){const name=__nfLegacyKey(receiver,key,as3,legacyCase),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
     };
 }
-function __nfContainerMethod(receiver,key,as3,caller){
+function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.method(receiver,key,as3);
     if(__nfDictionaryIs(receiver)||(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver))){
         const method=__nfContainerRef(receiver,key,as3).get();
         return (...args)=>__nfApply(method,receiver,args);
     }
-    key=__nfLegacyKey(receiver,key,as3);
+    key=__nfLegacyKey(receiver,key,as3,legacyCase);
     if(__nfArrayIsArray(receiver))return __nfArrayMethod(receiver,key,as3);
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
     if(key==='toExponential'||key==='toPrecision')return __nfNumberFormatMethod(receiver,key,as3);
     if(as3&&typeof receiver==='number'&&(key==='toString'||key==='valueOf'))return __nfNumericMethod(receiver,key);
-    const method=__nfContainerRef(receiver,key,as3,caller).get();
+    const method=__nfContainerRef(receiver,key,as3,caller,legacyCase).get();
     if(key==='call'||key==='apply')return __nfFunctionMethod(receiver,key,as3,method);
     return (...args)=>__nfApply(method,receiver,args);
 }
-function __nfEnumerate(receiver,values,as3){
+function __nfEnumerate(receiver,values,as3,legacyCase){
     if(receiver==null)return [][Symbol.iterator]();
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.enumerate(receiver,values,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary enumeration requires AS3.');return __nfDictionaryEnumerate(receiver,values);}
@@ -136,11 +137,12 @@ function __nfEnumerate(receiver,values,as3){
     if(typeof receiver!=='object'||receiver[Symbol.toStringTag]==='NeoFlashDisplayObject')throw new __nfTypeError('Enumeration currently supports arrays, plain records and ordinary project objects; hidden native/display storage is unsupported.');
     const program=__nfContainerProgram(),fixed=program?.enumerationKeys?.(receiver)??null;
     const prototype=Object.getPrototypeOf(receiver);
-    if(!Array.isArray(receiver)&&fixed===null&&prototype!==null&&prototype!==Object.prototype)throw new __nfTypeError('Enumeration of this native or foreign object is unsupported; copy its public values into a plain record.');
+    const legacyUserProto=!as3&&(legacyCase!==undefined?Boolean(legacyCase):(typeof __nfLegacyCase!=='undefined'&&__nfLegacyCase===true))&&(()=>{let p=prototype,d=0;while(p!==null&&p!==Object.prototype){if(++d>256||typeof p!=='object'||Object.hasOwn(p,Symbol.toStringTag)||(typeof p.constructor==='function'&&p.constructor!==Object&&!__nfFunctionRecord(p.constructor)))return false;p=Object.getPrototypeOf(p);}return true;})();
+    if(!Array.isArray(receiver)&&fixed===null&&prototype!==null&&prototype!==Object.prototype&&!legacyUserProto)throw new __nfTypeError('Enumeration of this native or foreign object is unsupported; copy its public values into a plain record.');
     let keys=fixed;
     if(keys===null){keys=[];for(const key in receiver){if(keys.length>=__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');keys.push(key);}}
     if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
-    return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,as3);if(ref.has())yield values?ref.get():key;}})();
+    return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,as3,undefined,legacyCase);if(ref.has())yield values?ref.get():key;}})();
 }
 
 // Rust's AS2 compiler lowers with into explicit reference selection. This bridge
@@ -149,22 +151,23 @@ function __nfWithTarget(value){
     if(value===null||(typeof value!=='object'&&typeof value!=='function'))throw new __nfTypeError('AS2 with requires a live object reference in this profile.');
     return value;
 }
-function __nfWithRef(targets,name,fallback,receiver,caller){
-    for(const target of targets){const ref=__nfContainerRef(target,name,false,caller);if(ref.has())return {...ref,receiver:target,name,caller,withTarget:true};}
-    return {...fallback(),receiver,name,caller};
+function __nfWithRef(targets,name,fallback,receiver,caller,legacyCase){
+    for(const target of targets){const ref=__nfContainerRef(target,name,false,caller,legacyCase);if(ref.has())return {...ref,receiver:target,name,caller,legacyCase,withTarget:true};}
+    return {...fallback(),receiver,name,caller,legacyCase};
 }
 function __nfWithMethod(ref){
-    if(ref.receiver!==undefined&&(ref.name==='gotoAndPlay'||ref.name==='gotoAndStop'))return __nfAs2Method(ref.receiver,ref.name);
+    const methodKey=ref.legacyCase&&ref.receiver!=null?__nfLegacyKey(ref.receiver,ref.name,false,true):ref.name;
+    if(ref.receiver!==undefined&&(methodKey==='gotoAndPlay'||methodKey==='gotoAndStop'))return __nfAs2Method(ref.receiver,methodKey,Boolean(ref.legacyCase));
     if(ref.withTarget){
-        return __nfContainerMethod(ref.receiver,ref.name,false,ref.caller);
+        return __nfContainerMethod(ref.receiver,ref.name,false,ref.caller,ref.legacyCase);
     }
     const method=ref.get();return __nfAs2Value(method,ref.receiver);
 }
-function __nfTellTarget(frame,value,baseFrame){
+function __nfTellTarget(frame,value,baseFrame,legacyCase){
     if(value===''||value===null||value===undefined)return baseFrame||frame;
     if(typeof value==='string'){
         if(typeof __nfLegacy?.resolveTarget!=='function')throw new __nfTypeError('AS2 tellTarget string paths require the publication display host.');
-        const resolved=__nfLegacy.resolveTarget(value,frame);
+        const resolved=__nfLegacy.resolveTarget(value,frame,Boolean(legacyCase));
         if(!resolved)throw new __nfTypeError(`AS2 tellTarget target '${value}' was not found.`);
         return resolved;
     }
@@ -178,9 +181,9 @@ function __nfRunInitClip(key,root,fn){
     __nfRunInitClip.seen.add(key);
     fn(root);
 }
-function __nfVarScrollRef(value,owner,varName,prop,caller){
-    if(value!==null&&(typeof value==='object'||typeof value==='function'))return __nfContainerRef(value,prop,false,caller);
+function __nfVarScrollRef(value,owner,varName,prop,caller,legacyCase){
+    if(value!==null&&(typeof value==='object'||typeof value==='function'))return __nfContainerRef(value,prop,false,caller,legacyCase);
     const bound=__nfLegacy?.objects?.variableScrollRef?.(owner,varName,prop);
     if(bound)return bound;
-    return __nfContainerRef(value,prop,false,caller);
+    return __nfContainerRef(value,prop,false,caller,legacyCase);
 }
