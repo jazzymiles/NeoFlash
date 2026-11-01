@@ -274,10 +274,11 @@ impl Project {
                 .flat_map(|s| &s.timeline.layers)
                 .any(|layer| {
                     layer.properties.motion_guide.is_some()
-                        || layer
-                            .keyframes
-                            .iter()
-                            .any(|k| !k.tween_kind.is_classic() || k.keyed_properties.is_some())
+                        || layer.keyframes.iter().any(|k| {
+                            !k.tween_kind.is_classic()
+                                || k.keyed_properties.is_some()
+                                || k.orient_to_path
+                        })
                 })
     }
 
@@ -346,6 +347,9 @@ pub struct Keyframe {
     /// this frame. `None` is an ordinary keyframe that starts a new span.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyed_properties: Option<Vec<TweenProperty>>,
+    /// Rotate tweened objects to follow the motion guide path.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub orient_to_path: bool,
 }
 
 /// Interpolation used by a tweened span.

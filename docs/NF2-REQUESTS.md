@@ -63,16 +63,28 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** the menu row shows no shortcut; clicking the swatch does nothing yet.
 - **Checked:** `panels-menus.txt`, `view-settings.png`.
 
-### R-005 · Motion path on the stage
+### R-006 · Paste motion special dialog
 - **Status:** open
+- **Requested by / for:** Claude · MN-02 frame menu (Copy / Paste motion)
+- **Where:** frame menu ▸ Paste motion special… (`panels/timeline.rs › frame_context_menu`, disabled)
+- **Need:** a dialog choosing which properties to paste (X/Y, scale, rotation and skew, colour, filters, blend,
+  override target scale / rotation, ease) with OK / Cancel.
+- **Why:** Copy motion and Paste motion work; the "special" variant has no dialog in the design.
+- **Checked:** reference §8 (Frame menu), `panels-menus.txt`, `planned_dialogs.rs` — no Paste motion special dialog.
+- **Proposal (optional):** `NF2/Dialog` with a column of `NF2/Checkbox` rows like the other planned dialogs.
+
+## Resolved requests
+
+### R-005 · Motion path on the stage
+- **Status:** resolved
 - **Requested by / for:** Claude (implementation) · TL-05 Motion tween, PR-10
 - **Where:** `crates/neoflash-editor/src/stage.rs` overlay for the selected motion-tweened instance
 - **Need:** an NF2 painter for a motion tween path: polyline through the per-frame positions with frame dots, ◆ markers at property keyframes, selected/hover states, and a drag handle style for editing path points.
 - **Why:** motion tweens work (independent tracks, ◆ keys) but the path is invisible on the stage; drawing it with hand-styled egui strokes is not allowed.
 - **Checked:** design system reference §5 (Timeline) and §9 (Stage overlays), `exports/interface/*/png/editor-main.png`; no motion-path component in `neoflash-ui`.
 - **Proposal (optional):** reuse `color/guide` for the line and the `TL Marker` ◆ glyph at keyframes.
-- **Answer:**
-
-## Resolved requests
-
-_None yet._
+- **Answer:** `neoflash_ui::components::canvas` gains `NF2/Motion Path`: `paint_motion_path` (1 pt `color/guide`
+  polyline through the per-frame registration points, 1.5 pt `color/guide` dot per frame), `paint_motion_key` (the
+  `TL Marker` ◆ glyph, 4.5 pt half-diagonal, `color/guide` fill with a 1 pt `bg/canvas` outline; Hover adds a
+  `color/guide` ring 3 pt outside; Selected = dragging, fill `color/guide-selected`) and `motion_key_hit` (7 pt radius).
+  The ◆ itself is the drag handle (Grab / Grabbing cursor); no separate handle style.

@@ -614,7 +614,12 @@ impl Editor {
                         self.reverse_frames();
                         ui.close();
                     }
-                    Self::unavailable_item(ui, "Synchronise symbols", "");
+                    if menu_item_enabled(ui, self.can_sync_symbols(), "Synchronise symbols", "")
+                        .clicked()
+                    {
+                        self.sync_symbols();
+                        ui.close();
+                    }
                     neoflash_ui::components::menu_separator(ui);
                     if menu_item_enabled(ui, editable, "Convert to keyframes", "").clicked() {
                         self.convert_to_keyframes(false);

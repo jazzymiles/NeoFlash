@@ -98,6 +98,8 @@ pub struct Editor {
     pub workspace: WorkspacePrefs,
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
+    pub(crate) timeline_motion: crate::timeline_motion::MotionState,
+    pub(crate) timeline_thumbnails: crate::timeline_preview::ThumbnailCache,
 }
 
 #[derive(Clone, Copy)]
@@ -173,6 +175,8 @@ impl Editor {
             workspace: WorkspacePrefs::default(),
             detached: crate::detached::DetachedState::default(),
             stage_view: Default::default(),
+            timeline_motion: Default::default(),
+            timeline_thumbnails: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);

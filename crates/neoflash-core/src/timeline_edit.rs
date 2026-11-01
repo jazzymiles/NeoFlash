@@ -68,6 +68,10 @@ pub enum TimelineEdit {
     /// Make every selected frame a keyframe holding its visible pose, or a
     /// blank keyframe (Convert to keyframes / Convert to blank keyframes).
     ConvertToKeyframes { range: FrameRange, blank: bool },
+    /// Synchronise symbols: every graphic instance on a selected keyframe continues the nested
+    /// timeline of the same instance (or the same symbol) on the keyframe before it, so the
+    /// nested animation stays in step across keyframe splits and tweens.
+    SyncSymbols { range: FrameRange },
 }
 fn layer_indices(timeline: &Timeline, ids: &[Id]) -> Result<Vec<usize>, String> {
     if ids.is_empty() {
@@ -400,8 +404,125 @@ fn paste_rows(
 }
 /// Applies a complete operation to a private candidate. Errors never leave a
 /// partial document, changed IDs, deleted code, or an incomplete multi-row edit.
+/// Playback first frame continuing `previous` (placed at `previous_start`) at `frame`, for an
+/// instance placed at `start`; `None` when the playback mode has no first frame to adjust.
+fn continued_playback(
+    previous: InstancePlayback,
+    previous_start: u32,
+    current: InstancePlayback,
+    start: u32,
+    frame: u32,
+    count: u32,
+) -> Option<InstancePlayback> {
+    let first = match previous {
+        InstancePlayback::Loop | InstancePlayback::PlayOnce => 0,
+        InstancePlayback::LoopFrom(first) | InstancePlayback::PlayOnceFrom(first) => first,
+        InstancePlayback::Independent | InstancePlayback::SingleFrame(_) => return None,
+    };
+    // Unwrapped nested frame shown by the previous placement at `frame`, minus the age the
+    // current placement already has there.
+    let phase = u64::from(first) + u64::from(frame.saturating_sub(previous_start));
+    let age = u64::from(frame.saturating_sub(start));
+    let count = u64::from(count.max(1));
+    let continued = match current {
+        InstancePlayback::Loop | InstancePlayback::LoopFrom(_) => {
+            (phase + count - age % count) % count
+        }
+        InstancePlayback::PlayOnce | InstancePlayback::PlayOnceFrom(_) => {
+            phase.saturating_sub(age).min(count - 1)
+        }
+        InstancePlayback::Independent | InstancePlayback::SingleFrame(_) => return None,
+    } as u32;
+    Some(match current {
+        InstancePlayback::Loop | InstancePlayback::LoopFrom(_) if continued == 0 => {
+            InstancePlayback::Loop
+        }
+        InstancePlayback::Loop | InstancePlayback::LoopFrom(_) => {
+            InstancePlayback::LoopFrom(continued)
+        }
+        _ if continued == 0 => InstancePlayback::PlayOnce,
+        _ => InstancePlayback::PlayOnceFrom(continued),
+    })
+}
+
+/// Synchronise symbols on one layer: keyframes in `start..=end` (in frame order) continue the
+/// graphic instances of the keyframe before each of them. Returns the number of changed instances.
+fn sync_symbols(layer: &mut Layer, start: u32, end: u32, graphics: &HashMap<Id, u32>) -> usize {
+    layer.keyframes.sort_by_key(|key| key.frame);
+    let mut changed = 0;
+    for index in 1..layer.keyframes.len() {
+        let frame = layer.keyframes[index].frame;
+        if frame < start || frame > end {
+            continue;
+        }
+        let previous = layer.keyframes[index - 1].clone();
+        for element_index in 0..layer.keyframes[index].elements.len() {
+            let element = &layer.keyframes[index].elements[element_index];
+            let ElementKind::Instance {
+                symbol_id,
+                playback,
+            } = &element.kind
+            else {
+                continue;
+            };
+            let Some(&count) = graphics.get(symbol_id) else {
+                continue;
+            };
+            let instance = |e: &&Element| matches!(&e.kind, ElementKind::Instance { symbol_id: s, .. } if s == symbol_id);
+            let Some(before) = previous
+                .elements
+                .iter()
+                .filter(instance)
+                .find(|e| e.id == element.id)
+                .or_else(|| previous.elements.iter().find(instance))
+            else {
+                continue;
+            };
+            let ElementKind::Instance {
+                playback: before_playback,
+                ..
+            } = &before.kind
+            else {
+                continue;
+            };
+            let previous_start =
+                crate::evaluate::placement_start(layer, previous.frame, &before.id);
+            let start = crate::evaluate::placement_start(layer, frame, &element.id);
+            let Some(next) = continued_playback(
+                *before_playback,
+                previous_start,
+                *playback,
+                start,
+                frame,
+                count,
+            ) else {
+                continue;
+            };
+            if next != *playback {
+                if let ElementKind::Instance { playback, .. } =
+                    &mut layer.keyframes[index].elements[element_index].kind
+                {
+                    *playback = next;
+                }
+                changed += 1;
+            }
+        }
+    }
+    changed
+}
+
 pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> Result<(), String> {
     let mut candidate = project.clone();
+    // Graphic symbols and their frame counts (Synchronise symbols only).
+    let graphics: HashMap<Id, u32> = match &edit {
+        TimelineEdit::SyncSymbols { .. } => candidate
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Graphic)
+            .map(|s| (s.id.clone(), s.timeline.frame_count.max(1)))
+            .collect(),
+        _ => HashMap::new(),
+    };
     let timeline = &mut candidate
         .symbol_mut(symbol)
         .ok_or("The edited symbol no longer exists.")?
@@ -628,6 +749,21 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     }
                 }));
                 layer.keyframes.sort_by_key(|key| key.frame);
+            }
+        }
+        TimelineEdit::SyncSymbols { range } => {
+            range_end(timeline, &range)?;
+            let mut changed = 0;
+            for index in layer_indices(timeline, &range.layers)? {
+                changed += sync_symbols(
+                    &mut timeline.layers[index],
+                    range.start,
+                    range.end,
+                    &graphics,
+                );
+            }
+            if changed == 0 {
+                return Err("The graphic symbols in the selected frames are already in step. Synchronise symbols adjusts graphic instances (Loop or Play once) on keyframes that follow another keyframe.".into());
             }
         }
         TimelineEdit::SetEnd { layers, end_frame } => {

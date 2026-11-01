@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 67 of 97 | 7 | 23 | 4 / 8 / 0 |
-| Timelines and animation | 47 of 65 | 4 | 14 | 4 / 5 / 1 |
+| Editor and graphics | 68 of 98 | 8 | 22 | 4 / 8 / 0 |
+| Timelines and animation | 50 of 68 | 4 | 14 | 4 / 5 / 1 |
 | HTML5 and interactivity | 46 of 73 | 4 | 23 | 5 / 5 / 2 |
 | Import and file compatibility | 38 of 65 | 10 | 17 | 1 / 7 / 2 |
 | Platform and quality | 28 of 46 | 0 | 18 | 4 / 5 / 1 |
-| **All areas** | 226 of 346 | 25 | 95 | 18 / 30 / 6 |
+| **All areas** | 230 of 350 | 26 | 94 | 18 / 30 / 6 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

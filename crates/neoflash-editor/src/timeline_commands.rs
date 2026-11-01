@@ -230,6 +230,7 @@ impl Editor {
             if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == start) {
                 key.tween = None;
                 key.tween_kind = TweenKind::Classic;
+                key.orient_to_path = false;
             }
         });
     }
@@ -354,6 +355,53 @@ impl Editor {
             }
             _ => self.message("Select two or more frames to reverse."),
         }
+    }
+
+    /// Synchronise symbols is available on an editable layer (it works on the selected frames or the
+    /// frame under the playhead).
+    pub(crate) fn can_sync_symbols(&self) -> bool {
+        self.frame_range().is_some() || self.layer_editable()
+    }
+
+    /// Synchronise symbols (Frame menu, Edit / Modify ▸ Timeline): graphic instances on the selected
+    /// keyframes continue the nested animation of the keyframe before them. One Undo step.
+    pub(crate) fn sync_symbols(&mut self) {
+        self.finish_edits();
+        if let Some(range) = self.frame_range_or_current() {
+            self.apply_frame_edit(TimelineEdit::SyncSymbols { range });
+        }
+    }
+
+    /// Orient to path for the tween under the playhead on the current layer: guided classic tweens
+    /// then turn their objects with the guide path. One Undo step.
+    // The Orient to path control belongs to Properties — Motion tween (PR-10), not wired yet.
+    #[allow(dead_code)]
+    pub(crate) fn set_orient_to_path(&mut self, orient: bool) {
+        self.finish_edits();
+        let Some(start) = self.span_start() else {
+            return;
+        };
+        let tweened = self.layer_editable()
+            && self.symbol().timeline.layers[self.layer]
+                .keyframes
+                .iter()
+                .any(|k| k.frame == start && k.tween.is_some());
+        if !tweened {
+            self.message(
+                "Create a classic tween on a guided layer before choosing Orient to path.",
+            );
+            return;
+        }
+        self.transact(|s| {
+            let l = s.layer;
+            if let Some(key) = s.symbol_mut().timeline.layers[l]
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == start)
+            {
+                key.orient_to_path = orient;
+            }
+        });
     }
 
     /// Scenes in play order with their names; a document without scenes has one.

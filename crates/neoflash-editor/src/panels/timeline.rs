@@ -586,7 +586,7 @@ impl Editor {
     /// `TL Marker`s (Tone = On Selection inside the selection) → `TL Frame Label`s.
     #[allow(clippy::too_many_arguments)]
     fn paint_timeline_rows(
-        &self,
+        &mut self,
         painter: &egui::Painter,
         rect: Rect,
         clip: Rect,
@@ -609,6 +609,10 @@ impl Editor {
         let last = (((clip.right() - rect.left()) / cell).ceil().max(0.) as u32).min(count);
         let end_x = rect.left() + count as f32 * cell;
         let selection = self.frame_range();
+        let preview = self.workspace.timeline.preview != crate::workspace::FramePreview::Off;
+        if preview {
+            self.begin_thumbnail_pass();
+        }
         for (li, layer) in layers.iter().enumerate() {
             let y = rect.top() + li as f32 * row_height;
             let row =
@@ -681,6 +685,19 @@ impl Editor {
                     SpanType::Selected,
                     tinted,
                 );
+            }
+            // Frame view ▸ Preview: keyframe thumbnails under the markers (visible spans only).
+            if preview {
+                for &(start, next, kind) in &spans {
+                    if kind.is_none() || next < first || start > last {
+                        continue;
+                    }
+                    if let Some(thumb) =
+                        crate::timeline_preview::thumbnail_rect(&geo, row, start, next)
+                    {
+                        self.paint_span_thumbnail(&rp, layer, start, thumb);
+                    }
+                }
             }
             let on_selection =
                 |frame: u32| selected.is_some_and(|(start, end)| start <= frame && frame <= end);
@@ -798,15 +815,24 @@ impl Editor {
         self.frame_command_item(ui, "Clear frames", "⌥⌫", F::Clear);
         self.frame_command_item(ui, "Select all frames", "⌥⌘A", F::SelectAll);
         nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Copy motion", "");
-        Self::unavailable_item(ui, "Paste motion", "");
+        if menu_item_enabled(ui, self.can_copy_motion(), "Copy motion", "").clicked() {
+            self.copy_motion();
+            ui.close();
+        }
+        if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion", "").clicked() {
+            self.paste_motion();
+            ui.close();
+        }
         Self::unavailable_item(ui, "Paste motion special…", "");
         nf::menu_separator(ui);
         if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "").clicked() {
             self.reverse_frames();
             ui.close();
         }
-        Self::unavailable_item(ui, "Synchronise symbols", "");
+        if menu_item_enabled(ui, self.can_sync_symbols(), "Synchronise symbols", "").clicked() {
+            self.sync_symbols();
+            ui.close();
+        }
         nf::menu_separator(ui);
         if menu_item(ui, "Actions", "F9").clicked() {
             self.open_frame_actions();

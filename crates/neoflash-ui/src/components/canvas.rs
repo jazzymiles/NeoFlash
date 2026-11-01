@@ -1,7 +1,7 @@
 //! Stage overlays and canvas editing chrome (shelves "Rulers, guides, grid" and "Canvas editing chrome"):
 //! `NF2/Stage Ruler`, `NF2/Ruler Corner`, `NF2/Guide`, `NF2/Stage Grid`, `NF2/Selection Box`,
 //! `NF2/Transform Box`, `NF2/Anchor Point`, `NF2/Bezier Handle`, `NF2/Marquee`, `NF2/Shape Selection`,
-//! `NF2/Gradient Transform`, `NF2/Snap Ring`.
+//! `NF2/Gradient Transform`, `NF2/Snap Ring`, `NF2/Motion Path`.
 //!
 //! All painters work in screen points. Stage ↔ screen mapping is the caller's: pass the screen
 //! position of the stage origin and the zoom (screen points per stage pixel).
@@ -626,9 +626,84 @@ pub fn paint_snap_ring(painter: &Painter, ctx: &egui::Context, at: Pos2, snapped
     painter.circle_stroke(at, r, Stroke::new(w, p.text_primary));
 }
 
+/// `State` of a `NF2/Motion Path` key point (◆).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MotionKeyState {
+    #[default]
+    Default,
+    /// Pointer over the point: ring around the ◆ (it can be dragged).
+    Hover,
+    /// Point being dragged.
+    Selected,
+}
+
+/// Half diagonal of the ◆ key point and its pointer hit radius.
+const MOTION_KEY: f32 = 4.5;
+const MOTION_KEY_HIT: f32 = 7.0;
+
+fn diamond(c: Pos2, d: f32) -> Vec<Pos2> {
+    vec![
+        c + vec2(0.0, -d),
+        c + vec2(d, 0.0),
+        c + vec2(0.0, d),
+        c + vec2(-d, 0.0),
+    ]
+}
+
+/// `NF2/Motion Path` (R-005): the path of a motion tween on the stage — a 1 pt `color/guide` polyline
+/// through the per-frame registration points with a small dot at every frame. Key points are painted
+/// over it with [`paint_motion_key`].
+pub fn paint_motion_path(painter: &Painter, ctx: &egui::Context, frames: &[Pos2]) {
+    let p = palette(ctx);
+    if frames.len() >= 2 {
+        painter.add(egui::Shape::line(
+            frames.to_vec(),
+            Stroke::new(1.0_f32, p.guide),
+        ));
+    }
+    for &at in frames {
+        painter.circle_filled(at, 1.5, p.guide);
+    }
+}
+
+/// `NF2/Motion Path` key point: the `TL Marker` ◆ glyph in `color/guide` with a `bg/canvas` outline so
+/// it reads over artwork; Hover adds a ring, Selected (dragging) uses `color/guide-selected`.
+pub fn paint_motion_key(painter: &Painter, ctx: &egui::Context, at: Pos2, state: MotionKeyState) {
+    let p = palette(ctx);
+    let fill = if state == MotionKeyState::Selected {
+        p.guide_selected
+    } else {
+        p.guide
+    };
+    painter.add(egui::Shape::convex_polygon(
+        diamond(at, MOTION_KEY),
+        fill,
+        Stroke::new(1.0_f32, p.bg_canvas),
+    ));
+    if state == MotionKeyState::Hover {
+        painter.add(egui::Shape::closed_line(
+            diamond(at, MOTION_KEY + 3.0),
+            Stroke::new(1.0_f32, p.guide),
+        ));
+    }
+}
+
+/// Whether `pointer` is on the motion path key point at `at`.
+pub fn motion_key_hit(at: Pos2, pointer: Pos2) -> bool {
+    at.distance(pointer) <= MOTION_KEY_HIT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_key_hit_covers_the_diamond_and_its_ring() {
+        let at = egui::pos2(10.0, 10.0);
+        assert!(motion_key_hit(at, egui::pos2(10.0 + MOTION_KEY, 10.0)));
+        assert!(motion_key_hit(at, egui::pos2(15.0, 14.0)));
+        assert!(!motion_key_hit(at, egui::pos2(20.0, 10.0)));
+    }
 
     #[test]
     fn pixel_steps_keep_labels_fifty_points_apart() {

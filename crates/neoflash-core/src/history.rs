@@ -1,4 +1,12 @@
 use crate::Project;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Process-wide source of history revisions, so a replaced `History` never repeats one.
+static REVISIONS: AtomicU64 = AtomicU64::new(1);
+
+fn next_revision() -> u64 {
+    REVISIONS.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Snapshot history with explicit transaction boundaries. A drag is one transaction.
 #[derive(Debug)]
@@ -7,6 +15,7 @@ pub struct History {
     redo: Vec<Project>,
     pending: Option<Project>,
     capacity: usize,
+    revision: u64,
 }
 
 impl Default for History {
@@ -22,6 +31,7 @@ impl History {
             redo: vec![],
             pending: None,
             capacity,
+            revision: next_revision(),
         }
     }
 
@@ -53,6 +63,7 @@ impl History {
             return false;
         }
         self.redo.clear();
+        self.revision = next_revision();
         if self.capacity > 0 {
             self.undo.push(before);
             if self.undo.len() > self.capacity {
@@ -65,6 +76,7 @@ impl History {
     pub fn cancel(&mut self, project: &mut Project) -> bool {
         if let Some(before) = self.pending.take() {
             *project = before;
+            self.revision = next_revision();
             true
         } else {
             false
@@ -77,6 +89,7 @@ impl History {
             return false;
         };
         self.redo.push(std::mem::replace(project, previous));
+        self.revision = next_revision();
         true
     }
 
@@ -86,6 +99,7 @@ impl History {
             return false;
         };
         self.undo.push(std::mem::replace(project, next));
+        self.revision = next_revision();
         true
     }
 
@@ -99,5 +113,13 @@ impl History {
         self.undo.clear();
         self.redo.clear();
         self.pending = None;
+        self.revision = next_revision();
+    }
+
+    /// Changes whenever a committed edit, Undo, Redo, cancel or clear changes the document this
+    /// history tracks; unique across all histories in the process. Caches of rendered document
+    /// content key on it.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 }

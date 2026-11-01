@@ -437,11 +437,12 @@ State on `main` after the timeline batch of 2026-11-01. Read this before touchin
 - **Editor (`crates/neoflash-editor/src/timeline_commands.rs`).** All timeline commands: `create_tween / remove_tween /
   toggle_tween`, `add_motion_guide`, `clear_keyframe`, `convert_to_keyframes`, `reverse_frames`, scenes
   (`scene_list / switch_scene / new_scene / delete_scene`), playback (`after_playback_tick`, `rewind_if_finished`),
-  `snap_scrub_frame`, edit multiple frames. **Every history commit goes through `Editor::commit_history`**, which runs
+  `snap_scrub_frame`, edit multiple frames, Synchronise symbols. `timeline_motion.rs`: motion path on the stage
+  (draggable ◆ key points), Copy / Paste motion. `timeline_preview.rs`: Preview thumbnails. **Every history commit goes through `Editor::commit_history`**, which runs
   `record_motion_property_keys` (keys exactly the properties an edit changed on a ◆ key and refreshes unkeyed values),
   `prune_motion_guides` and the format upgrade. Use it instead of `history.commit` in new code.
 - **View prefs.** `WorkspacePrefs.timeline: TimelineView { tinted, show_seconds, short_rows, snap_playhead,
-  loop_playback }`; row height comes from `TimelineView::row_height()` and is passed to `timeline_cell_at`.
+  loop_playback, preview }`; row height comes from `TimelineView::row_height()` and is passed to `timeline_cell_at`.
 - **Tests.** `crates/neoflash-core/tests/timeline_tweens.rs`, `crates/neoflash-core/src/shape_tween.rs` (unit),
   `crates/neoflash-core/src/scenes.rs` (unit), `crates/neoflash-editor/src/timeline_commands_tests.rs`. Example
   document: `examples/timeline-tweens.nflash` (shape, motion, guided tweens, two scenes). Screenshot it with
@@ -455,11 +456,11 @@ Each card is one delivery. Do not change visuals (§1); file a request when the 
 | --- | --- | --- | --- |
 | T1 · Ease panel | PP-01, TL-06 | W0.3 as written; then enable the Ease button and Frame menu ▸ Ease… for any tween kind. | Motion tweens use `Keyframe.tween` of the span start. |
 | T2 · Scene panel | PP-08 | Turn `planned_panels::scene` into `panels/scene.rs` (§3.2): list from `Editor::scene_list`, Add = `new_scene`, Delete = `delete_scene` (exists, tested), Duplicate (clone symbol with fresh IDs), rename inline (symbol name), drag reorder (`Project.scenes` order; keep `root == scenes[0]`). | One Undo per action. |
-| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path drawing waits for R-005. |
-| T4 · Orient to path / Snap | PR-10, TL-01 | `Keyframe.orient_to_path: bool` (format 6, serde default); in `sample_layer_in` set rotation from the path tangent. | Properties classic-tween section already exists. |
+| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path on the stage is done (`timeline_motion.rs`, R-005). |
+| T4 · Orient to path / Snap | PR-10, TL-01 | Engine done: `Keyframe.orient_to_path`, `sample_layer_in` turns the object by the tangent change, `Editor::set_orient_to_path`. Remaining: the Orient / Snap controls in Properties. | No control slot in the classic Tween section; PR-10 owns it. |
 | T5 · Edit multiple frames, rest | TL-08 | Selection of objects that exist only on other keyframes; scale/rotate across frames. | `move_on_other_keyframes` is the pattern. |
 | T6 · Timeline sound | TL-07, W2.6 | Largest remaining item; needs E-18 audio sync. | |
-| T7 · Preview thumbnails | TL-10 | Offscreen render cache per keyframe revision. | Large rows request may be needed. |
-| T8 · Synchronise symbols, Copy/Paste motion | MN-02 | Frame menu rows still disabled. | |
+| T7 · Preview thumbnails | TL-10 | Done (`timeline_preview.rs`). | |
+| T8 · Synchronise symbols, Copy/Paste motion | MN-02 | Done (`TimelineEdit::SyncSymbols`, `timeline_motion.rs`); Paste motion special waits for R-006. | |
 | T9 · XFL/FLA import | — | Map `tweenType="shape"/"motion"`, guide layers (`layerType="guide"` + `parentLayerIndex`) and multiple `DOMTimeline`s to the new model. | `crates/neoflash-import/src/xfl.rs`. |
 
