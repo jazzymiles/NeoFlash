@@ -47,6 +47,7 @@ pub enum DynamicKind {
     TextField,
     Video,
     Loader,
+    Button,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -710,6 +711,7 @@ impl Player {
                         DynamicKind::TextField => "text",
                         DynamicKind::Video => "video",
                         DynamicKind::Loader => "loader",
+                        DynamicKind::Button => "button",
                     };
                     let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
@@ -1520,10 +1522,14 @@ impl Player {
         })?;
         if matches!(
             object.kind,
-            DynamicKind::Bitmap | DynamicKind::TextField | DynamicKind::Video | DynamicKind::Loader
+            DynamicKind::Bitmap
+                | DynamicKind::TextField
+                | DynamicKind::Video
+                | DynamicKind::Loader
+                | DynamicKind::Button
         ) {
             return Err(error(
-                "Bitmap, Video, TextField and Loader do not own Graphics",
+                "Bitmap, Video, TextField, Loader and SimpleButton do not own Graphics",
             ));
         }
         if operations.len() > MAX_GRAPHICS_OPS {
@@ -1593,6 +1599,7 @@ impl Player {
                     | DynamicKind::TextField
                     | DynamicKind::Video
                     | DynamicKind::Loader
+                    | DynamicKind::Button
             )
         };
         let destination = self

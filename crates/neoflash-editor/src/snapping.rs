@@ -94,11 +94,13 @@ impl Snapper {
     }
 
     pub fn snap_x(&self, x: f64) -> Option<f64> {
-        self.axis(x, &self.guides_x, &self.objects_x, 0).map(|d| x + d)
+        self.axis(x, &self.guides_x, &self.objects_x, 0)
+            .map(|d| x + d)
     }
 
     pub fn snap_y(&self, y: f64) -> Option<f64> {
-        self.axis(y, &self.guides_y, &self.objects_y, 1).map(|d| y + d)
+        self.axis(y, &self.guides_y, &self.objects_y, 1)
+            .map(|d| y + d)
     }
 
     /// Snap one point (pen anchor, shape corner, path handle).

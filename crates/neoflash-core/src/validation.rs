@@ -572,10 +572,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         add(format!("{ep}.transform"), "affine axes, authored color transforms and gradient paints require document version 5".into());
                     }
                     if let Some([px, py]) = t.pivot
-                        && (!px.is_finite()
-                            || !py.is_finite()
-                            || px.abs() > 1e9
-                            || py.abs() > 1e9)
+                        && (!px.is_finite() || !py.is_finite() || px.abs() > 1e9 || py.abs() > 1e9)
                     {
                         add(
                             format!("{ep}.transform.pivot"),

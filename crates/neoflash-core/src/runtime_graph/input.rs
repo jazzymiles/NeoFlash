@@ -11,10 +11,28 @@ pub struct DisplayInputState {
     pub hit_area: Option<ObjectRef>,
     #[serde(default = "enabled_default")]
     pub movieclip_enabled: bool,
+    #[serde(default)]
+    pub double_click_enabled: bool,
+    #[serde(default)]
+    pub tab_enabled: bool,
+    #[serde(default = "tab_index_default")]
+    pub tab_index: i32,
+    #[serde(default = "enabled_default")]
+    pub tab_children: bool,
+    #[serde(default)]
+    pub focus_rect: Option<bool>,
+    #[serde(default = "enabled_default")]
+    pub button_enabled: bool,
+    #[serde(default)]
+    pub track_as_menu: bool,
 }
 
 fn enabled_default() -> bool {
     true
+}
+
+fn tab_index_default() -> i32 {
+    -1
 }
 
 #[derive(Default)]
@@ -37,8 +55,11 @@ impl MovieClipPointer {
 fn sprite(owner: &str) -> bool {
     matches!(owner, "sprite" | "movie_clip" | "graphic")
 }
+fn display_container(owner: &str) -> bool {
+    sprite(owner) || owner == "loader"
+}
 fn container(owner: &str) -> bool {
-    sprite(owner) || matches!(owner, "button" | "loader")
+    display_container(owner) || owner == "button"
 }
 impl DisplayInputState {
     fn for_owner(owner: &str) -> Option<Self> {
@@ -52,6 +73,13 @@ impl DisplayInputState {
             use_hand_cursor: true,
             hit_area: None,
             movieclip_enabled: true,
+            double_click_enabled: false,
+            tab_enabled: false,
+            tab_index: -1,
+            tab_children: true,
+            focus_rect: None,
+            button_enabled: true,
+            track_as_menu: false,
         })
     }
 }
@@ -72,6 +100,9 @@ impl RuntimeGraph {
         if !container(owner) {
             state.mouse_children = defaults.mouse_children;
         }
+        if !display_container(owner) {
+            state.tab_children = defaults.tab_children;
+        }
         if !sprite(owner) && owner != "button" {
             state.button_mode = defaults.button_mode;
             state.use_hand_cursor = defaults.use_hand_cursor;
@@ -81,6 +112,10 @@ impl RuntimeGraph {
         }
         if owner != "movie_clip" {
             state.movieclip_enabled = true;
+        }
+        if owner != "button" {
+            state.button_enabled = true;
+            state.track_as_menu = false;
         }
         Some(state)
     }
@@ -160,8 +195,16 @@ impl Player {
         if owner != "movie_clip" && !state.movieclip_enabled {
             return Err(error("MovieClip enabled requires a MovieClip instance"));
         }
+        if owner != "button" && (!state.button_enabled || state.track_as_menu) {
+            return Err(error(
+                "SimpleButton enabled/trackAsMenu require a button instance",
+            ));
+        }
         if !container(owner) && state.mouse_children != defaults.mouse_children {
             return Err(error("mouseChildren requires a display container"));
+        }
+        if !display_container(owner) && state.tab_children != defaults.tab_children {
+            return Err(error("tabChildren requires a DisplayObjectContainer"));
         }
         if !sprite(owner)
             && owner != "button"

@@ -285,6 +285,32 @@
       for(const child of children)child.parent=parent;
       parent.children=mode==='prepend'?[...children,...parent.children]:[...parent.children,...children];return value;
     }
+    function insertRelative(value,anchor,input,after){
+      const parent=single(value);if(parent.kind!=='element')return undefined;
+      if(anchor==null)return insert(value,input,after?'prepend':'append');
+      if(!is(anchor)||state(anchor).nodes.length!==1)return undefined;
+      const at=parent.children.indexOf(state(anchor).nodes[0]);if(at<0)return undefined;
+      let children;
+      if(is(input)){
+        const r=state(input);if(r.kind==='legacy')unsupported('mixing legacy DOM nodes into AS3 XML insertion');
+        for(const n of r.nodes){for(let ancestor=parent;ancestor;ancestor=ancestor.parent)if(ancestor===n)throw new TypeError('Cannot insert an XML ancestor into itself.');}
+        children=r.nodes.map(n=>n.kind==='attribute'?node('text',null,n.value):clone(n));
+      }else children=[node('text',null,text(input))];
+      insertionDepth(parent,children);commit(children);
+      for(const child of children)child.parent=parent;
+      parent.children.splice(after?at+1:at,0,...children);return value;
+    }
+    function equalNodes(a,b){
+      if(a===b)return true;
+      if(a.kind!==b.kind||a.value!==b.value)return false;
+      if(Boolean(a.name)!==Boolean(b.name))return false;
+      if(a.name&&(a.name.local!==b.name.local||(a.name.uri||'')!==(b.name.uri||'')))return false;
+      if(a.attributes.length!==b.attributes.length||a.children.length!==b.children.length)return false;
+      for(const attr of a.attributes){
+        if(!b.attributes.some(other=>other.name.local===attr.name.local&&(other.name.uri||'')===(attr.name.uri||'')&&other.value===attr.value))return false;
+      }
+      return a.children.every((child,i)=>equalNodes(child,b.children[i]));
+    }
     function normalize(value){
       const plans=[],seen=new Set();let extra=0;
       for(const root of state(value).nodes)for(const n of [root,...descendants(root)]){
@@ -307,11 +333,90 @@
       descendants:(value,arg='*')=>selected(value,'descendants',arg),attributes:value=>selected(value,'attributes'),attribute:(value,arg)=>selected(value,'attribute',arg),
       text:value=>selected(value,'text'),comments:value=>selected(value,'comments'),processingInstructions:(value,arg='*')=>selected(value,'processingInstructions',arg),
       localName:value=>single(value).name?.local??null,nodeKind:value=>{const k=single(value).kind;return k==='pi'?'processing-instruction':k;},
+      name:value=>{const n=single(value);return n.name?new QName(n.name.uri??'',n.name.local):null;},
+      inScopeNamespaces:value=>{
+        const n=single(value),byPrefix=new Map(),ancestry=[];
+        for(let p=n.kind==='attribute'?n.parent:n;p;p=p.parent)ancestry.unshift(p);
+        for(const p of ancestry){
+          for(const d of p.declarations){if(!d.uri&&!d.prefix)byPrefix.delete('');else byPrefix.set(d.prefix,d.uri);}
+          if(p.name&&p.name.uri)byPrefix.set(p.name.prefix||'',p.name.uri);
+          for(const a of p.attributes)if(a.name.prefix&&a.name.uri)byPrefix.set(a.name.prefix,a.name.uri);
+        }
+        return [...byPrefix].map(([prefix,uri])=>new Namespace(prefix,uri));
+      },
+      namespaceDeclarations:value=>{const n=single(value);return n.kind==='element'?n.declarations.map(d=>new Namespace(d.prefix,d.uri)):[];},
+      namespace:(value,prefix)=>{
+        const n=single(value);if(['text','comment','pi'].includes(n.kind))return null;
+        if(prefix===undefined)return new Namespace(n.name.prefix??'',n.name.uri??'');
+        const p=text(prefix),scope=xmlMethods.inScopeNamespaces(value);
+        if(!p&&!scope.some(ns=>ns.prefix===''))return new Namespace('','');
+        return scope.find(ns=>ns.prefix===p);
+      },
+      addNamespace:(value,ns)=>{
+        const n=single(value);if(n.kind!=='element')return value;
+        const item=namespaceData(ns)?ns:new Namespace(ns),data=namespaceData(item),prefix=data.prefix??'';
+        if(n.attributes.length+n.declarations.length>=256)throw new RangeError('XML element exceeds 256 attributes/declarations.');
+        const next=n.declarations.filter(d=>d.prefix!==prefix);next.push({prefix,uri:data.uri});
+        if(n.name.prefix===prefix&&n.name.uri!==data.uri)change(n,'name',{...n.name,prefix:'',qualified:n.name.local});
+        change(n,'declarations',next);return value;
+      },
+      removeNamespace:(value,ns)=>{
+        const n=single(value);if(n.kind!=='element')return value;
+        const item=namespaceData(ns)?ns:new Namespace(ns),data=namespaceData(item);
+        const match=(u,p)=>u===data.uri&&(data.prefix===undefined||p===data.prefix);
+        if(match(n.name.uri,n.name.prefix)||n.attributes.some(a=>match(a.name.uri,a.name.prefix)))return value;
+        change(n,'declarations',n.declarations.filter(d=>!match(d.uri,d.prefix)));
+        for(const child of n.children)if(child.kind==='element')xmlMethods.removeNamespace(wrapped(child),item);
+        return value;
+      },
+      setLocalName:(value,local)=>{
+        const n=single(value);if(['text','comment'].includes(n.kind))return;
+        const base=name(text(local));
+        change(n,'name',n.kind==='pi'?base:{...n.name,local:base.local,qualified:n.name.prefix?n.name.prefix+':'+base.local:base.local});
+      },
+      setName:(value,nameArg)=>{
+        const n=single(value);if(['text','comment'].includes(n.kind))return;
+        const q=qnameData(nameArg)?nameArg:new QName(nameArg),qd=qnameData(q);
+        if(qd.local==='*'||qd.uri===null)throw new TypeError('XML.setName requires a concrete name.');
+        if(n.kind==='pi'){if(qd.uri)throw new TypeError('Processing instruction names cannot carry a namespace URI.');change(n,'name',name(qd.local));return;}
+        change(n,'name',logicalName({local:qd.local,uri:qd.uri,prefix:qd.prefix},n.kind==='attribute'?n.parent:n,n.kind==='attribute'));
+      },
+      setNamespace:(value,ns)=>{
+        const n=single(value);if(['text','comment','pi'].includes(n.kind))return;
+        const item=namespaceData(ns)?ns:new Namespace(ns),data=namespaceData(item);
+        change(n,'name',logicalName({local:n.name.local,uri:data.uri,prefix:data.prefix},n.kind==='attribute'?n.parent:n,n.kind==='attribute'));
+      },
       childIndex:value=>{const n=single(value);return n.parent?n.parent.children.indexOf(n):-1;},
       parent:value=>{const items=state(value).nodes;if(!items.length)return undefined;const parent=items[0].parent;return parent&&items.every(n=>n.parent===parent)?wrapped(parent):undefined;},
       hasSimpleContent:value=>{const items=state(value).nodes;return items.length===1?simple(items[0]):!items.some(n=>n.kind==='element');},
       hasComplexContent:value=>{const items=state(value).nodes;return items.length===1?items[0].children.some(n=>n.kind==='element'):items.some(n=>n.kind==='element');},
-      appendChild:(value,input)=>insert(value,input,'append'),prependChild:(value,input)=>insert(value,input,'prepend'),setChildren:(value,input)=>insert(value,input,'replace'),normalize,
+      appendChild:(value,input)=>insert(value,input,'append'),prependChild:(value,input)=>insert(value,input,'prepend'),setChildren:(value,input)=>insert(value,input,'replace'),
+      insertChildAfter:(value,anchor,input)=>insertRelative(value,anchor,input,true),
+      insertChildBefore:(value,anchor,input)=>insertRelative(value,anchor,input,false),
+      replace:(value,propertyName,input)=>{
+        const parent=single(value);if(parent.kind!=='element')return value;
+        const idx=indexOfKey(propertyName);
+        if(idx!==null){
+          if(idx>=parent.children.length)return value;
+          const content=prepared(input),tx=transaction();
+          const items=content.xml?content.items.map(n=>tx.track(n.kind==='attribute'?node('text',null,n.value):n)):[tx.track(node('text',null,content.scalar))];
+          const next=parent.children.slice();next.splice(idx,1,...items);tx.setEdges(parent,next);tx.commit();return value;
+        }
+        const s=selector(propertyName);if(s.attribute||s.descendant)return value;
+        const content=prepared(input),tx=transaction();replaceMatches(tx,parent,s,content);tx.commit();return value;
+      },
+      contains:(value,other)=>{
+        if(!is(other))return false;const r=state(value),left=r.nodes,right=state(other).nodes;
+        if(r.kind==='list')return right.length===1&&left.some(a=>equalNodes(a,right[0]));
+        return left.length===right.length&&left.every((a,i)=>equalNodes(a,right[i]));
+      },
+      hasOwnProperty:(value,key)=>{
+        const r=state(value),idx=indexOfKey(key);if(idx!==null)return idx<r.nodes.length;
+        const s=qnameData(key)||selectors.has(key)?selector(key):String(key).startsWith('@')?selector(String(key).slice(1),undefined,true):selector(String(key));
+        return r.nodes.some(n=>(s.attribute?n.attributes:n.children).some(c=>(s.attribute?c.kind==='attribute':s.local==='*'||c.kind==='element')&&matches(c,s)));
+      },
+      propertyIsEnumerable:(value,key)=>{const idx=indexOfKey(key);return idx!==null&&idx<state(value).nodes.length;},
+      normalize,
     };
     function facade(type,items,targetSelection=null){
       const target=Object.create(type==='xml'?XML.prototype:XMLList.prototype),r={kind:type,nodes:items,generation,methods:new Map(),target:targetSelection};let value;

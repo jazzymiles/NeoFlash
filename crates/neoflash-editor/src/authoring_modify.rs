@@ -1126,14 +1126,14 @@ impl Editor {
             return false;
         };
         let matrix = default_gradient_matrix(&commands);
-        let fill_gradient =
-            self.authoring_modify
-                .drawing_fill_gradient
-                .clone()
-                .map(|mut paint| {
-                    paint.matrix = matrix;
-                    paint
-                });
+        let fill_gradient = self
+            .authoring_modify
+            .drawing_fill_gradient
+            .clone()
+            .map(|mut paint| {
+                paint.matrix = matrix;
+                paint
+            });
         let stroke_gradient =
             self.authoring_modify
                 .drawing_stroke_gradient
@@ -1183,8 +1183,7 @@ impl Editor {
         let changes: Vec<_> = targets
             .into_iter()
             .filter_map(|(target, mut element)| {
-                set_element_fill_type(&mut element, stroke_well, mode)
-                    .then_some((target, element))
+                set_element_fill_type(&mut element, stroke_well, mode).then_some((target, element))
             })
             .collect();
         self.apply_modified(changes, None);
@@ -1229,7 +1228,8 @@ impl Editor {
                 if let Some(existing) = grad {
                     existing.kind = kind;
                 } else {
-                    let box_cmds = rectangle_path_commands(100.0, 100.0, RectangleOptions::default());
+                    let box_cmds =
+                        rectangle_path_commands(100.0, 100.0, RectangleOptions::default());
                     *grad = Some(default_gradient_paint(kind, *color, &box_cmds));
                 }
             }
@@ -1312,27 +1312,25 @@ impl Editor {
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
-            .filter_map(|(target, mut element)| {
-                match &mut element.kind {
-                    ElementKind::Rectangle { fill, stroke, .. }
-                    | ElementKind::Ellipse { fill, stroke, .. }
-                    | ElementKind::Path { fill, stroke, .. } => {
-                        std::mem::swap(fill, stroke);
-                        Some((target, element))
-                    }
-                    ElementKind::PaintedPath {
-                        fill,
-                        stroke,
-                        fill_gradient,
-                        stroke_gradient,
-                        ..
-                    } => {
-                        std::mem::swap(fill, stroke);
-                        std::mem::swap(fill_gradient, stroke_gradient);
-                        Some((target, element))
-                    }
-                    _ => None,
+            .filter_map(|(target, mut element)| match &mut element.kind {
+                ElementKind::Rectangle { fill, stroke, .. }
+                | ElementKind::Ellipse { fill, stroke, .. }
+                | ElementKind::Path { fill, stroke, .. } => {
+                    std::mem::swap(fill, stroke);
+                    Some((target, element))
                 }
+                ElementKind::PaintedPath {
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } => {
+                    std::mem::swap(fill, stroke);
+                    std::mem::swap(fill_gradient, stroke_gradient);
+                    Some((target, element))
+                }
+                _ => None,
             })
             .collect();
         self.apply_modified(changes, None);
@@ -1350,34 +1348,32 @@ impl Editor {
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
-            .filter_map(|(target, mut element)| {
-                match &mut element.kind {
-                    ElementKind::Rectangle { fill, stroke, .. }
-                    | ElementKind::Ellipse { fill, stroke, .. }
-                    | ElementKind::Path { fill, stroke, .. } => {
-                        *fill = [255, 255, 255, 255];
-                        *stroke = [0, 0, 0, 255];
-                        Some((target, element))
-                    }
-                    ElementKind::PaintedPath {
-                        fill,
-                        stroke,
-                        fill_gradient,
-                        stroke_gradient,
-                        ..
-                    } => {
-                        *fill = [255, 255, 255, 255];
-                        *stroke = [0, 0, 0, 255];
-                        *fill_gradient = None;
-                        *stroke_gradient = None;
-                        Some((target, element))
-                    }
-                    ElementKind::Text { color, .. } => {
-                        *color = [0, 0, 0, 255];
-                        Some((target, element))
-                    }
-                    _ => None,
+            .filter_map(|(target, mut element)| match &mut element.kind {
+                ElementKind::Rectangle { fill, stroke, .. }
+                | ElementKind::Ellipse { fill, stroke, .. }
+                | ElementKind::Path { fill, stroke, .. } => {
+                    *fill = [255, 255, 255, 255];
+                    *stroke = [0, 0, 0, 255];
+                    Some((target, element))
                 }
+                ElementKind::PaintedPath {
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } => {
+                    *fill = [255, 255, 255, 255];
+                    *stroke = [0, 0, 0, 255];
+                    *fill_gradient = None;
+                    *stroke_gradient = None;
+                    Some((target, element))
+                }
+                ElementKind::Text { color, .. } => {
+                    *color = [0, 0, 0, 255];
+                    Some((target, element))
+                }
+                _ => None,
             })
             .collect();
         self.apply_modified(changes, None);
@@ -1442,7 +1438,11 @@ impl Editor {
                 }
                 None => {}
             }
-            let active_color = if stroke_active { self.stroke } else { self.fill };
+            let active_color = if stroke_active {
+                self.stroke
+            } else {
+                self.fill
+            };
             let active_grad = if stroke_active {
                 self.authoring_modify.drawing_stroke_gradient.clone()
             } else {
@@ -1860,11 +1860,7 @@ fn normalize_gradient_stops(mut stops: Vec<GradientStop>) -> Vec<GradientStop> {
     stops
 }
 
-fn set_element_fill_type(
-    element: &mut Element,
-    stroke_well: bool,
-    mode: PaintFillType,
-) -> bool {
+fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFillType) -> bool {
     match mode {
         PaintFillType::None => match &mut element.kind {
             ElementKind::Rectangle { fill, stroke, .. }
@@ -2146,7 +2142,10 @@ fn fill_type_select(
                     _ => true,
                 };
                 let resp = ui
-                    .add_enabled(enabled, MenuItem::new(mode.label()).checked(current == mode))
+                    .add_enabled(
+                        enabled,
+                        MenuItem::new(mode.label()).checked(current == mode),
+                    )
                     .on_disabled_hover_text(
                         "Select a rectangle, oval or vector path to apply a gradient",
                     );

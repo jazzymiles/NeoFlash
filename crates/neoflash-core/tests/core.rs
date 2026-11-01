@@ -887,12 +887,26 @@ fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
         },
     );
     assert!(
-        !hit_test_path(&donut, FillRule::NonZero, [50., 50.], true, 0., FlattenOptions::default())
-            .unwrap()
+        !hit_test_path(
+            &donut,
+            FillRule::NonZero,
+            [50., 50.],
+            true,
+            0.,
+            FlattenOptions::default()
+        )
+        .unwrap()
     );
     assert!(
-        hit_test_path(&donut, FillRule::NonZero, [85., 50.], true, 0., FlattenOptions::default())
-            .unwrap()
+        hit_test_path(
+            &donut,
+            FillRule::NonZero,
+            [85., 50.],
+            true,
+            0.,
+            FlattenOptions::default()
+        )
+        .unwrap()
     );
 
     // Format 6 must reject format-7 features.
@@ -938,7 +952,11 @@ fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
         close_path: true,
     }));
     let issues = validate(&bad_oval);
-    assert!(issues.iter().any(|i| i.path.ends_with("transform.primitive")));
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.path.ends_with("transform.primitive"))
+    );
     assert!(issues.iter().any(|i| i.path.ends_with("inner_radius")));
 
     let mut mismatched = project.clone();

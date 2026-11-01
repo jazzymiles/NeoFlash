@@ -252,6 +252,40 @@ impl PixelArena {
         .map_err(|e| BitmapError(format!("PNG encoding failed: {e}")))?;
         Ok(output.0)
     }
+    pub(crate) fn encode_jpeg(
+        &self,
+        r: &PixelRef,
+        rect: BitmapRect,
+        quality: u8,
+    ) -> Result<Vec<u8>, BitmapError> {
+        if !(1..=100).contains(&quality) {
+            return Err(error("JPEGEncoderOptions.quality requires 1..=100"));
+        }
+        let b = self.live(r)?;
+        let (x0, y0, x1, y1) = rect.clipped(b);
+        if x0 == x1 || y0 == y1 {
+            return Err(error("JPEG encoding requires a nonempty clipped rectangle"));
+        }
+        let mut rgb = Vec::with_capacity((x1 - x0) * (y1 - y0) * 3);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = (y * b.width as usize + x) * 4;
+                let px = straight(&b.pixels.as_ref().unwrap()[i..i + 4]);
+                rgb.extend_from_slice(&px[..3]);
+            }
+        }
+        let mut output = BoundedPng(Vec::new());
+        use image::codecs::jpeg::JpegEncoder;
+        JpegEncoder::new_with_quality(&mut output, quality)
+            .write_image(
+                &rgb,
+                (x1 - x0) as u32,
+                (y1 - y0) as u32,
+                ExtendedColorType::Rgb8,
+            )
+            .map_err(|e| BitmapError(format!("JPEG encoding failed: {e}")))?;
+        Ok(output.0)
+    }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_rgba(
         &mut self,

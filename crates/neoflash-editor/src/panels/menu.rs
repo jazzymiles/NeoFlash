@@ -152,7 +152,12 @@ impl Editor {
     }
 
     pub(crate) fn undo_menu_label(&self) -> String {
-        if self.vector.draft.as_ref().is_some_and(|d| !d.anchors.is_empty()) {
+        if self
+            .vector
+            .draft
+            .as_ref()
+            .is_some_and(|d| !d.anchors.is_empty())
+        {
             return "Undo".to_owned();
         }
         match self.history.undo_label() {

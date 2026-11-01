@@ -172,7 +172,9 @@ impl Editor {
                     prefix.push('/');
                 }
                 prefix.push_str(seg);
-                self.project_panel.collapsed.remove(&format!("dir:{prefix}"));
+                self.project_panel
+                    .collapsed
+                    .remove(&format!("dir:{prefix}"));
             }
         }
         self.transact_named("New source file", |s| {
@@ -202,10 +204,7 @@ impl Editor {
             } else {
                 format!("{parent}/{leaf}")
             };
-            if !all_dirs
-                .iter()
-                .any(|d| d.eq_ignore_ascii_case(&candidate))
-            {
+            if !all_dirs.iter().any(|d| d.eq_ignore_ascii_case(&candidate)) {
                 break candidate;
             }
             index += 1;
@@ -230,10 +229,8 @@ impl Editor {
                 if self.selected_source.as_deref() == Some(id.as_str()) {
                     self.selected_source = self.project.sources.first().map(|s| s.id.clone());
                 }
-                self.project_panel.selected = self
-                    .selected_source
-                    .clone()
-                    .map(ProjectSelection::Source);
+                self.project_panel.selected =
+                    self.selected_source.clone().map(ProjectSelection::Source);
                 true
             }
             Some(ProjectSelection::Folder(folder)) => {
@@ -488,9 +485,7 @@ impl Editor {
                                 .rename
                                 .as_ref()
                                 .is_some_and(|r| r.source_id == unit.id);
-                            if renaming
-                                && let Some(draft) = self.project_panel.rename.as_mut()
-                            {
+                            if renaming && let Some(draft) = self.project_panel.rename.as_mut() {
                                 let field = ui.add(
                                     c::TextField::new(&mut draft.text, "Source path")
                                         .width(ui.available_width())
@@ -501,10 +496,8 @@ impl Editor {
                                     ui.ctx().memory_mut(|m| m.request_focus(edit_id));
                                     draft.focus = false;
                                 }
-                                let enter =
-                                    ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                let esc =
-                                    ui.input(|i| i.key_pressed(egui::Key::Escape));
+                                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
                                 let has_focus = ui.ctx().memory(|m| m.has_focus(edit_id));
                                 let lost = draft.had_focus && !has_focus;
                                 draft.had_focus = has_focus;
@@ -517,13 +510,11 @@ impl Editor {
                             }
                             let selected = self.project_panel.selected
                                 == Some(ProjectSelection::Source(unit.id.clone()));
-                            let row = c::TreeItem::new(
-                                leaf,
-                                c::TreeItemType::Symbol(i16::FILE_CODE),
-                            )
-                            .depth(depth)
-                            .selected(selected)
-                            .show(ui);
+                            let row =
+                                c::TreeItem::new(leaf, c::TreeItemType::Symbol(i16::FILE_CODE))
+                                    .depth(depth)
+                                    .selected(selected)
+                                    .show(ui);
                             if row.row.double_clicked() {
                                 self.project_panel.rename = Some(RenameDraft {
                                     source_id: unit.id.clone(),
@@ -582,12 +573,12 @@ impl Editor {
 
                 // ── <document>.nflash ──
                 if query.is_empty() || doc_row_label.to_lowercase().contains(&query) {
-                    let doc_row = c::TreeItem::new(
-                        &doc_row_label,
-                        c::TreeItemType::Symbol(i16::NEW_FILE),
-                    )
-                    .selected(self.project_panel.selected == Some(ProjectSelection::Document))
-                    .show(ui);
+                    let doc_row =
+                        c::TreeItem::new(&doc_row_label, c::TreeItemType::Symbol(i16::NEW_FILE))
+                            .selected(
+                                self.project_panel.selected == Some(ProjectSelection::Document),
+                            )
+                            .show(ui);
                     if doc_row.row.clicked() {
                         self.project_panel.selected = Some(ProjectSelection::Document);
                     }

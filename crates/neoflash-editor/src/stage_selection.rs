@@ -438,9 +438,12 @@ impl Editor {
         // dragged handle point; scaling snaps the pointer.
         let origin = gesture.scope.origin;
         let current = match gesture.kind {
-            GestureKind::Pivot { initial_world } => gesture
-                .scope
-                .local(self.snap_drag(origin, gesture.press, pos, position(initial_world))),
+            GestureKind::Pivot { initial_world } => gesture.scope.local(self.snap_drag(
+                origin,
+                gesture.press,
+                pos,
+                position(initial_world),
+            )),
             GestureKind::Resize { bounds, handle } => {
                 let anchor = position(geometry::transformed_point(
                     originals[0],
@@ -533,8 +536,13 @@ impl Editor {
             GestureKind::Rotate {
                 single: true,
                 pivot,
-            } => geometry::rotate_single_about_by(originals[0], pivot, gesture.angle, modifiers.shift)
-                .map(|t| vec![t]),
+            } => geometry::rotate_single_about_by(
+                originals[0],
+                pivot,
+                gesture.angle,
+                modifiers.shift,
+            )
+            .map(|t| vec![t]),
             GestureKind::Rotate {
                 single: false,
                 pivot,
@@ -1070,7 +1078,8 @@ impl Editor {
             let modifiers = ui.input(|input| input.modifiers);
             let local_bounds = shape_draft_bounds(draft, pos, modifiers);
             let screen = |pt: Pos2| draft.scope.origin + pt.to_vec2() * draft.scope.zoom;
-            let preview_rect = Rect::from_min_max(screen(local_bounds.min), screen(local_bounds.max));
+            let preview_rect =
+                Rect::from_min_max(screen(local_bounds.min), screen(local_bounds.max));
             p.rect_stroke(
                 preview_rect,
                 0.,
@@ -1097,10 +1106,7 @@ fn shape_draft_bounds(draft: &ShapeDraft, pos: Pos2, modifiers: egui::Modifiers)
         delta.y = if delta.y < 0. { -side } else { side };
     }
     if modifiers.alt {
-        Rect::from_center_size(
-            start,
-            egui::vec2(2.0 * delta.x.abs(), 2.0 * delta.y.abs()),
-        )
+        Rect::from_center_size(start, egui::vec2(2.0 * delta.x.abs(), 2.0 * delta.y.abs()))
     } else {
         Rect::from_two_pos(start, start + delta)
     }

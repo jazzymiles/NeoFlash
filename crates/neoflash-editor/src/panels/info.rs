@@ -142,7 +142,9 @@ fn sample_draw_item(
         ElementKind::Video { .. } | ElementKind::Instance { .. } => return None,
     };
     let mut transformed = item.color_transform.apply(base);
-    transformed[3] = (transformed[3] as f64 * item.alpha).round().clamp(0.0, 255.0) as u8;
+    transformed[3] = (transformed[3] as f64 * item.alpha)
+        .round()
+        .clamp(0.0, 255.0) as u8;
     (transformed[3] > 0).then_some(transformed)
 }
 
@@ -405,7 +407,10 @@ impl Editor {
             None => ("—".to_owned(), "—".to_owned()),
         };
 
-        for (label, value) in [("Cursor", cursor_text.as_str()), ("Colour", color_text.as_str())] {
+        for (label, value) in [
+            ("Cursor", cursor_text.as_str()),
+            ("Colour", color_text.as_str()),
+        ] {
             ui.horizontal(|ui| {
                 form_label(ui, label, 64.0);
                 mono(ui, value);

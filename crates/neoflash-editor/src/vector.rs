@@ -812,16 +812,14 @@ impl Editor {
                 PathCommand::Close => {}
             }
         }
-        let hover = ui
-            .input(|i| i.pointer.hover_pos())
-            .filter(|&pos| {
-                self.vector.point_drag.is_none()
-                    && response.rect.contains(pos)
-                    && ui
-                        .ctx()
-                        .layer_id_at(pos)
-                        .is_none_or(|layer| layer == response.layer_id)
-            });
+        let hover = ui.input(|i| i.pointer.hover_pos()).filter(|&pos| {
+            self.vector.point_drag.is_none()
+                && response.rect.contains(pos)
+                && ui
+                    .ctx()
+                    .layer_id_at(pos)
+                    .is_none_or(|layer| layer == response.layer_id)
+        });
         let dragged = self
             .vector
             .point_drag
@@ -884,7 +882,8 @@ impl Editor {
                         self.playing = false;
                         if handle.role == PointRole::Anchor {
                             if modifiers.shift {
-                                let selected = self.toggle_selected_anchor(&element.id, handle.command);
+                                let selected =
+                                    self.toggle_selected_anchor(&element.id, handle.command);
                                 if !selected {
                                     continue;
                                 }
@@ -1073,31 +1072,28 @@ impl Editor {
         pos: Pos2,
     ) -> Option<(crate::selection::SelectionTarget, Vec<PathCommand>, usize)> {
         let zoom = self.zoom;
-        let try_element = |target: crate::selection::SelectionTarget,
-                           element: Element|
-         -> Option<(
-            crate::selection::SelectionTarget,
-            Vec<PathCommand>,
-            usize,
-        )> {
-            let (ElementKind::Path { ref commands, .. }
-            | ElementKind::PaintedPath { ref commands, .. }) = element.kind
-            else {
-                return None;
+        let try_element =
+            |target: crate::selection::SelectionTarget,
+             element: Element|
+             -> Option<(crate::selection::SelectionTarget, Vec<PathCommand>, usize)> {
+                let (ElementKind::Path { ref commands, .. }
+                | ElementKind::PaintedPath { ref commands, .. }) = element.kind
+                else {
+                    return None;
+                };
+                let matrix = transform_matrix(element.transform);
+                let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
+                if handles(commands)
+                    .iter()
+                    .any(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
+                {
+                    return None;
+                }
+                let (cmd_idx, t) = path_segment_hit_local(commands, matrix, origin, zoom, pos)?;
+                let (new_commands, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
+                validate_path_commands(&new_commands).ok()?;
+                Some((target, new_commands, inserted))
             };
-            let matrix = transform_matrix(element.transform);
-            let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
-            if handles(commands)
-                .iter()
-                .any(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
-            {
-                return None;
-            }
-            let (cmd_idx, t) = path_segment_hit_local(commands, matrix, origin, zoom, pos)?;
-            let (new_commands, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
-            validate_path_commands(&new_commands).ok()?;
-            Some((target, new_commands, inserted))
-        };
 
         if self.selected_editable()
             && let Some(target) = self.selection.single().cloned()

@@ -180,9 +180,7 @@ impl PlannedPanel {
     /// active (Color, primitives); the last tab for the earlier previews (Properties ▸ Filters).
     pub(crate) const fn active_tab(self, tabs: usize) -> usize {
         match self {
-            Self::BitmapFill
-            | Self::PropertiesOvalPrimitive
-            | Self::PropertiesRectPrimitive => 0,
+            Self::BitmapFill | Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => 0,
             _ => tabs.saturating_sub(1),
         }
     }

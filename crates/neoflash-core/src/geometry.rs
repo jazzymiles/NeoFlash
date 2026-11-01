@@ -555,13 +555,9 @@ pub fn rectangle_path_commands(
     const KAPPA: f64 = 0.552_284_749_830_793_6;
     let w = width.max(0.0);
     let h = height.max(0.0);
-    let [mut tl, mut tr, mut bl, mut br] = options.corner_radii.map(|r| {
-        if r.is_finite() {
-            r.max(0.0)
-        } else {
-            0.0
-        }
-    });
+    let [mut tl, mut tr, mut bl, mut br] = options
+        .corner_radii
+        .map(|r| if r.is_finite() { r.max(0.0) } else { 0.0 });
     let mut scale = 1.0_f64;
     for (sum, limit) in [(tl + tr, w), (bl + br, w), (tl + bl, h), (tr + br, h)] {
         if sum > 1e-9 && sum > limit {
@@ -684,7 +680,11 @@ fn append_elliptic_arc(
 
 /// Exact vector contour for an `Ellipse` (Oval) with optional start/end sweep angles,
 /// inner hole radius percentage (`0..=99`), and open/closed path flag.
-pub fn oval_path_commands(width: f64, height: f64, options: crate::OvalOptions) -> Vec<PathCommand> {
+pub fn oval_path_commands(
+    width: f64,
+    height: f64,
+    options: crate::OvalOptions,
+) -> Vec<PathCommand> {
     let w = width.max(0.0);
     let h = height.max(0.0);
     let (cx, cy) = (w * 0.5, h * 0.5);
@@ -941,7 +941,10 @@ fn closest_on_curve(point: Point, eval: impl Fn(f64) -> Point) -> (f64, Point, f
     }
     let mut step = 0.5 / (SAMPLES as f64);
     for _ in 0..14 {
-        for candidate in [(best_t - step).clamp(0.0, 1.0), (best_t + step).clamp(0.0, 1.0)] {
+        for candidate in [
+            (best_t - step).clamp(0.0, 1.0),
+            (best_t + step).clamp(0.0, 1.0),
+        ] {
             let p = eval(candidate);
             let d2 = (p[0] - point[0]).powi(2) + (p[1] - point[1]).powi(2);
             if d2 < best_d2 {

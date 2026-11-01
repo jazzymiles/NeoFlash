@@ -1135,3 +1135,110 @@ trace(asfunction("go", "1") + MMExecute("noop") + s.timeout + String(fn2) + Stri
     };
     assert!(neoflash_script::compile(&as3_xml_ctor).is_err());
 }
+
+#[test]
+fn built_in_interfaces_interactive_object_font_subclasses_and_custom_namespaces_validate() {
+    let valid = project(&[
+        (
+            "EventBus.as",
+            "package app {
+                import flash.display.Sprite;
+                import flash.events.Event;
+                import flash.events.EventDispatcher;
+                import flash.events.IEventDispatcher;
+                public class EventBus implements IEventDispatcher {
+                    private var inner:EventDispatcher = new EventDispatcher();
+                    public function addEventListener(type:String, listener:Function, useCapture:Boolean = false, priority:int = 0, useWeakReference:Boolean = false):void {
+                        inner.addEventListener(type, listener, useCapture, priority, useWeakReference);
+                    }
+                    public function dispatchEvent(event:Event):Boolean { return inner.dispatchEvent(event); }
+                    public function hasEventListener(type:String):Boolean { return inner.hasEventListener(type); }
+                    public function removeEventListener(type:String, listener:Function, useCapture:Boolean = false):void {
+                        inner.removeEventListener(type, listener, useCapture);
+                    }
+                    public function willTrigger(type:String):Boolean { return inner.willTrigger(type); }
+                }
+            }",
+        ),
+        (
+            "SpriteBus.as",
+            "package app {
+                import flash.display.Sprite;
+                import flash.events.IEventDispatcher;
+                public class SpriteBus extends Sprite implements IEventDispatcher {}
+            }",
+        ),
+        (
+            "BinaryCodec.as",
+            "package app {
+                import flash.utils.ByteArray;
+                import flash.utils.IDataInput;
+                import flash.utils.IDataOutput;
+                public class BinaryCodec implements IDataInput, IDataOutput {
+                    private var buf:ByteArray = new ByteArray();
+                    public function get bytesAvailable():uint { return buf.bytesAvailable; }
+                    public function get endian():String { return buf.endian; }
+                    public function set endian(value:String):void { buf.endian = value; }
+                    public function get objectEncoding():uint { return buf.objectEncoding; }
+                    public function set objectEncoding(value:uint):void { buf.objectEncoding = value; }
+                    public function readBoolean():Boolean { return buf.readBoolean(); }
+                    public function readByte():int { return buf.readByte(); }
+                    public function readBytes(bytes:ByteArray, offset:uint = 0, length:uint = 0):void { buf.readBytes(bytes, offset, length); }
+                    public function readDouble():Number { return buf.readDouble(); }
+                    public function readFloat():Number { return buf.readFloat(); }
+                    public function readInt():int { return buf.readInt(); }
+                    public function readMultiByte(length:uint, charSet:String):String { return buf.readMultiByte(length, charSet); }
+                    public function readObject():* { return buf.readObject(); }
+                    public function readShort():int { return buf.readShort(); }
+                    public function readUTF():String { return buf.readUTF(); }
+                    public function readUTFBytes(length:uint):String { return buf.readUTFBytes(length); }
+                    public function readUnsignedByte():uint { return buf.readUnsignedByte(); }
+                    public function readUnsignedInt():uint { return buf.readUnsignedInt(); }
+                    public function readUnsignedShort():uint { return buf.readUnsignedShort(); }
+                    public function writeBoolean(value:Boolean):void { buf.writeBoolean(value); }
+                    public function writeByte(value:int):void { buf.writeByte(value); }
+                    public function writeBytes(bytes:ByteArray, offset:uint = 0, length:uint = 0):void { buf.writeBytes(bytes, offset, length); }
+                    public function writeDouble(value:Number):void { buf.writeDouble(value); }
+                    public function writeFloat(value:Number):void { buf.writeFloat(value); }
+                    public function writeInt(value:int):void { buf.writeInt(value); }
+                    public function writeMultiByte(value:String, charSet:String):void { buf.writeMultiByte(value, charSet); }
+                    public function writeObject(object:*):void { buf.writeObject(object); }
+                    public function writeShort(value:int):void { buf.writeShort(value); }
+                    public function writeUTF(value:String):void { buf.writeUTF(value); }
+                    public function writeUTFBytes(value:String):void { buf.writeUTFBytes(value); }
+                    public function writeUnsignedInt(value:uint):void { buf.writeUnsignedInt(value); }
+                }
+            }",
+        ),
+        (
+            "EmbeddedSans.as",
+            "package app {
+                import flash.text.Font;
+                public class EmbeddedSans extends Font {
+                    public function EmbeddedSans() { super(); }
+                }
+            }",
+        ),
+    ]);
+    let compiled = neoflash_script::compile_project(&valid);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+
+    for invalid_source in [
+        "package { import flash.events.IEventDispatcher; public class BadBus implements IEventDispatcher {} }",
+        "package { import flash.utils.IDataInput; public class BadReader implements IDataInput {} }",
+        "package { import flash.utils.IDataOutput; public class BadWriter implements IDataOutput {} }",
+        "package { import flash.display.InteractiveObject; public class BadInteractive extends InteractiveObject {} }",
+        "package { import flash.text.FontStyle; public class BadFontStyle extends FontStyle {} }",
+        "package { import flash.display.JPEGEncoderOptions; public class BadJpeg extends JPEGEncoderOptions {} }",
+        "package { import flash.utils.CompressionAlgorithm; public class BadComp extends CompressionAlgorithm {} }",
+        "package { public class NsAs3 { AS3 function push():void {} } }",
+        "package { public class NsFlashProxy { flash_proxy function getProperty(name:*):* { return null; } } }",
+        "package { public class NsObjectProxy { object_proxy function getProperty(name:*):* { return null; } } }",
+    ] {
+        let bad = project(&[("Bad.as", invalid_source)]);
+        assert!(
+            neoflash_script::compile_project(&bad).is_err(),
+            "expected diagnostic for: {invalid_source}"
+        );
+    }
+}

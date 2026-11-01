@@ -1670,7 +1670,9 @@ fn history_panel_lists_named_steps_jumps_back_and_forward_clears_and_updates_edi
         30.,
     );
     d.editor.transact_named("Move", |s| {
-        s.symbol_mut().timeline.layers[0].keyframes[0].elements[0].transform.x = 60.;
+        s.symbol_mut().timeline.layers[0].keyframes[0].elements[0]
+            .transform
+            .x = 60.;
     });
     d.editor.transact_named("Recolour", |s| {
         if let ElementKind::Rectangle { fill, .. } =
@@ -1787,7 +1789,10 @@ fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_pers
     assert!(doc_colors.contains(&[255, 20, 120, 255]));
     let palette = neoflash_ui::components::default_palette();
     let doc_grads = d.editor.document_gradient_swatches(&palette);
-    assert!(doc_grads.len() > 6, "includes authored gradient + NF2 presets");
+    assert!(
+        doc_grads.len() > 6,
+        "includes authored gradient + NF2 presets"
+    );
 
     // Solid swatch application + Undo on the selected rectangle.
     d.editor.selection = rect_selection.clone();
@@ -1834,7 +1839,12 @@ fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_pers
     d.editor.fill = [77, 88, 99, 255];
     Editor::open_planned(&d.ctx, "Color menu ▸ Add swatch");
     d.settle();
-    assert!(d.editor.workspace.custom_swatches.contains(&[77, 88, 99, 255]));
+    assert!(
+        d.editor
+            .workspace
+            .custom_swatches
+            .contains(&[77, 88, 99, 255])
+    );
 }
 
 #[test]
@@ -1861,7 +1871,10 @@ fn info_panel_edits_selection_bounds_and_samples_live_stage_cursor_and_rgba() {
     d.editor.selection = sel;
     d.settle();
 
-    let (bounds, editable) = d.editor.selection_info_bounds(&d.ctx).expect("selected rect");
+    let (bounds, editable) = d
+        .editor
+        .selection_info_bounds(&d.ctx)
+        .expect("selected rect");
     assert!(editable);
     assert!((bounds.min.x - 100.).abs() < 0.5 && (bounds.min.y - 150.).abs() < 0.5);
     assert!((bounds.width() - 80.).abs() < 0.5 && (bounds.height() - 60.).abs() < 0.5);
@@ -1884,7 +1897,8 @@ fn info_panel_edits_selection_bounds_and_samples_live_stage_cursor_and_rgba() {
     d.step(vec![Event::PointerMoved(over_rect)]);
     d.step(vec![Event::PointerMoved(over_rect)]);
     assert_eq!(
-        d.editor.sample_stage_color_at(&d.ctx, Pos2::new(140.0, 180.0)),
+        d.editor
+            .sample_stage_color_at(&d.ctx, Pos2::new(140.0, 180.0)),
         [91, 140, 255, 255]
     );
     assert!(
@@ -1893,7 +1907,8 @@ fn info_panel_edits_selection_bounds_and_samples_live_stage_cursor_and_rgba() {
         d.texts()
     );
     assert_eq!(
-        d.editor.sample_stage_color_at(&d.ctx, Pos2::new(10.0, 10.0)),
+        d.editor
+            .sample_stage_color_at(&d.ctx, Pos2::new(10.0, 10.0)),
         [20, 30, 40, 255],
         "bare stage reports document background colour"
     );
@@ -1916,7 +1931,9 @@ fn project_panel_manages_folders_sources_actions_handoff_and_status() {
 
     d.click("New folder");
     assert!(d.editor.project_panel.folders.contains("folder"));
-    let src_id = d.editor.project_new_source_file(ScriptLanguage::ActionScript3);
+    let src_id = d
+        .editor
+        .project_new_source_file(ScriptLanguage::ActionScript3);
     d.editor.project.validate().unwrap();
     assert_eq!(d.editor.project.sources.len(), 1);
     assert_eq!(d.editor.project.sources[0].path, "folder/Class1.as");
@@ -1937,7 +1954,8 @@ fn project_panel_manages_folders_sources_actions_handoff_and_status() {
         s.project.symbols.push(sym);
     });
     d.settle();
-    let expected_caption = format!("● unsaved changes · Class1.as is linked to symbol \"{sym_name}\"");
+    let expected_caption =
+        format!("● unsaved changes · Class1.as is linked to symbol \"{sym_name}\"");
     assert!(
         d.texts().iter().any(|l| l == &expected_caption),
         "expected {expected_caption:?} in {:?}",

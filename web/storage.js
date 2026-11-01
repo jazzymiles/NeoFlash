@@ -17,8 +17,20 @@
   const MAX_BYTES=16*1024*1024,MAX_OBJECTS=256,PREFIX='neoflash.sharedobject.v1:';
   const unsupported=name=>{throw new TypeError(`${name} is not implemented for local browser SharedObjects.`);};
   function encoding(value){if(value!==0&&value!==3)throw new RangeError('SharedObject.objectEncoding requires AMF0 (0) or AMF3 (3).');return value;}
-  function constants(name,values){const ctor=function(){unsupported(`${name} construction`);};Object.defineProperties(ctor,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>unsupported(`${name} native subclassing`)}});for(const[key,value]of Object.entries(values))Object.defineProperty(ctor,key,{value,enumerable:true});return Object.freeze(ctor);}
-  const ObjectEncoding=constants('ObjectEncoding',{AMF0:0,AMF3:3,DEFAULT:3});
+  function constants(name,values,extra={}){const ctor=function(){unsupported(`${name} construction`);};Object.defineProperties(ctor,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>unsupported(`${name} native subclassing`)},...extra});for(const[key,value]of Object.entries(values))Object.defineProperty(ctor,key,{value,enumerable:true});return Object.freeze(ctor);}
+  let dynamicWriter=null;
+  const ObjectEncoding=constants('ObjectEncoding',{AMF0:0,AMF3:3,DEFAULT:3},{
+    dynamicPropertyWriter:{
+      enumerable:true,
+      get(){return dynamicWriter;},
+      set(value){
+        if(value!==null&&(!value||typeof value!=='object'||typeof value.writeDynamicProperties!=='function')){
+          throw new TypeError('ObjectEncoding.dynamicPropertyWriter requires null or an IDynamicPropertyWriter object with writeDynamicProperties().');
+        }
+        dynamicWriter=value;
+      },
+    },
+  });
   const SharedObjectFlushStatus=constants('SharedObjectFlushStatus',{FLUSHED:'flushed',PENDING:'pending'});
   function create(options={}){
     const {amf}=options,events=options.events||global.NeoFlashEvents;

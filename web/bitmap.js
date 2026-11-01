@@ -24,13 +24,24 @@
   class BitmapDataChannel {constructor(){throw new TypeError('BitmapDataChannel supplies ALPHA, BLUE, GREEN and RED constants.');}}
   Object.assign(BitmapDataChannel,{ALPHA:8,BLUE:4,GREEN:2,RED:1});
   Object.freeze(BitmapDataChannel);
-  const encoderOptions=new WeakMap();
+  const encoderOptions=new WeakMap(),jpegEncoderOptions=new WeakMap();
   class PNGEncoderOptions {
     constructor(fastCompression=false){encoderOptions.set(this,false);this.fastCompression=fastCompression;Object.seal(this);}
     get fastCompression(){if(!encoderOptions.has(this))throw new TypeError('Expected PNGEncoderOptions.');return encoderOptions.get(this);}
     set fastCompression(value){if(!encoderOptions.has(this)||typeof value!=='boolean')throw new TypeError('PNGEncoderOptions.fastCompression requires a Boolean.');encoderOptions.set(this,value);}
   }
-  Object.defineProperties(PNGEncoderOptions,{__nfIs:{value:value=>encoderOptions.has(value)},__nfInitialize:{value:()=>unsupported('PNGEncoderOptions subclassing')}});
+  Object.defineProperties(PNGEncoderOptions,{__nfIs:{value:value=>encoderOptions.has(value)},__nfInitialize:{value:()=>unsupported('PNGEncoderOptions subclassing')},[Symbol.hasInstance]:{value:value=>encoderOptions.has(value)}});
+  class JPEGEncoderOptions {
+    constructor(quality=80){jpegEncoderOptions.set(this,80);this.quality=quality;Object.seal(this);}
+    get quality(){if(!jpegEncoderOptions.has(this))throw new TypeError('Expected JPEGEncoderOptions.');return jpegEncoderOptions.get(this);}
+    set quality(value){
+      if(!jpegEncoderOptions.has(this))throw new TypeError('Expected JPEGEncoderOptions.');
+      const n=Number(value),q=n>>>0;
+      if(!Number.isFinite(n)||q<1||q>100)throw new RangeError('JPEGEncoderOptions.quality requires an integer from 1 through 100.');
+      jpegEncoderOptions.set(this,q);
+    }
+  }
+  Object.defineProperties(JPEGEncoderOptions,{__nfIs:{value:value=>jpegEncoderOptions.has(value)},__nfInitialize:{value:()=>unsupported('JPEGEncoderOptions subclassing')},[Symbol.hasInstance]:{value:value=>jpegEncoderOptions.has(value)}});
   function snapped(matrix,mode='auto'){
     const [a,b,c,d,e,f]=matrix;
     if(mode==='always')return [a,b,c,d,Math.round(e),Math.round(f)];
@@ -202,14 +213,37 @@
         if(!result.complete){const error=new Error('BitmapData.setPixels reached the end of the ByteArray; available whole pixels were written.');error.name='EOFError';throw error;}
       }
       colorTransform(rect,transform){const ref=key(refOf(this)),area=rectangle(rect),ct=JSON.stringify(colorTransform(transform));native('bitmap_color_transform',ref,...area,ct);}
-      applyFilter(source,sourceRect,destPoint,value){const destination=key(refOf(this)),input=key(refOf(source)),area=rectangle(sourceRect),at=point(destPoint),spec=filter(value);native('bitmap_apply_filter',destination,input,...area,...at,spec);}
-      generateFilterRect(sourceRect,value){const ref=key(refOf(this)),area=rectangle(sourceRect),spec=filter(value),r=JSON.parse(native('bitmap_generate_filter_rect',ref,...area,spec));return new geometry.Rectangle(r.x,r.y,r.width,r.height);}
+      applyFilter(source,sourceRect,destPoint,value){
+        const settings=getFilters?.().as2Displacement?.(value);
+        if(settings){
+          const [x,y,width,height]=rectangle(sourceRect);
+          native('as2_bitmap_command',JSON.stringify({op:'displacement',dst:refOf(this),src:refOf(source),rect:{x,y,width,height},point:point(destPoint),settings}));
+          return;
+        }
+        const destination=key(refOf(this)),input=key(refOf(source)),area=rectangle(sourceRect),at=point(destPoint),spec=filter(value);native('bitmap_apply_filter',destination,input,...area,...at,spec);
+      }
+      generateFilterRect(sourceRect,value){
+        const settings=getFilters?.().as2Displacement?.(value);
+        if(settings){
+          const [x,y,width,height]=rectangle(sourceRect),r=JSON.parse(native('as2_bitmap_command',JSON.stringify({op:'filter_bounds',src:refOf(this),rect:{x,y,width,height}})));
+          return new geometry.Rectangle(r.x,r.y,r.width,r.height);
+        }
+        const ref=key(refOf(this)),area=rectangle(sourceRect),spec=filter(value),r=JSON.parse(native('bitmap_generate_filter_rect',ref,...area,spec));return new geometry.Rectangle(r.x,r.y,r.width,r.height);
+      }
       encode(rect,compressor,output=null){
-        const ref=key(refOf(this)),area=rectangle(rect);
-        if(!encoderOptions.has(compressor))throw new TypeError('BitmapData.encode currently requires PNGEncoderOptions; JPEG/JPEG-XR encoding is not supported.');
-        const fast=compressor.fastCompression,service=binary();
-        if(output===null)return service.fromBytes(native('bitmap_encode_png',ref,...area,fast));
-        service.writeFromHost(output,()=>native('bitmap_encode_png',ref,...area,fast));return output;
+        const ref=key(refOf(this)),area=rectangle(rect),service=binary();
+        let produce;
+        if(encoderOptions.has(compressor)){
+          const fast=compressor.fastCompression;
+          produce=()=>native('bitmap_encode_png',ref,...area,fast);
+        }else if(jpegEncoderOptions.has(compressor)&&typeof player.bitmap_encode_jpeg==='function'){
+          const quality=compressor.quality;
+          produce=()=>native('bitmap_encode_jpeg',ref,...area,quality);
+        }else{
+          throw new TypeError('BitmapData.encode requires PNGEncoderOptions or JPEGEncoderOptions; JPEG-XR encoding is not supported.');
+        }
+        if(output===null)return service.fromBytes(produce());
+        service.writeFromHost(output,produce);return output;
       }
       draw(source,matrix=null,transform=null,blendMode=null,clipRect=null,smoothing=false){
         const info=descriptor(this),ref=key(reference(this));
@@ -301,7 +335,7 @@
     });
     function reset(){active();cache.clear();facades.clear();generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({BitmapData,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,setUintVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
+    return Object.freeze({BitmapData,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,setUintVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
   }
-  const api=Object.freeze({create,BitmapDataChannel,PixelSnapping,PNGEncoderOptions});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
+  const api=Object.freeze({create,BitmapDataChannel,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashBitmap=api;
 })(globalThis);

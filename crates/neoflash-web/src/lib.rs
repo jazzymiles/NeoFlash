@@ -837,6 +837,28 @@ impl WebPlayer {
             )
             .map_err(display_error)
     }
+    pub fn bitmap_encode_jpeg(
+        &self,
+        target: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        quality: u8,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_encode_jpeg(
+                &pixel_ref(target)?,
+                neoflash_core::BitmapRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                quality,
+            )
+            .map_err(display_error)
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn bitmap_draw_rgba(
         &mut self,
@@ -1058,6 +1080,7 @@ impl WebPlayer {
             "video" => DynamicKind::Video,
             "movie_clip" => DynamicKind::MovieClip,
             "loader" => DynamicKind::Loader,
+            "button" => DynamicKind::Button,
             _ => {
                 return Err(JsValue::from_str(
                     "Only empty Sprite, Shape and MovieClip creation is supported; linked dynamic timelines are pending",

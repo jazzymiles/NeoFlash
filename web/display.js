@@ -58,7 +58,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -176,7 +176,10 @@
     function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
     function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
-    function requireContainer(target) {const node=descriptor(target);if(!['movie_clip','sprite','graphic','button','loader'].includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
+    const containerOwners=['movie_clip','sprite','graphic','loader'];
+    const spriteOwners=['movie_clip','sprite','graphic'];
+    const interactiveOwners=['movie_clip','sprite','graphic','button','text','loader'];
+    function requireContainer(target) {const node=descriptor(target);if(!containerOwners.includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
     function convert(target,value,toGlobal) {
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
       const m=descriptor(target).world,p=point(toGlobal?m:inverse(m),value.x,value.y);return new Point(p.x,p.y);
@@ -427,7 +430,7 @@
     }
     // Input targets use the authoritative graph and raw geometry, independently
     // of rendered ColorTransform alpha. Filters never add hit geometry.
-    const inputNames={mouseEnabled:'mouse_enabled',mouseChildren:'mouse_children',buttonMode:'button_mode',useHandCursor:'use_hand_cursor',hitArea:'hit_area'};
+    const inputNames={mouseEnabled:'mouse_enabled',mouseChildren:'mouse_children',buttonMode:'button_mode',useHandCursor:'use_hand_cursor',hitArea:'hit_area',doubleClickEnabled:'double_click_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children',focusRect:'focus_rect'};
     const dragOwners=new Set(['sprite','movie_clip','graphic']);
     const existingCallbackNames=new Set(['onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut']);
     const buttonCallbacks=new Set(['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut']);
@@ -516,9 +519,38 @@
 
     let dragging=null,pressed=null,hovered=null;
     const drops=new WeakMap();
-    function inputOf(node){if(Object.hasOwn(node,'input'))return node.input;return ['movie_clip','sprite','graphic','button','text','loader'].includes(node.owner)?{mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',movieclip_enabled:true,use_hand_cursor:true,hit_area:null}:null;}
+    let contextMenus=new WeakMap(),accessImpls=new WeakMap(),buttonRecords=new WeakMap();
+    function buttonRecord(target){let rec=buttonRecords.get(target);if(!rec){rec={upState:null,overState:null,downState:null,hitTestState:null,volume:1,pan:0};buttonRecords.set(target,rec);}return rec;}
+    function ownsInputProperty(owner,name){
+      if(name==='mouseChildren'||name==='tabChildren')return containerOwners.includes(owner);
+      if(name==='buttonMode'||name==='hitArea')return spriteOwners.includes(owner);
+      if(name==='useHandCursor')return spriteOwners.includes(owner)||owner==='button';
+      return interactiveOwners.includes(owner);
+    }
+    function inputOf(node){
+      const defaults={mouse_enabled:true,mouse_children:true,button_mode:node.owner==='button',movieclip_enabled:true,use_hand_cursor:true,hit_area:null,double_click_enabled:false,tab_enabled:false,tab_index:-1,tab_children:true,focus_rect:null,button_enabled:true,track_as_menu:false};
+      if(Object.hasOwn(node,'input'))return node.input?{...defaults,...node.input}:null;
+      return interactiveOwners.includes(node.owner)?defaults:null;
+    }
     function nativeInput(target){const node=descriptor(target);if(!inputOf(node))throw new TypeError('This display object is not interactive.');return inputOf(node);}
-    function inputWrite(target,name,value){const input=nativeInput(target),key=name==='enabled'?'movieclip_enabled':inputNames[name];if(name==='hitArea'){if(value!==null)descriptor(value);value=value===null?null:referenceOf(value).objectRef;}else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:value}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}}
+    function inputWrite(target,name,value){
+      const node=descriptor(target);
+      if(name!=='enabled'&&name!=='button_enabled'&&name!=='track_as_menu'&&!ownsInputProperty(node.owner,name))throw new TypeError(`${name} is not supported on this display object.`);
+      const input=nativeInput(target);
+      const key=name==='enabled'?'movieclip_enabled':name==='button_enabled'?'button_enabled':name==='track_as_menu'?'track_as_menu':inputNames[name];
+      let normalized=value;
+      if(name==='hitArea'){if(value!==null)descriptor(value);normalized=value===null?null:referenceOf(value).objectRef;}
+      else if(name==='tabIndex'){if(typeof value!=='number'||!Number.isFinite(value))throw new TypeError('tabIndex requires a finite integer.');normalized=value|0;}
+      else if(name==='focusRect'){if(value!==null&&typeof value!=='boolean')throw new TypeError('focusRect requires Boolean or null.');normalized=value;}
+      else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);
+      const previous=input[key];
+      try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:normalized}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}
+      if(previous!==normalized){
+        if(name==='tabEnabled')onTabChange(target,'tabEnabledChange');
+        else if(name==='tabIndex')onTabChange(target,'tabIndexChange');
+        else if(name==='tabChildren')onTabChange(target,'tabChildrenChange');
+      }
+    }
     function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];return node.kind?[node.kind]:[];}
     function leafHit(node,x,y){
       let q;try{q=point(inverse(node.world),x,y);}catch(_){return false;}
@@ -643,11 +675,13 @@
         getRect: space=>bounds(target,space===undefined?target:space,false),
         localToGlobal: value=>convert(target,value,true),
         globalToLocal: value=>convert(target,value,false),
+      };
+      if(containerOwners.includes(descriptor(target).owner))Object.assign(result,{
         getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return nodeProxy(list[index]);},
         getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
-      };
+      });
       if(as2) {
         for(const name of ['getBounds','getRect'])as2.register(result[name],target,name,space=>{
           const destination=space===undefined?target:resolveTarget(space,target);
@@ -660,7 +694,7 @@
         });
       }
       if(dragOwners.has(descriptor(target).owner)){result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);result.stopDrag=()=>stopDrag(target);if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});}
-      if(graph&&['movie_clip','sprite','graphic','button'].includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
+      if(graph&&containerOwners.includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
@@ -694,10 +728,16 @@
       if(name==='_framesloaded')return descriptor(target).total_frames;
       if(name==='_url'){descriptor(target);if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
 
-      if(Object.hasOwn(inputNames,name)){const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(!interactiveOwners.includes(node.owner))return UNHANDLED;return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
       if(name==='enabled'&&descriptor(target).owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
-      if(name==='enabled'&&descriptor(target).owner==='button')throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
+      if(descriptor(target).owner==='button'){
+        if(name==='enabled')return nativeInput(target).button_enabled!==false;
+        if(name==='trackAsMenu')return Boolean(nativeInput(target).track_as_menu);
+        if(['upState','overState','downState','hitTestState'].includes(name))return buttonRecord(target)[name];
+        if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);}
+      }
       if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
       if(descriptor(target).owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
@@ -744,7 +784,7 @@
         }
       }
       if(name==='name'||name==='_name')return descriptor(target).name;
-      if(name==='numChildren'){requireContainer(target);return children(target).length;}
+      if(name==='numChildren'){if(!containerOwners.includes(descriptor(target).owner))return UNHANDLED;return children(target).length;}
       if(name==='width'||name==='_width')return bounds(target,parentSpace(target),true).width;
       if(name==='height'||name==='_height')return bounds(target,parentSpace(target),true).height;
       if(name==='stage') {return descriptor(target).on_stage===false?null:getStage();}
@@ -753,8 +793,14 @@
     }
     function set(target,name,value) {
       if(name==='enabled'&&descriptor(target).owner==='movie_clip'){inputWrite(target,name,value);return true;}
-      if(name==='enabled'&&descriptor(target).owner==='button')throw new TypeError('AS2 enabled is a separate callback-only switch not yet supported; use mouseEnabled for the current input profile.');
-      if(Object.hasOwn(inputNames,name)){inputWrite(target,name,value);return true;}
+      if(descriptor(target).owner==='button'){
+        if(name==='enabled'){inputWrite(target,'button_enabled',value);return true;}
+        if(name==='trackAsMenu'){inputWrite(target,'track_as_menu',value);return true;}
+        if(['upState','overState','downState','hitTestState'].includes(name)){validateButtonState(value);buttonRecord(target)[name]=value;return true;}
+        if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
+      }
+      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
+      if(Object.hasOwn(inputNames,name)){if(!ownsInputProperty(descriptor(target).owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
@@ -869,24 +915,40 @@
       if(data!==null)getBitmap().refOf(data);return [data,snap,smooth];
     }
     function initializeBitmap(receiver,args){const [data,snap,smooth]=bitmapArguments(args);set(receiver,'bitmapData',data);set(receiver,'pixelSnapping',snap);set(receiver,'smoothing',smooth);}
+    function validateButtonState(value){
+      if(value===null)return null;
+      if(value===getStage()||!builtins['flash.display.DisplayObject'].__nfIs(value))throw new TypeError('SimpleButton state requires a DisplayObject or null.');
+      return value;
+    }
+    function simpleButtonArguments(args){
+      if(args.length>4)throw new TypeError('SimpleButton expects at most four optional DisplayObject state arguments.');
+      const [up=null,over=null,down=null,hit=null]=args;
+      return [validateButtonState(up),validateButtonState(over),validateButtonState(down),validateButtonState(hit)];
+    }
+    function initializeSimpleButton(receiver,args){
+      const [upState,overState,downState,hitTestState]=simpleButtonArguments(args);
+      const rec=buttonRecord(receiver);
+      rec.upState=upState;rec.overState=overState;rec.downState=downState;rec.hitTestState=hitTestState;
+      refreshLegacyCallbacks(receiver);
+    }
     const builtins={'flash.display.Graphics':Graphics,'flash.geom.Point':Point,'flash.geom.Rectangle':Rectangle,'flash.geom.Matrix':Matrix,'flash.geom.ColorTransform':ColorTransform,'flash.geom.Transform':Transform};
     for(const[name,type]of Object.entries(graphicsEnums))builtins['flash.display.'+name]=type;
-    for(const[name,owners]of Object.entries({DisplayObject:null,DisplayObjectContainer:['movie_clip','sprite','graphic','loader'],MovieClip:['movie_clip'],SimpleButton:['button'],Sprite:['movie_clip','sprite','graphic'],Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
-      const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field'}[name];
-      function allocate(){if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
-      function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
+    for(const[name,owners]of Object.entries({DisplayObject:null,InteractiveObject:interactiveOwners,DisplayObjectContainer:containerOwners,MovieClip:['movie_clip'],SimpleButton:['button'],Sprite:spriteOwners,Shape:['shape'],Bitmap:['bitmap'],TextField:['text']})) {
+      const allocation={Sprite:'sprite',Shape:'shape',MovieClip:'movie_clip',Bitmap:'bitmap',TextField:'text_field',SimpleButton:'button'}[name];
+      function allocate(){if(name==='DisplayObject'||name==='InteractiveObject'||name==='DisplayObjectContainer')throw new TypeError(`ArgumentError: Error #2012: ${name}$ class cannot be instantiated.`);if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);return proxyForRef(JSON.parse(player.create_display(allocation)));}
+      function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(name==='SimpleButton'){simpleButtonArguments(args);const receiver=allocate();initializeSimpleButton(receiver,args);return receiver;}if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
       if((allocation||name==='SimpleButton')&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
         const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
         if(!symbol)return allocate();
         const receiver=proxyForRef(JSON.parse(player.create_linked(symbol.linkage_id)));
         prepareLinked(receiver,true);return receiver;
       };
-      NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return name==='DisplayObject'||name==='DisplayObjectContainer';try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
-      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip'||name==='SimpleButton')refreshLegacyCallbacks(receiver);};
+      NativeDisplay.__nfIs=value=>{if(value&&value===getStage())return ['DisplayObject','InteractiveObject','DisplayObjectContainer'].includes(name);try{const node=descriptor(value);return owners===null||owners.includes(node.owner);}catch(_){return false;}};
+      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(name==='SimpleButton'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('SimpleButton base initialization requires a SimpleButton display object.');initializeSimpleButton(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
-    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();accProps=new WeakMap();contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

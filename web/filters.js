@@ -48,12 +48,14 @@
   for(const[Constructor,properties]of [[BlurFilter,['blurX','blurY','quality']],[GlowFilter,['color','alpha','blurX','blurY','strength','quality','inner','knockout']],[DropShadowFilter,['distance','angle','color','alpha','blurX','blurY','strength','quality','inner','knockout','hideObject']],[ColorMatrixFilter,['matrix']],[ConvolutionFilter,['matrixX','matrixY','matrix','divisor','bias','preserveAlpha','clamp','color','alpha']],[BevelFilter,['distance','angle','highlightColor','highlightAlpha','shadowColor','shadowAlpha','blurX','blurY','strength','quality','type','knockout']],[GradientGlowFilter,gradientProperties],[GradientBevelFilter,gradientProperties]]){
     for(const name of properties)Object.defineProperty(Constructor.prototype,name,{enumerable:true,get(){const record=states.get(this);if(!record)throw new TypeError('Expected a supported BitmapFilter.');const value=record[names[name]||name];return Array.isArray(value)?value.slice():value;},set(value){const record=states.get(this);if(!record)throw new TypeError('Expected a supported BitmapFilter.');record[names[name]||name]=validate(name,value,record.type);}});
   }
-  for(const Constructor of [BitmapFilter,...Object.values(classes)])Object.defineProperties(Constructor,{__nfIs:{value:value=>states.has(value)&&(Constructor===BitmapFilter||classes[states.get(value).type]===Constructor)},__nfInitialize:{value:()=>{throw new TypeError('Native filter subclassing is not supported.');}}});
+  for(const Constructor of [BitmapFilter,...Object.values(classes)])Object.defineProperties(Constructor,{__nfIs:{value:value=>states.has(value)&&(Constructor===BitmapFilter||classes[states.get(value).type]===Constructor)},__nfInitialize:{value:()=>{throw new TypeError('Native filter subclassing is not supported.');}},[Symbol.hasInstance]:{value:value=>states.has(value)&&(Constructor===BitmapFilter||classes[states.get(value).type]===Constructor)}});
   class BitmapFilterQuality {constructor(){throw new TypeError('BitmapFilterQuality supplies LOW, MEDIUM and HIGH constants.');}}
   Object.assign(BitmapFilterQuality,{LOW:1,MEDIUM:2,HIGH:3});Object.freeze(BitmapFilterQuality);
   class BitmapFilterType {constructor(){throw new TypeError('BitmapFilterType supplies INNER, OUTER and FULL constants.');}}
   Object.assign(BitmapFilterType,{INNER:'inner',OUTER:'outer',FULL:'full'});Object.freeze(BitmapFilterType);
-  function spec(value){const record=states.get(value);if(record?.type==='as2_displacement')throw new TypeError('AS2 DisplacementMapFilter currently supports BitmapData.applyFilter; DisplayObject.filters map snapshots are not implemented.');if(!record)throw new TypeError('DisplayObject.filters accepts supported BitmapFilter instances.');return Object.fromEntries(Object.entries(record).map(([key,item])=>[key,Array.isArray(item)?item.slice():item]));}
+  class DisplacementMapFilterMode {constructor(){throw new TypeError('DisplacementMapFilterMode supplies CLAMP, COLOR, IGNORE and WRAP constants.');}}
+  Object.assign(DisplacementMapFilterMode,{CLAMP:'clamp',COLOR:'color',IGNORE:'ignore',WRAP:'wrap'});Object.freeze(DisplacementMapFilterMode);
+  function spec(value){const record=states.get(value);if(record?.type==='as2_displacement')throw new TypeError('DisplacementMapFilter currently supports BitmapData.applyFilter; DisplayObject.filters map snapshots are not implemented.');if(!record)throw new TypeError('DisplayObject.filters accepts supported BitmapFilter instances.');return Object.fromEntries(Object.entries(record).map(([key,item])=>[key,Array.isArray(item)?item.slice():item]));}
   function fromSpec(value){const Constructor=classes[value?.type];if(!Constructor)throw new TypeError('Unsupported runtime filter specification.');const result=new Constructor();for(const[key,itemValue]of Object.entries(value)){if(key==='type')continue;const name=Object.keys(names).find(name=>names[name]===key)||key;result[name]=itemValue;}return result;}
   function fromSpecs(values){if(!Array.isArray(values))throw new TypeError('Invalid runtime filter array.');return values.map(fromSpec);}
   function toSpecs(values){if(values===null)return [];if(!Array.isArray(values)||values.length>8||Array.from({length:values.length},(_,i)=>!Object.hasOwn(values,i)).some(Boolean))throw new TypeError('DisplayObject.filters requires null or a dense Array of at most eight filters.');return values.map(spec);}
@@ -159,14 +161,14 @@
         else value=validate(name,value,'as2_displacement');
         record[name]=value;
       }});
-    Object.defineProperties(DisplacementMapFilter,{__nfIs:{value:value=>states.get(value)?.type==='as2_displacement'},__nfInitialize:{value:()=>{throw new TypeError('Native displacement filter subclassing is unsupported.');}}});
+    Object.defineProperties(DisplacementMapFilter,{__nfIs:{value:value=>states.get(value)?.type==='as2_displacement'},__nfInitialize:{value:()=>{throw new TypeError('Native displacement filter subclassing is unsupported.');}},[Symbol.hasInstance]:{value:value=>states.get(value)?.type==='as2_displacement'}});
     const as2Displacement=value=>{
       const state=states.get(value);if(state?.type!=='as2_displacement')return null;
       return {map_bitmap:state.mapBitmap===null?null:getBitmap().refOf(state.mapBitmap),map_point:state.mapPoint===null?[0,0]:[state.mapPoint.x,state.mapPoint.y],component_x:state.componentX,component_y:state.componentY,scale_x:state.scaleX,scale_y:state.scaleY,mode:state.mode,color:state.color,alpha:state.alpha};
     };
     return {DisplacementMapFilter,as2Displacement};
   }
-  function create(options={}){return Object.freeze({...legacyDisplacement(options),BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,toSpecs,fromSpecs,renderer:new Renderer(options)});}
-  const api=Object.freeze({create,Renderer,BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,toSpecs,fromSpecs});
+  function create(options={}){return Object.freeze({...legacyDisplacement(options),BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs,renderer:new Renderer(options)});}
+  const api=Object.freeze({create,Renderer,BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashFilters=api;
 })(globalThis);

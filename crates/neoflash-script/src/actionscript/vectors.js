@@ -176,7 +176,7 @@ function __nfVectorRef(value,key) {
     };
 }
 const __nfVectorMethodNames=new Set(['push','pop','shift','unshift','slice','splice','concat','reverse',
-    'indexOf','lastIndexOf','sort','map','filter','every','some','forEach','join','toString','toLocaleString',
+    'indexOf','lastIndexOf','insertAt','removeAt','sort','map','filter','every','some','forEach','join','toString','toLocaleString',
     'hasOwnProperty','propertyIsEnumerable','valueOf']);
 function __nfVectorMethod(state,name,args) {
     const values=state.values,proxy=state.proxy,make=items=>__nfVectorNew(state.element,state.type,items);
@@ -196,6 +196,21 @@ function __nfVectorMethod(state,name,args) {
             arity(0);unfixed();
             if(!values.length)return typeof state.element.defaultValue==='number'?0:undefined;
             return __nfVectorApply(__nfVectorArray[name],values,[]);
+        }
+        case 'insertAt':{
+            if(args.length<2)__nfVectorUnsupported('insertAt requires index and element arguments.');
+            arity(2);unfixed();__nfVectorLength(values.length+1);
+            const at=__nfVectorClamp(__nfVectorPosition(args[0],0),values.length);
+            const item=__nfVectorConvertValues(state,[args[1]])[0];
+            __nfVectorApply(__nfVectorArray.splice,values,[at,0,item]);
+            return undefined;
+        }
+        case 'removeAt':{
+            if(!args.length)__nfVectorUnsupported('removeAt requires an index.');
+            arity(1);unfixed();
+            const raw=__nfVectorPosition(args[0],0),at=raw<0?Math.max(0,values.length+raw):raw;
+            if(at<0||at>=values.length)throw __nfVectorError('RangeError','index '+raw+' is outside the Vector bounds '+values.length+'.');
+            return __nfVectorApply(__nfVectorArray.splice,values,[at,1])[0];
         }
         case 'reverse':arity(0);__nfVectorMutable(state);__nfVectorApply(__nfVectorArray.reverse,values,[]);return proxy;
         case 'slice':{
