@@ -111,7 +111,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
-| DL-01 | Preferences (9 pages) | Planned dialog | preview | editor | P1–P3 per page |
+| DL-01 | Preferences (9 pages) | Planned dialog | preview; General ▸ Theme done | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | preview | editor | P1 |
 | DL-03 | Publish settings | Planned dialog | preview | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
@@ -686,6 +686,11 @@ See ST-01…ST-06.
 
 All values are editor preferences (eframe storage, like `WorkspacePrefs`), never document data. Save applies and
 persists; Cancel discards; Reset restores defaults for the current page (verify: page vs all).
+
+Done: General ▸ Theme Dark / Light (`planned_dialogs::prefs_general`) is a draft that Save applies through
+`Editor::set_theme` and persists with the workspace prefs; Cancel and the header close discard it; Reset to defaults
+(enabled on General only) restores Dark. The dialog is still the non-modal planned preview; "follow system" and every
+other setting stay disabled.
 
 | Page | Controls (from the preview) | Effect when wired | Model / engine | Prio |
 | --- | --- | --- | --- | --- |

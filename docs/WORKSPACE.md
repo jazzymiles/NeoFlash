@@ -1,6 +1,6 @@
 # Workspace
 
-NeoFlash uses a compact classic workspace. **Window → Appearance → Light / Dark** changes both ordinary controls and manually painted timeline/stage overlays. Authored colors, fonts, scripts and document history are independent of the theme.
+NeoFlash uses a compact classic workspace. **Window → Appearance → Light / Dark** or **Edit → Preferences… → General → Theme** (applied with Save) changes both ordinary controls and manually painted timeline/stage overlays. Authored colors, fonts, scripts and document history are independent of the theme.
 
 The [NF2 design system](DESIGN-SYSTEM.md) defines the visual and interaction standard, implemented in `crates/neoflash-ui` from the Figma export in `interface/design-system`. It is separate from the implemented workflows described here.
 

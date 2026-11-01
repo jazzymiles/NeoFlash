@@ -1,11 +1,13 @@
 //! Planned dialog previews: Preferences (`dialog-preferences-*.png`), Document settings (`document-dialogs.png`),
 //! Publish settings (`publish-misc-dialogs.png`), Export image / video / audio (`dialogs-export.png`),
 //! Import video (`dialog-import-video.png`), Sound properties (`dialogs-sound-stroke.png`).
-//! Preferences categories and export formats switch preview pages; every setting stays disabled.
+//! Preferences categories and export formats switch preview pages; every setting stays disabled except
+//! Preferences ▸ General ▸ Theme, which Save applies and Cancel discards.
 use super::planned::{
-    body_text, caption, check, footer, form_label, num, segmented, select, slider, stepper, switch,
-    text,
+    FooterClick, body_text, caption, check, footer, footer_clicked, form_label, num, segmented,
+    select, slider, stepper, switch, text,
 };
+use crate::theme::ThemeMode;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
@@ -80,8 +82,21 @@ pub(crate) const PREFERENCE_PAGES: [&str; 9] = [
     "Updates",
 ];
 
-/// Dialog / Preferences: category list (preview navigation) + the selected page.
-pub(super) fn preferences(ui: &mut Ui, page: &mut usize) {
+/// Preferences footer result that closes the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PreferencesAction {
+    Save,
+    Cancel,
+}
+
+/// Dialog / Preferences: category list (preview navigation) + the selected page. General ▸ Theme edits
+/// `theme` (a draft; `None` = the current theme): Save applies it, Cancel discards it, Reset to defaults
+/// restores the default theme on the General page. Every other setting stays disabled.
+pub(super) fn preferences(
+    ui: &mut Ui,
+    page: &mut usize,
+    theme: &mut Option<ThemeMode>,
+) -> Option<PreferencesAction> {
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
             egui::vec2(196.0, 0.0),
@@ -113,32 +128,63 @@ pub(super) fn preferences(ui: &mut Ui, page: &mut usize) {
             },
         );
         ui.add_space(space::S5);
-        ui.vertical(|ui| {
-            disabled(ui, |ui| match *page {
-                0 => prefs_general(ui),
-                1 => prefs_code_editor(ui),
-                2 => prefs_timeline(ui),
-                3 => prefs_drawing(ui),
-                4 => prefs_text(ui),
-                5 => prefs_clipboard(ui),
-                6 => prefs_shortcuts(ui),
-                7 => prefs_publish(ui),
-                _ => prefs_updates(ui),
-            });
+        ui.vertical(|ui| match *page {
+            0 => prefs_general(ui, theme),
+            1 => disabled(ui, prefs_code_editor),
+            2 => disabled(ui, prefs_timeline),
+            3 => disabled(ui, prefs_drawing),
+            4 => disabled(ui, prefs_text),
+            5 => disabled(ui, prefs_clipboard),
+            6 => disabled(ui, prefs_shortcuts),
+            7 => disabled(ui, prefs_publish),
+            _ => disabled(ui, prefs_updates),
         });
     });
-    disabled(ui, |ui| {
-        footer(ui, "", Some("Reset to defaults"), &["Cancel", "Save"])
-    });
+    match footer_clicked(
+        ui,
+        "",
+        Some(("Reset to defaults", *page == 0)),
+        &["Cancel", "Save"],
+    ) {
+        Some(FooterClick::Ghost) => {
+            *theme = Some(ThemeMode::default());
+            None
+        }
+        Some(FooterClick::Button(0)) => Some(PreferencesAction::Cancel),
+        Some(FooterClick::Button(_)) => Some(PreferencesAction::Save),
+        None => None,
+    }
 }
 
-fn prefs_general(ui: &mut Ui) {
+fn current_theme(ctx: &egui::Context) -> ThemeMode {
+    match ctx.theme() {
+        egui::Theme::Light => ThemeMode::Light,
+        egui::Theme::Dark => ThemeMode::Dark,
+    }
+}
+
+fn prefs_general(ui: &mut Ui, theme: &mut Option<ThemeMode>) {
     let nf = neoflash_ui::palette(ui.ctx());
-    section(ui, "Interface");
+    disabled(ui, |ui| section(ui, "Interface"));
     row(ui, "Theme", |ui| {
-        segmented(ui, &["Dark", "Light"], 0);
-        caption(ui, "or follow system");
+        let mut value = theme.unwrap_or_else(|| current_theme(ui.ctx()));
+        let shown = value;
+        c::Segmented::show(
+            ui,
+            &mut value,
+            &[(ThemeMode::Dark, "Dark"), (ThemeMode::Light, "Light")],
+            false,
+        );
+        if value != shown {
+            *theme = Some(value);
+        }
+        // Follow system is not supported: an explicit theme does not track OS changes.
+        disabled(ui, |ui| caption(ui, "or follow system"));
     });
+    disabled(ui, |ui| prefs_general_rest(ui, nf));
+}
+
+fn prefs_general_rest(ui: &mut Ui, nf: &neoflash_ui::Palette) {
     row(ui, "UI scale", |ui| select(ui, "100 %", 140.0));
     row(ui, "Accent", |ui| {
         for (i, color) in [

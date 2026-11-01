@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — Preferences
+
+- Edit ▸ Preferences… ▸ General ▸ Theme switches between Dark and Light: Save applies and remembers the choice, Cancel or closing the dialog discards it, and Reset to defaults returns to Dark. Following the system theme and the other preferences are not available yet.
+
 ## Unreleased — Timeline sound
 
 - Attach library sounds to keyframes: the Timeline controls Sound button lists the document's sounds and "Import sound…" (MP3/WAV), and attaching is one Undo step. Layers that hold only sounds show as Sound layers with waveform spans.

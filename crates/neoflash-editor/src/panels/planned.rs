@@ -5,8 +5,9 @@
 //! `DialogHeader` for dialogs) with a "Planned feature" banner. Bodies show the reference layout with fixed
 //! sample values; their controls are disabled (`ui.disable()`), so a preview never reads or writes the
 //! project. Only preview chrome reacts: move, collapse, close and — where the reference has them — page or
-//! format tabs that switch between preview pages. Open previews live in egui temp memory, not in the
-//! document or the workspace prefs.
+//! format tabs that switch between preview pages. The one wired setting is Preferences ▸ General ▸ Theme:
+//! Save applies it to the editor theme preference (never the project), Cancel discards it. Open previews live
+//! in egui temp memory, not in the document or the workspace prefs.
 //!
 //! Bodies: `planned_panels.rs` (History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets and
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
@@ -15,6 +16,7 @@
 //! brush, IK bone), `planned_documents.rs` (Graphic looping, Layer properties, Edit envelope, Stroke style, Font
 //! embedding, Test Movie window, Find and replace, Movie Explorer, Symbols & scenes popover).
 use crate::app::Editor;
+use crate::theme::ThemeMode;
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::metrics;
@@ -263,6 +265,10 @@ pub(crate) struct PlannedState {
     pub(crate) export_format: usize,
     /// Color panel preview page: radial gradient (false) or solid colour (true, color-type-menu-open.png).
     pub(crate) color_solid: bool,
+    /// Preferences ▸ General ▸ Theme draft (`None` = the current theme); dropped when Preferences closes.
+    pub(crate) theme_draft: Option<ThemeMode>,
+    /// Theme confirmed with Preferences ▸ Save; [`Editor::planned_panels`] applies and clears it.
+    pub(crate) theme_save: Option<ThemeMode>,
 }
 
 fn state_id() -> egui::Id {
@@ -311,10 +317,16 @@ pub(crate) fn menu_items(ui: &mut Ui) {
 }
 
 impl Editor {
-    /// Draw open planned-panel previews. Read-only: takes no editor state and never touches the project.
+    /// Draw open planned-panel previews. They never touch the project; the only wired setting,
+    /// Preferences ▸ General ▸ Theme, changes the editor theme preference when Save is clicked.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
         open_from_env(ctx);
         show_planned_panels(ctx);
+        let mut state = planned_state(ctx);
+        if let Some(theme) = state.theme_save.take() {
+            store_state(ctx, state);
+            self.set_theme(ctx, theme);
+        }
     }
 }
 
@@ -368,6 +380,9 @@ pub(crate) fn show_planned_panels(ctx: &egui::Context) {
     }
     state.open.retain(|(p, _)| !closed.contains(p));
     state.collapsed.retain(|p| !closed.contains(p));
+    if closed.contains(&PlannedPanel::Preferences) {
+        state.theme_draft = None;
+    }
     // Keep previews opened from inside a preview this frame (e.g. Color ▸ Bitmap fill).
     for (p, pos) in planned_state(ctx).open {
         if !state.open.iter().any(|(q, _)| *q == p) && !closed.contains(&p) {
@@ -496,7 +511,7 @@ fn preview_window(
                             banner(ui);
                         }
                         ui.add_space(space::S1);
-                        body(ui, panel, state);
+                        close |= body(ui, panel, state);
                     });
             });
         });
@@ -579,18 +594,30 @@ pub(crate) fn banner(ui: &mut Ui) {
     });
 }
 
-fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
+/// Preview body. Returns true when the body closes its window (Preferences Save / Cancel).
+fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
+    use super::planned_dialogs::PreferencesAction;
     use PlannedPanel as P;
     // Pages with preview navigation disable their own content; everything else is disabled here.
     match panel {
         P::Preferences => {
-            return super::planned_dialogs::preferences(ui, &mut state.preferences_page);
+            let action = super::planned_dialogs::preferences(
+                ui,
+                &mut state.preferences_page,
+                &mut state.theme_draft,
+            );
+            if action == Some(PreferencesAction::Save) {
+                state.theme_save = state.theme_draft;
+            }
+            return action.is_some();
         }
         P::ExportImage => {
-            return super::planned_dialogs::export_image(ui, &mut state.export_format);
+            super::planned_dialogs::export_image(ui, &mut state.export_format);
+            return false;
         }
         P::ColorGradient => {
-            return super::planned_color::color_gradient(ui, &mut state.color_solid);
+            super::planned_color::color_gradient(ui, &mut state.color_solid);
+            return false;
         }
         _ => {}
     }
@@ -630,6 +657,7 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
             P::Preferences | P::ExportImage | P::ColorGradient => {}
         }
     });
+    false
 }
 
 // ── Shared display helpers: NF2 components showing fixed sample values (never project data). ──
@@ -760,7 +788,26 @@ pub(crate) fn type_header(ui: &mut Ui, icon: neoflash_ui::Icon, title: &str, sub
 
 /// Dialog footer: optional left caption/ghost action, right-aligned buttons (last = primary).
 pub(crate) fn footer(ui: &mut Ui, left: &str, ghost: Option<&str>, buttons: &[&str]) {
+    let _ = footer_clicked(ui, left, ghost.map(|g| (g, true)), buttons);
+}
+
+/// Footer button clicked in [`footer_clicked`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FooterClick {
+    Ghost,
+    /// Index into `buttons`.
+    Button(usize),
+}
+
+/// [`footer`] that reports clicks; `ghost` carries its enabled state.
+pub(crate) fn footer_clicked(
+    ui: &mut Ui,
+    left: &str,
+    ghost: Option<(&str, bool)>,
+    buttons: &[&str],
+) -> Option<FooterClick> {
     let nf = neoflash_ui::palette(ui.ctx());
+    let mut clicked = None;
     ui.add_space(space::S2);
     let r = ui.available_rect_before_wrap();
     ui.painter().hline(
@@ -770,22 +817,28 @@ pub(crate) fn footer(ui: &mut Ui, left: &str, ghost: Option<&str>, buttons: &[&s
     );
     ui.add_space(space::S2);
     ui.horizontal(|ui| {
-        if let Some(g) = ghost {
-            ui.add(c::Button::ghost(g));
+        if let Some((g, enabled)) = ghost
+            && ui.add_enabled(enabled, c::Button::ghost(g)).clicked()
+        {
+            clicked = Some(FooterClick::Ghost);
         }
         if !left.is_empty() {
             caption(ui, left);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             for (i, b) in buttons.iter().rev().enumerate() {
-                ui.add(if i == 0 {
+                let response = ui.add(if i == 0 {
                     c::Button::primary(b)
                 } else {
                     c::Button::new(b)
                 });
+                if response.clicked() {
+                    clicked = Some(FooterClick::Button(buttons.len() - 1 - i));
+                }
             }
         });
     });
+    clicked
 }
 
 #[cfg(test)]

@@ -1301,3 +1301,64 @@ fn stage_context_menu_follows_design() {
         assert!(named_bounds(&out, row).is_some(), "Stage menu ▸ {row}");
     }
 }
+
+/// DL-01 Preferences ▸ General ▸ Theme: choosing Light is a draft until Save; Cancel discards it, Reset to
+/// defaults restores Dark, and the project never changes.
+#[test]
+fn preferences_theme_applies_on_save_and_cancel_discards() {
+    use crate::panels::planned::{self, PlannedPanel};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.set_theme(&ctx, ThemeMode::Dark);
+    let project = editor.project.clone();
+    let mut time = 0.0;
+    let mut step = |editor: &mut Editor, events: Vec<Event>| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| editor.planned_panels(ctx),
+        )
+    };
+    let mut click = |editor: &mut Editor, label: &str| {
+        let out = step(editor, vec![]);
+        let at = named_bounds(&out, label)
+            .unwrap_or_else(|| panic!("{label} is not shown"))
+            .center();
+        step(
+            editor,
+            vec![Event::PointerMoved(at), primary_button(at, true)],
+        );
+        step(editor, vec![primary_button(at, false)]);
+        step(editor, vec![]);
+    };
+
+    planned::set_open(&ctx, PlannedPanel::Preferences, true);
+    click(&mut editor, "Light");
+    assert_eq!(editor.workspace.theme, ThemeMode::Dark, "draft only");
+    assert_eq!(ctx.theme(), egui::Theme::Dark);
+    click(&mut editor, "Cancel");
+    assert!(!planned::is_open(&ctx, PlannedPanel::Preferences));
+    assert_eq!(editor.workspace.theme, ThemeMode::Dark);
+    assert_eq!(planned::planned_state(&ctx).theme_draft, None);
+
+    planned::set_open(&ctx, PlannedPanel::Preferences, true);
+    click(&mut editor, "Light");
+    click(&mut editor, "Save");
+    assert!(!planned::is_open(&ctx, PlannedPanel::Preferences));
+    assert_eq!(editor.workspace.theme, ThemeMode::Light);
+    assert_eq!(ctx.theme(), egui::Theme::Light);
+
+    planned::set_open(&ctx, PlannedPanel::Preferences, true);
+    click(&mut editor, "Reset to defaults");
+    assert_eq!(editor.workspace.theme, ThemeMode::Light, "draft only");
+    click(&mut editor, "Save");
+    assert_eq!(editor.workspace.theme, ThemeMode::Dark);
+    assert_eq!(ctx.theme(), egui::Theme::Dark);
+    assert_eq!(editor.project, project);
+}

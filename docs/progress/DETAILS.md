@@ -22,7 +22,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Dockable panels with resizable areas and ordered tabs
 - Working: Drag panels and tab groups to dock, merge, split or undock
 - Working: Floating panel windows with their own tabs and splits
-- Working: Light and Dark themes
+- Working: Light and Dark themes from the Window menu or Preferences
 - Working: Saved workspace layout kept separate from documents
 - Working: Numeric fields with click-to-type and drag scrubbing
 - Working: Properties panel with selection and tool contexts
