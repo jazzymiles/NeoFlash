@@ -97,3 +97,5 @@ Native chrome uses NF2 tokens and components from `crates/neoflash-ui` (Inter an
 When Library is too short for its inline preview, a compact Preview action opens the same preview in a popup while preserving list space and bottom commands. Enlarging the panel restores the inline preview preference and height. Focused scrollbars support arrow keys, Page Up/Down and Home/End, with a visible focus outline in either theme.
 
 An intermittent Stage repaint issue remains open: artwork can briefly appear absent after changing the theme or opening a Library preview, then return on a later redraw. No authored content loss was observed.
+
+Every panel can be closed the way it was opened: Window-menu rows toggle panels both ways, a tab's menu offers Hide, planned previews close from their header ✕, window dot or (popovers) a click outside, and detached panels close with the macOS window button. The in-window floating-panel fallback, used only by backends without native windows, does not react to its header ✕ in headless tests; macOS uses native windows and is not affected.

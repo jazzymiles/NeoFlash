@@ -103,9 +103,14 @@ pub(crate) fn menu_contents<R>(
             .max(220.)
             .min((ui.ctx().content_rect().width() - 16.).max(80.)),
     );
+    // egui gives a popup the height it remembered (400 pt on first open, or the height of a shorter
+    // menu that shared the popup, e.g. another tab's menu in the same dock group). A scroll area
+    // never grows past that, so long menus stayed clipped; allow up to the screen height instead.
+    let max_height = (ui.ctx().content_rect().height() - 16.).max(80.);
+    ui.set_max_height(max_height);
     egui::ScrollArea::vertical()
         .id_salt("menu-commands")
-        .max_height((ui.ctx().content_rect().height() - 16.).max(80.))
+        .max_height(max_height)
         .auto_shrink([false, true])
         .themed()
         .show(ui, content)

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Panels and menus
+
+- The ✕ in the header of planned dialog previews (Preferences, Document settings, Publish settings, Export image / video / audio, Import video, Sound properties, PolyStar settings, Layer properties, Edit envelope, Stroke style, Font embedding, Find and replace) closes them again; the header drag area used to swallow the click.
+- The Symbols & scenes popover preview closes when you click outside it.
+- Long menus show all their rows instead of a 400-point scroll box: Window ▸ Output, Accessibility, Scene, Motion editor and the rows below them are directly clickable, and a panel's tab menu no longer stays clipped after a shorter tab menu in the same group was opened.
+- Every Window-menu panel opens and closes from the Window menu and from its tab menu (Hide); every planned preview closes from its own header, window dot or by clicking outside; About, New symbol and the unsaved-changes prompt close with their buttons. One editor test now covers all of these.
+
 ## Unreleased — Preferences
 
 - Edit ▸ Preferences… ▸ General ▸ Theme switches between Dark and Light: Save applies and remembers the choice, Cancel or closing the dialog discards it, and Reset to defaults returns to Dark. Following the system theme and the other preferences are not available yet.

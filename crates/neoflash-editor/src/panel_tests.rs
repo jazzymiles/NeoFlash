@@ -1362,3 +1362,258 @@ fn preferences_theme_applies_on_save_and_cancel_discards() {
     assert_eq!(ctx.theme(), egui::Theme::Dark);
     assert_eq!(editor.project, project);
 }
+
+/// Whole editor frame in `eframe::App::update` order (without playback/audio/native window glue).
+fn full_frame(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    time: f64,
+    events: Vec<Event>,
+) -> egui::FullOutput {
+    ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+            time: Some(time),
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            editor.shortcuts(ctx);
+            editor.normalize_selection();
+            editor.menu(ctx);
+            editor.status_bar(ctx);
+            editor.bitmap_textures.begin_frame(&editor.project);
+            editor.prepare_docked_panel_focus(ctx);
+            editor.dock_grid(ctx);
+            editor.stage(ctx);
+            editor.draw_dialogs(ctx);
+            editor.symbol_creation_dialog(ctx);
+            editor.detached_panels(ctx);
+            editor.planned_panels(ctx);
+        },
+    )
+}
+
+/// Drives clicks through [`full_frame`] and finds controls by their accessible name.
+struct Driver {
+    ctx: egui::Context,
+    editor: Editor,
+    time: f64,
+    out: egui::FullOutput,
+}
+impl Driver {
+    fn new() -> Self {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        let out = full_frame(&mut editor, &ctx, 0.1, vec![]);
+        Self {
+            ctx,
+            editor,
+            time: 0.1,
+            out,
+        }
+    }
+    fn step(&mut self, events: Vec<Event>) {
+        self.time += 0.1;
+        self.out = full_frame(&mut self.editor, &self.ctx, self.time, events);
+    }
+    fn settle(&mut self) {
+        self.step(vec![]);
+        self.step(vec![]);
+    }
+    /// Bounds of the control named `label`; dock tabs are skipped (menu rows share panel names).
+    fn find(&self, label: &str) -> Option<Rect> {
+        self.out
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(|r| {
+                        Rect::from_min_max(
+                            Pos2::new(r.x0 as f32, r.y0 as f32),
+                            Pos2::new(r.x1 as f32, r.y1 as f32),
+                        )
+                    })
+            })
+    }
+    fn labels(&self) -> Vec<String> {
+        let mut labels: Vec<String> = self
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| n.label().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        labels.sort();
+        labels.dedup();
+        labels
+    }
+    fn press(&mut self, at: Pos2, button: egui::PointerButton) {
+        let event = |pressed| Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        self.step(vec![Event::PointerMoved(at), event(true)]);
+        self.step(vec![event(false)]);
+        self.settle();
+    }
+    fn click(&mut self, label: &str) {
+        let at = self
+            .find(label)
+            .unwrap_or_else(|| panic!("{label:?} is not shown; visible: {:?}", self.labels()))
+            .center();
+        self.press(at, egui::PointerButton::Primary);
+    }
+    /// Accessible bounds of the dock tab of `panel` (role Tab, so menu rows with the same name do not match).
+    fn tab(&self, panel: PanelId) -> Option<Rect> {
+        self.out
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.role() == egui::accesskit::Role::Tab && node.label() == Some(panel.title()))
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(|r| {
+                        Rect::from_min_max(
+                            Pos2::new(r.x0 as f32, r.y0 as f32),
+                            Pos2::new(r.x1 as f32, r.y1 as f32),
+                        )
+                    })
+            })
+    }
+}
+
+/// Every panel, preview and dialog that can be opened can also be closed again from the UI: Window menu rows
+/// toggle real panels both ways, each panel tab's menu hides it, preview chrome closes previews (popovers by
+/// clicking outside), and modal dialogs close with their buttons.
+#[test]
+fn every_panel_preview_and_dialog_opens_and_closes() {
+    use crate::panels::planned::{self, Chrome, PlannedPanel};
+    let mut d = Driver::new();
+    let project = d.editor.project.clone();
+    let window_row = |panel: PanelId| match panel {
+        PanelId::Timeline => "Timeline (⌥⌘T)",
+        PanelId::Tools => "Tools (⌘F2)",
+        PanelId::Properties => "Properties (⌘F3)",
+        PanelId::Library => "Library (⌘L)",
+        PanelId::Actions => "Actions (F9)",
+        PanelId::Align => "Align (⌘K)",
+        PanelId::Color => "Color (⇧⌘F9)",
+        PanelId::Transform => "Transform (⌘T)",
+        PanelId::Output => "Output (F2)",
+        PanelId::Accessibility => "Accessibility (⇧F11)",
+        PanelId::Ease => "Ease",
+        PanelId::Scene => "Scene (⇧F2)",
+        PanelId::MotionEditor => "Motion editor",
+    };
+
+    // Real panels: Window menu opens and closes; the tab menu's Hide closes too.
+    for panel in PanelId::ALL {
+        d.editor.set_panel_visible(panel, false);
+        d.settle();
+        d.click("Window");
+        d.click(window_row(panel));
+        assert!(
+            d.editor.workspace.is_panel_visible(panel),
+            "Window ▸ {panel:?} opens"
+        );
+        assert!(d.tab(panel).is_some(), "{panel:?} tab is drawn");
+        d.click("Window");
+        d.click(window_row(panel));
+        assert!(
+            !d.editor.workspace.is_panel_visible(panel),
+            "Window ▸ {panel:?} closes"
+        );
+        assert!(d.tab(panel).is_none(), "{panel:?} tab disappears");
+
+        d.click("Window");
+        d.click(window_row(panel));
+        assert!(d.editor.workspace.is_panel_visible(panel));
+        let tab = d.tab(panel).unwrap();
+        d.press(tab.center(), egui::PointerButton::Secondary);
+        d.click("Hide");
+        assert!(
+            !d.editor.workspace.is_panel_visible(panel),
+            "{panel:?} tab menu ▸ Hide closes"
+        );
+    }
+    d.editor.restore_workspace(&d.ctx);
+    d.settle();
+
+    // Planned previews: each closes from its own chrome. Failures are collected in one pass.
+    let mut stuck = Vec::new();
+    for panel in PlannedPanel::ALL {
+        planned::set_open(&d.ctx, panel, true);
+        d.settle();
+        assert!(planned::is_open(&d.ctx, panel));
+        let close = match panel.chrome() {
+            Chrome::Panel(_) => d.find("Close panel"),
+            Chrome::Dialog => d.find("Close"),
+            Chrome::Window => d.find("Close preview"),
+            // Popovers have no header: a click outside dismisses them.
+            Chrome::Popover => Some(Rect::from_center_size(Pos2::new(1200., 500.), Vec2::ZERO)),
+        };
+        match close {
+            Some(rect) => d.press(rect.center(), egui::PointerButton::Primary),
+            None => stuck.push(format!("{panel:?}: no close control")),
+        }
+        if planned::is_open(&d.ctx, panel) {
+            stuck.push(format!("{panel:?}: still open"));
+            planned::set_open(&d.ctx, panel, false);
+            d.settle();
+        }
+    }
+    assert!(stuck.is_empty(), "previews that do not close: {stuck:#?}");
+
+    // Modal dialogs.
+    d.click("Help");
+    d.click("About NeoFlash");
+    assert!(d.editor.show_about);
+    d.click("Close");
+    assert!(!d.editor.show_about, "About closes");
+
+    d.click("Insert");
+    d.click("New symbol… (⌘F8)");
+    assert!(d.editor.symbol_conversion.is_some(), "New symbol opens");
+    d.click("Cancel");
+    assert!(
+        d.editor.symbol_conversion.is_none(),
+        "New symbol closes with Cancel"
+    );
+
+    // Detached panels are native macOS windows here; their system close is handled in
+    // `detached_panels` (`close_requested`) and is not reachable from a headless egui test.
+    assert_eq!(
+        d.editor.project, project,
+        "opening and closing changes no document data"
+    );
+
+    // Unsaved-changes confirmation closes with Cancel and keeps the work.
+    d.editor.transact(|e| e.project.name = "Unsaved".into());
+    let edited = d.editor.project.clone();
+    d.click("Help");
+    d.click("Open example");
+    assert!(d.editor.confirm.is_some(), "Open example asks to save");
+    d.click("Cancel");
+    assert!(
+        d.editor.confirm.is_none(),
+        "confirmation closes with Cancel"
+    );
+    assert_eq!(d.editor.project, edited);
+}

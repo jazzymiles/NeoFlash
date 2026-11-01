@@ -409,7 +409,7 @@ fn preview_window(
         Chrome::Popover => c::popover_frame(ctx),
         Chrome::Window => c::Surface::Dialog.frame(ctx),
     };
-    egui::Area::new(egui::Id::new(("nf2-planned", panel)))
+    let area = egui::Area::new(egui::Id::new(("nf2-planned", panel)))
         .order(egui::Order::Foreground)
         .current_pos(pos)
         .movable(false)
@@ -450,19 +450,21 @@ fn preview_window(
                     }
                     Chrome::Dialog => {
                         let top = ui.cursor().min;
-                        close = c::DialogHeader {
-                            title: panel.title(),
-                        }
-                        .show(ui);
                         let rect = egui::Rect::from_min_size(
                             top,
                             egui::vec2(width, metrics::DIALOG_HEADER),
                         );
+                        // Register the drag zone before the header so the header's ✕ lies above it
+                        // and receives the click (the later widget wins the hit test).
                         let drag = ui.interact(
                             rect,
                             ui.id().with("planned-dialog-drag"),
                             egui::Sense::drag(),
                         );
+                        close = c::DialogHeader {
+                            title: panel.title(),
+                        }
+                        .show(ui);
                         if drag.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                         }
@@ -515,6 +517,14 @@ fn preview_window(
                     });
             });
         });
+    // Popovers have no close button: like real popovers, a click outside dismisses them. The click
+    // that opened the popover (it was not shown last frame) does not count.
+    if panel.chrome() == Chrome::Popover
+        && ctx.memory(|m| m.areas().visible_last_frame(&area.response.layer_id))
+        && area.response.clicked_elsewhere()
+    {
+        close = true;
+    }
     (close, pos + delta)
 }
 
@@ -544,6 +554,9 @@ fn window_title_bar(ui: &mut Ui, panel: PlannedPanel, width: f32) -> (bool, egui
                 ui.id().with("planned-window-close"),
                 egui::Sense::click(),
             );
+            r.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close preview")
+            });
             close = c::tooltip(r, "Close preview", None).clicked();
         }
         x += 20.0;
