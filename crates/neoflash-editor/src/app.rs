@@ -906,6 +906,7 @@ impl Editor {
             (cmd, Key::T, PanelId::Transform),
             (none, Key::F2, PanelId::Output),
             (shift, Key::F11, PanelId::Accessibility),
+            (shift, Key::F2, PanelId::Scene),
         ] {
             if exact(m, key) {
                 let visible = self.workspace.is_panel_visible(panel);
@@ -916,7 +917,6 @@ impl Editor {
             (cmd, Key::F9, "Window ▸ Swatches"),
             (cmd, Key::I, "Window ▸ Info"),
             (cmd, Key::F10, "Window ▸ History"),
-            (shift, Key::F2, "Window ▸ Scene"),
             (alt, Key::F2, "Window ▸ Compiler errors"),
         ] {
             if exact(m, key) {

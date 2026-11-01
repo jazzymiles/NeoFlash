@@ -54,6 +54,8 @@ mod tests;
 #[cfg(test)]
 mod timeline_commands_tests;
 #[cfg(test)]
+mod timeline_panels_tests;
+#[cfg(test)]
 mod transform_gesture_tests;
 #[cfg(test)]
 mod vector_gesture_tests;

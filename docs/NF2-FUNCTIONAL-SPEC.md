@@ -43,7 +43,7 @@ not confirmed in code.
 | TL-03 | Scene select ▸ New scene | Timeline controls | done | yes | P2 |
 | TL-04 | Shape tween | Timeline controls | done | yes (small) | P2 |
 | TL-05 | Motion tween | Timeline controls | partial | yes | P2 |
-| TL-06 | Ease panel button | Timeline controls | disabled | editor | P1 |
+| TL-06 | Ease panel button | Timeline controls | done | editor | P1 |
 | TL-07 | Sound | Timeline controls | disabled | yes | P3 |
 | TL-08 | Edit multiple frames | Timeline controls | partial | editor | P2 |
 | TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
@@ -80,8 +80,8 @@ not confirmed in code.
 | PR-07 | Properties — Graphic thumbnail strip | Properties | partial | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | preview | yes | P3 |
 | PR-09 | Properties — Video playback & cue points | Properties | partial | yes | P3 |
-| PR-10 | Properties — Motion tween | Properties | preview | yes | P2 |
-| PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | partial | UI-only | P1 |
+| PR-10 | Properties — Motion tween | Properties | partial | yes | P2 |
+| PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | disabled | yes (small) | P2 |
 | CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | disabled | yes | P3 |
 | CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | absent | editor | P1 |
@@ -97,14 +97,14 @@ not confirmed in code.
 | AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | partial | yes | P2 |
 | OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | absent | editor | P1 |
 | OU-02 | Output: trace() from Test Movie | Output | absent | yes | P2 |
-| PP-01 | Ease panel | Planned panel | preview | editor | P1 |
-| PP-02 | Motion editor | Planned panel | preview | yes | P2 |
-| PP-03 | Properties — Motion tween | Planned panel | preview | yes | P2 (= PR-10) |
+| PP-01 | Ease panel | Planned panel | done | editor | P1 |
+| PP-02 | Motion editor | Planned panel | partial | yes | P2 |
+| PP-03 | Properties — Motion tween | Planned panel | partial | yes | P2 (= PR-10) |
 | PP-04 | Debugger | Planned panel | preview | yes | P3 |
 | PP-05 | Project | Planned panel | preview | editor | P2 |
 | PP-06 | Code snippets | Planned panel | preview | editor | P2 |
 | PP-07 | Compiler errors | Planned panel | preview | editor (+small) | P1 |
-| PP-08 | Scene | Planned panel | preview | yes | P2 |
+| PP-08 | Scene | Planned panel | done | yes | P2 |
 | PP-09 | History | Planned panel | preview | editor (+small) | P1 |
 | PP-10 | Swatches | Planned panel | preview | editor | P1 |
 | PP-11 | Info | Planned panel | preview | editor | P1 |
@@ -196,7 +196,9 @@ groups.
 - Acceptance: create/remove with one Undo each; ◆ markers render; X/Y/rotation/scale/alpha tracks interpolate
   independently in editor and HTML5; classic tweens unchanged.
 
-**TL-06 · Ease panel button** — `timeline_frame_tools` · disabled (hover says to use Properties)
+**TL-06 · Ease panel button** — `timeline_frame_tools` · done
+- Done: enabled only while the playhead is inside a tween (classic, shape or motion); opens the Ease panel (PP-01). Frame
+  menu ▸ Ease… and Window ▸ Ease open it too.
 - Purpose: open the Ease panel (PP-01) for the selected classic tween.
 - Behaviour: enabled when the current frame is inside a tweened span; click opens/focuses the Ease panel bound to that
   keyframe.
@@ -480,12 +482,17 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Acceptance: an authored video with Autoplay plays in HTML5 without script; cue point fires an AS3 `cuePoint` event
   (bounded).
 
-**PR-10 · Properties — Motion tween** — preview `MotionTween`
+**PR-10 · Properties — Motion tween** — partial (`panels/motion_tween.rs`)
+- Done: replaces the frame Tween section while the playhead is inside a motion tween. Ease (Flash acceleration of the
+  span start key) + Edit curve… (opens PP-01); Rotate turns + CW/CCW (written as the last Rotation ◆ key); Orient to
+  path (`Keyframe.orient_to_path` on the span start key); Path X/Y/W/H moves and scales the X/Y keys. Not yet: Show
+  path / frame dots (R-005), Sync graphic symbols, Snap to motion guide (disabled, "Not available yet").
 - Controls: Ease −100 in … +100 out + Edit curve… (→ PP-01); Rotation count + direction CW/CCW + Orient to path; Path
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
 - Data: needs TL-05. Acceptance: Orient to path rotates the object along the path tangent in editor and HTML5.
 
-**PR-11 · Frame easing values** — partial (`properties` Tween section)
+**PR-11 · Frame easing values** — done (`properties` Tween section)
+- Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100.
 - Gap: Bézier Y1/Y2 are clamped to 0–1 in the UI (`numeric_pair … 0. ..=1.`) while the model accepts |y| ≤ 100
   (`validation.rs`), so overshoot cannot be authored; `Easing::Flash { acceleration }` is shown but has no numeric
   field (`animation-easing` limits).
@@ -560,9 +567,12 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: engine/host bridge (browser → editor channel, or an embedded preview). Acceptance: `trace("x")` in a
   frame script appears in Output within one second of Test Movie.
 
-## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, bodies in `planned_motion.rs`, `planned_panels.rs`)
+## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, bodies in `planned_panels.rs`; PP-01, PP-02, PP-03 and PP-08 are real panels now)
 
-**PP-01 · Ease** — `planned_motion::ease`
+**PP-01 · Ease** — done (`panels/ease.rs`)
+- Done: bound to the tween span under the playhead (motion: its start key); presets Linear, Ease In/Out/In-Out, Back,
+  Custom; draggable handles; X1–Y2 fields; preview track with Play/Stop; Reset · Cancel · Apply (one Undo). Not yet:
+  Bounce, Elastic (disabled; not single cubic curves) and per-property curves (Property select disabled).
 - Controls: context line ("Classic tween · <layer> · frames a–b"); Property select All / Position / Rotation / Scale /
   Colour / Filters + "One curve for all"; presets Linear, Ease In, Ease Out, Ease In-Out, Back, Bounce, Elastic, Custom;
   `EaseGraph` with draggable Bézier handles (range 0–100 / Overshoot / Undershoot switches automatically); X1 Y1 X2 Y2
@@ -576,7 +586,11 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Acceptance: Apply on "Back out" (Y2 > 1) overshoots in editor preview and HTML5; Cancel leaves the document
   unchanged (History unchanged).
 
-**PP-02 · Motion editor** — `planned_motion::motion_editor`
+**PP-02 · Motion editor** — partial (`panels/motion_editor.rs`)
+- Done: rows X, Y, Rotation Z, Scale X/Y, Alpha over the motion span with ◆ keys; value field keys the property at the
+  playhead; ◆ adds/removes that property's key; ◀ ▶ jump between its keys; click a lane to move the playhead, drag a
+  key on the selected lane to change its value (one Undo per drag); Graph size / Expanded sliders. Not yet:
+  per-property eases (Ease column shows the span ease, disabled), Add property, moving keys in time.
 - Controls: columns Property · Value · Ease · Keyframe + frame ruler; sections Basic motion (X, Y, Rotation Z),
   Transformation (Scale X/Y, Skew X/Y), Colour effect (Alpha, Tint …), Filters; per row value field, ease select (No
   ease, Simple (slow), Bounce …), ◀ ◆ ▶ keyframe navigation, curve lane; Add property; footer Graph size, Expanded
@@ -621,7 +635,7 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: editor (+ small script change). Acceptance: Check project / Test Movie fill the panel; Go to source opens
   Actions at the right script, line and column.
 
-**PP-08 · Scene** — `planned_panels::scene`: Find scene, list (current highlighted), Add / Duplicate / Delete; drag to
+**PP-08 · Scene** — done (`panels/scene.rs`, Window ▸ Scene ⇧F2): Find scene, list (current highlighted), Add / Duplicate / Delete; drag to
 reorder; double-click rename. Depends on TL-03. Acceptance: reorder changes playback order; delete of the last scene
 refused.
 

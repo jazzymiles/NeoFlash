@@ -812,7 +812,10 @@ impl Editor {
             self.open_frame_actions();
             ui.close();
         }
-        Self::planned_menu_item(ui, "Frame menu ▸ Ease…", "");
+        if menu_item_enabled(ui, self.tween_span().is_some(), "Ease…", "").clicked() {
+            self.show_panel(crate::workspace::PanelId::Ease);
+            ui.close();
+        }
         nf::menu_separator(ui);
         nf::menu_section(ui, "Options");
         menu_toggle(

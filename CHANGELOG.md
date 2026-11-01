@@ -20,6 +20,10 @@
 - Frame commands: Clear keyframe (⇧F6), Convert to keyframes, Convert to blank keyframes and Reverse frames in the frame menu and Modify ▸ Timeline.
 - Frame view: Short rows, Snap playhead to keyframes (⇧ suspends it) and Timeline placement on any dock edge. These options are saved with the workspace.
 - Documents using scenes, shape/motion tweens or motion guides are saved as format 6; older documents open unchanged.
+- Ease panel (Window ▸ Ease, the Timeline Ease button, Frame menu ▸ Ease…): edit the curve of the tween under the playhead with presets (Linear, Ease In/Out/In-Out, Back, Custom), draggable handles, numeric X1–Y2 and a preview; Apply is one Undo step. Overshooting curves and Flash acceleration can also be typed in Properties.
+- Scene panel (Window ▸ Scene, ⇧F2): find, add, duplicate, delete, rename (double-click) and drag scenes into a new play order.
+- Motion editor (Window ▸ Motion editor): property tracks of the motion tween under the playhead with their ◆ keys; add or remove one property's key at the playhead, type values, jump between keys and drag a key's value.
+- Properties shows Motion tween settings inside a motion tween: ease, rotation turns and direction, Orient to path and the path box.
 
 ## Unreleased — Progress counting v3
 

@@ -367,9 +367,15 @@ impl Editor {
             Some(2) => self.toggle_tween(TweenKind::Motion),
             _ => {}
         }
-        // Ease opens the Ease panel (§6); the classic tween's preset stays editable in Properties.
-        if ui.add(IconButton::new(i16::EASE, "Ease")).clicked() {
-            Self::open_planned(ui.ctx(), "Timeline controls ▸ Ease");
+        // Ease opens the Ease panel (§6) on the tween under the playhead.
+        if ui
+            .add_enabled(
+                self.tween_span().is_some(),
+                IconButton::new(i16::EASE, "Ease"),
+            )
+            .clicked()
+        {
+            self.show_panel(crate::workspace::PanelId::Ease);
         }
         if ui.add(IconButton::new(i16::SOUND, "Sound")).clicked() {
             Self::open_planned(ui.ctx(), "Timeline controls ▸ Sound");

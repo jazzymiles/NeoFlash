@@ -23,8 +23,6 @@ use PlannedPanel as P;
 /// Natural entry points (design §4–§9) that open a planned preview, by location. Menu rows use the last
 /// path segment as their label. `GraphicProperties` has no entry: graphic looping is a working
 /// Properties section (`instance_playback_ui`), so its preview stays under Window ▸ Planned panels.
-/// `MotionTween` has none either: the Insert, frame, stage and Timeline controls entries now create
-/// motion tweens, and its Properties section is still a preview under Window ▸ Planned panels.
 pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Menu bar (§8).
     ("File ▸ Import ▸ Import video…", P::ImportVideo),
@@ -40,19 +38,15 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Control ▸ Test scene", P::TestMovie),
     ("Window ▸ Swatches", P::Swatches),
     ("Window ▸ Info", P::Info),
-    ("Window ▸ Ease", P::Ease),
     ("Window ▸ History", P::History),
-    ("Window ▸ Scene", P::Scene),
     ("Window ▸ Compiler errors", P::CompilerErrors),
     // §6 panels the §8 Window list does not name.
-    ("Window ▸ Motion editor", P::MotionEditor),
     ("Window ▸ Debugger", P::Debugger),
     ("Window ▸ Project", P::Project),
     ("Window ▸ Code snippets", P::CodeSnippets),
     ("Window ▸ Movie Explorer", P::MovieExplorer),
     ("Window ▸ Filters", P::PropertiesFilters),
     // Context menus (§8).
-    ("Frame menu ▸ Ease…", P::Ease),
     ("Layer menu ▸ Properties…", P::LayerProperties),
     // Panel menus (§6).
     ("Color menu ▸ Add swatch", P::Swatches),
@@ -63,7 +57,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Library menu ▸ Edit envelope…", P::EditEnvelope),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
-    ("Timeline controls ▸ Ease", P::Ease),
     ("Timeline controls ▸ Sound", P::PropertiesSound),
     ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
     ("Properties ▸ Publish settings…", P::PublishSettings),
@@ -97,7 +90,7 @@ fn entry_label(path: &str) -> &str {
 }
 
 /// Real panels in Window, in §8 order, with their shortcuts.
-const WINDOW_PANELS: [(&str, &str, PanelId); 10] = [
+const WINDOW_PANELS: [(&str, &str, PanelId); 13] = [
     ("Timeline", "⌥⌘T", PanelId::Timeline),
     ("Tools", "⌘F2", PanelId::Tools),
     ("Properties", "⌘F3", PanelId::Properties),
@@ -108,6 +101,9 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 10] = [
     ("Transform", "⌘T", PanelId::Transform),
     ("Output", "F2", PanelId::Output),
     ("Accessibility", "⇧F11", PanelId::Accessibility),
+    ("Ease", "", PanelId::Ease),
+    ("Scene", "⇧F2", PanelId::Scene),
+    ("Motion editor", "", PanelId::MotionEditor),
 ];
 
 impl Editor {
@@ -666,14 +662,14 @@ impl Editor {
         Self::planned_menu_toggle(ui, "Window ▸ Swatches", "⌘F9");
         toggle(self, ui, 7);
         Self::planned_menu_toggle(ui, "Window ▸ Info", "⌘I");
-        Self::planned_menu_toggle(ui, "Window ▸ Ease", "");
+        toggle(self, ui, 10);
         Self::planned_menu_toggle(ui, "Window ▸ History", "⌘F10");
-        Self::planned_menu_toggle(ui, "Window ▸ Scene", "⇧F2");
+        toggle(self, ui, 11);
         toggle(self, ui, 8);
         Self::planned_menu_toggle(ui, "Window ▸ Compiler errors", "⌥F2");
         toggle(self, ui, 9);
         nf::menu_separator(ui);
-        Self::planned_menu_toggle(ui, "Window ▸ Motion editor", "");
+        toggle(self, ui, 12);
         Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
         Self::planned_menu_toggle(ui, "Window ▸ Project", "");
         Self::planned_menu_toggle(ui, "Window ▸ Code snippets", "");
@@ -757,10 +753,7 @@ mod tests {
     #[test]
     fn every_planned_panel_has_a_natural_entry_point() {
         for panel in PlannedPanel::ALL {
-            if matches!(
-                panel,
-                PlannedPanel::GraphicProperties | PlannedPanel::MotionTween
-            ) {
+            if panel == PlannedPanel::GraphicProperties {
                 // Working commands; see PLANNED_ENTRY_POINTS.
                 continue;
             }

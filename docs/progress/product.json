@@ -100,6 +100,11 @@
           "id": "stage-rulers-guides-grid",
           "title": "Stage rulers, ruler guides and grid",
           "status": "working"
+        },
+        {
+          "id": "scene-panel",
+          "title": "Scene panel: find, add, duplicate, delete, rename and reorder scenes",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -928,8 +933,8 @@
       "category": "animation",
       "title": "Pose interpolation",
       "status": "partial",
-      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes.",
-      "limitations": "Motion paths are not drawn or editable on the stage; the Motion editor and the Motion tween Properties section are previews. Per-property eases, rotate-count and orient-to-path for motion tweens are missing.",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The Motion editor shows each property track over the span, adds or removes one property's ◆ key at the playhead, edits values and jumps between keys; Properties — Motion tween edits the span ease, rotation turns and direction, Orient to path and the path box.",
+      "limitations": "Motion paths are not drawn or editable on the stage (Show path / frame dots wait for R-005). Per-property eases, Sync graphic symbols, Snap to motion guide and moving keys in time inside the Motion editor are missing.",
       "items": [
         {
           "id": "identity-matching",
@@ -973,11 +978,17 @@
         },
         {
           "id": "motion-editor",
-          "title": "Motion editor panel and Motion tween properties",
-          "status": "planned"
+          "title": "Motion editor: property tracks, add/remove a property key, edit values",
+          "status": "partial"
+        },
+        {
+          "id": "motion-tween-properties",
+          "title": "Motion tween properties: ease, rotation turns, orient to path, path box",
+          "status": "partial"
         }
       ],
       "evidence": [
+        "crates/neoflash-editor/src/timeline_panels_tests.rs",
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
         "crates/neoflash-core/tests/timeline_tweens.rs",
@@ -989,8 +1000,8 @@
       "category": "animation",
       "title": "Easing and custom curves",
       "status": "partial",
-      "scope": "Keyframe Properties selects Linear, EaseIn/Out/InOut or a custom cubic Bézier curve with four numeric control coordinates. The shared model also preserves classic Flash acceleration from imported timelines. Scripted HTML5 easing/Tween uses a separate Rust family for built-in curves and bounded frame-based or seconds-based animation.",
-      "limitations": "A graphical curve editor, independent property curves and authored overshoot remain unfinished. Numeric cubic controls are bounded to 0–1; imported Flash acceleration is displayed but has no dedicated numeric editor. Scripted Back/Elastic overshoot does not supply an authoring control. Runtime Tween retains built-in easing identities and finite positive durations; complete Flash timing and curve conformance are not claimed.",
+      "scope": "Keyframe Properties selects Linear, EaseIn/Out/InOut, a custom cubic Bézier curve with four numeric control coordinates (Y may overshoot) or Flash acceleration (−100…100). The Ease panel edits the curve of the tween under the playhead (classic, shape or motion) with presets including Back, draggable Bézier handles, a preview track and Apply/Cancel as one Undo step. The shared model also preserves classic Flash acceleration from imported timelines. Scripted HTML5 easing/Tween uses a separate Rust family for built-in curves and bounded frame-based or seconds-based animation.",
+      "limitations": "Independent property curves remain unfinished. Bounce and Elastic are not single cubic curves and stay disabled in the Ease panel. Runtime Tween retains built-in easing identities and finite positive durations; complete Flash timing and curve conformance are not claimed.",
       "items": [
         {
           "id": "preset-eases",
@@ -1015,7 +1026,7 @@
         {
           "id": "curve-editor",
           "title": "Graphical easing curve editor",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "property-curves",
@@ -1025,12 +1036,12 @@
         {
           "id": "overshoot",
           "title": "Authored overshoot easing",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "acceleration-editor",
           "title": "Numeric editor for imported Flash acceleration",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
