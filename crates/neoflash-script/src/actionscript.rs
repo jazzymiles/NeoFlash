@@ -1213,6 +1213,7 @@ impl<'a> Frontend<'a> {
         };
         while self.is(".")
             && (self.context.project
+                || (self.script.language == ScriptLanguage::ActionScript2 && name == "TextField")
                 || matches!(
                     self.peek(self.pos + 1).map(|t| t.kind),
                     Some(Kind::Punct("<"))
@@ -1274,7 +1275,12 @@ impl<'a> Frontend<'a> {
             || (!as3
                 && matches!(
                     name,
-                    "LoadVars"
+                    "MovieClip"
+                        | "Button"
+                        | "TextField"
+                        | "TextField.StyleSheet"
+                        | "TextSnapshot"
+                        | "LoadVars"
                         | "Color"
                         | "TextFormat"
                         | "Sound"
@@ -1812,6 +1818,7 @@ impl<'a> Frontend<'a> {
                     && matches!(
                         name.as_str(),
                         "MovieClipLoader"
+                            | "TextField.StyleSheet"
                             | "Color"
                             | "SharedObject"
                             | "Selection"
@@ -2065,7 +2072,14 @@ pub(super) fn is_as2_frame_global(name: &str) -> bool {
 fn is_as2_legacy_instanceof_type(name: &str) -> bool {
     matches!(
         name,
-        "LoadVars"
+        "MovieClip"
+            | "Button"
+            | "TextField"
+            | "TextField.StyleSheet"
+            | "TextFormat"
+            | "TextSnapshot"
+            | "Video"
+            | "LoadVars"
             | "Color"
             | "Sound"
             | "MovieClipLoader"
@@ -2640,6 +2654,7 @@ impl Emitter<'_> {
                 name,
                 "MovieClip"
                     | "Button"
+                    | "TextSnapshot"
                     | "Video"
                     | "MovieClipLoader"
                     | "AsBroadcaster"
@@ -3204,7 +3219,8 @@ impl Emitter<'_> {
             Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
-                    "LoadVars"
+                    "TextField.StyleSheet"
+                        | "LoadVars"
                         | "Color"
                         | "TextFormat"
                         | "Sound"
@@ -3321,13 +3337,22 @@ impl Emitter<'_> {
                         "(typeof __nfValue === 'function' && __nfNumericClassName(__nfValue)===null)".into()
                     } else if ty == "Array" {
                         "__nfArrayIsArray(__nfValue)".into()
+                    } else if !self.as3
+                        && op == "instanceof"
+                        && matches!(ty.as_str(), "Number" | "String" | "Boolean")
+                    {
+                        format!(
+                            "Boolean(typeof __nfLegacy !== 'undefined' && __nfLegacy.boxing?.is?.(__nfValue) && __nfLegacy.boxing.kind(__nfValue) === {ty:?})"
+                        )
                     } else {
                         format!("__nfCatchType(__nfValue, {ty:?})")
                     }
                 } else if vector_element(ty).is_some() {
                     format!("{}.__nfIs(__nfValue)", self.vector_type(ty))
-                } else if matches!(ty.as_str(), "XML" | "XMLList" | "Namespace" | "QName")
-                    && self.analysis.context.intrinsic_type(ty, self.as3)
+                } else if matches!(
+                    ty.as_str(),
+                    "XML" | "XMLList" | "XMLNode" | "Namespace" | "QName"
+                ) && self.analysis.context.intrinsic_type(ty, self.as3)
                 {
                     format!("__nfXMLClass({ty:?}, {}).__nfIs(__nfValue)", self.as3)
                 } else if self.analysis.context.intrinsic_type(ty, self.as3) {
@@ -3336,7 +3361,11 @@ impl Emitter<'_> {
                     && !self.analysis.context.types.contains_key(ty)
                     && is_as2_legacy_instanceof_type(ty)
                 {
-                    format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
+                    if ty == "TextField.StyleSheet" {
+                        "Boolean(__nfLegacy.TextField?.StyleSheet?.__nfIs?.(__nfValue))".into()
+                    } else {
+                        format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
+                    }
                 } else {
                     format!(
                         "__nfProgram.is(__nfValue, {:?})",

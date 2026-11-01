@@ -1274,3 +1274,87 @@ fn as3_timeline_frame_scripts_auto_import_flash_packages_while_classes_require_e
     )]);
     assert!(neoflash_script::compile_project(&unimported_class).is_err());
 }
+
+#[test]
+fn as2_batch4_load_bitmap_instanceof_xml_text_and_boxing_compile_in_classes_and_frames() {
+    let mut proj = Project::blank();
+    proj.format_version = 3;
+    proj.resources = vec![
+        neoflash_core::ResourceUnit::from_bytes(
+            "inc-batch4",
+            "inc/helper.as",
+            "text/plain",
+            b"var includedValue:Number = 77;",
+        )
+        .unwrap(),
+    ];
+    proj.sources = vec![SourceUnit {
+        id: "as2-batch4-class".into(),
+        path: "app/Batch4Probe.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "import flash.display.BitmapData;
+class app.Batch4Probe {
+    public static function check(root:MovieClip):Boolean {
+        var bmp:BitmapData = BitmapData.loadBitmap(\"HeroBitmap\");
+        var boxedN:Object = new Number(255);
+        var boxedS:Object = new String(\"hi\");
+        var boxedB:Object = new Boolean(true);
+        var doc:XML = new XML(\"<root><item/></root>\");
+        var node:XMLNode = doc.firstChild;
+        var fmt:TextFormat = new TextFormat(\"Arial\", 14, 0x112233);
+        var ext:Object = fmt.getTextExtent(\"NeoFlash\", 120);
+        var sheet:TextField.StyleSheet = new TextField.StyleSheet();
+        sheet.parseCSS(\"p { color: #ff0000; }\");
+        var names:Array = sheet.getStyleNames();
+        var tf:TextField = root.createTextField(\"probeTf\", 90, 0, 0, 120, 30);
+        tf.replaceSel(\"abc\");
+        var depth:Number = tf.getDepth();
+        tf.removeTextField();
+        var snap:TextSnapshot = root.getTextSnapshot();
+        doc.send(\"https://app.example.test/xml\");
+        var lv:LoadVars = new LoadVars();
+        lv.send(\"https://app.example.test/form\", \"_blank\", \"POST\");
+        return (bmp instanceof BitmapData)
+            && (boxedN instanceof Number)
+            && (boxedS instanceof String)
+            && (boxedB instanceof Boolean)
+            && (doc instanceof XML)
+            && (node instanceof XMLNode)
+            && (fmt instanceof TextFormat)
+            && (sheet instanceof TextField.StyleSheet)
+            && (snap instanceof TextSnapshot)
+            && ext.width >= 0
+            && names.length == 1
+            && depth == 90;
+    }
+}"
+        .into(),
+    }];
+    let program = neoflash_script::compile_project(&proj).expect("AS2 Batch 4 project");
+    let frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "#include \"inc/helper.as\"
+var sheet:TextField.StyleSheet = new TextField.StyleSheet();
+var doc:XML = new XML(\"<a/>\");
+var node:XMLNode = doc.firstChild;
+var ok:Boolean = (new Number(7) instanceof Number)
+    && (new String(\"x\") instanceof String)
+    && (new Boolean(false) instanceof Boolean)
+    && (node instanceof XMLNode)
+    && (sheet instanceof TextField.StyleSheet)
+    && (this instanceof MovieClip)
+    && (255).toString(16) == \"ff\"
+    && includedValue == 77;"
+            .into(),
+    };
+    let compiled_frame = neoflash_script::compile_with_program(&frame, &program);
+    assert!(compiled_frame.is_ok(), "{:?}", compiled_frame.err());
+    let standalone = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "var s:TextField.StyleSheet = new TextField.StyleSheet();
+var n:XMLNode = new XMLNode(1, \"tag\");
+var checks:Array = [s instanceof TextField.StyleSheet, n instanceof XMLNode, new Number(3) instanceof Number];"
+            .into(),
+    };
+    assert!(neoflash_script::compile(&standalone).is_ok());
+}

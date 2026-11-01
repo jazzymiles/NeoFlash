@@ -449,10 +449,16 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "perlinNoise"
                 | "paletteMap"
                 | "pixelDissolve"
+                | "loadBitmap"
                 | "hitTest"
                 | "appendText"
                 | "replaceText"
+                | "replaceSel"
                 | "replaceSelectedText"
+                | "removeTextField"
+                | "getDepth"
+                | "getTextExtent"
+                | "getStyleNames"
                 | "setSelection"
                 | "getLineText"
                 | "getLineLength"
@@ -901,6 +907,8 @@ fn context(
             .insert("TextField".into(), "flash.text.TextField".into());
         c.types
             .insert("TextFormat".into(), "flash.text.TextFormat".into());
+        c.types
+            .insert("TextField.StyleSheet".into(), "TextField.StyleSheet".into());
         c.types.insert("Video".into(), "flash.media.Video".into());
     }
     for name in ["Object", "Array"] {
