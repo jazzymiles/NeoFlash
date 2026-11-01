@@ -170,20 +170,6 @@ pub(super) fn properties_rect(ui: &mut Ui) {
     });
 }
 
-/// Right-aligned dialog buttons (last = primary), no separator.
-pub(super) fn buttons(ui: &mut Ui, labels: &[&str]) {
-    ui.add_space(space::S2);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        for (i, b) in labels.iter().rev().enumerate() {
-            let _ = ui.add(if i == 0 {
-                c::Button::primary(b)
-            } else {
-                c::Button::new(b)
-            });
-        }
-    });
-}
-
 /// Deco "Leaf" / "Flower" row: label, colour chip, shape name, Edit….
 fn deco_row(ui: &mut Ui, label: &str, color: Color32) {
     let nf = neoflash_ui::palette(ui.ctx());

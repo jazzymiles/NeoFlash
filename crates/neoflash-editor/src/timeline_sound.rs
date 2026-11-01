@@ -41,6 +41,10 @@ impl DecodedSound {
     }
 }
 
+pub(crate) fn decode_unit(resource: &ResourceUnit) -> Result<DecodedSound, String> {
+    decode(resource)
+}
+
 fn decode(resource: &ResourceUnit) -> Result<DecodedSound, String> {
     let bytes = resource
         .decoded_bytes()
@@ -161,6 +165,9 @@ pub(crate) struct TimelineAudio {
     decoded: HashMap<Id, (usize, Result<Arc<DecodedSound>, String>)>,
     voices: Vec<Voice>,
     preview: Option<u64>,
+    auditioning_headless: bool,
+    /// Local import paths of audio resources for Sound properties ▸ Update (session-only).
+    pub(crate) source_paths: HashMap<Id, std::path::PathBuf>,
     /// Recent commands of editor playback (diagnostics and tests).
     pub(crate) history: Vec<SoundCommand>,
 }
@@ -176,6 +183,8 @@ impl Default for TimelineAudio {
             decoded: HashMap::new(),
             voices: vec![],
             preview: None,
+            auditioning_headless: false,
+            source_paths: HashMap::new(),
             history: vec![],
         }
     }
@@ -340,9 +349,52 @@ impl TimelineAudio {
         );
     }
 
+    /// Sound properties ▸ Test: audition a draft resource unit directly without mutating the document.
+    pub(crate) fn audition_unit(&mut self, unit: &ResourceUnit) -> Result<(), String> {
+        self.stop_audition();
+        let sound = Arc::new(decode(unit)?);
+        if self.muted {
+            return Ok(());
+        }
+        if !self.native {
+            self.auditioning_headless = true;
+            return Ok(());
+        }
+        let Some(source) = VoiceSource::new(sound, 0., 1, false, vec![]) else {
+            return Ok(());
+        };
+        let Some(mixer) = self.mixer() else {
+            return Ok(());
+        };
+        let sink = rodio::Sink::connect_new(mixer);
+        sink.append(source);
+        self.voices.push(Voice {
+            sink,
+            resource: unit.id.clone(),
+            channel: Some(AUDITION.into()),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn stop_audition(&mut self) {
+        self.auditioning_headless = false;
+        self.voices
+            .retain(|v| v.channel.as_deref() != Some(AUDITION));
+    }
+
+    pub(crate) fn is_auditioning(&mut self) -> bool {
+        self.voices.retain(|voice| !voice.sink.empty());
+        self.auditioning_headless
+            || self
+                .voices
+                .iter()
+                .any(|v| v.channel.as_deref() == Some(AUDITION))
+    }
+
     pub(crate) fn set_muted(&mut self, muted: bool) {
         self.muted = muted;
         if muted {
+            self.auditioning_headless = false;
             self.voices.clear();
         }
     }
@@ -460,8 +512,11 @@ impl Editor {
         self.transact(|editor| {
             editor.project.format_version = editor.project.format_version.max(3);
             editor.project.resources.push(unit);
-            editor.attach_frame_sound(Some(id));
+            editor.attach_frame_sound(Some(id.clone()));
         });
+        self.timeline_audio
+            .source_paths
+            .insert(id, path.to_path_buf());
         self.show_frame_sound();
         Ok(())
     }

@@ -35,6 +35,7 @@ impl Editor {
         let info = self.sound_info(&sound);
         let mut edit = None;
         let mut play = false;
+        let mut open_props = false;
         let w = ui.available_width();
         c::SectionHeader::new("Sound")
             .id_salt("properties-sound")
@@ -126,12 +127,15 @@ impl Editor {
                         .add(c::Button::ghost("Sound properties…").icon(i16::SOUND_FILE))
                         .clicked()
                     {
-                        Self::open_planned(ui.ctx(), "Library menu ▸ Sound properties…");
+                        open_props = true;
                     }
                 });
             });
         if play {
             self.timeline_audio.audition(&self.project, &sound);
+        }
+        if open_props {
+            self.open_sound_properties(ui.ctx(), Some(sound.resource.clone()));
         }
         match edit {
             Some(SoundEdit::Resource(resource)) => self.set_frame_sound(resource),

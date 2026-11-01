@@ -1587,8 +1587,6 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
             Chrome::Panel(_) => d.find("Close panel"),
             Chrome::Dialog => d.find("Close"),
             Chrome::Window => d.find("Close preview"),
-            // Popovers have no header: a click outside dismisses them.
-            Chrome::Popover => Some(Rect::from_center_size(Pos2::new(1200., 500.), Vec2::ZERO)),
         };
         match close {
             Some(rect) => d.press(rect.center(), egui::PointerButton::Primary),

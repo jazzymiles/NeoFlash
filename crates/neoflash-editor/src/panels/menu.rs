@@ -33,23 +33,17 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Edit ▸ Find and replace", P::FindReplace),
     ("Edit ▸ Preferences…", P::Preferences),
     ("Edit ▸ Keyboard shortcuts…", P::Preferences),
-    ("Modify ▸ Timeline ▸ Layer properties…", P::LayerProperties),
-    ("Control ▸ Test scene", P::TestMovie),
     ("Window ▸ Compiler errors", P::CompilerErrors),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
     ("Window ▸ Code snippets", P::CodeSnippets),
     ("Window ▸ Movie Explorer", P::MovieExplorer),
     ("Window ▸ Filters", P::PropertiesFilters),
-    // Context menus (§8).
-    ("Layer menu ▸ Properties…", P::LayerProperties),
     // Panel menus (§6).
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
-    ("Library menu ▸ Sound properties…", P::SoundProperties),
     ("Library menu ▸ Edit envelope…", P::EditEnvelope),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
-    ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
     ("Properties ▸ Publish settings…", P::PublishSettings),
     (
         "Tool options ▸ Rectangle primitive…",
@@ -102,6 +96,10 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
 enum ConvertedTrigger {
     DocumentSettings,
     AddSwatch,
+    SoundProperties,
+    LayerProperties,
+    SymbolsPopover,
+    TestScene,
 }
 
 fn converted_triggers_id() -> egui::Id {
@@ -118,6 +116,12 @@ impl Editor {
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
+            "Library menu ▸ Sound properties…" => Some(ConvertedTrigger::SoundProperties),
+            "Modify ▸ Timeline ▸ Layer properties…" | "Layer menu ▸ Properties…" => {
+                Some(ConvertedTrigger::LayerProperties)
+            }
+            "Breadcrumb ▸ Symbols & scenes" => Some(ConvertedTrigger::SymbolsPopover),
+            "Control ▸ Test scene" => Some(ConvertedTrigger::TestScene),
             _ => None,
         };
         if let Some(trigger) = converted {
@@ -147,6 +151,10 @@ impl Editor {
                     self.add_active_swatch(ctx);
                     self.show_panel(PanelId::Swatches);
                 }
+                ConvertedTrigger::SoundProperties => self.open_sound_properties(ctx, None),
+                ConvertedTrigger::LayerProperties => self.open_layer_properties(ctx, self.layer),
+                ConvertedTrigger::SymbolsPopover => self.open_symbols_popover(ctx, None),
+                ConvertedTrigger::TestScene => self.test_scene(),
             }
         }
     }
@@ -689,7 +697,10 @@ impl Editor {
             self.export(true);
             ui.close();
         }
-        Self::planned_menu_item(ui, "Control ▸ Test scene", "⌥⌘↵");
+        if menu_item(ui, "Test scene", "⌥⌘↵").clicked() {
+            self.test_scene();
+            ui.close();
+        }
         nf::menu_separator(ui);
         menu_toggle(
             ui,
@@ -815,7 +826,10 @@ mod tests {
     #[test]
     fn every_planned_panel_has_a_natural_entry_point() {
         for panel in PlannedPanel::ALL {
-            if panel == PlannedPanel::GraphicProperties {
+            if matches!(
+                panel,
+                PlannedPanel::GraphicProperties | PlannedPanel::TestMovie
+            ) {
                 // Working commands; see PLANNED_ENTRY_POINTS.
                 continue;
             }

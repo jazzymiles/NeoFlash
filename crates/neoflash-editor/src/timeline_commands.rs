@@ -574,6 +574,7 @@ impl Editor {
 
     /// Edit multiple frames: apply a move of selected objects to the same objects on every
     /// keyframe in the onion range (called inside the open Undo step of the move gesture).
+    #[cfg(test)]
     pub(crate) fn move_on_other_keyframes(&mut self, ids: &[(String, [f64; 2])]) {
         if !self.timeline_edit.edit_multiple {
             return;
@@ -595,5 +596,65 @@ impl Editor {
                 }
             }
         }
+    }
+
+    /// Edit multiple frames: apply a scale factor and rotation delta to the selected objects across
+    /// every keyframe in `onion_range()` (or only the current frame when `edit_multiple` is off) in
+    /// one Undo step.
+    #[cfg(test)]
+    pub(crate) fn scale_and_rotate_selected_in_edit_range(
+        &mut self,
+        scale_factor: [f64; 2],
+        rotation_delta_deg: f64,
+    ) {
+        self.finish_edits();
+        let targets = self.sampled_targets();
+        if targets.is_empty() {
+            return;
+        }
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start, end) = if multiple {
+            self.onion_range()
+        } else {
+            (self.frame, self.frame)
+        };
+        let selected: std::collections::HashSet<(Id, Id)> = targets
+            .into_iter()
+            .map(|(t, _)| (t.layer, t.element))
+            .collect();
+        self.transact_named("Transform", |editor| {
+            let frame = editor.frame;
+            if !multiple {
+                let layers: Vec<Id> = selected.iter().map(|(l, _)| l.clone()).collect();
+                for layer_id in layers {
+                    editor.ensure_key_for(&layer_id, false);
+                }
+            }
+            for layer in &mut editor.symbol_mut().timeline.layers {
+                let layer_id = layer.id.clone();
+                if multiple {
+                    for key in &mut layer.keyframes {
+                        if !(start..=end).contains(&key.frame) {
+                            continue;
+                        }
+                        for element in &mut key.elements {
+                            if selected.contains(&(layer_id.clone(), element.id.clone())) {
+                                element.transform.scale_x *= scale_factor[0];
+                                element.transform.scale_y *= scale_factor[1];
+                                element.transform.rotation += rotation_delta_deg;
+                            }
+                        }
+                    }
+                } else if let Some(key) = layer.key_at_mut(frame) {
+                    for element in &mut key.elements {
+                        if selected.contains(&(layer_id.clone(), element.id.clone())) {
+                            element.transform.scale_x *= scale_factor[0];
+                            element.transform.scale_y *= scale_factor[1];
+                            element.transform.rotation += rotation_delta_deg;
+                        }
+                    }
+                }
+            }
+        });
     }
 }

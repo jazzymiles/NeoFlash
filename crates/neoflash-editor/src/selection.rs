@@ -28,6 +28,33 @@ impl Selection {
 }
 
 impl Editor {
+    fn layer_is_selectable(&self, layer: &Layer) -> bool {
+        layer.properties.role != LayerRole::Folder
+            && layer_effectively_visible(&self.symbol().timeline, layer)
+            && !layer_effectively_locked(&self.symbol().timeline, layer)
+    }
+
+    fn element_in_edit_scope<'a>(&self, layer: &'a Layer, id: &str) -> Option<&'a Element> {
+        if let Some(el) = layer
+            .key_at(self.frame)
+            .and_then(|key| key.elements.iter().find(|element| element.id == id))
+        {
+            return Some(el);
+        }
+        if !self.timeline_edit.edit_multiple {
+            return None;
+        }
+        let (start, end) = self.onion_range();
+        let mut keys: Vec<&Keyframe> = layer
+            .keyframes
+            .iter()
+            .filter(|k| (start..=end).contains(&k.frame))
+            .collect();
+        keys.sort_by_key(|k| (k.frame.abs_diff(self.frame), k.frame));
+        keys.into_iter()
+            .find_map(|key| key.elements.iter().find(|element| element.id == id))
+    }
+
     pub(crate) fn clear_selection(&mut self) {
         self.selection = Selection {
             symbol: self.symbol_id().to_owned(),
@@ -36,15 +63,11 @@ impl Editor {
     }
     pub(crate) fn target_for_id(&self, id: &str) -> Option<SelectionTarget> {
         self.symbol().timeline.layers.iter().find_map(|layer| {
-            (layer.visible
-                && !layer.locked
-                && layer
-                    .key_at(self.frame)
-                    .is_some_and(|key| key.elements.iter().any(|element| element.id == id)))
-            .then(|| SelectionTarget {
-                layer: layer.id.clone(),
-                element: id.to_owned(),
-            })
+            (self.layer_is_selectable(layer) && self.element_in_edit_scope(layer, id).is_some())
+                .then(|| SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: id.to_owned(),
+                })
         })
     }
     pub(crate) fn target_layer_index(&self, target: &SelectionTarget) -> Option<usize> {
@@ -57,35 +80,56 @@ impl Editor {
     pub(crate) fn target_editable(&self, target: &SelectionTarget) -> bool {
         self.target_layer_index(target).is_some_and(|index| {
             let layer = &self.symbol().timeline.layers[index];
-            layer.properties.role != LayerRole::Folder
-                && layer_effectively_visible(&self.symbol().timeline, layer)
-                && !layer_effectively_locked(&self.symbol().timeline, layer)
-                && layer.key_at(self.frame).is_some_and(|key| {
-                    key.elements
-                        .iter()
-                        .any(|element| element.id == target.element)
-                })
+            self.layer_is_selectable(layer)
+                && self.element_in_edit_scope(layer, &target.element).is_some()
         })
     }
     pub(crate) fn editable_targets(&self) -> Vec<SelectionTarget> {
-        self.symbol()
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start, end) = if multiple {
+            self.onion_range()
+        } else {
+            (self.frame, self.frame)
+        };
+        let mut targets = Vec::new();
+        for layer in self
+            .symbol()
             .timeline
             .layers
             .iter()
-            .filter(|layer| {
-                layer.properties.role != LayerRole::Folder
-                    && layer_effectively_visible(&self.symbol().timeline, layer)
-                    && !layer_effectively_locked(&self.symbol().timeline, layer)
-            })
-            .flat_map(|layer| {
-                layer.key_at(self.frame).into_iter().flat_map(move |key| {
-                    key.elements.iter().map(move |element| SelectionTarget {
-                        layer: layer.id.clone(),
-                        element: element.id.clone(),
-                    })
-                })
-            })
-            .collect()
+            .filter(|layer| self.layer_is_selectable(layer))
+        {
+            let mut seen = HashSet::new();
+            if let Some(key) = layer.key_at(self.frame) {
+                for element in &key.elements {
+                    if seen.insert(element.id.clone()) {
+                        targets.push(SelectionTarget {
+                            layer: layer.id.clone(),
+                            element: element.id.clone(),
+                        });
+                    }
+                }
+            }
+            if multiple {
+                let mut keys: Vec<&Keyframe> = layer
+                    .keyframes
+                    .iter()
+                    .filter(|k| (start..=end).contains(&k.frame))
+                    .collect();
+                keys.sort_by_key(|k| (k.frame.abs_diff(self.frame), k.frame));
+                for key in keys {
+                    for element in &key.elements {
+                        if seen.insert(element.id.clone()) {
+                            targets.push(SelectionTarget {
+                                layer: layer.id.clone(),
+                                element: element.id.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        targets
     }
     pub(crate) fn set_selection(&mut self, targets: Vec<SelectionTarget>) {
         if targets.is_empty() {
@@ -193,26 +237,28 @@ impl Editor {
             return None;
         }
         let target = self.selection.single()?;
-        self.symbol()
+        let layer = self
+            .symbol()
             .timeline
             .layers
-            .get(self.target_layer_index(target)?)?
-            .key_at(self.frame)?
-            .elements
-            .iter()
-            .find(|element| element.id == target.element)
+            .get(self.target_layer_index(target)?)?;
+        self.element_in_edit_scope(layer, &target.element)
     }
     pub fn selected_sampled(&self) -> Option<Element> {
         if self.selection.symbol != self.symbol_id() {
             return None;
         }
         let target = self.selection.single()?;
-        sample_layer(
-            &self.symbol().timeline.layers[self.target_layer_index(target)?],
-            self.frame,
-        )
-        .into_iter()
-        .find(|element| element.id == target.element)
+        let layer = &self.symbol().timeline.layers[self.target_layer_index(target)?];
+        sample_layer(layer, self.frame)
+            .into_iter()
+            .find(|element| element.id == target.element)
+            .or_else(|| {
+                self.timeline_edit
+                    .edit_multiple
+                    .then(|| self.element_in_edit_scope(layer, &target.element).cloned())
+                    .flatten()
+            })
     }
     pub fn selected_element_mut(&mut self) -> Option<&mut Element> {
         if self.selection.symbol != self.symbol_id() {
@@ -221,8 +267,39 @@ impl Editor {
         let target = self.selection.single()?.clone();
         let index = self.target_layer_index(&target)?;
         let frame = self.frame;
-        self.symbol_mut().timeline.layers[index]
-            .key_at_mut(frame)?
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start, end) = if multiple {
+            self.onion_range()
+        } else {
+            (frame, frame)
+        };
+        let layer = &mut self.symbol_mut().timeline.layers[index];
+        let in_current = layer
+            .key_at(frame)
+            .is_some_and(|k| k.elements.iter().any(|e| e.id == target.element));
+        if in_current {
+            return layer
+                .key_at_mut(frame)?
+                .elements
+                .iter_mut()
+                .find(|element| element.id == target.element);
+        }
+        if !multiple {
+            return None;
+        }
+        let best_frame = layer
+            .keyframes
+            .iter()
+            .filter(|k| {
+                (start..=end).contains(&k.frame)
+                    && k.elements.iter().any(|e| e.id == target.element)
+            })
+            .min_by_key(|k| (k.frame.abs_diff(frame), k.frame))
+            .map(|k| k.frame)?;
+        layer
+            .keyframes
+            .iter_mut()
+            .find(|k| k.frame == best_frame)?
             .elements
             .iter_mut()
             .find(|element| element.id == target.element)
@@ -231,6 +308,12 @@ impl Editor {
         if self.selection.symbol != self.symbol_id() || self.selection.is_empty() {
             return vec![];
         }
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start, end) = if multiple {
+            self.onion_range()
+        } else {
+            (self.frame, self.frame)
+        };
         let selected: HashSet<_> = self.selection.targets.iter().collect();
         let mut sampled = Vec::new();
         for layer in self
@@ -238,15 +321,35 @@ impl Editor {
             .timeline
             .layers
             .iter()
-            .filter(|layer| layer.visible && !layer.locked)
+            .filter(|layer| self.layer_is_selectable(layer))
         {
+            let mut seen = HashSet::new();
             for element in sample_layer(layer, self.frame) {
                 let target = SelectionTarget {
                     layer: layer.id.clone(),
                     element: element.id.clone(),
                 };
-                if selected.contains(&target) {
+                if selected.contains(&target) && seen.insert(element.id.clone()) {
                     sampled.push((target, element));
+                }
+            }
+            if multiple {
+                let mut keys: Vec<&Keyframe> = layer
+                    .keyframes
+                    .iter()
+                    .filter(|k| (start..=end).contains(&k.frame))
+                    .collect();
+                keys.sort_by_key(|k| (k.frame.abs_diff(self.frame), k.frame));
+                for key in keys {
+                    for element in &key.elements {
+                        let target = SelectionTarget {
+                            layer: layer.id.clone(),
+                            element: element.id.clone(),
+                        };
+                        if selected.contains(&target) && seen.insert(element.id.clone()) {
+                            sampled.push((target, element.clone()));
+                        }
+                    }
                 }
             }
         }

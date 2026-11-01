@@ -161,10 +161,33 @@ impl Editor {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.;
                             let path = self.editing.clone();
-                            for (index, id) in path.iter().enumerate() {
-                                if index > 0 {
+                            let visible_indices: Vec<usize> = if path.len() > 4 {
+                                vec![0, path.len() - 2, path.len() - 1]
+                            } else {
+                                (0..path.len()).collect()
+                            };
+                            for (slot, &index) in visible_indices.iter().enumerate() {
+                                if slot > 0 {
                                     nf::breadcrumb_separator(ui);
                                 }
+                                if path.len() > 4 && slot == 1 {
+                                    let overflow = nf::breadcrumb_overflow(ui);
+                                    nf::popup_below(&overflow, 200.0, |ui| {
+                                        for hidden in 1..path.len() - 2 {
+                                            let hidden_name = self
+                                                .project
+                                                .symbol(&path[hidden])
+                                                .map(|s| s.name.clone())
+                                                .unwrap_or_default();
+                                            if ui.add(nf::MenuItem::new(&hidden_name)).clicked() {
+                                                self.leave_to_level(hidden);
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                    nf::breadcrumb_separator(ui);
+                                }
+                                let id = &path[index];
                                 let symbol = self.project.symbol(id);
                                 let name = symbol.map(|s| s.name.clone()).unwrap_or_default();
                                 let kind = match symbol.map(|s| s.kind) {
@@ -178,8 +201,9 @@ impl Editor {
                                 let item = ui.add(nf::BreadcrumbItem { label: &name, kind, current, menu: current });
                                 if item.clicked() {
                                     if current {
-                                        Self::open_planned(ui.ctx(), "Breadcrumb ▸ Symbols & scenes");
+                                        self.toggle_symbols_popover(ui.ctx(), Some(item.rect));
                                     } else {
+                                        self.close_symbols_popover(ui.ctx());
                                         self.leave_to_level(index);
                                     }
                                 }
@@ -206,6 +230,7 @@ impl Editor {
                         });
                     });
             });
+        self.symbols_popover(&ctx, canvas);
         // Stage size badge.
         egui::Area::new(egui::Id::new("stage-size-badge"))
             .order(egui::Order::Middle)

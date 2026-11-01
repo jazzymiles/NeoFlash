@@ -681,10 +681,17 @@ impl Editor {
         {
             self.convert_to_symbol();
         }
-        // Sound and font library items (§9) open their planned dialogs.
+        // Sound and font library items (§9).
         nf::menu_separator(ui);
+        let has_audio = self.project.resources.iter().any(|u| u.is_audio());
+        if ui
+            .add_enabled(has_audio, nf::MenuItem::new("Sound properties…"))
+            .clicked()
+        {
+            self.open_sound_properties(ui.ctx(), None);
+            ui.close();
+        }
         for path in [
-            "Library menu ▸ Sound properties…",
             "Library menu ▸ Edit envelope…",
             "Library menu ▸ Font embedding…",
         ] {
