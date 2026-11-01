@@ -305,6 +305,8 @@ impl Editor {
         }
         key.frame = frame;
         key.label.clear();
+        // A frame sound belongs to the keyframe it was attached to; copying it would play twice.
+        key.sound = None;
         if let Some(end) = &mut layer.properties.end_frame {
             *end = (*end).max(frame + 1);
         }

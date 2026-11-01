@@ -125,6 +125,13 @@ pub(crate) fn layer_kind(
         LayerRole::Guide => LayerKind::Guide,
         LayerRole::Mask => LayerKind::Mask,
         LayerRole::Normal if layer.properties.mask.is_some() => LayerKind::Masked,
+        // Keys holding only frame sounds (no artwork) make a Sound layer.
+        LayerRole::Normal
+            if layer.keyframes.iter().any(|k| k.sound.is_some())
+                && layer.keyframes.iter().all(|k| k.elements.is_empty()) =>
+        {
+            LayerKind::Sound
+        }
         LayerRole::Normal => LayerKind::Layer,
     }
 }

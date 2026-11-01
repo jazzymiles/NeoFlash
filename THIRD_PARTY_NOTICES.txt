@@ -312,6 +312,19 @@ documented in docs/AS2-TEXT-DISPLAY-TWO-HOUR.md. The Ruffle copyright and comple
 MIT notice above apply; no complete upstream engine is included.
 
 
+Editor sound preview dependencies
+=================================
+
+The macOS editor plays timeline sounds with rodio 0.21 (MIT OR Apache-2.0) and
+its cpal audio output (Apache-2.0). MP3 and WAV decoding comes from the
+Symphonia crates (symphonia, symphonia-core, symphonia-bundle-mp3,
+symphonia-format-riff, symphonia-codec-pcm, symphonia-metadata), licensed under
+the Mozilla Public License 2.0 and used unmodified. Their source code is
+available at https://github.com/pdeljanov/Symphonia (versions pinned in
+Cargo.lock); the MPL-2.0 text is at https://mozilla.org/MPL/2.0/.
+These are editor dependencies only; HTML5 exports decode audio in the browser.
+Source: https://github.com/RustAudio/rodio, https://github.com/RustAudio/cpal.
+
 Rust SVG import dependencies
 ============================
 

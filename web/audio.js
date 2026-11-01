@@ -7,9 +7,12 @@
  * Loading reuses URLLoader's portable resources/HTTP/CORS policy. MP3 and WAV
  * preflight reserves PCM before browser decoding; browser codec support still
  * determines success. AS2 metadata/channel matrices use the shared Rust core.
- * No streaming, AS3 ID3, sampleData/extract, AS3 channel matrix,
- * MovieClip sound hierarchy or native timeline audio is implied. AS2 stop and
- * transforms apply to this adapter's own channels, not a document-wide mixer.
+ * No streaming, AS3 ID3, sampleData/extract, AS3 channel matrix or
+ * MovieClip sound hierarchy is implied. AS2 stop and transforms apply to this
+ * adapter's own channels, not a document-wide mixer.
+ * Timeline (frame) sounds: the Rust Player decides which sound starts, stops or
+ * seeks and at which offset (SoundCommand); `timeline()` only decodes each
+ * embedded resource once and schedules Web Audio sources on the shared bus.
  */
 (function(global){
   'use strict';
@@ -33,6 +36,8 @@
       let loading=0,loaded=0,pending=0,active=0;
       for(const record of soundRecords){if(record.load)loading++;if(record.buffer)loaded++;}
       for(const record of playing){if(record.started)active++;else pending++;}
+      for(const voice of voices){if(voice.source)active++;else pending++;}
+      pending+=blockedEvents;
       return {state:!used?'idle':lastError?'error':pending&&(!unlocked||context?.state!=='running')?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,loaded,muted,unlocked,decodedBytes,error:lastError};
     }
     function changed(){options.onState?.(status());}
@@ -100,7 +105,7 @@
       try{source.start(record.startedAt,record.offset);source.stop(record.startedAt+record.duration);}
       catch(error){stop(record);throw error;}
     }
-    function flush(){for(const record of [...playing]){if(disposed||record.generation!==generation)break;startChannel(record);}changed();}
+    function flush(){blockedEvents=0;flushVoices();for(const record of [...playing]){if(disposed||record.generation!==generation)break;startChannel(record);}changed();}
     function resumeFromGesture(){
       open();if(!isUserGesture())return Promise.reject(new Error('Audio needs an actual user gesture. Use Enable audio or an authored Play control.'));
       const ctx=ensureContext(),epoch=generation;used=true;lastError='';
@@ -259,8 +264,98 @@
     }
     function stopLegacy(record){for(const channel of record.owned)channel.stop();record.owned.clear();}
     function stopAllLegacySounds(){open();for(const record of soundRecords)if(record.legacyOwner)stopLegacy(record.legacyOwner);}
+    // AS3 SoundMixer.stopAll(): every scripted channel of this publication (timeline voices via timeline()).
+    function stopAllChannels(){open();for(const record of [...playing])stop(record);}
+    // Timeline sounds. Voices are scheduled from Rust SoundCommands; buffers are decoded once
+    // per resource and session. Before the browser allows audio, streams wait and resume at
+    // their timeline position on Enable audio; Event/Start sounds of that period are skipped.
+    const resourcePaths=new Map((options.resources||[]).map(resource=>[resource.id,resource.path]));
+    const buffers=new Map(),voices=new Set(),now=options.now||(()=>(global.performance?.now?.()??Date.now())/1000);
+    let blockedEvents=0;
+    function timelineBuffer(id){
+      let entry=buffers.get(id);if(entry)return entry;
+      entry={buffer:null,error:null};buffers.set(id,entry);
+      const epoch=generation,path=resourcePaths.get(id);
+      try{
+        if(!path)throw new Error(`Timeline sound resource ${id} is not embedded in this publication. Re-export the project.`);
+        const bytes=net.mediaSource(path).bytes,ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
+        if(!Number.isSafeInteger(profile.decodedBytes)||profile.decodedBytes<1||profile.decodedBytes>maxDecodedBytes-decodedBytes)throw new RangeError('Decoded audio would exceed the publication PCM budget.');
+        decodedBytes+=profile.decodedBytes;
+        Promise.resolve(ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength))).then(buffer=>{
+          if(disposed||epoch!==generation)return;
+          if(!buffer||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Timeline sound decoded to no audio.');
+          entry.buffer=buffer;flushVoices();changed();
+        }).catch(error=>{if(disposed||epoch!==generation)return;entry.error=error;dropVoices(id);report(error);});
+      }catch(error){entry.error=error;report(error);}
+      return entry;
+    }
+    function dropVoices(id){for(const voice of [...voices])if(voice.resource===id)stopVoice(voice);}
+    function stopVoice(voice){
+      voices.delete(voice);const source=voice.source;voice.source=null;
+      if(source){source.onended=null;try{source.stop();}catch(_){}}
+      for(const node of voice.nodes)try{node.disconnect();}catch(_){}
+      voice.nodes=[];changed();
+    }
+    function connectEnvelope(voice,source,start,length){
+      // Rust supplies the envelope points; this only maps them onto per-channel gain automation.
+      const points=voice.envelope.length?voice.envelope:[[0,1,1]];
+      if(points.length===1&&points[0][1]===1&&points[0][2]===1){source.connect(master);return [];}
+      if(typeof context.createChannelSplitter!=='function'||typeof context.createChannelMerger!=='function'){source.connect(master);return [];}
+      const input=context.createGain(),splitter=context.createChannelSplitter(2),merger=context.createChannelMerger(2),gains=[context.createGain(),context.createGain()];
+      input.channelCount=2;input.channelCountMode='explicit';input.channelInterpretation='speakers';
+      source.connect(input);input.connect(splitter);
+      gains.forEach((gain,channel)=>{
+        splitter.connect(gain,channel);gain.connect(merger,0,channel);
+        const origin=start-voice.offset;
+        points.forEach(([position,left,right],index)=>{
+          const level=channel?right:left,time=Math.max(0,origin+position*length);
+          if(index===0)gain.gain.setValueAtTime(level,time);else gain.gain.linearRampToValueAtTime(level,time);
+        });
+      });
+      merger.connect(master);return [input,splitter,merger,...gains];
+    }
+    function startVoice(voice){
+      if(voice.source||!unlocked||context?.state!=='running')return;
+      const entry=timelineBuffer(voice.resource);if(!entry.buffer)return;
+      const buffer=entry.buffer,duration=buffer.duration;
+      if(voice.stream)voice.offset+=Math.max(0,now()-voice.requestedAt);
+      else if(now()-voice.requestedAt>1){stopVoice(voice);return;}
+      const total=voice.loopForever?Infinity:duration*voice.loops;
+      if(voice.offset>=total){stopVoice(voice);return;}
+      const source=context.createBufferSource(),start=context.currentTime;
+      source.buffer=buffer;source.loop=voice.loopForever||voice.loops>1;
+      voice.nodes=connectEnvelope(voice,source,start,Number.isFinite(total)?total:duration);
+      voice.source=source;source.onended=()=>{if(voice.source===source)stopVoice(voice);};
+      source.start(start,voice.offset%duration);
+      if(Number.isFinite(total))source.stop(start+total-voice.offset);
+      changed();
+    }
+    function flushVoices(){for(const voice of [...voices]){if(disposed)break;try{startVoice(voice);}catch(error){stopVoice(voice);report(error);}}}
+    // Decode the document's timeline sounds ahead of their first keyframe.
+    function preloadTimeline(ids){open();if(!Array.isArray(ids))throw new TypeError('Timeline sound preload requires resource IDs.');for(const id of ids.slice(0,maxSounds))timelineBuffer(String(id));}
+    function timeline(commands){
+      open();if(!Array.isArray(commands))throw new TypeError('Timeline sound commands must be an array.');
+      for(const command of commands){
+        const op=command?.op;
+        if(op==='stop_all'){for(const voice of [...voices])stopVoice(voice);blockedEvents=0;continue;}
+        if(op==='stop'){for(const voice of [...voices])if(!voice.stream&&voice.resource===command.resource)stopVoice(voice);continue;}
+        if(op==='stream_stop'){for(const voice of [...voices])if(voice.channel===command.channel)stopVoice(voice);continue;}
+        if(op!=='play'&&op!=='stream_start')throw new TypeError(`Unknown timeline sound command ${op}.`);
+        if(voices.size>=maxChannels)continue;
+        const stream=op==='stream_start';used=true;
+        if(stream)for(const voice of [...voices])if(voice.channel===command.channel)stopVoice(voice);
+        if(!stream&&command.sync==='start'&&[...voices].some(voice=>voice.resource===command.resource))continue;
+        if(!stream&&(!unlocked||context?.state!=='running')){blockedEvents=1;timelineBuffer(command.resource);changed();continue;}
+        const voice={resource:command.resource,channel:stream?command.channel:null,stream,offset:stream?Number(command.offset)||0:0,
+          loops:Math.max(1,command.loops|0),loopForever:command.loop_forever===true,envelope:Array.isArray(command.envelope)?command.envelope:[],requestedAt:now(),source:null,nodes:[]};
+        voices.add(voice);
+        try{startVoice(voice);}catch(error){stopVoice(voice);report(error);}
+      }
+      changed();
+    }
     function reset(){
       open();if(master)master.gain.value=0;
+      for(const voice of [...voices])stopVoice(voice);buffers.clear();blockedEvents=0;
       for(const record of [...playing])stop(record);
       for(const record of soundRecords){cancelLoad(record);record.buffer=null;record.bytes=0;}
       const old=context;context=null;if(master){try{master.disconnect();}catch(_){}}master=null;
@@ -270,7 +365,7 @@
       try{old?.close()?.catch(()=>{});}catch(_){}changed();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,stopAllLegacySounds,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

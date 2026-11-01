@@ -251,6 +251,22 @@ impl Player {
         }
     }
 
+    /// Sound commands of linked clips' own timelines, with namespaced stream channels.
+    pub(crate) fn drain_linked_sound_commands(&mut self) -> Vec<crate::SoundCommand> {
+        let mut commands = vec![];
+        for (reference, namespace) in &mut self.graph.namespaces {
+            let scope = serde_json::to_string(reference).unwrap_or_default();
+            commands.extend(
+                namespace
+                    .player
+                    .drain_sound_commands()
+                    .into_iter()
+                    .map(|command| command.scoped(&scope)),
+            );
+        }
+        commands
+    }
+
     pub(crate) fn tick_linked(&mut self, project: &Project) {
         let namespaces: Vec<_> = self.graph.namespaces.keys().cloned().collect();
         let mut remaining = self.budget;

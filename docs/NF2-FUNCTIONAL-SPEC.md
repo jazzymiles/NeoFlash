@@ -44,7 +44,7 @@ not confirmed in code.
 | TL-04 | Shape tween | Timeline controls | done | yes (small) | P2 |
 | TL-05 | Motion tween | Timeline controls | partial | yes | P2 |
 | TL-06 | Ease panel button | Timeline controls | done | editor | P1 |
-| TL-07 | Sound | Timeline controls | disabled | yes | P3 |
+| TL-07 | Sound | Timeline controls | done | yes | P3 |
 | TL-08 | Edit multiple frames | Timeline controls | partial | editor | P2 |
 | TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
 | TL-10 | Frame view ▸ Preview | Frame view menu | done | editor | P3 |
@@ -78,7 +78,7 @@ not confirmed in code.
 | PR-05 | Properties — Movie clip: Display & Filters tabs | Properties | preview | yes | P2 |
 | PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | absent | editor / yes | P2 |
 | PR-07 | Properties — Graphic thumbnail strip | Properties | partial | editor | P3 |
-| PR-08 | Properties — Sound (frame) | Properties | preview | yes | P3 |
+| PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
 | PR-09 | Properties — Video playback & cue points | Properties | partial | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | partial | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
@@ -109,7 +109,7 @@ not confirmed in code.
 | PP-10 | Swatches | Planned panel | preview | editor | P1 |
 | PP-11 | Info | Planned panel | preview | editor | P1 |
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
-| PP-13 | Properties — Sound | Planned panel | preview | yes | P3 (= PR-08) |
+| PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
 | DL-01 | Preferences (9 pages) | Planned dialog | preview | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | preview | editor | P1 |
@@ -206,7 +206,8 @@ groups.
 - Depends on: editor (PP-01).
 - Acceptance: enabled only inside a tween; opens Ease showing the keyframe's current curve.
 
-**TL-07 · Sound** — `timeline_frame_tools` · disabled
+**TL-07 · Sound** — `timeline_frame_tools` · done
+- Done: menu of library sounds + Import sound… (MP3/WAV) sets the current span's keyframe sound (default Event) as one Undo and selects that frame so Properties shows Sound; Sound layers with Sound spans (the span painter's waveform is decorative, not decoded peaks); Event/Start/Stop/Stream in HTML5 and in editor playback (rodio). Scrubbing is silent (documented limit).
 - Purpose: attach a library sound to the current keyframe (sound layer) and open Properties — Sound.
 - Behaviour: menu of library sounds + "Import sound…"; choosing one sets the keyframe's sound (default Sync Event).
 - Data: audio exists only as `ResourceUnit` bytes (scripted `Sound`); no timeline sound. **NEW**.
@@ -254,7 +255,8 @@ groups.
   composition may grow (**request** if the rows must be added).
 - Acceptance: each placement docks the timeline accordingly and is restorable.
 
-**TL-13 · Layer types Sound / Video / Armature / Motion guide** — `panels/timeline.rs` `layer_kind` · absent
+**TL-13 · Layer types Sound / Video / Armature / Motion guide** — `panels/timeline.rs` `layer_kind` · partial
+- Done: Motion guide; Sound (a layer whose keys hold frame sounds and no artwork). Not yet: Video, Armature.
 - Purpose: NF2 `TL Layer` types with their span renderings (waveform, filmstrip, ◆ poses, guided indent).
 - Data: `LayerKind` in `neoflash-ui` has the variants; `LayerRole` lacks them. **NEW** roles/derivation.
 - Depends on: engine (TL-01, TL-07, PR-09, TO-05).
@@ -468,7 +470,8 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 **PR-07 · Graphic — thumbnail strip** — partial (Looping and first frame work via `instance_playback_ui`)
 - Purpose: clickable thumbnail strip to pick the first frame. Depends on: editor (thumbnails as TL-10).
 
-**PR-08 · Properties — Sound (frame)** — preview `PropertiesSound`
+**PR-08 · Properties — Sound (frame)** — `panels/properties_sound.rs` · partial
+- Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets, Sync, Repeat/Loop + count, file info, Play (native preview). Not yet: Envelope… and Sound properties… open their planned dialogs (DL-09, DL-08); the waveform is the decorative span painter.
 - Controls: Label name/type; sound file select; Effect (None, Left/Right channel, Fade left→right / right→left, Fade in,
   Fade out, Custom) + Envelope… (DL-09); Sync Event / Start / Stop / Stream; Repeat / Loop + count; waveform; file info;
   Play; Sound properties… (DL-08).
@@ -769,7 +772,7 @@ unclear.
 | View | Magnification ▸, Preview mode ▸, Pasteboard ⇧⌘W, Snapping ▸, Show shape hints ⌥⌘H | editor; ST-04; TL-04 |
 | Insert | Layer, Layer folder, Motion guide, Classic / Shape / Motion tween, Scene | existing layer commands; TL-01/03/04/05 |
 | Modify | Document… ⌘J, Bitmap ▸, Symbol ▸ (Swap, Duplicate), Shape ▸ (smooth, straighten, optimise, soften, hints), Combine objects ▸, Timeline ▸ (Reverse, Distribute to layers), Align ▸ | DL-02; PR-06; LI-01; engine for shape ops |
-| Control | Go to end, Step forward/back (shortcuts `.` `,`), Test scene ⌥⌘↵, Loop playback, Play all scenes, Mute sounds ⌥⌘M, Enable simple buttons ⌥⌘B | TL-02; TL-03; TL-07; editor button preview |
+| Control | Go to end, Step forward/back (shortcuts `.` `,`), Test scene ⌥⌘↵, Loop playback, Play all scenes, Mute sounds ⌥⌘M (done), Enable simple buttons ⌥⌘B | TL-02; TL-03; TL-07; editor button preview |
 | Window | Duplicate window, Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Compiler errors ⌥F2, Hide panels F4 | PP-*; workspace |
 
 **MN-02 · Context menus** (reference §8 Frame / Layer / Stage object)

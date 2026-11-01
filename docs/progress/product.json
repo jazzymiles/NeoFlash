@@ -1304,13 +1304,23 @@
       "id": "animation-media-sync",
       "category": "animation",
       "title": "Audio and video synchronization",
-      "status": "planned",
-      "scope": "Timeline sound/video, synchronization modes, and coordinated playback stops and seeks.",
-      "limitations": "Native timeline audio/video tracks and synchronization remain unimplemented. Portable resources and separately scripted Sound playback have bounded profiles; they do not establish timeline media synchronization.",
+      "status": "partial",
+      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop and preset effects in editor playback and HTML5, coordinated stream stops and seeks; timeline video.",
+      "limitations": "Timeline video, custom sound envelopes, Sound properties export settings and decoded waveform display are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
       "items": [
         {
           "id": "timeline-audio",
           "title": "Timeline sound tracks",
+          "status": "working"
+        },
+        {
+          "id": "timeline-audio-editing",
+          "title": "Keyframe sound settings (sync, repeat, effect)",
+          "status": "working"
+        },
+        {
+          "id": "sound-envelope-editing",
+          "title": "Custom sound envelopes",
           "status": "planned"
         },
         {
@@ -1321,17 +1331,21 @@
         {
           "id": "sync-modes",
           "title": "Media synchronization modes",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "coordinated-stop-seek",
           "title": "Coordinated media stops and seeks",
-          "status": "planned"
+          "status": "partial"
         }
       ],
       "evidence": [
         "docs/ROADMAP.md",
-        "docs/BACKLOG.md"
+        "docs/BACKLOG.md",
+        "crates/neoflash-core/tests/timeline_sound.rs",
+        "crates/neoflash-editor/src/timeline_sound_tests.rs",
+        "web/tests/wasm.test.cjs",
+        "docs/decisions/0037-timeline-sound.md"
       ]
     },
     {
@@ -1908,7 +1922,7 @@
       "title": "Image, audio and video assets",
       "status": "partial",
       "scope": "Library imports and stores portable resource files, including image/audio/video bytes, with metadata editing, Undo and self-contained HTML5 packaging. The shared data service loads embedded text, bytes and form variables and supports bounded HTTP(S) requests. PNG/JPEG resources can be placed on Stage with transforms and smoothing. Shared Rust BitmapData buffers support bounded pixel edits, fill/copy/clone/scroll and disposal; AS3 Bitmap and AS2 attachBitmap use the same display graph and publication lifetime. AS3 Sound/SoundChannel/SoundTransform and AS2 Sound add complete-file MP3/WAV resource/HTTP loading, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. AS3 Loader/LoaderInfo and AS2 MovieClipLoader now connect encoded PNG/JPEG resource/HTTP bytes to managed display content and the Rust pixel arena. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored/dynamic Video display leaves, native placeholder insertion and browser NetStream file playback use the shared scene graph and portable resources; HTTP media uses native browser CORS transport. SVG/PNG/JPEG Stage import shares a menu/file-drop path, creates library symbols, reuses identical resources and commits multi-file batches as one Undo. Solid SVG paths stay editable; richer paint renders through Rust resvg with original SVG retention. Native file-drop coordinates, page fitting and visible-layer fallback keep imported graphics on Stage. Library symbols and supported stored image resources can also be dragged or placed through the same transaction.",
-      "limitations": "Additional image formats, bitmap fills, remaining filter/draw/encoding operations, sound streaming and timeline audio, native video decoding/synchronization and font embedding remain planned. Audio uses a bounded browser playback service; its own verification is recorded separately. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The separate Sound delivery verifies ordinary AS2/AS3 MP3 loading, silent Play/Stop/Restart and actual browser MP3/offline PCM/native lifecycle; WAV native decoding, other engines and audible quality remain unverified. Independent d8f580a evidence (AUDIO-HTML5-20261027T0429Z) covers only the embedded-AS3/HTTP-AS2 original-MP3 workflow, silent native completion with bounded repeats, transform copy/refusal, active Stop and publication Restart in VERIFICATION.md. It does not inherit the separate main-delivery offline PCM probe or establish audible quality, native WAV decoding, nonzero offsets/gain, full mixer semantics or pending-decode races. Image loading excludes SWF/GIF, application/security domains, native Loader subclasses and general legacy target addressing. Retained AS3 content survives unload; explicit disposal/Restart and shared arena limits apply while full garbage collection remains pending. The loader-gallery delivery has separate evidence; previous resource/bitmap audits do not promote new loader declarations. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Native Video insertion/Properties has separate UI acceptance from compile/model checks. Full media timeline synchronization, capture/publishing and legacy video codecs remain open. The Video delivery separately passed one actual-browser AS2/AS3 MP4 workflow: metadata, changing pixels, paused-frame retention, seek/resume/completion, Close retention, local HTTP playback and Restart. The tiny silent fixture does not establish progressive-before-download completion, audible quality, other codecs/engines or native authoring UI. Independent f42ad94 evidence (VIDEO-HTML5-20261027T1042Z) covers the observed embedded AS3/AS2 four-second MP4, native metadata/status/pixels, pause/seek/resume/natural completion, post-completion Close retention, AS3-only clear and active AS2 HTTP Restart/fresh playback in VERIFICATION.md. The negative AS3 seek preserves time; the unsupported-pan diagnostic does not implement panning. Configured volume zero and silent AAC are not audible-effect evidence. Active/pending close, arbitrary rebinding/reentry, smoothing comparisons, other codecs, large progressive/range/CORS transport, exact synchronization and native Video authoring do not inherit this pass. SVG scripts, animation, external file references and embedded HTML reject. Complex SVG paint is an image after import; original source remains available.",
+      "limitations": "Additional image formats, bitmap fills, remaining filter/draw/encoding operations, sound streaming, native video decoding/synchronization and font embedding remain planned. Audio uses a bounded browser playback service; its own verification is recorded separately. Native resource/image panel acceptance and direct-file browser opening remain pending. The bitmap workflow passed combined export/WASM and in-app-browser observation of shared edits, independent source/clone, AS2 attachment and Restart. Full bitmap conformance is not established; exact evidence is in VERIFICATION.md. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass. The separate Sound delivery verifies ordinary AS2/AS3 MP3 loading, silent Play/Stop/Restart and actual browser MP3/offline PCM/native lifecycle; WAV native decoding, other engines and audible quality remain unverified. Independent d8f580a evidence (AUDIO-HTML5-20261027T0429Z) covers only the embedded-AS3/HTTP-AS2 original-MP3 workflow, silent native completion with bounded repeats, transform copy/refusal, active Stop and publication Restart in VERIFICATION.md. It does not inherit the separate main-delivery offline PCM probe or establish audible quality, native WAV decoding, nonzero offsets/gain, full mixer semantics or pending-decode races. Image loading excludes SWF/GIF, application/security domains, native Loader subclasses and general legacy target addressing. Retained AS3 content survives unload; explicit disposal/Restart and shared arena limits apply while full garbage collection remains pending. The loader-gallery delivery has separate evidence; previous resource/bitmap audits do not promote new loader declarations. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Native Video insertion/Properties has separate UI acceptance from compile/model checks. Full media timeline synchronization, capture/publishing and legacy video codecs remain open. The Video delivery separately passed one actual-browser AS2/AS3 MP4 workflow: metadata, changing pixels, paused-frame retention, seek/resume/completion, Close retention, local HTTP playback and Restart. The tiny silent fixture does not establish progressive-before-download completion, audible quality, other codecs/engines or native authoring UI. Independent f42ad94 evidence (VIDEO-HTML5-20261027T1042Z) covers the observed embedded AS3/AS2 four-second MP4, native metadata/status/pixels, pause/seek/resume/natural completion, post-completion Close retention, AS3-only clear and active AS2 HTTP Restart/fresh playback in VERIFICATION.md. The negative AS3 seek preserves time; the unsupported-pan diagnostic does not implement panning. Configured volume zero and silent AAC are not audible-effect evidence. Active/pending close, arbitrary rebinding/reentry, smoothing comparisons, other codecs, large progressive/range/CORS transport, exact synchronization and native Video authoring do not inherit this pass. SVG scripts, animation, external file references and embedded HTML reject. Complex SVG paint is an image after import; original source remains available.",
       "items": [
         {
           "id": "resource-import",

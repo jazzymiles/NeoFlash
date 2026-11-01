@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Timeline sound
+
+- Attach library sounds to keyframes: the Timeline controls Sound button lists the document's sounds and "Import sound…" (MP3/WAV), and attaching is one Undo step. Layers that hold only sounds show as Sound layers with waveform spans.
+- Properties ▸ Sound (shown for a frame with a sound) edits the sound, Effect (left/right channel, fades), Sync Event / Start / Stop / Stream and Repeat count or Loop, shows file information and plays the sound once.
+- Flash sync semantics in HTML5 and editor playback: Event plays on every keyframe entry and overlaps, Start does not overlap itself, Stop stops the sound, and Stream follows the playhead — it starts at the right position after a jump, restarts when the timeline loops and stops at the end of its span or when that timeline stops.
+- Editor playback plays timeline sounds through the Mac's default output; Control ▸ Mute sounds (⌥⌘M) silences them. Scrubbing is silent.
+- AS3 `SoundMixer.stopAll()` and AS2 `stopAllSounds()` also stop timeline sounds.
+- Documents with frame sounds are saved as format 6.
+
 ## Unreleased — Legacy FLA import
 
 - Old binary FLA files from Flash 3, 5, MX, 8, CS3 and CS4 now open: 101 of 106 real local documents import (previously 5), and all 8 public binary FLA samples import as checked projects.

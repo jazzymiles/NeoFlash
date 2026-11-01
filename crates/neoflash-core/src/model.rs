@@ -264,7 +264,8 @@ impl Project {
     }
 }
 impl Project {
-    /// Document features introduced with format 6 (scenes, tween kinds, motion and ruler guides).
+    /// Document features introduced with format 6 (scenes, tween kinds, motion and ruler guides,
+    /// frame sounds).
     pub fn uses_format_6(&self) -> bool {
         !self.scenes.is_empty()
             || self.symbols.iter().any(|s| !s.timeline.guides.is_empty())
@@ -278,6 +279,7 @@ impl Project {
                             !k.tween_kind.is_classic()
                                 || k.keyed_properties.is_some()
                                 || k.orient_to_path
+                                || k.sound.is_some()
                         })
                 })
     }
@@ -350,6 +352,143 @@ pub struct Keyframe {
     /// Rotate tweened objects to follow the motion guide path.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub orient_to_path: bool,
+    /// Timeline sound started (or stopped) when the playhead enters this keyframe
+    /// (document version 6). The layer then shows as a Sound layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<FrameSound>,
+}
+
+/// A library audio resource attached to a keyframe (Flash frame sound).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FrameSound {
+    /// `ResourceUnit` ID of an `audio/*` resource.
+    pub resource: Id,
+    #[serde(default, skip_serializing_if = "SoundSync::is_event")]
+    pub sync: SoundSync,
+    /// Number of plays (Flash "Repeat"); at least 1.
+    #[serde(
+        default = "FrameSound::one",
+        skip_serializing_if = "FrameSound::is_one"
+    )]
+    pub loops: u32,
+    /// Flash "Loop": repeat until stopped (Event/Start) or until the span ends (Stream).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loop_forever: bool,
+    #[serde(default, skip_serializing_if = "SoundEffect::is_none")]
+    pub effect: SoundEffect,
+}
+
+impl FrameSound {
+    /// Largest repeat count, as in Flash.
+    pub const MAX_LOOPS: u32 = 10_000;
+
+    pub fn new(resource: impl Into<Id>) -> Self {
+        Self {
+            resource: resource.into(),
+            sync: SoundSync::Event,
+            loops: 1,
+            loop_forever: false,
+            effect: SoundEffect::None,
+        }
+    }
+    fn one() -> u32 {
+        1
+    }
+    fn is_one(value: &u32) -> bool {
+        *value == 1
+    }
+}
+
+/// How a frame sound relates to the timeline (Flash "Sync").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundSync {
+    /// Play to the end on every entry, overlapping earlier instances.
+    #[default]
+    Event,
+    /// Like Event, but not while an instance of the same sound is still playing.
+    Start,
+    /// Stop every playing instance of the sound.
+    Stop,
+    /// Locked to the timeline: plays only while the playhead runs through the span.
+    Stream,
+}
+
+impl SoundSync {
+    pub const ALL: [Self; 4] = [Self::Event, Self::Start, Self::Stop, Self::Stream];
+    pub fn is_event(&self) -> bool {
+        *self == Self::Event
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Event => "Event",
+            Self::Start => "Start",
+            Self::Stop => "Stop",
+            Self::Stream => "Stream",
+        }
+    }
+}
+
+/// Flash preset volume envelopes of a frame sound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundEffect {
+    #[default]
+    None,
+    LeftChannel,
+    RightChannel,
+    FadeLeftToRight,
+    FadeRightToLeft,
+    FadeIn,
+    FadeOut,
+}
+
+impl SoundEffect {
+    pub const ALL: [Self; 7] = [
+        Self::None,
+        Self::LeftChannel,
+        Self::RightChannel,
+        Self::FadeLeftToRight,
+        Self::FadeRightToLeft,
+        Self::FadeIn,
+        Self::FadeOut,
+    ];
+    pub fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::LeftChannel => "Left channel",
+            Self::RightChannel => "Right channel",
+            Self::FadeLeftToRight => "Fade left to right",
+            Self::FadeRightToLeft => "Fade right to left",
+            Self::FadeIn => "Fade in",
+            Self::FadeOut => "Fade out",
+        }
+    }
+    /// Volume envelope as `(position, left, right)` points; `position` is the fraction
+    /// 0..=1 of the played length, levels are 0..=1 and linear between points.
+    pub fn envelope(self) -> &'static [(f64, f64, f64)] {
+        match self {
+            Self::None => &[(0.0, 1.0, 1.0)],
+            Self::LeftChannel => &[(0.0, 1.0, 0.0)],
+            Self::RightChannel => &[(0.0, 0.0, 1.0)],
+            Self::FadeLeftToRight => &[(0.0, 1.0, 0.0), (1.0, 0.0, 1.0)],
+            Self::FadeRightToLeft => &[(0.0, 0.0, 1.0), (1.0, 1.0, 0.0)],
+            Self::FadeIn => &[(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)],
+            Self::FadeOut => &[(0.0, 1.0, 1.0), (1.0, 0.0, 0.0)],
+        }
+    }
+    /// Left and right gain at `position` (0..=1) of the played length.
+    pub fn gains_at(self, position: f64) -> (f64, f64) {
+        let points: Vec<[f64; 3]> = self
+            .envelope()
+            .iter()
+            .map(|&(position, left, right)| [position, left, right])
+            .collect();
+        crate::timeline_sound::envelope_gains(&points, position)
+    }
 }
 
 /// Interpolation used by a tweened span.

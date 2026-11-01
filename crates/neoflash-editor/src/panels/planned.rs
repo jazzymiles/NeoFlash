@@ -8,7 +8,7 @@
 //! format tabs that switch between preview pages. Open previews live in egui temp memory, not in the
 //! document or the workspace prefs.
 //!
-//! Bodies: `planned_panels.rs` (History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets, Sound and
+//! Bodies: `planned_panels.rs` (History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets and
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
@@ -30,7 +30,6 @@ pub(crate) enum PlannedPanel {
     History,
     Swatches,
     Info,
-    PropertiesSound,
     PropertiesFilters,
     Preferences,
     DocumentSettings,
@@ -76,7 +75,7 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 34] = [
+    pub(crate) const ALL: [Self; 33] = [
         Self::Debugger,
         Self::Project,
         Self::CodeSnippets,
@@ -84,7 +83,6 @@ impl PlannedPanel {
         Self::History,
         Self::Swatches,
         Self::Info,
-        Self::PropertiesSound,
         Self::PropertiesFilters,
         Self::Preferences,
         Self::DocumentSettings,
@@ -123,7 +121,6 @@ impl PlannedPanel {
             Self::History => "History",
             Self::Swatches => "Swatches",
             Self::Info => "Info",
-            Self::PropertiesSound => "Properties — Sound",
             Self::PropertiesFilters => "Properties — Display & filters",
             Self::Preferences => "Preferences",
             Self::DocumentSettings => "Document settings",
@@ -160,7 +157,6 @@ impl PlannedPanel {
             Self::CompilerErrors | Self::Info => "panels-more-2.png",
             Self::History => "panels-more.png",
             Self::Swatches => "swatches-popover.png, panels-more.png",
-            Self::PropertiesSound => "panel-properties-sound.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
             Self::Preferences => "dialog-preferences-*.png",
             Self::DocumentSettings => "document-dialogs.png",
@@ -185,7 +181,6 @@ impl PlannedPanel {
 
     pub(crate) const fn chrome(self) -> Chrome {
         match self {
-            Self::PropertiesSound => Chrome::Panel(&["Properties"]),
             Self::PropertiesFilters => Chrome::Panel(&["Properties", "Filters"]),
             Self::Debugger => Chrome::Panel(&["Debugger"]),
             Self::Project => Chrome::Panel(&["Project"]),
@@ -233,7 +228,7 @@ impl PlannedPanel {
             Self::CompilerErrors => 560.,
             Self::DocumentSettings | Self::SoundProperties => 520.,
             Self::CodeSnippets => 340.,
-            Self::Swatches | Self::PropertiesSound | Self::PropertiesFilters => 324.,
+            Self::Swatches | Self::PropertiesFilters => 324.,
             Self::Project | Self::Info => 300.,
             Self::History => 260.,
             Self::TestMovie => 1000.,
@@ -609,7 +604,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
             P::History => super::planned_panels::history(ui),
             P::Swatches => super::planned_panels::swatches(ui),
             P::Info => super::planned_panels::info(ui),
-            P::PropertiesSound => super::planned_panels::properties_sound(ui),
             P::PropertiesFilters => super::planned_panels::properties_filters(ui),
             P::DocumentSettings => super::planned_dialogs::document_settings(ui),
             P::PublishSettings => super::planned_dialogs::publish_settings(ui),

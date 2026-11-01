@@ -655,6 +655,8 @@ impl Editor {
                                 TweenKind::Shape => SpanType::ShapeTween,
                                 TweenKind::Classic => SpanType::ClassicTween,
                             })
+                        } else if key.sound.is_some() {
+                            Some(SpanType::Sound)
                         } else if !key.elements.is_empty() {
                             Some(SpanType::Static)
                         } else {

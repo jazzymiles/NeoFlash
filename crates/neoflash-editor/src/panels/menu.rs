@@ -57,7 +57,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Library menu ▸ Edit envelope…", P::EditEnvelope),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
-    ("Timeline controls ▸ Sound", P::PropertiesSound),
     ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
     ("Properties ▸ Publish settings…", P::PublishSettings),
     ("Swatches popover ▸ Add swatch", P::Swatches),
@@ -641,7 +640,10 @@ impl Editor {
             "Play all scenes",
             "",
         );
-        Self::unavailable_item(ui, "Mute sounds", "⌥⌘M");
+        let mut muted = self.timeline_audio.muted;
+        if menu_toggle(ui, &mut muted, "Mute sounds", "⌥⌘M").changed() {
+            self.toggle_mute_sounds();
+        }
         nf::menu_separator(ui);
         Self::unavailable_item(ui, "Enable simple buttons", "⌥⌘B");
     }

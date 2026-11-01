@@ -17,6 +17,8 @@ impl AuthoredPlayback {
         // prepare bitmap pixels. Native textures consume immutable resources.
         let mut player = Player::with_source_root(project, Some(symbol.to_owned()));
         if start_frame != 0 {
+            // Sounds of frame 0 belong to the discarded start, not to this preview.
+            player.drain_sound_commands();
             player.seek(project, start_frame);
         }
         let mut preview = Self {
@@ -41,6 +43,11 @@ impl AuthoredPlayback {
 
     pub fn frame(&self) -> u32 {
         self.player.frame()
+    }
+
+    /// Timeline sound commands for the editor's audio preview (see `SoundCommand`).
+    pub fn drain_sound_commands(&mut self) -> Vec<crate::SoundCommand> {
+        self.player.drain_sound_commands()
     }
 
     pub fn scene(

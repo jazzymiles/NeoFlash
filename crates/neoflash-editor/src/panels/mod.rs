@@ -9,6 +9,7 @@
 //! | `tools.rs` | Tools |
 //! | `library.rs` | Library |
 //! | `properties.rs` | Properties (inspector) |
+//! | `properties_sound.rs` | Properties ▸ Sound section of a keyframe with a frame sound |
 //! | `accessibility.rs` | Accessibility |
 //! | `actions.rs` | Actions (script editor), Output, bottom-panel dispatch |
 //! | `actions_sidebar.rs` | Actions sidebar: toolbox and Script navigator |
@@ -33,6 +34,7 @@ mod planned_documents;
 mod planned_drawing;
 mod planned_panels;
 pub(crate) mod properties;
+mod properties_sound;
 mod scene;
 mod timeline;
 mod timeline_controls;

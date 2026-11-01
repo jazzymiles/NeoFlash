@@ -595,6 +595,12 @@ fn class_syntax_outside_profile_is_never_erased() {
     )]);
     let video_program = neoflash_script::compile_project(&video_project);
     assert!(video_program.is_ok(), "{:?}", video_program.err());
+    let mixer_project = project(&[(
+        "Mixer.as",
+        "package { import flash.media.SoundMixer; public class Mixer { public function silence():void { SoundMixer.stopAll(); } } }",
+    )]);
+    let mixer_program = neoflash_script::compile_project(&mixer_project);
+    assert!(mixer_program.is_ok(), "{:?}", mixer_program.err());
     let legacy_video=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"var connection:NetConnection=new NetConnection();connection.connect(null);var stream:NetStream=new NetStream(connection);placedVideo.attachVideo(stream);stream.onStatus=function(info:Object):Void{result=info.code;};stream.play(\"media/motion.mp4\");stream.pause(true);stream.seek(2);stream.pause(false);stream.close();placedVideo.clear();".into()};
     assert!(neoflash_script::compile(&legacy_video).is_ok());
     let legacy_drag=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"card.onPress=function():Void{this.startDrag(false,20,20,250,145);localX=this._xmouse;};card.onReleaseOutside=function():Void{this.stopDrag();hit=this.hitTest(zone);pointHit=this.hitTest(300,200,true);drop=this._droptarget;};card.onRollOver=function():Void{rolls++;};card.onRollOut=function():Void{rolls--;};".into()};

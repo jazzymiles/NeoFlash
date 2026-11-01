@@ -100,6 +100,8 @@ pub struct Editor {
     pub(crate) stage_view: crate::stage_view::StageView,
     pub(crate) timeline_motion: crate::timeline_motion::MotionState,
     pub(crate) timeline_thumbnails: crate::timeline_preview::ThumbnailCache,
+    /// Native preview of timeline sounds (Control ▸ Mute sounds).
+    pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
 }
 
 #[derive(Clone, Copy)]
@@ -143,6 +145,29 @@ impl Editor {
         if let Some(path) = std::env::args().nth(1) {
             s.open_path(PathBuf::from(path), &cc.egui_ctx);
         }
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_FRAME=<layer row>,<frame>` selects that frame
+        // (zero-based), so captures show frame Properties (e.g. Properties ▸ Sound).
+        if let Some((layer, frame)) =
+            std::env::var("NEOFLASH_SCREENSHOT_FRAME")
+                .ok()
+                .and_then(|value| {
+                    let (layer, frame) = value.split_once(',')?;
+                    Some((
+                        layer.trim().parse::<usize>().ok()?,
+                        frame.trim().parse::<u32>().ok()?,
+                    ))
+                })
+            && let Some(id) = s.symbol().timeline.layers.get(layer).map(|l| l.id.clone())
+        {
+            s.layer = layer;
+            s.frame = frame;
+            s.normalize_selection();
+            s.select_frame_range(FrameRange {
+                layers: vec![id],
+                start: s.frame,
+                end: s.frame,
+            });
+        }
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
@@ -177,6 +202,7 @@ impl Editor {
             stage_view: Default::default(),
             timeline_motion: Default::default(),
             timeline_thumbnails: Default::default(),
+            timeline_audio: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -930,6 +956,9 @@ impl Editor {
         if exact(shift, Key::F6) {
             self.clear_keyframe();
         }
+        if exact(alt | cmd, Key::M) {
+            self.toggle_mute_sounds();
+        }
         // Unavailable items: consume so a shorter shortcut (F6, ⌘D, ⌘K …) does not run instead.
         for (m, key) in [
             (cmd, Key::W),
@@ -942,7 +971,6 @@ impl Editor {
             (cmd, Key::Semicolon),
             (cmd | shift, Key::Semicolon),
             (alt | cmd, Key::H),
-            (alt | cmd, Key::M),
             (alt | cmd, Key::B),
             (alt | cmd, Key::K),
             (none, Key::F4),
@@ -1210,6 +1238,7 @@ impl eframe::App for Editor {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(8));
         }
+        self.pump_timeline_audio();
         self.normalize_selection();
         self.menu(ctx);
         self.status_bar(ctx);

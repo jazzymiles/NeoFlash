@@ -122,6 +122,8 @@ pub struct Player {
     /// Scene ranges of a flattened multi-scene main timeline; empty is one
     /// unnamed scene. Only the root of a non-nested player uses them.
     scenes: Vec<SceneRange>,
+    /// Timeline sound commands for the host and the active stream channels.
+    pub(crate) sound: crate::timeline_sound::SoundState,
 }
 
 impl Player {
@@ -145,6 +147,7 @@ impl Player {
             budget: SCRIPT_BUDGET,
             overflowed: false,
             scenes: vec![],
+            sound: Default::default(),
         };
         player.reset(project);
         player
@@ -169,6 +172,7 @@ impl Player {
         self.playing = true;
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
+        self.sound.reset();
         self.clocks.insert(
             vec![],
             Clock {
@@ -190,8 +194,40 @@ impl Player {
         self.playing
     }
     /// Global transport pause. Script stop() uses control(..., Stop) instead.
+    /// Pausing stops timeline streams; they resume at their offset on the next tick.
     pub fn set_playing(&mut self, playing: bool) {
         self.playing = playing;
+        if !playing {
+            self.sound.stop_streams();
+        }
+    }
+
+    /// Timeline sound commands produced since the last call, including those of
+    /// runtime-created (linked) clips' own timelines.
+    pub fn drain_sound_commands(&mut self) -> Vec<crate::SoundCommand> {
+        let mut commands = self.sound.drain();
+        commands.extend(self.drain_linked_sound_commands());
+        commands
+    }
+
+    /// AS2 `stopAllSounds()` / AS3 `SoundMixer.stopAll()`: stop every sound now.
+    pub fn stop_all_sounds(&mut self) {
+        self.sound.stop_all();
+    }
+
+    fn sync_sound_streams(&mut self, project: &Project) {
+        let playing = self.playing;
+        let clocks = &self.clocks;
+        let running = |path: &[Id]| {
+            playing
+                && (0..=path.len())
+                    .rev()
+                    .find_map(|n| clocks.get(&path[..n]))
+                    .is_some_and(|clock| clock.playing)
+        };
+        let mut nodes: Vec<_> = self.previous.values().collect();
+        nodes.sort_by(|a, b| a.path.cmp(&b.path));
+        self.sound.sync_streams(project, nodes.into_iter(), running);
     }
     pub fn script_overflowed(&self) -> bool {
         self.overflowed
@@ -232,6 +268,7 @@ impl Player {
         self.runtime_scripts.clear();
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
+        self.sound.stop_streams();
         let count = project
             .symbol(self.root_id(project))
             .map_or(1, |s| s.timeline.frame_count.max(1));
@@ -530,12 +567,16 @@ impl Player {
         }
         for node in &scene.nodes {
             if let Some(symbol_id) = &node.symbol_id {
-                let entered = forced.contains(&node.path)
-                    || created.contains(&node.path)
+                let moved = created.contains(&node.path)
                     || self.previous.get(&node.path).is_none_or(|old| {
                         old.frame != node.frame || old.symbol_id != node.symbol_id
                     });
+                let entered = forced.contains(&node.path) || moved;
                 if entered && let Some(symbol) = project.symbol(symbol_id) {
+                    // A one-frame timeline that "loops" in place does not re-enter its frame.
+                    if moved || symbol.timeline.frame_count > 1 {
+                        self.sound.frame_entered(symbol, node.frame);
+                    }
                     for script in &symbol.timeline.scripts {
                         if script.frame == node.frame {
                             self.enqueue(
@@ -578,6 +619,7 @@ impl Player {
             .collect();
         self.lifetimes
             .retain(|path, _| self.previous.contains_key(path));
+        self.sync_sound_streams(project);
     }
 
     /// Changes when a placement is recreated; stays stable across continuous keys.
@@ -617,6 +659,7 @@ impl Player {
                 self.refresh(project, false, &forced);
             }
         }
+        self.sync_sound_streams(project);
         true
     }
 

@@ -21,6 +21,8 @@ wgpu = { version = "27", default-features = false, features = ["metal", "wgsl"] 
 neoflash-import = { path = "../neoflash-import" }
 lyon_tessellation = "1.0.20"
 resvg = { version = "=0.49.0", default-features = false, features = ["text", "system-fonts", "raster-images"] }
+# Timeline sound preview in the editor (MP3/WAV decoding, Core Audio output). MIT OR Apache-2.0.
+rodio = { version = "0.21.1", default-features = false, features = ["playback", "mp3", "wav"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
