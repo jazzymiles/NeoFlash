@@ -34,6 +34,19 @@ export async function verifyFilterGallery(root,cargo){
     cycle();assert.equal(scene.phase,1);assert.equal(cards[1].filters[0].inner,true);assert.equal(cards[2].filters[0].knockout,true);assert.equal(cards[2].rotation,-4);assert.equal(legacy.filters.length,2);assert.deepEqual(sourcePixels(),original);
     cycle();assert.equal(scene.phase,2);assert.ok(cards.every(card=>card.filters.length===0));assert.equal(nested.filters.length,0);assert.equal(legacy.filters.length,0);assert.equal(snapshot().filter_groups.length,0);
     host.stage().handlePointer('click',{},cards[1]);assert.equal(scene.clicks,2,'clearing filters keeps the same listener/instance');cycle();assert.equal(scene.phase,0);assert.equal(cards[0].filters[0].blurX,8);assert.deepEqual(sourcePixels(),original);assert.ok(cards.every((card,index)=>card===scene.cards[index]));
+    const BlendMode=host.display().builtins['flash.display.BlendMode'];
+    assert.equal(BlendMode.MULTIPLY,'multiply');assert.equal(BlendMode.SHADER,'shader');
+    assert.equal(cards[0].blendMode,'normal');assert.equal(cards[0].cacheAsBitmap,true,'active filters enable cacheAsBitmap');assert.equal(cards[0].opaqueBackground,null);
+    cards[0].filters=[];assert.equal(cards[0].cacheAsBitmap,false);
+    cards[0].blendMode=BlendMode.MULTIPLY;cards[0].cacheAsBitmap=true;cards[0].opaqueBackground=0x112233;
+    assert.deepEqual([cards[0].blendMode,cards[0].cacheAsBitmap,cards[0].opaqueBackground],['multiply',true,0x112233]);
+    assert.throws(()=>{cards[0].blendMode=BlendMode.SHADER;},/shader|blendMode/i);
+    assert.throws(()=>{cards[0].blendMode=3;},/String|blendMode/i);
+    assert.equal(cards[0].blendMode,'multiply');
+    const blendGroup=snapshot().filter_groups.find(group=>JSON.stringify(group.owner_ref)===key(cards[0]));
+    assert.ok(blendGroup);assert.equal(blendGroup.composite_operation,'multiply');assert.equal(blendGroup.cache_as_bitmap,true);assert.deepEqual(blendGroup.opaque_background,[0x11,0x22,0x33,255]);
+    cards[0].opaqueBackground=null;cards[0].cacheAsBitmap=false;cards[0].blendMode=BlendMode.NORMAL;
+    assert.deepEqual([cards[0].blendMode,cards[0].cacheAsBitmap,cards[0].opaqueBackground],['normal',false,null]);
     host.resetProject();scene=host.proxyFor([]);assert.deepEqual([scene.phase,scene.clicks,scene.legacyClicks],[0,0,0]);assert.equal(scene.copySafe,true);assert.throws(()=>cards[0].filters,/removed|replaced|stale|session/i);host.stage().handlePointer('click',{},scene.cards[1]);assert.equal(scene.clicks,1);
   }finally{host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
   console.log('Filter gallery: actual Rust/WASM values/pixels, copied filters, nested graph groups, AS2 order, clear/restore identity and Restart passed.');
