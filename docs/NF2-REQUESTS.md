@@ -125,6 +125,15 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `canvas-editing-chrome.png` (Dark only), `cursors.png`, design doc §3.5 and the canvas chrome catalogue.
 - **Answer:**
 
+### R-012 · Colour effect styles (Brightness / Tint / Advanced) and Properties Swap… symbol picker
+- **Status:** open
+- **Requested by / for:** Antigravity · W0.6 (PR-04), W0.15 (PR-06)
+- **Where:** `crates/neoflash-editor/src/panels/properties.rs` (symbol instance inspector) and `stage.rs` object context menu (`Swap symbol…`, `Duplicate symbol…`)
+- **Need:** (1) NF2 row composition in the Properties instance inspector for Colour effect `Style` (`None` / `Brightness` / `Tint` / `Advanced` / `Alpha`) and its per-style value rows (Tint colour + %, Advanced 8 multiplier/offset fields). (2) NF2 row/button placement in Properties for `Swap…` plus the Swap symbol picker dialog or popover (Library row/⋯ `Swap symbol` already works when an instance is selected, and `Duplicate symbol` works in the Library).
+- **Why:** `Transform.color_transform` and `Editor::swap_instance_symbol` / `duplicate_symbol` exist, but `panels/properties.rs` currently contains only the Opacity row and no Swap… button or symbol-picker dialog preview; adding new rows or a picker dialog without a locked NF2 composition would violate the design lock.
+- **Checked:** `panel-properties-movie-clip.png`, `panels/properties.rs`, `panels/planned_*.rs` (no Swap symbol dialog preview exists).
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

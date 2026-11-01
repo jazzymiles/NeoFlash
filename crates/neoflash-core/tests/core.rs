@@ -576,9 +576,11 @@ fn history_groups_drag_and_invalidates_redo_on_new_edit() {
     h.begin(&p);
     p.name = "drag final".into();
     assert!(h.commit(&p));
+    assert_eq!(h.undo_label(), Some("Edit"));
     assert!(h.undo(&mut p));
     assert_eq!(p, original);
     assert!(!h.can_undo());
+    assert_eq!(h.redo_label(), Some("Edit"));
     assert!(h.redo(&mut p));
     assert_eq!(p.name, "drag final");
     assert!(h.undo(&mut p));
@@ -592,6 +594,48 @@ fn history_groups_drag_and_invalidates_redo_on_new_edit() {
     assert_eq!(p.name, "other");
     h.begin(&p);
     assert!(!h.commit(&p));
+
+    // Named steps preserve chronological labels across undo, redo and step_to.
+    let mut p = Project::blank();
+    let mut h = History::new(10);
+    for (label, name) in [
+        ("Oval", "step-1"),
+        ("Move", "step-2"),
+        ("Fill colour", "step-3"),
+        ("Transform", "step-4"),
+        ("Delete", "step-5"),
+    ] {
+        h.begin_named(&p, label);
+        p.name = name.into();
+        assert!(h.commit(&p));
+    }
+    assert_eq!(
+        h.undo_labels().collect::<Vec<_>>(),
+        vec!["Oval", "Move", "Fill colour", "Transform", "Delete"]
+    );
+    assert!(h.step_to(&mut p, 3));
+    assert_eq!(p.name, "step-3");
+    assert_eq!(h.undo_len(), 3);
+    assert_eq!(h.redo_len(), 2);
+    assert_eq!(h.undo_label(), Some("Fill colour"));
+    assert_eq!(h.redo_label(), Some("Transform"));
+    assert_eq!(
+        h.undo_labels().collect::<Vec<_>>(),
+        vec!["Oval", "Move", "Fill colour"]
+    );
+    assert_eq!(
+        h.redo_labels().collect::<Vec<_>>(),
+        vec!["Transform", "Delete"]
+    );
+    assert!(!h.step_to(&mut p, 3));
+    assert!(h.step_to(&mut p, 0));
+    assert_eq!(p.name, original.name);
+    assert_eq!(h.undo_len(), 0);
+    assert_eq!(h.redo_len(), 5);
+    assert!(h.step_to(&mut p, 5));
+    assert_eq!(p.name, "step-5");
+    assert_eq!(h.undo_len(), 5);
+    assert_eq!(h.redo_len(), 0);
 }
 
 #[test]
@@ -737,10 +781,178 @@ fn ruler_guides_are_validated() {
             .iter()
             .any(|i| i.message.contains("guide count"))
     );
-    project.format_version = 7;
+    project.format_version = 8;
     assert!(
         validate(&project)
             .iter()
-            .any(|i| i.message.contains("unsupported version 7"))
+            .any(|i| i.message.contains("unsupported version 8"))
+    );
+}
+
+#[test]
+fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
+    let old = Project::blank();
+    assert!(!old.uses_format_7());
+    let old_json = old.to_json().unwrap();
+    assert!(!old_json.contains("\"pivot\""));
+    assert!(!old_json.contains("\"primitive\""));
+
+    let mut project = Project::blank();
+    project.format_version = 7;
+    project.symbols[0].timeline.frame_count = 5;
+    let rect_el = Element {
+        accessibility: None,
+        id: new_id("rect"),
+        name: "RoundedCard".into(),
+        transform: Transform {
+            x: 40.,
+            y: 50.,
+            pivot: Some([10., 20.]),
+            primitive: Some(PrimitiveOptions::Rectangle(RectangleOptions {
+                corner_radii: [16., 8., 16., 8.],
+                corners_locked: false,
+            })),
+            ..Default::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 120.,
+            height: 80.,
+            fill: [40, 120, 220, 255],
+            stroke: [10, 20, 30, 255],
+            stroke_width: 2.,
+        },
+        scripts: vec![],
+    };
+    let oval_el = Element {
+        accessibility: None,
+        id: new_id("oval"),
+        name: "DonutArc".into(),
+        transform: Transform {
+            x: 200.,
+            y: 60.,
+            primitive: Some(PrimitiveOptions::Oval(OvalOptions {
+                start_angle: 30.,
+                end_angle: 300.,
+                inner_radius: 45.,
+                close_path: false,
+            })),
+            ..Default::default()
+        },
+        kind: ElementKind::Ellipse {
+            width: 100.,
+            height: 100.,
+            fill: [240, 140, 40, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 3.,
+        },
+        scripts: vec![],
+    };
+    project.symbols[0].timeline.layers[0].keyframes[0].elements =
+        vec![rect_el.clone(), oval_el.clone()];
+    assert!(project.uses_format_7());
+    project.validate().unwrap();
+
+    let encoded = project.to_json().unwrap();
+    let decoded = Project::from_json(&encoded).unwrap();
+    assert_eq!(decoded, project);
+
+    let evaluated = evaluate(&project, &project.root, 0);
+    assert_eq!(evaluated.len(), 2);
+    assert!(matches!(evaluated[0].kind, ElementKind::Path { .. }));
+    let ElementKind::Path {
+        ref commands,
+        fill,
+        fill_rule,
+        ..
+    } = evaluated[1].kind
+    else {
+        panic!("expected parametric oval to evaluate to Path");
+    };
+    assert_eq!(fill, [0, 0, 0, 0], "open oval suppresses fill");
+    assert_eq!(fill_rule, FillRule::NonZero);
+    assert!(
+        !commands.iter().any(|c| matches!(c, PathCommand::Close)),
+        "open oval must not emit Close"
+    );
+
+    // Closed full-circle donut carves its inner hole under NonZero winding.
+    let donut = oval_path_commands(
+        100.,
+        100.,
+        OvalOptions {
+            start_angle: 0.,
+            end_angle: 0.,
+            inner_radius: 50.,
+            close_path: true,
+        },
+    );
+    assert!(
+        !hit_test_path(&donut, FillRule::NonZero, [50., 50.], true, 0., FlattenOptions::default())
+            .unwrap()
+    );
+    assert!(
+        hit_test_path(&donut, FillRule::NonZero, [85., 50.], true, 0., FlattenOptions::default())
+            .unwrap()
+    );
+
+    // Format 6 must reject format-7 features.
+    let mut wrong_version = project.clone();
+    wrong_version.format_version = 6;
+    assert!(
+        validate(&wrong_version)
+            .iter()
+            .any(|i| i.path == "format_version" && i.message.contains("version 7"))
+    );
+
+    // Out-of-range pivot, radii, angles, inner_radius, and mismatched primitive kind are rejected.
+    let mut bad_pivot = project.clone();
+    bad_pivot.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+        .transform
+        .pivot = Some([f64::NAN, 0.]);
+    assert!(
+        validate(&bad_pivot)
+            .iter()
+            .any(|i| i.path.ends_with("transform.pivot"))
+    );
+
+    let mut bad_radius = project.clone();
+    bad_radius.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+        .transform
+        .primitive = Some(PrimitiveOptions::Rectangle(RectangleOptions {
+        corner_radii: [-5., 0., 0., 0.],
+        corners_locked: true,
+    }));
+    assert!(
+        validate(&bad_radius)
+            .iter()
+            .any(|i| i.path.ends_with("corner_radii"))
+    );
+
+    let mut bad_oval = project.clone();
+    bad_oval.symbols[0].timeline.layers[0].keyframes[0].elements[1]
+        .transform
+        .primitive = Some(PrimitiveOptions::Oval(OvalOptions {
+        start_angle: 0.,
+        end_angle: 420.,
+        inner_radius: 99.5,
+        close_path: true,
+    }));
+    let issues = validate(&bad_oval);
+    assert!(issues.iter().any(|i| i.path.ends_with("transform.primitive")));
+    assert!(issues.iter().any(|i| i.path.ends_with("inner_radius")));
+
+    let mut mismatched = project.clone();
+    mismatched.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+        .transform
+        .primitive = Some(PrimitiveOptions::Oval(OvalOptions {
+        start_angle: 0.,
+        end_angle: 180.,
+        inner_radius: 0.,
+        close_path: true,
+    }));
+    assert!(
+        validate(&mismatched)
+            .iter()
+            .any(|i| i.message.contains("apply only to ellipse elements"))
     );
 }

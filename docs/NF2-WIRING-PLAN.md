@@ -160,10 +160,10 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 - Tests: mapping test tool/hover-state → cursor name exists in `cursors::ALL`.
 - Registry: `editor-workspace`. Acceptance: spec ST-07.
 
-**W0.6 · Colour effect styles (PR-04)**
+**W0.6 · Colour effect styles (PR-04)** — blocked on R-012 (Properties Colour effect style rows in `panels/properties.rs`)
 - UI: `panels/properties.rs` "Colour effect" section for `ElementKind::Instance` (Style select + value rows using the
   existing `select_row` / `numeric_row` / `paint_row`). If the Style select or Advanced fields are not in the current
-  composition, request first (layout reference `panel-properties-movie-clip.png`).
+  composition, request first (layout reference `panel-properties-movie-clip.png`; filed as R-012).
 - Engine: none — `Transform.color_transform` exists and interpolates.
 - Tests: Tint 50 % → expected `ColorTransform` multipliers/offsets; HTML5 export renders tint (existing runtime).
 - Registry: `editor-paint-effects`. Acceptance: spec PR-04.
@@ -181,7 +181,7 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 - API: `Editor::notify(level, text, action)` queue (NEW, editor).
 - Tests: queue/expiry unit test. Registry: `editor-workspace`. Acceptance: spec ST-09.
 
-**W0.9 · Swatches panel + Color panel Swatches tab (PP-10, CO-03 tab part)**
+**W0.9 · Swatches panel + Color panel Swatches tab (PP-10, CO-03 tab part)** — **done** (`panels/swatches.rs`, `PanelId::Swatches` `⌘F9`, Color panel ⋯ `Add swatch`, `WorkspacePrefs.swatches`, format-safe gradient swatch application; persistent document swatches remain W1.9)
 - UI: new `panels/swatches.rs` from `planned_panels::swatches` (`SwatchesPopover`); Color panel ⋯ Add swatch.
 - Engine: none if Document swatches are derived from used colours; persistent document swatches are W1.9.
 - API: `Editor::recent_colors` (prefs), `document_colors(&Project) -> Vec<Color>` (editor scan of `ElementKind` paints).
@@ -190,12 +190,12 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 **W0.10 · Tools fill/stroke chip → Swatches popover (TO-08)** — approval request §4
 - UI: `panels/tools.rs › fill_stroke_chip`. Tests: picking writes `Editor.fill/stroke`. Registry: `editor-workspace`.
 
-**W0.11 · Info panel (PP-11)**
+**W0.11 · Info panel (PP-11)** — **done** (`panels/info.rs`, `PanelId::Info` `⌘I`; editable 2×2 selection W/H/X/Y with one Undo step, live stage Cursor X/Y in ruler units and topmost hit element / cached bitmap pixel RGBA readout)
 - UI: new `panels/info.rs` from `planned_panels::info`; W/H/X/Y via the Transform panel's selection code
   (`authoring_modify.rs` layout units), cursor from the stage pointer transform, colour from topmost hit element paint.
 - Tests: values for a known rectangle at zoom 2. Registry: `editor-workspace`. Acceptance: spec PP-11.
 
-**W0.12 · Project panel (PP-05)**
+**W0.12 · Project panel (PP-05)** — **done** (`panels/project.rs`, `PanelId::Project`; filterable `src` / `assets` / `.nflash` tree, New file / New folder / Delete / Publish bar, inline rename, double-click opens Actions ▸ Project files, symbol/document class linkage caption)
 - UI: new `panels/project.rs` from `planned_panels::project`, re-using `sources.rs` operations (new class, import,
   remove) and selection (`selected_source`); double-click opens Actions ▸ Project files.
 - Tests: create/delete source with Undo; linkage footer text from `Symbol.class_name`.
@@ -207,15 +207,17 @@ work; folding (Collapse between braces / Expand all) remains disabled.
 - Tests: comment toggle round-trip per language; fold ranges from `components::code::tokens`.
 - Registry: `web-project-toolchain`. Acceptance: spec AC-04/AC-05.
 
-**W0.14 · Document settings dialog (DL-02)**
+**W0.14 · Document settings dialog (DL-02)** — **done** (`panels/document_settings.rs`, `Modify ▸ Document…` `⌘J`; linked W × H, Match contents, Scale content with stage + 9-point anchor, Units, Background, Frame rate, Make default in `WorkspacePrefs::document_defaults`, OK as one `"Document settings"` Undo step, Script row informational until W1.12)
 - UI: dialog from `planned_dialogs::document_settings` (3.3); "Scale content with stage" transforms root content in
   one transaction; Match contents uses root bounds; Script version row stays informational until W1.12.
 - Tests: OK = single Undo; Cancel no change. Registry: `platform-document-model`. Acceptance: spec DL-02.
 
 **W0.15 · Menu items backed by existing commands (MN-01, MN-02 subset, LI-01, PR-06)** — **partial**: Insert ▸ Layer /
-Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Control ▸ Go to end / step, Window ▸ Ease / Scene /
-Motion editor, Show in library, Clear keyframe, Convert to (blank) keyframes and Select all frames work. Open: Delete /
-Duplicate / Swap symbol, Distribute to layers, Modify ▸ Document… (W0.14).
+Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Undo/Redo `<step>`, Modify ▸ Document… (`⌘J`),
+Control ▸ Go to end / step, Window ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
+Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
+keyframes and Select all frames work. Open: Properties `Swap…` picker and Stage context menu `Swap symbol…` / `Duplicate
+symbol…` (R-012), Distribute to layers.
 - UI: `panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus (`panels/timeline.rs`,
   `timeline_edit.rs::frame_range_menu`, `layer_controls.rs`), Library actions in `panels/library.rs`.
 - Commands that already exist and only need rows/shortcuts: Insert ▸ Layer / Layer folder; Edit ▸ Timeline ▸
@@ -234,12 +236,12 @@ no preview exists in code, the panel body must be built from NF2 components per 
 
 ### Phase 1 — Small engine extensions
 
-**W1.1 · History panel with step names (PP-09)** — E-12
+**W1.1 · History panel with step names (PP-09)** — E-12 — **done** (`neoflash-core/src/history.rs` step labels + `step_to`, `Editor::transact_named`, `panels/history.rs`, `PanelId::History` `⌘F10`, `Edit ▸ Undo/Redo <step>`)
 - UI: new `panels/history.rs` from `planned_panels::history`; Edit menu Undo label "Undo <step>".
-- Engine: `neoflash-core/src/history.rs`. API (NEW): `History::begin_named(&Project, &str)` or `commit_named`,
-  `History::entries() -> impl Iterator<Item=&str>` (undo labels + redo labels + current index), `undo_to(index)`.
-  Editor: `Editor::transact_named(label, f)`; existing `transact` call sites get labels gradually ("Edit" fallback).
-- Tests: core — labels follow undo/redo/capacity eviction; editor — click step 3 back == 3 × undo.
+- Engine: `neoflash-core/src/history.rs`. API: `History::begin_named(&Project, &str)`, `commit_named`,
+  `undo_labels` / `redo_labels` / `undo_label` / `redo_label`, `step_to(&mut Project, usize)`.
+  Editor: `Editor::transact_named(label, f)`; `transact` defaults to `"Edit"`.
+- Tests: core — labels follow undo/redo/capacity eviction; editor — click step back/forward == N × undo/redo.
 - Registry: `platform-undo`. Acceptance: spec PP-09.
 
 **W1.2 · Guides (ST-02)** — **done** (E-04): `Timeline::guides`, format version 6, export strips guides; see
@@ -250,9 +252,10 @@ no preview exists in code, the panel body must be built from NF2 components per 
 - Tests: save/open round-trip; export JSON contains no guides; Undo per move.
 - Registry: `editor-advanced-drawing` (snapping/guides). Acceptance: spec ST-02.
 
-**W1.3 · Snapping (ST-04, TO-06, Preferences ▸ Drawing snapping)** — E-05; **partial**: grid and guide snapping
-with the snap ring are done (`snapping.rs`, NF2-RULERS-GUIDES-GRID.md); object/pixel snapping, the tools-rail toggle,
-View ▸ Snapping and ⌘-suspend remain (R-003). Original plan:
+**W1.3 · Snapping (ST-04, TO-06, Preferences ▸ Drawing snapping)** — E-05; **partial**: grid, guide, object and pixel
+snapping (`Guides > Objects > Grid > Pixels`) with the snap ring, the Tools rail `Snap to objects` toggle (TO-06) and
+`⌘`-suspend during stage gestures are done (`snapping.rs`, `stage_view.rs`, `panels/tools.rs`); `View ▸ Snapping` submenu
+remains blocked on R-003. Original plan:
 - UI: tools rail snap toggle (if present in composition; else request), View ▸ Snapping, zoom-control Snap toggle,
   stage drag/transform/draw code paths (`stage_selection.rs`, `transform_geometry.rs`, `vector.rs`).
 - Engine: none required (geometry in editor); optional shared `neoflash-core::geometry` helper for bounds/anchor
@@ -272,10 +275,10 @@ content. Shape hints are §7.4.
 - Tests: script — warning-producing input yields `Warning`; editor — location mapping for frame and object scripts.
 - Registry: `web-publish-diagnostics`, `web-project-toolchain`. Acceptance: spec PP-07.
 
-**W1.6 · Gradient fills in the Color panel (CO-01)** — E-07; picker/gradient-bar request §4
+**W1.6 · Gradient fills in the Color panel (CO-01)** — E-07 — **done** (`authoring_modify.rs` Linear / Radial fill & stroke gradients, `NF2/Gradient Bar` stop add/drag/remove, `NF2/Color Picker` stop colour editing, solid→`PaintedPath` conversion via `Element::to_path_commands()` preserving parametric geometry; Flow `Reflect`/`Repeat` and `Linear RGB` remain disabled while runtime `GradientPaint` uses Extend/pad spread and sRGB)
 - UI: `authoring_modify.rs › fill_type_select` enable Linear/Radial; gradient editing rows.
-- Engine: `model.rs` — convert solid-paint shapes to `PaintedPath` or add `fill_gradient` to Rectangle/Ellipse (NEW,
-  decide in E-07); validation of stops; export already paints `GradientPaint` (verify for authored primitives).
+- Engine: `model.rs` — convert solid-paint shapes to `PaintedPath` via `Element::to_path_commands()`, validation of
+  stops; HTML5 runtime paints `GradientPaint`.
 - Tests: conversion keeps geometry; HTML5 export renders gradient; Undo.
 - Registry: `editor-paint-effects`. Acceptance: spec CO-01.
 
@@ -288,11 +291,11 @@ content. Shape hints are §7.4.
 - Tests: core serialization + validation; export snapshot; native/HTML5 visual check.
 - Registry: `editor-advanced-drawing`. Acceptance: spec PR-03.
 
-**W1.8 · Primitive tools and PolyStar (TO-01, TO-02, PR-02)** — E-08
-- UI: `panels/tools.rs` (add tools per NF2 group order), `authoring_tools.rs`, Properties primitive sections.
-- Engine: NEW parametric fields on `Rectangle` (corner radii) and `Ellipse` (start/end angle, inner radius, closed)
-  with geometry generation shared by evaluation/export; PolyStar produces `Path` (editor-only).
-- Tests: geometry generation unit tests; Break Apart → equivalent path.
+**W1.8 · Primitive tools and PolyStar (TO-01, TO-02, PR-02)** — E-08 — **done** (format-7 `Transform.primitive: Option<PrimitiveOptions>` for Rectangle corner radii and Oval start/end angle, inner radius and close-path, shared `geometry.rs` path builders used by evaluation/morph/hit-test/editor/HTML5 export, Properties & Tool options primitive controls + Reset, Break Apart to `Path`/`PaintedPath`, `Tool::PolyStar` + modal `PolyStar tool settings` dialog)
+- UI: `panels/tools.rs`, `authoring_tools.rs`, `panels/properties.rs` primitive sections, modal PolyStar settings dialog.
+- Engine: parametric `PrimitiveOptions` on `Transform` (Rectangle corner radii; Oval start/end angle, inner radius,
+  closed) in format 7 with geometry generation shared by evaluation/export; PolyStar produces closed `Path`s.
+- Tests: geometry generation unit tests; Break Apart → equivalent path; PolyStar stage drag + modal settings.
 - Registry: `editor-primitives`, `editor-advanced-drawing`.
 
 **W1.9 · Document swatches persistence (PP-10, CO-03)** — E-13
@@ -348,8 +351,9 @@ Registry: `animation-lifecycle`.
 
 **W2.6 · Timeline sound (TL-07, PR-08/PP-13, TL-13 Sound layer, Control ▸ Mute sounds)** — E-18 — **partial** (§7,
 decision 0037). Done: `Keyframe.sound`, Flash sync in HTML5 and editor playback, Sound button, Properties ▸ Sound, Sound
-layers, Mute sounds. Open (§7.4): Edit envelope (DL-09), Sound properties (DL-08), decoded waveform peaks, legacy FLA
-frame sounds. Registry: `animation-media-sync`, `web-media-assets`.
+layers, Mute sounds, legacy binary FLA PCM/MP3 audio resources and `CPicFrame` frame sounds. Open (§7.4): Edit envelope
+(DL-09), Sound properties (DL-08), decoded waveform peaks, compressed legacy FLA audio codecs (ADPCM/GSM/Nellymoser).
+Registry: `animation-media-sync`, `web-media-assets`, `imports-binary-document`.
 
 **W2.7 · Authored video (PR-09, TL-13 Video layer)** — E-19. Registry: `animation-media-sync`, `web-media-assets`.
 
@@ -365,8 +369,10 @@ warnings/severity, peek, quick fixes and full formatting remain.
 
 **W2.10 · Edit multiple frames + Preview thumbnails + transformation point (TL-08, TL-10, PR-07, ST-11)** — editor —
 **partial**. Done: Edit multiple frames shows and moves (TL-08), Frame view ▸ Preview thumbnails (TL-10,
-`timeline_preview.rs`). Open: selecting and scaling/rotating across frames (§7.4), Graphic thumbnail strip (PR-07, can
-reuse `timeline_preview.rs`), stage transformation point (ST-11). Registry: `animation-frame-ranges`, `editor-transform`.
+`timeline_preview.rs`), draggable Free Transform transformation point (`Transform.pivot` in format 7 for single placements
++ group pivot; rotation and `⌥`-scale pivot around it, double-click resets; ST-11). Open: selecting and scaling/rotating
+across frames (§7.4), Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry:
+`animation-frame-ranges`, `editor-transform`.
 
 ### Phase 3 — Import/export, media pipelines, preferences, specialised tools
 
@@ -389,9 +395,10 @@ Preferences ▸ Updates must stay disabled (no update service, no telemetry) unt
 ## 6. Dependency order
 
 ```text
-Done: W0.1, W0.2, W0.3, W0.4, W1.2, W1.4, W2.3 (rest in §7.4)
+Done: W0.1, W0.2, W0.3, W0.4, W0.5, W0.9, W0.11, W0.12, W0.14, W1.1, W1.2, W1.4, W1.6, W1.8, W2.3 (rest in §7.4)
 Partial: W0.13, W0.15, W1.3, W1.12, W2.1, W2.4, W2.6, W2.8, W2.10
-W1.3 snapping (objects/pixels) ◄── R-003
+W1.3 View ▸ Snapping submenu ◄── R-003 (object/pixel snapping, Tools toggle and ⌘-suspend are done)
+W0.6 Colour effect styles, W0.15 Properties Swap… picker ◄── R-012
 W2.2 presets/per-property ──► W2.1 rest (Motion editor Ease column, Property select in Ease)
 W0.7 output levels ──► W1.5 compiler errors ──► W2.8 code intelligence ──► W2.9 debugger + trace bridge
 W1.1 history names ──► (Edit menu labels, Preferences undo levels in W3.6)
@@ -494,15 +501,15 @@ model change follows §1.7: serde default, one format bump per batch (the next i
 | 11 | Edit envelope (DL-09) | `model.rs` (`FrameSound`), `timeline_sound.rs` (core `envelope()` already takes points), `validation.rs`, `panels/properties_sound.rs` (Envelope…), dialog from `planned_documents::edit_envelope` using `neoflash_ui::components::EnvelopeLane` | NEW `FrameSound.envelope: Option<Vec<[f64; 3]>>` (`position`, `left`, `right`), `SoundEffect::Custom`; format 7 | core `timeline_sound.rs`: custom gains reach `SoundCommand::Play`; `web/tests/wasm.test.cjs`: envelope scheduled; editor: OK is one Undo, Cancel none | A custom fade plays the same in editor playback and HTML5 |
 | 12 | Sound properties (DL-08) | dialog from `planned_dialogs::sound_properties`, `resources.rs` | none for name/info/Update/Import/Test; export compression stays disabled (no encoder) | editor test: Update replaces the resource bytes with one Undo | Opens from Properties ▸ Sound; compression rows stay disabled with their hint |
 | 13 | Decoded waveform peaks in Sound spans (TL-07, TL-13) | editor `timeline_sound.rs` (decode peaks once per resource), `panels/timeline.rs` | none | editor test: peaks cached per resource, not per repaint | **Request** a peaks-taking span painter (today `paint_span(SpanType::Sound)` draws a decorative waveform) |
-| 14 | Legacy FLA frame sounds (`fla_frame_sound`, `fla_media_not_imported`) | `neoflash-import/src/legacy/convert.rs`, `legacy/convert/assets.rs` | none (map to `Keyframe.sound` + audio `ResourceUnit`) | `crates/neoflash-import/tests/binary_timeline.rs`; corpus check | Imported frame sounds play with their sync; undecodable media keeps the warning |
+| 14 | ~~Legacy FLA frame sounds (`fla_frame_sound`, `fla_media_not_imported`)~~ | Done for PCM (`audio/wav`) and MP3 (`audio/mpeg`) streams + `CPicFrame` Event/Start/Stop/Stream sync, repeat/loop-forever and preset effects (`neoflash-import/src/legacy/{media,convert}.rs`, `tests/batch_import_capabilities.rs`); ADPCM/GSM/Nellymoser and custom multi-point envelopes/trim points keep located warnings. | | | |
 | 15 | Edit multiple frames, rest (TL-08) | `timeline_commands.rs` (pattern: `move_on_other_keyframes`), `stage_selection.rs` | none | `timeline_commands_tests.rs`: scale/rotate on every keyframe in range, one Undo | Objects existing only on other keyframes can be selected; scale/rotate apply across the range |
 | 16 | Control ▸ Test scene ⌥⌘↵ (MN-01, E-16) | `panels/menu.rs` (planned item), export call | none (export a clone whose `scenes` is empty and `root` is the current scene) | export test: only that scene's frames are published | Test scene plays only the edited scene in the browser |
 | 17 | Breadcrumb ▾ and Symbols & scenes popover (ST-08) | `shell.rs` stage chrome, existing `BreadcrumbItem { menu }` | none | editor test: switching scene from the popover | Lists scenes and symbols with search; keyboard ↑↓ ↵ |
 | 18 | Range edits inside tweens keep editable curves (`animation-frame-ranges`) | `timeline_edit.rs` | none or `property_eases` (row 2) | core: cutting inside a classic/motion tween keeps an equivalent ease instead of baking | No integer-frame baking for supported cases |
-| 19 | XFL import of tween kinds, guides and scenes | `neoflash-import/src/xfl.rs` | none (map `tweenType="shape"/"motion"`, guide layers + `parentLayerIndex`, several `DOMTimeline`s) | `crates/neoflash-import/tests/` fixtures | XFL documents keep tweens, guides and scenes instead of blocking |
+| 19 | ~~XFL import of tween kinds, guides and scenes~~ | Done: `neoflash-import/src/xfl.rs` and `xfl/shape.rs` import multi-scene `DOMTimeline`s (`Project.scenes`), library folders, `normal`/`guide`/`mask`/`folder` layers, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), Graphic `firstFrame` offsets, skew matrices and stroke-only straight/quadratic guide paths (`tests/batch_import_capabilities.rs`). | | | |
 | 20 | Layer properties dialog: Guided type (DL-16) | dialog from `PlannedPanel::LayerProperties`, `layer_controls.rs` | none (`motion_guide`) | editor test: setting Guided links the layer, one Undo | Type Guided ↔ `motion_guide` stay consistent |
 | 21 | Frame view ▸ Help (F1) (TL-12) | `panels/timeline_controls.rs` | none | — | Needs a product decision on the help target; stays disabled until then |
 
-Related stage work outside the timeline: object and pixel snapping and View ▸ Snapping (ST-04, R-003) extend
-`snapping.rs` with object candidates (bounds corners and centres on visible, unlocked layers) and pixel rounding; the
-grid/guide rules in [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) must keep passing.
+Related stage work outside the timeline: object and pixel snapping (`Guides > Objects > Grid > Pixels`), the Tools
+`Snap to objects` toggle and `⌘`-suspend are implemented in `snapping.rs` / `stage_view.rs`; `View ▸ Snapping` waits for
+R-003, and the grid/guide rules in [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) keep passing.

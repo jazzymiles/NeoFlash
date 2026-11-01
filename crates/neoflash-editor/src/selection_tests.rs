@@ -756,3 +756,206 @@ fn timeline_key_drop_uses_final_release_column_and_keeps_the_captured_layer() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+#[test]
+fn color_panel_creates_linear_and_radial_gradients_edits_stops_and_undoes() {
+    use crate::authoring_modify::PaintFillType;
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 120.,
+            height: 80.,
+            fill: [30, 110, 210, 255],
+            stroke: [10, 10, 10, 255],
+            stroke_width: 2.,
+        },
+        100.,
+        90.,
+    );
+    editor.history.clear();
+    let solid_before = editor.project.clone();
+
+    // Convert solid Rectangle fill to LinearGradient via Color panel command.
+    editor.authoring_modify.color_selection = true;
+    editor.set_selection_fill_type(false, PaintFillType::LinearGradient);
+    assert!(editor.project.format_version >= 5);
+    editor.project.validate().unwrap();
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(ref linear),
+        ..
+    } = editor.selected_element().unwrap().kind
+    else {
+        panic!("expected PaintedPath with LinearGradient");
+    };
+    assert_eq!(linear.kind, GradientKind::Linear);
+    assert_eq!(linear.stops.len(), 2);
+    let after_linear = editor.project.clone();
+
+    // Edit stops (unsorted input is normalized and sorted) and switch to RadialGradient.
+    editor.set_selection_gradient_stops(
+        false,
+        vec![
+            GradientStop {
+                ratio: 255,
+                color: [10, 20, 240, 255],
+            },
+            GradientStop {
+                ratio: 0,
+                color: [250, 80, 20, 255],
+            },
+            GradientStop {
+                ratio: 128,
+                color: [255, 220, 40, 255],
+            },
+        ],
+        None,
+    );
+    editor.set_selection_fill_type(false, PaintFillType::RadialGradient);
+    editor.project.validate().unwrap();
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(ref radial),
+        ..
+    } = editor.selected_element().unwrap().kind
+    else {
+        panic!("expected PaintedPath with RadialGradient");
+    };
+    assert_eq!(radial.kind, GradientKind::Radial);
+    assert_eq!(radial.stops.len(), 3);
+    assert_eq!(radial.stops[0].ratio, 0);
+    assert_eq!(radial.stops[1].ratio, 128);
+    assert_eq!(radial.stops[2].ratio, 255);
+
+    // Render Color panel UI in both selection and drawing modes without error.
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(360., 720.))),
+            time: Some(0.1),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| editor.color_panel_ui(ui));
+        },
+    );
+
+    // Undo radial -> stops -> linear -> solid Rectangle.
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, after_linear);
+    editor.undo();
+    assert_eq!(editor.project, solid_before);
+
+    // Drawing mode gradient applies automatically to newly drawn shapes on the stage.
+    editor.clear_selection();
+    editor.authoring_modify.color_selection = false;
+    editor.set_drawing_fill_type(false, PaintFillType::LinearGradient);
+    editor.set_tool(Tool::Rectangle);
+    let p0 = page.min + egui::vec2(260., 120.);
+    let p1 = p0 + egui::vec2(90., 60.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            Event::PointerMoved(p0),
+            primary_button(p0, true),
+            Event::PointerMoved(p1),
+            primary_button(p1, false),
+        ],
+    );
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::PaintedPath {
+            fill_gradient: Some(GradientPaint {
+                kind: GradientKind::Linear,
+                ..
+            }),
+            ..
+        }
+    ));
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn parametric_primitives_render_inspector_break_apart_to_paths_and_undo() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.authoring_tools.rect_options = RectangleOptions {
+        corner_radii: [18., 8., 18., 8.],
+        corners_locked: false,
+    };
+    editor.set_tool(Tool::Rectangle);
+    let r0 = page.min + egui::vec2(80., 80.);
+    let r1 = r0 + egui::vec2(120., 70.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            Event::PointerMoved(r0),
+            primary_button(r0, true),
+            Event::PointerMoved(r1),
+            primary_button(r1, false),
+        ],
+    );
+    assert_eq!(editor.project.format_version, 7);
+    assert_eq!(
+        editor.selected_element().unwrap().rectangle_options(),
+        RectangleOptions {
+            corner_radii: [18., 8., 18., 8.],
+            corners_locked: false,
+        }
+    );
+
+    editor.authoring_tools.oval_options = OvalOptions {
+        start_angle: 45.,
+        end_angle: 315.,
+        inner_radius: 40.,
+        close_path: false,
+    };
+    editor.set_tool(Tool::Ellipse);
+    let o0 = page.min + egui::vec2(240., 80.);
+    let o1 = o0 + egui::vec2(100., 100.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            Event::PointerMoved(o0),
+            primary_button(o0, true),
+            Event::PointerMoved(o1),
+            primary_button(o1, false),
+        ],
+    );
+    editor.project.validate().unwrap();
+
+    // Exercise the 2-line Properties hook on both parametric elements.
+    let mut sample_oval = editor.selected_element().unwrap().clone();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(320., 600.))),
+            time: Some(0.3),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = editor.primitive_options_properties_ui(ui, &mut sample_oval);
+            });
+        },
+    );
+
+    editor.select_all();
+    let before_break = editor.project.clone();
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert_eq!(elements.len(), 2);
+    for el in elements {
+        assert!(el.transform.primitive.is_none());
+        assert!(matches!(el.kind, ElementKind::Path { .. }));
+    }
+    if let ElementKind::Path { fill, commands, .. } = &elements[1].kind {
+        assert_eq!(*fill, [0, 0, 0, 0], "open oval Break Apart clears fill");
+        assert!(!commands.iter().any(|c| matches!(c, PathCommand::Close)));
+    }
+    editor.undo();
+    assert_eq!(editor.project, before_break);
+}

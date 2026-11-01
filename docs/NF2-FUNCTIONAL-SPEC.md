@@ -52,40 +52,40 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | partial | UI-only | P3 |
 | TL-13 | Layer types Sound / Video / Armature / Motion guide rows | Timeline layers | partial | yes | P2–P3 |
 | TL-14 | Button symbol state labels Up/Over/Down/Hit | Timeline | verify | editor | P2 |
-| TO-01 | Rectangle / Oval primitive tools | Tools | absent | yes | P2 |
-| TO-02 | PolyStar tool + settings | Tools | absent | editor (+small) | P2 |
+| TO-01 | Rectangle / Oval primitive tools | Tools | done (options on Rectangle/Oval + Properties) | yes | P2 |
+| TO-02 | PolyStar tool + settings | Tools | done | editor (+small) | P2 |
 | TO-03 | Deco tool | Tools | absent | yes | P3 |
 | TO-04 | Spray brush | Tools | absent | editor | P3 |
 | TO-05 | Bone / Bind (IK) | Tools | absent | yes | P3 |
-| TO-06 | Snap toggle (tools rail) | Tools | absent | editor | P1 |
+| TO-06 | Snap toggle (tools rail) | Tools | done | editor | P1 |
 | TO-07 | Tool options: Object drawing, smooth / straighten | Tools | absent | editor | P2 |
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
 | ST-01 | Stage rulers + ruler corner | Stage chrome | working | UI-only | P1 |
 | ST-02 | Guides | Stage chrome | working | yes (small) | P1 |
 | ST-03 | Stage grid | Stage chrome | working | UI-only | P1 |
-| ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | partial (grid, guides) | editor | P1 |
+| ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | done (View ▸ Snapping R-003) | editor | P1 |
 | ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
 | ST-07 | NF2 stage cursors | Stage chrome | done | UI-only | P1 |
 | ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | absent | editor | P2 |
 | ST-09 | Toasts / progress / spinner | Window chrome | absent | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
-| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee done) | editor | P2 |
+| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
 | PR-01 | Properties — Text (full NF2 variant) | Properties | partial | yes | P2 |
-| PR-02 | Properties — Oval / Rectangle primitive options | Properties | absent | yes | P2 |
+| PR-02 | Properties — Oval / Rectangle primitive options | Properties | done | yes | P2 |
 | PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | absent | yes | P2 |
-| PR-04 | Properties — Movie clip: colour effect styles | Properties | partial | editor | P1 |
+| PR-04 | Properties — Movie clip: colour effect styles | Properties | partial (R-012) | editor | P1 |
 | PR-05 | Properties — Movie clip: Display & Filters tabs | Properties | preview | yes | P2 |
-| PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | absent | editor / yes | P2 |
+| PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library Swap done; R-012) | editor / yes | P2 |
 | PR-07 | Properties — Graphic thumbnail strip | Properties | partial | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
 | PR-09 | Properties — Video playback & cue points | Properties | partial | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | partial | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
-| CO-01 | Color panel fill type: Linear / Radial gradient | Color | disabled | yes (small) | P2 |
+| CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
 | CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | disabled | yes | P3 |
-| CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | absent | editor | P1 |
-| LI-01 | Library: delete / duplicate item | Library | absent | editor | P1 |
+| CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | partial (Add swatch + Swatches panel done) | editor | P1 |
+| LI-01 | Library: delete / duplicate item | Library | done | editor | P1 |
 | LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | absent | editor | P2 |
 | AC-01 | Actions toolbar: auto-format | Actions | partial (re-indent only) | yes | P2 |
 | AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | done | yes | P2 |
@@ -101,18 +101,18 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-02 | Motion editor | Planned panel | partial | yes | P2 |
 | PP-03 | Properties — Motion tween | Planned panel | partial | yes | P2 (= PR-10) |
 | PP-04 | Debugger | Planned panel | preview | yes | P3 |
-| PP-05 | Project | Planned panel | preview | editor | P2 |
+| PP-05 | Project | Planned panel | done | editor | P2 |
 | PP-06 | Code snippets | Planned panel | preview | editor | P2 |
 | PP-07 | Compiler errors | Planned panel | preview | editor (+small) | P1 |
 | PP-08 | Scene | Planned panel | done | yes | P2 |
-| PP-09 | History | Planned panel | preview | editor (+small) | P1 |
-| PP-10 | Swatches | Planned panel | preview | editor | P1 |
-| PP-11 | Info | Planned panel | preview | editor | P1 |
+| PP-09 | History | Planned panel | done | editor (+small) | P1 |
+| PP-10 | Swatches | Planned panel | done | editor | P1 |
+| PP-11 | Info | Planned panel | done | editor | P1 |
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
 | DL-01 | Preferences (9 pages) | Planned dialog | preview; General ▸ Theme done | editor | P1–P3 per page |
-| DL-02 | Document settings | Planned dialog | preview | editor | P1 |
+| DL-02 | Document settings | Planned dialog | done | editor | P1 |
 | DL-03 | Publish settings | Planned dialog | preview | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Planned dialog | preview | yes | P3 |
@@ -271,23 +271,28 @@ groups.
 ## 2. Tools (`crates/neoflash-editor/src/panels/tools.rs`, `authoring_tools.rs`, `app.rs::Tool`)
 
 Implemented tools: Selection, Subselection, Free Transform, Gradient Transform, Lasso, Pen, Line, Text, Rectangle,
-Oval, Pencil, Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, Hand, Zoom. The module comment says the others
-are "omitted rather than faked". Adding a tool button is allowed only because the NF2 Tools panel contains it; its
-icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly (otherwise **request**).
+Oval, PolyStar, Pencil, Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, Hand, Zoom. The module comment says the
+others are "omitted rather than faked". Adding a tool button is allowed only because the NF2 Tools panel contains it;
+its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly (otherwise **request**).
 
-**TO-01 · Rectangle primitive / Oval primitive** — absent (flyout of Rectangle/Oval)
+**TO-01 · Rectangle primitive / Oval primitive** — done (parametric options on `Rectangle` / `Oval` in Tool options and Properties PR-02)
+- Done: `Transform.primitive: Option<PrimitiveOptions>` stores Rectangle `corner_radii: [f64; 4]` (linked by default)
+  and Oval `start_angle`, `end_angle` (`0–360°`), `inner_radius` (`0–99 %`) and `close_path` in document format 7.
+  Geometry builders in `neoflash_core::geometry` drive evaluation, shape morphs, hit testing, native painting and HTML5
+  export. `Modify ▸ Break Apart` (`⌘B`) converts a parametric rectangle or oval into its `Path`.
 - Purpose: drawing objects that keep parametric corner radii / start-end angle / inner radius after drawing.
 - Behaviour: drag draws; ⇧ constrains; ⌥ from centre; Properties shows PR-02 options; Break Apart converts to paths.
-- Data: `ElementKind::Rectangle/Ellipse` have size, fill, stroke, width only. **NEW** corner radii, angles, inner
-  radius, close path.
+- Data: format-7 `Transform.primitive: Option<PrimitiveOptions>` on `ElementKind::Rectangle/Ellipse`.
 - Depends on: engine (geometry generation in evaluation, export, runtime renderer).
 - Acceptance: radii/angles editable after drawing with Undo; HTML5 renders identically; Break Apart yields paths.
 
-**TO-02 · PolyStar** — absent (flyout of Rectangle/Oval) + "PolyStar tool settings" dialog (§6 drawing panels)
+**TO-02 · PolyStar** — done (`Tool::PolyStar` in `panels/tools.rs`, stage drag in `vector.rs`, modal settings dialog in `authoring_tools.rs`)
+- Done: PolyStar tool in the Tools shape group + `PolyStar settings…` modal dialog (`Esc` cancels, `OK`/`Enter` applies
+  Style `Polygon` / `Star`, Sides `3–32`, Star point size `0.05–1.0`); dragging on Stage authors a closed `ElementKind::Path`
+  from the centre with one Undo step.
 - Purpose: draw regular polygons/stars; settings: Style Polygon/Star, Sides 3–32, Star point size 0–1.
 - Behaviour: Tool options → settings dialog (Esc/Enter); drag draws from centre; result is a `Path`.
-- Data: produces existing `ElementKind::Path`. Depends on: editor (geometry) — no engine change unless it must stay
-  parametric (then NEW like TO-01).
+- Data: produces existing `ElementKind::Path`.
 - Acceptance: 5-point star with 0.5 point size matches expected vertices; one Undo.
 
 **TO-03 · Deco** — absent
@@ -306,9 +311,11 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
   armatures). P3.
 - Acceptance: dragging the end bone solves the chain within joint limits; poses interpolate in HTML5.
 
-**TO-06 · Snap toggle** — absent ("Snap toggle at the bottom" of the rail, §4)
+**TO-06 · Snap toggle** — done (`panels/tools.rs`, `ViewPrefs.snap_to_objects`)
+- Done: Snap to objects (magnet) toggle at the bottom of the Tools rail (`Selected` state when active, persisted in view
+  preferences) enables object snapping across drawing, selection moves, transform handles and path point drags (ST-04).
 - Purpose: global Snap to objects (magnet) toggle.
-- Behaviour: Selected style when on; mirrors View ▸ Snapping ▸ Snap to objects; affects drawing and dragging (ST-04).
+- Behaviour: Selected style when on; affects drawing and dragging (ST-04).
 - Data: workspace/document view setting. Depends on: editor (ST-04).
 - Acceptance: with snap on, dragging an object's registration point snaps to another object's edge/centre with the
   NF2 snap ring.
@@ -356,7 +363,7 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Data: view settings (spacing W/H linked, colour, snap accuracy). Depends on: UI-only + component **request**.
 - Acceptance: lines align to stage origin at all zooms; over-objects toggles stacking.
 
-**ST-04 · Snapping + snap ring** — partial: grid and guide snapping with the snap ring work for moves, scale/resize handles, rectangle/oval, line, pen anchors and path points; object and pixel snapping and ⌘-suspend remain (R-003). Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
+**ST-04 · Snapping + snap ring** — done (View ▸ Snapping submenu waits for R-003): grid, guide, object (bounds corners, centres and instance registration points on visible, unlocked layers) and pixel snapping (`Guides > Objects > Grid > Pixels`) with `NF2/Snap Ring` and `⌘`-suspend work across moves, scale/resize handles, rectangle/oval, line, pen anchors and path points (`snapping.rs`, `stage_view.rs`). Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: snap dragged/drawn points to grid, guides, objects (edges, centres, registration points), pixels; show
   `NF2/Snap Ring` while dragging (larger ring when snapped).
 - Behaviour: snap accuracy Must be close / Normal / Can be distant (View settings); tolerance from Preferences ▸
@@ -385,9 +392,10 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
   dialogs keep system cursors; guides keep their system resize cursor). Hover targets: Selection — `arrow-move` over an
   object; Free Transform — `resize-h/v/d1/d2` on handles (by screen direction), `skew-h/v` on the edge between handles,
   `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path point; Pen —
-  `pen-close` over the first anchor; Hand — `hand-closed` while dragging; Zoom — `zoom-out` with ⌥; motion path ◆ —
-  `hand-open/closed`. The mapping follows Flash conventions; the design has no per-handle table (R-011). Cursors are
-  identical in both themes. Not yet: `arrow-reshape-curve/corner`, `pen-add/remove/convert`, `drag-copy`.
+  `pen-close` over the first anchor and `pen-add` over a selected path segment; Hand — `hand-closed` while dragging;
+  Zoom — `zoom-out` with ⌥; motion path ◆ — `hand-open/closed`. The mapping follows Flash conventions; the design has no
+  per-handle table (R-011). Cursors are identical in both themes. Not yet: `arrow-reshape-curve/corner`,
+  `pen-remove/convert`, `drag-copy`.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
 - Behaviour: stage tools call `neoflash_ui::cursors::show(ctx, canvas, cursor)` (hides the system cursor); chrome
@@ -419,19 +427,20 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 **ST-11 · Canvas editing chrome variants** — partial
 - Done: Selection and Subselection draw `NF2/Selection Box` per selected placement (Symbol for instances, Static text
   for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
-  on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones: handles scale (a single
-  placement resizes in its own axes), edges skew (`transform_geometry::skew_many`), outside a corner rotates about the
-  transformation point, inside moves. Marquee uses `NF2/Marquee`; path points and pen anchors use `NF2/Anchor Point`
-  and `NF2/Bezier Handle`. Open request R-011 (rotated box, contrast over artwork, Light transformation point).
+  on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones and a draggable
+  `NF2/Transformation Point` (`Transform.pivot` in format 7 for single placements + transient group pivot; rotation and
+  `⌥`-scale pivot around it, double-click resets to centre, one Undo step): handles scale (a single placement resizes in
+  its own axes), edges skew (`transform_geometry::skew_many`), outside a corner rotates about the transformation point,
+  inside moves. Marquee uses `NF2/Marquee`; path points and pen anchors use `NF2/Anchor Point` and `NF2/Bezier Handle`
+  (Pen click on a selected path segment subdivides to insert an anchor; Subselection `Delete`/`Backspace` or `⌥`-click
+  deletes selected anchors). Open request R-011 (rotated box, contrast over artwork, Light transformation point).
   Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect` selects everything on the frame with that tool.
 - Purpose: `NF2/Selection Box` kinds (Group, Symbol + registration point, Static text round handle, Dynamic text
   square handle, Primitive control points), `Transform Box` scale vs rotate/skew, Anchor / Bezier handle, Marquee,
   Shape Selection hatch, Gradient Transform focal triangle.
-- Behaviour: missing parts — custom transformation point (white circle draggable; `editor-transform` limit), radial
-  focal handle (`editor-paint-effects` limit), primitive control points (TO-01).
-- Still `StageOverlay`: rectangle/oval/line drafts, pen/pencil draft stroke, lasso, brush/eraser size circle and the
-  gradient tool (2 handles; `NF2/Gradient Transform` has 5 that need focal/width gestures). Acceptance for the rest:
-  transformation point can be moved and rotation pivots around it.
+- Behaviour: missing parts — radial focal handle (`editor-paint-effects` limit), on-stage primitive corner/angle handles.
+- Still `StageOverlay`: rectangle/oval/line/polystar drafts, pen/pencil draft stroke, lasso, brush/eraser size circle and the
+  gradient tool (2 handles; `NF2/Gradient Transform` has 5 that need focal/width gestures).
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
@@ -447,7 +456,7 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Acceptance: Input text authored in the editor is editable in HTML5; Dynamic text has an instance name reachable
   from AS3/AS2; Static text stays non-selectable unless "selectable".
 
-**PR-02 · Properties — Oval / Rectangle primitive options** — absent (see TO-01)
+**PR-02 · Properties — Oval / Rectangle primitive options** — done (`authoring_tools.rs::primitive_options_properties_ui`, wired into `panels/properties.rs` and Tool options; see TO-01)
 - Controls: Oval: Start angle, End angle, Inner radius %, Close path, Reset. Rectangle: four corner radii (linked by
   default), radius slider, Reset.
 - Acceptance: values clamp (angles 0–360, inner radius 0–99 %); Reset restores defaults with one Undo.
@@ -460,10 +469,10 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: engine (renderer, export, hit testing). Ragged/Stipple/Hatched are P3; Solid/Dashed/Dotted + caps/joins
   P2. Acceptance: dashed 2 px square-cap line renders the same in editor and HTML5.
 
-**PR-04 · Movie clip — Colour effect styles** — partial (only Opacity row)
+**PR-04 · Movie clip — Colour effect styles** — partial (only Opacity row; Style / Tint / Brightness / Advanced rows requested as R-012)
 - Purpose: Style None / Brightness / Tint / Advanced / Alpha + value slider (Tint: colour + %, Advanced: 8 fields).
 - Data: `Transform.color_transform: ColorTransform` already exists and interpolates in tweens (format 5).
-- Depends on: editor only. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
+- Depends on: editor + R-012. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
   tints interpolates.
 
 **PR-05 · Movie clip — Display & Filters** — preview `PropertiesFilters`
@@ -477,9 +486,11 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
 
-**PR-06 · Movie clip — Swap…, Parameters tab** — absent
-- Swap…: replace the instance's symbol keeping transform, name, scripts (also stage context menu "Swap symbol…").
-  Data: `ElementKind::Instance.symbol_id` — editor only. P1-level effort, P2 priority.
+**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` works; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
+- Done: selecting an instance on Stage and choosing `Swap symbol` on a Library symbol (row context menu or ⋯ menu)
+  replaces `ElementKind::Instance.symbol_id` while preserving transform, instance name, scripts, accessibility and
+  compatible playback settings (`authoring_symbols.rs::swap_instance_symbol`, cycle-safe, one Undo).
+- Swap…: Properties `Swap…` button + picker dialog/popover and stage context menu `Swap symbol…` wait for R-012.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
@@ -524,37 +535,36 @@ icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly 
 
 ## 5. Color panel (`crates/neoflash-editor/src/authoring_modify.rs` › `color_panel_*`, `fill_type_select`)
 
-**CO-01 · Fill type Linear / Radial gradient** — `fill_type_select` · disabled
+**CO-01 · Fill type Linear / Radial gradient** — `fill_type_select` · done (`authoring_modify.rs`)
+- Done: Color panel switches both fill and stroke paints between None, Solid colour, Linear gradient and Radial gradient
+  with `NF2/Gradient Bar` (click to add stops, drag to reposition, drag vertically off to remove when > 2 stops) and
+  `NF2/Color Picker` editing of the selected stop. Solid rectangles, ovals and paths convert cleanly to `PaintedPath` via
+  `Element::to_path_commands()` with one Undo step. Not yet: Flow `Reflect` / `Repeat` and `Linear RGB` remain disabled
+  with an explanatory tooltip while runtime `GradientPaint` uses Extend (pad) spread and sRGB interpolation.
 - Purpose: Color panel edits gradients: `NF2/Gradient Bar` with draggable stops (click adds, drag off removes),
   Flow extend / reflect / repeat, Linear RGB, selected stop edited by the picker; on-stage via Gradient Transform.
-- Data: `ElementKind::PaintedPath { fill_gradient, stroke_gradient: Option<GradientPaint> }` exists (runtime
-  gradient representation); rectangles/ovals/paths without `Painted` have solid paint only. Converting a shape to a
-  gradient fill must convert it to `PaintedPath` or **NEW** gradient on primitives.
-- Depends on: engine (small: creation API + validation; HTML5 already paints `GradientPaint`); the Gradient Bar /
-  Gradient Stop / Color Picker components are being added to `neoflash-ui` by the design track
-  (`components/gradient.rs`, `components/color_picker.rs`, uncommitted on 2026-11-01) — use them once the lock is
-  re-pinned.
+- Data: `ElementKind::PaintedPath { fill_gradient, stroke_gradient: Option<GradientPaint> }`.
 - Acceptance: switching a filled path to Radial creates a 2-stop gradient with one Undo; stops editable; HTML5 matches.
 
 **CO-02 · Fill type Bitmap fill (+ "Color — Bitmap fill" panel)** — disabled
 - Purpose: fill with a library bitmap (grid + Import…, Lock fill). Data: none (`editor-paint-effects` limit).
   **NEW** bitmap paint. Depends on: engine. P3.
 
-**CO-03 · Swatches tab, panel ⋯ Add swatch, colour picker area** — absent
+**CO-03 · Swatches tab, panel ⋯ Add swatch, colour picker area** — partial (`NF2/Color Picker` SV/HSB/RGB area, Color panel ⋯ `Add swatch` and dockable `Swatches` panel `PP-10` work; inline Color/Swatches tab switch inside Color panel remains open)
 - Purpose: Color panel tabs Color / Swatches; ⋯ menu Add swatch · Help · Close · Close group; `NF2/Color Picker`
   (SV area, hue, alpha strips), RGB / HSB segmented.
-- Data: document swatches **NEW** (`Project` palette) or editor prefs; see PP-10. Depends on: editor; picker =
-  `components/color_picker.rs` (being added by the design track). Acceptance: Add swatch appends the current colour to Document swatches with Undo.
+- Data: editor swatch prefs (`WorkspacePrefs.swatches`) + document paint scan (`panels/swatches.rs`); persistent
+  project-stored swatches are W1.9.
 
 ## 6. Library (`crates/neoflash-editor/src/panels/library.rs`, `resources.rs`)
 
-**LI-01 · Delete / duplicate item** — absent (NF2 panel actions: new symbol, new folder, properties, delete)
-- Behaviour: Delete asks for confirmation when the symbol is used (count instances), deletes with one Undo; Duplicate
-  symbol… (also stage context menu) creates `<name> copy` with a fresh id and linkage cleared.
-- Data: `Project.symbols`; no model change. Depends on: editor. Note: deleting a symbol referenced by instances must
-  either delete the instances or be refused with a diagnostic (never leave dangling `symbol_id`; `validate` would
-  reject it).
-- Acceptance: deleting an unused symbol + Undo restores it; deleting a used one lists usages first.
+**LI-01 · Delete / duplicate item** — done (`panels/library.rs`, `authoring_symbols.rs`)
+- Done: `Duplicate symbol` (row context menu and Library ⋯ menu) clones any non-scene symbol as `<name> copy` with fresh
+  IDs and cleared class/export linkage in one Undo step. `Delete symbol` (row context menu, ⋯ menu and footer Trash icon)
+  deletes the symbol and removes any placed instances across timelines (exiting nested editing if inside it) in one Undo
+  step, reporting the removed placement count so no dangling `symbol_id` can ever remain.
+- Data: `Project.symbols`; no model change.
+- Acceptance: deleting an unused or used symbol + Undo restores the symbol and all placements cleanly.
 
 **LI-02 · Bitmap / sound / font / video items, document select, pin** — absent
 - Purpose: Library tree shows all item types with icons; document select switches between open documents; pin keeps
@@ -592,7 +602,7 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 - Depends on: engine/host bridge (browser → editor channel, or an embedded preview). Acceptance: `trace("x")` in a
   frame script appears in Output within one second of Test Movie.
 
-## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, bodies in `planned_panels.rs`; PP-01, PP-02, PP-03 and PP-08 are real panels now)
+## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, bodies in `planned_panels.rs`; PP-01, PP-02, PP-03, PP-05, PP-08, PP-09, PP-10 and PP-11 are real panels now)
 
 **PP-01 · Ease** — done (`panels/ease.rs`)
 - Done: bound to the tween span under the playhead (motion: its start key); presets Linear, Ease In/Out/In-Out, Back,
@@ -634,13 +644,16 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
   "debugger/source maps"). Acceptance: a breakpoint in a frame script pauses Test Movie; Variables shows `this`
   properties; Continue resumes.
 
-**PP-05 · Project** — `planned_panels::project`
+**PP-05 · Project** — done (`panels/project.rs`, `Window ▸ Project`)
+- Done: project selector, Find file filter, hierarchical `src` (`Project.sources` + virtual folders), `assets`
+  (`Project.resources`) and `.nflash` document tree, inline source rename, `New file` / `New folder` / `Delete` /
+  `Publish` bar with one Undo step per source edit, double-click to open in `Actions ▸ Project files`, and linkage
+  footer naming linked symbols or the document class.
 - Controls: project select; Find file; file tree of `Project.sources` (unsaved ● marker); New file / New folder /
   Delete; Publish; footer explaining class linkage ("X.as is linked to symbol y").
 - Data: `Project.sources: Vec<SourceUnit { id, path, language, source }>`, `Symbol.class_name/linkage_id`,
-  `Project.document_class` exist; Actions ▸ Project files already edits them (`sources.rs`).
-- Depends on: editor (re-host existing source operations). Acceptance: create/rename/delete source with Undo; linkage
-  footer correct; double-click opens it in Actions.
+  `Project.document_class`.
+- Acceptance: create/rename/delete source with Undo; linkage footer correct; double-click opens it in Actions.
 
 **PP-06 · Code snippets** — `planned_panels::code_snippets`
 - Controls: search; categories Actions, Timeline navigation, Animation, Load and unload, Audio and video, Event
@@ -664,29 +677,31 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 reorder; double-click rename. Depends on TL-03. Acceptance: reorder changes playback order; delete of the last scene
 refused.
 
-**PP-09 · History** — `planned_panels::history`
-- Controls: list of steps with the current position checked; Undo / Redo; Clear history (danger, confirm).
-- Behaviour: click a step = undo/redo to it (multiple steps, one repaint); steps after the current one shown dimmed
-  (verify NF2 state; else request); Clear calls `History::clear`.
-- Data: `History { undo: Vec<Project>, redo: Vec<Project>, … }` snapshots, capacity 150 in the editor; no step labels
-  and no public iteration. **NEW** labels (e.g. `transact_named("Move")`) and read-only step listing.
-- Depends on: editor + small core change. Acceptance: labels match commands ("Move", "Fill colour", "Delete"); jumping
-  5 steps back equals 5 × Undo; Clear disables Undo.
+**PP-09 · History** — done (`panels/history.rs`, `Window ▸ History` `⌘F10`)
+- Done: chronological `Open` + named step rows (`History::undo_labels` / `redo_labels`) with the current step checked
+  and undone steps dimmed yet clickable (`History::step_to`), `Edit ▸ Undo <step>` / `Redo <step>` menu labels, and
+  footer Undo · Redo · Clear history controls.
+- Controls: list of steps with the current position checked; Undo / Redo; Clear history.
+- Data: `History` snapshots with step labels, capacity 150 in the editor.
+- Acceptance: labels match commands ("Move", "Fill colour", "Delete"); jumping 5 steps back equals 5 × Undo; Clear
+  disables Undo.
 
-**PP-10 · Swatches** — `planned_panels::swatches` (`SwatchesPopover`)
+**PP-10 · Swatches** — done (`panels/swatches.rs`, `Window ▸ Swatches` `⌘F9`)
+- Done: `SwatchesPopover` panel with hex + alpha readout, eyedropper, no colour, wheel → Color panel, Recent colours,
+  Document colours (derived from `Project` paints + user-added swatches in `WorkspacePrefs.swatches`, also populated by
+  Color panel ⋯ `Add swatch`), switchable Palette (`Default`, `Web 216`, `Grayscale`, `Pastels`) and Gradients (default +
+  document `GradientPaint`s, preserving primitive geometry when applied). Persistent file-stored swatches remain W1.9.
 - Controls: hex + alpha, eyedropper, no colour, wheel → Color panel; Recent; Document (+ add); Palette (switchable);
   Gradients.
-- Data: Recent (editor prefs); Document = **NEW** saved document swatches or derived from used colours (scan
-  `ElementKind` paints); Palette = `components::default_palette()`; Gradients from document `GradientPaint`s.
-- Depends on: editor. Acceptance: clicking a swatch applies to the active well (drawing colour or selection fill with
-  one Undo); Recent updates; Document swatches persist in the file if stored.
+- Acceptance: clicking a swatch applies to the active well (drawing colour or selection fill/stroke with one Undo);
+  Recent updates.
 
-**PP-11 · Info** — `planned_panels::info`
-- Controls: W H X Y of the selection (editable like Transform panel, registration vs top-left — verify), Cursor X Y in
-  stage coordinates, Colour under cursor R G B A.
-- Data: selection bounds (existing `modify_layout_units`), pointer → stage transform (stage.rs), colour = topmost
-  painted element at the point (approximation; true pixel readback is not available in egui — document the limit).
-- Depends on: editor. Acceptance: cursor values match ruler; editing W scales the selection with one Undo.
+**PP-11 · Info** — done (`panels/info.rs`, `Window ▸ Info` `⌘I`)
+- Done: editable 2×2 selection `W` / `H` / `X` / `Y` fields (committed as one Undo step via Transform layout units),
+  live `Cursor` `X` / `Y` in active ruler units, and `Colour` `R` `G` `B` `A` + swatch under the stage pointer (sampling
+  topmost painted elements, gradients and cached bitmap pixels, falling back to stage background).
+- Controls: W H X Y of the selection, Cursor X Y in stage coordinates, Colour under cursor R G B A.
+- Acceptance: cursor values match ruler; editing W scales the selection with one Undo.
 
 **PP-12 · Rulers, guides & grid** — working popover (`panels/view_settings.rs`, ST-06): Rulers (Show, Units Pixels /
 Inches / Points / Centimetres / Millimetres, Labels Auto / Every N); Guides (Show, Snap, Lock, colour, snap accuracy);
@@ -721,13 +736,15 @@ other setting stay disabled.
 
 ### Other planned dialogs
 
-**DL-02 · Document settings (⌘J)** — `document_settings`
+**DL-02 · Document settings (⌘J)** — done (`panels/document_settings.rs`, `Modify ▸ Document…` `⌘J`)
+- Done: modal dialog editing a draft of stage `W × H` (with optional aspect lock), `Match contents` (translates root
+  scene content so union bounds start at `(0, 0)`), `Scale content with stage` + 9-point registration anchor, `Units`
+  (updates `ViewPrefs.ruler_units`), `Background`, `Frame rate`, and `Make default` (`WorkspacePrefs.document_defaults`,
+  applied by `File ▸ New`). `OK` / `Enter` commits document changes in one `"Document settings"` Undo step; `Cancel` /
+  `Esc` discards. `Script` version stays informational until W1.12.
 - Controls: stage W × H linked; Match contents / Match printer; Scale content with stage + anchor (registration
   picker); Units; Background; Frame rate (→ "N frames · s"); Script version; Make default · Cancel · OK.
-- Data: `Project.width/height/fps/background` exist and are already editable in Properties ▸ Stage. Scale content =
-  editor transform of all root content (one Undo). Match contents = bounds of root frame content. Units = view pref.
-  Script version: per-script `ScriptLanguage` today, no document default (**NEW** small or omit with honest hint).
-- Depends on: editor. Acceptance: OK applies everything as one Undo; Cancel changes nothing.
+- Acceptance: OK applies everything as one Undo; Cancel changes nothing.
 
 **DL-03 · Publish settings (⇧F12)** — `publish_settings`
 - Controls: profile; targets HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG
@@ -794,9 +811,9 @@ unclear.
 | Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
 | View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (disabled); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
 | Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
-| Modify | Document… ⌘J (planned preview), Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled), Layer properties… (planned). Done: Timeline ▸ Reverse frames, Synchronise symbols, Convert to (blank) keyframes | DL-02; PR-06; LI-01; engine for shape ops |
+| Modify | Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled), Layer properties… (planned). Done: Document… ⌘J, Timeline ▸ Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01; engine for shape ops |
 | Control | Test scene ⌥⌘↵ (planned preview), Enable simple buttons ⌥⌘B (disabled). Done: Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | E-16; editor button preview |
-| Window | Duplicate window, Hide panels F4 (disabled); Swatches, Info, History, Compiler errors and other planned panels open previews. Done: Ease, Scene ⇧F2, Motion editor | PP-*; workspace |
+| Window | Duplicate window, Hide panels F4 (disabled); Compiler errors, Debugger, Code snippets, Movie Explorer and other planned panels open previews. Done: Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Motion editor, Project | PP-*; workspace |
 
 **MN-02 · Context menus** (reference §8 Frame / Layer / Stage object)
 

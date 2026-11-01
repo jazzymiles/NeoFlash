@@ -26,26 +26,19 @@ use neoflash_ui::typography::rich;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PlannedPanel {
     Debugger,
-    Project,
     CodeSnippets,
     CompilerErrors,
-    History,
-    Swatches,
-    Info,
     PropertiesFilters,
     Preferences,
-    DocumentSettings,
     PublishSettings,
     ExportImage,
     ExportVideo,
     ExportAudio,
     ImportVideo,
     SoundProperties,
-    ColorGradient,
     BitmapFill,
     PropertiesOvalPrimitive,
     PropertiesRectPrimitive,
-    PolyStarSettings,
     DecoTool,
     SprayBrush,
     BoneProperties,
@@ -77,28 +70,21 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 33] = [
+    pub(crate) const ALL: [Self; 26] = [
         Self::Debugger,
-        Self::Project,
         Self::CodeSnippets,
         Self::CompilerErrors,
-        Self::History,
-        Self::Swatches,
-        Self::Info,
         Self::PropertiesFilters,
         Self::Preferences,
-        Self::DocumentSettings,
         Self::PublishSettings,
         Self::ExportImage,
         Self::ExportVideo,
         Self::ExportAudio,
         Self::ImportVideo,
         Self::SoundProperties,
-        Self::ColorGradient,
         Self::BitmapFill,
         Self::PropertiesOvalPrimitive,
         Self::PropertiesRectPrimitive,
-        Self::PolyStarSettings,
         Self::DecoTool,
         Self::SprayBrush,
         Self::BoneProperties,
@@ -117,26 +103,19 @@ impl PlannedPanel {
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Debugger => "Debugger",
-            Self::Project => "Project",
             Self::CodeSnippets => "Code snippets",
             Self::CompilerErrors => "Compiler errors",
-            Self::History => "History",
-            Self::Swatches => "Swatches",
-            Self::Info => "Info",
             Self::PropertiesFilters => "Properties — Display & filters",
             Self::Preferences => "Preferences",
-            Self::DocumentSettings => "Document settings",
             Self::PublishSettings => "Publish settings",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
             Self::ExportAudio => "Export audio",
             Self::ImportVideo => "Import video",
             Self::SoundProperties => "Sound properties",
-            Self::ColorGradient => "Color — Radial gradient",
             Self::BitmapFill => "Color — Bitmap fill",
             Self::PropertiesOvalPrimitive => "Properties — Oval primitive",
             Self::PropertiesRectPrimitive => "Properties — Rectangle primitive",
-            Self::PolyStarSettings => "PolyStar tool settings",
             Self::DecoTool => "Properties — Deco tool",
             Self::SprayBrush => "Properties — Spray brush",
             Self::BoneProperties => "Properties — IK bone",
@@ -155,22 +134,18 @@ impl PlannedPanel {
     /// Reference PNG under `interface/design-system/exports/panels/{dark,light}/png/`.
     pub(crate) const fn reference(self) -> &'static str {
         match self {
-            Self::Debugger | Self::Project | Self::CodeSnippets => "scripting-panels.png",
-            Self::CompilerErrors | Self::Info => "panels-more-2.png",
-            Self::History => "panels-more.png",
-            Self::Swatches => "swatches-popover.png, panels-more.png",
+            Self::Debugger | Self::CodeSnippets => "scripting-panels.png",
+            Self::CompilerErrors => "panels-more-2.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
             Self::Preferences => "dialog-preferences-*.png",
-            Self::DocumentSettings => "document-dialogs.png",
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
             Self::SoundProperties | Self::EditEnvelope | Self::StrokeStyle => {
                 "dialogs-sound-stroke.png"
             }
-            Self::ColorGradient => "panel-color-radial-gradient.png, color-type-menu-open.png",
             Self::PropertiesOvalPrimitive => "panel-properties-oval-primitive.png",
-            Self::PropertiesRectPrimitive | Self::PolyStarSettings => "drawing-tools-panels.png",
+            Self::PropertiesRectPrimitive => "drawing-tools-panels.png",
             Self::DecoTool | Self::SprayBrush | Self::BoneProperties => {
                 "drawing-tools-panels-2.png"
             }
@@ -185,13 +160,9 @@ impl PlannedPanel {
         match self {
             Self::PropertiesFilters => Chrome::Panel(&["Properties", "Filters"]),
             Self::Debugger => Chrome::Panel(&["Debugger"]),
-            Self::Project => Chrome::Panel(&["Project"]),
             Self::CodeSnippets => Chrome::Panel(&["Code snippets"]),
             Self::CompilerErrors => Chrome::Panel(&["Compiler errors"]),
-            Self::History => Chrome::Panel(&["History"]),
-            Self::Swatches => Chrome::Panel(&["Swatches"]),
-            Self::Info => Chrome::Panel(&["Info"]),
-            Self::ColorGradient | Self::BitmapFill => Chrome::Panel(&["Color", "Swatches"]),
+            Self::BitmapFill => Chrome::Panel(&["Color", "Swatches"]),
             Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => {
                 Chrome::Panel(&["Properties", "Filters"])
             }
@@ -209,8 +180,7 @@ impl PlannedPanel {
     /// active (Color, primitives); the last tab for the earlier previews (Properties ▸ Filters).
     pub(crate) const fn active_tab(self, tabs: usize) -> usize {
         match self {
-            Self::ColorGradient
-            | Self::BitmapFill
+            Self::BitmapFill
             | Self::PropertiesOvalPrimitive
             | Self::PropertiesRectPrimitive => 0,
             _ => tabs.saturating_sub(1),
@@ -228,18 +198,15 @@ impl PlannedPanel {
             Self::ImportVideo => 720.,
             Self::ExportAudio => 640.,
             Self::CompilerErrors => 560.,
-            Self::DocumentSettings | Self::SoundProperties => 520.,
+            Self::SoundProperties => 520.,
             Self::CodeSnippets => 340.,
-            Self::Swatches | Self::PropertiesFilters => 324.,
-            Self::Project | Self::Info => 300.,
-            Self::History => 260.,
+            Self::PropertiesFilters => 324.,
             Self::TestMovie => 1000.,
             Self::EditEnvelope => 680.,
             Self::FindReplace => 640.,
             Self::FontEmbedding => 760.,
             Self::StrokeStyle => 480.,
             Self::LayerProperties => 440.,
-            Self::PolyStarSettings => 400.,
             Self::MovieExplorer => 340.,
             Self::PropertiesOvalPrimitive
             | Self::PropertiesRectPrimitive
@@ -249,7 +216,7 @@ impl PlannedPanel {
             | Self::GraphicProperties => 324.,
             // Popover frame adds a 4 pt margin: 312 + 2 × 4 = the 320 pt reference.
             Self::SymbolsPopover => 312.,
-            Self::ColorGradient | Self::BitmapFill => 284.,
+            Self::BitmapFill => 284.,
         }
     }
 }
@@ -263,8 +230,6 @@ pub(crate) struct PlannedState {
     pub(crate) preferences_page: usize,
     /// Export image format index (PNG, SVG, PSD, AI, PDF).
     pub(crate) export_format: usize,
-    /// Color panel preview page: radial gradient (false) or solid colour (true, color-type-menu-open.png).
-    pub(crate) color_solid: bool,
     /// Preferences ▸ General ▸ Theme draft (`None` = the current theme); dropped when Preferences closes.
     pub(crate) theme_draft: Option<ThemeMode>,
     /// Theme confirmed with Preferences ▸ Save; [`Editor::planned_panels`] applies and clears it.
@@ -320,6 +285,7 @@ impl Editor {
     /// Draw open planned-panel previews. They never touch the project; the only wired setting,
     /// Preferences ▸ General ▸ Theme, changes the editor theme preference when Save is clicked.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
+        self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
         show_planned_panels(ctx);
         let mut state = planned_state(ctx);
@@ -628,24 +594,15 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             super::planned_dialogs::export_image(ui, &mut state.export_format);
             return false;
         }
-        P::ColorGradient => {
-            super::planned_color::color_gradient(ui, &mut state.color_solid);
-            return false;
-        }
         _ => {}
     }
     ui.scope(|ui| {
         ui.disable();
         match panel {
             P::Debugger => super::planned_panels::debugger(ui),
-            P::Project => super::planned_panels::project(ui),
             P::CodeSnippets => super::planned_panels::code_snippets(ui),
             P::CompilerErrors => super::planned_panels::compiler_errors(ui),
-            P::History => super::planned_panels::history(ui),
-            P::Swatches => super::planned_panels::swatches(ui),
-            P::Info => super::planned_panels::info(ui),
             P::PropertiesFilters => super::planned_panels::properties_filters(ui),
-            P::DocumentSettings => super::planned_dialogs::document_settings(ui),
             P::PublishSettings => super::planned_dialogs::publish_settings(ui),
             P::ExportVideo => super::planned_dialogs::export_video(ui),
             P::ExportAudio => super::planned_dialogs::export_audio(ui),
@@ -654,7 +611,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::BitmapFill => super::planned_color::bitmap_fill(ui),
             P::PropertiesOvalPrimitive => super::planned_drawing::properties_oval(ui),
             P::PropertiesRectPrimitive => super::planned_drawing::properties_rect(ui),
-            P::PolyStarSettings => super::planned_drawing::polystar(ui),
             P::DecoTool => super::planned_drawing::deco_tool(ui),
             P::SprayBrush => super::planned_drawing::spray_brush(ui),
             P::BoneProperties => super::planned_drawing::bone(ui),
@@ -667,7 +623,7 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::FindReplace => super::planned_documents::find_replace(ui),
             P::MovieExplorer => super::planned_documents::movie_explorer(ui),
             P::SymbolsPopover => super::planned_documents::symbols_popover(ui),
-            P::Preferences | P::ExportImage | P::ColorGradient => {}
+            P::Preferences | P::ExportImage => {}
         }
     });
     false
@@ -902,7 +858,6 @@ mod tests {
             let mut state = planned_state(&ctx);
             state.preferences_page = page;
             state.export_format = page % 5;
-            state.color_solid = page % 2 == 1;
             store_state(&ctx, state);
             assert!(render(&ctx, neoflash_ui::Theme::Dark, 1) > 50);
         }

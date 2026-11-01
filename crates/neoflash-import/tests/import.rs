@@ -124,12 +124,24 @@ fn missing_text_nodes_and_skew_are_not_silently_discarded() {
             "<DOMRectangleObject objectWidth=\"10\" objectHeight=\"10\"><matrix><Matrix c=\"0.5\"/></matrix></DOMRectangleObject>",
         ),
     );
+    let skewed = import_project(&temp.0).unwrap();
+    skewed.validate().unwrap();
+    assert_eq!(skewed.format_version, 5);
+    let items = evaluate(&skewed, &skewed.root, 0);
+    assert!((items[0].transform[2] - 0.5).abs() < 1e-6);
+
+    write_source(
+        &temp,
+        &simple(
+            "<DOMRectangleObject objectWidth=\"10\" objectHeight=\"10\"><matrix><Matrix a=\"1\" b=\"2\" c=\"2\" d=\"4\"/></matrix></DOMRectangleObject>",
+        ),
+    );
     assert!(
         inspect(&temp.0)
             .unwrap()
             .diagnostics
             .iter()
-            .any(|d| d.code == "matrix_skew")
+            .any(|d| d.severity == Severity::Error && d.code == "matrix_singular")
     );
 }
 

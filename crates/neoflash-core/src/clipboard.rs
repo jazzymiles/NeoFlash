@@ -148,6 +148,15 @@ impl ClipboardPayload {
     /// version. Inference must include top-level placements, not just symbols.
     fn document_version(&self) -> u32 {
         if self
+            .elements
+            .iter()
+            .chain(self.symbols.iter().flat_map(symbol_elements))
+            .any(|element| {
+                element.transform.pivot.is_some() || element.transform.primitive.is_some()
+            })
+        {
+            7
+        } else if self
             .symbols
             .iter()
             .any(|symbol| !symbol.timeline.guides.is_empty())

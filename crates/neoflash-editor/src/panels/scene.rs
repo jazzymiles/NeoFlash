@@ -34,7 +34,7 @@ fn state_id() -> egui::Id {
 /// Fresh IDs for a copied timeline: layers and elements get new IDs, links between layers
 /// (parent, mask, motion guide) and authoring groups follow them. An element keeps one ID on every
 /// keyframe of its layer, so tweens keep pairing it.
-fn refresh_timeline_ids(timeline: &mut Timeline) {
+pub(crate) fn refresh_timeline_ids(timeline: &mut Timeline) {
     let mut layers: HashMap<Id, Id> = HashMap::new();
     let mut elements: HashMap<Id, Id> = HashMap::new();
     for layer in &mut timeline.layers {

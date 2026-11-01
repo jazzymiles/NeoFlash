@@ -115,6 +115,12 @@ pub struct ViewPrefs {
     pub grid_linked: bool,
     pub grid_color: Option<[u8; 4]>,
     pub grid_accuracy: SnapAccuracy,
+    /// Snap to edges and centres of unselected visible unlocked objects on the current frame.
+    #[serde(default)]
+    pub objects_snap: bool,
+    /// Snap to nearest integer stage pixel.
+    #[serde(default)]
+    pub pixels_snap: bool,
 }
 
 impl Default for ViewPrefs {
@@ -138,6 +144,8 @@ impl Default for ViewPrefs {
             grid_linked: true,
             grid_color: None,
             grid_accuracy: SnapAccuracy::Normal,
+            objects_snap: false,
+            pixels_snap: false,
         }
     }
 }
@@ -252,6 +260,8 @@ pub(crate) struct StageView {
     pub snap_ring: Option<(Pos2, bool)>,
     /// The pointer went down on a guide: stage click handlers ignore this press and its release.
     pub guide_pointer: bool,
+    /// Temporary `⌘` (Command) modifier suspension of stage snapping during the current frame.
+    pub command_suspend: bool,
     /// Canvas rect and timeline origin (screen) of the last stage frame.
     pub canvas: Rect,
     pub origin: Pos2,
@@ -269,9 +279,20 @@ impl Default for StageView {
             zero_drag: false,
             snap_ring: None,
             guide_pointer: false,
+            command_suspend: false,
             canvas: Rect::NOTHING,
             origin: Pos2::ZERO,
         }
+    }
+}
+
+impl StageView {
+    pub fn toggle_object_snap(&mut self) {
+        self.prefs.objects_snap = !self.prefs.objects_snap;
+    }
+    #[allow(dead_code)]
+    pub fn toggle_pixel_snap(&mut self) {
+        self.prefs.pixels_snap = !self.prefs.pixels_snap;
     }
 }
 
@@ -340,12 +361,17 @@ impl Editor {
             && matches!(self.tool, Tool::Select | Tool::Transform | Tool::Subselect)
     }
 
-    /// Snap targets for the current zoom, or `None` when no snapping is on.
+    /// Snap targets for the current zoom, or `None` when no snapping is on (or `⌘` suspends it).
     pub(crate) fn snapper(&self) -> Option<Snapper> {
+        if self.stage_view.command_suspend {
+            return None;
+        }
         let v = &self.stage_view.prefs;
         let zoom = self.zoom.max(1e-3) as f64;
+        let normal_tol = SnapAccuracy::Normal.screen_tolerance() as f64 / zoom;
         let mut snapper = Snapper {
             guide_tolerance: v.guide_accuracy.screen_tolerance() as f64 / zoom,
+            object_tolerance: normal_tol,
             ..Default::default()
         };
         if v.guides_show && v.guides_snap {
@@ -356,13 +382,106 @@ impl Editor {
                 }
             }
         }
+        if v.objects_snap {
+            self.collect_object_snap_lines(&mut snapper.objects_x, &mut snapper.objects_y);
+        }
         if v.grid_snap {
             snapper.grid = Some((
                 v.grid_spacing,
                 v.grid_accuracy.screen_tolerance() as f64 / zoom,
             ));
         }
+        if v.pixels_snap {
+            snapper.pixel_tolerance = Some(normal_tol.min(0.5));
+        }
         (!snapper.is_empty()).then_some(snapper)
+    }
+
+    fn collect_object_snap_lines(&self, out_x: &mut Vec<f64>, out_y: &mut Vec<f64>) {
+        use neoflash_core::ElementKind;
+        let eligible: std::collections::HashSet<Id> = self
+            .editable_targets()
+            .into_iter()
+            .filter(|t| !self.selection.targets.contains(t))
+            .map(|t| t.element)
+            .collect();
+        if eligible.is_empty() {
+            return;
+        }
+        let mut boxes: Vec<(Id, [f64; 4])> = Vec::new();
+        for item in neoflash_core::evaluate(&self.project, self.symbol_id(), self.frame) {
+            let Some(top_id) = item.instance_path.first() else {
+                continue;
+            };
+            if !eligible.contains(top_id) {
+                continue;
+            }
+            let local = match &item.kind {
+                ElementKind::Rectangle { width, height, .. }
+                | ElementKind::Ellipse { width, height, .. }
+                | ElementKind::TextBox { width, height, .. }
+                | ElementKind::Video { width, height } => Some([0.0, 0.0, *width, *height]),
+                ElementKind::Bitmap { width, height, .. } => {
+                    Some([0.0, 0.0, f64::from(*width), f64::from(*height)])
+                }
+                ElementKind::Text {
+                    text, font_size, ..
+                } => Some([
+                    0.0,
+                    0.0,
+                    (text.chars().count() as f64) * (*font_size) * 0.6,
+                    *font_size,
+                ]),
+                ElementKind::Path {
+                    commands,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::PaintedPath {
+                    commands,
+                    stroke_width,
+                    ..
+                } => neoflash_core::path_bounds(commands).ok().flatten().map(|b| {
+                    let pad = stroke_width.max(0.0) * 0.5;
+                    [b.x_min - pad, b.y_min - pad, b.x_max + pad, b.y_max + pad]
+                }),
+                ElementKind::Instance { .. } => None,
+            };
+            let Some([lx0, ly0, lx1, ly1]) = local else {
+                continue;
+            };
+            let m = item.transform;
+            let mut min_x = f64::INFINITY;
+            let mut min_y = f64::INFINITY;
+            let mut max_x = f64::NEG_INFINITY;
+            let mut max_y = f64::NEG_INFINITY;
+            for (lx, ly) in [(lx0, ly0), (lx1, ly0), (lx1, ly1), (lx0, ly1)] {
+                let wx = m[0] * lx + m[2] * ly + m[4];
+                let wy = m[1] * lx + m[3] * ly + m[5];
+                if wx.is_finite() && wy.is_finite() {
+                    min_x = min_x.min(wx);
+                    min_y = min_y.min(wy);
+                    max_x = max_x.max(wx);
+                    max_y = max_y.max(wy);
+                }
+            }
+            if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite())
+            {
+                continue;
+            }
+            if let Some((_, b)) = boxes.iter_mut().find(|(id, _)| id == top_id) {
+                b[0] = b[0].min(min_x);
+                b[1] = b[1].min(min_y);
+                b[2] = b[2].max(max_x);
+                b[3] = b[3].max(max_y);
+            } else {
+                boxes.push((top_id.clone(), [min_x, min_y, max_x, max_y]));
+            }
+        }
+        for (_, [min_x, min_y, max_x, max_y]) in boxes {
+            out_x.extend([min_x, (min_x + max_x) * 0.5, max_x]);
+            out_y.extend([min_y, (min_y + max_y) * 0.5, max_y]);
+        }
     }
 
     /// Snap a point dragged from `press` to `pos` (screen) whose stage position at the press was
@@ -569,6 +688,7 @@ impl Editor {
     /// Before the stage tools run: keep guide/corner drags going, and take presses on guides out of
     /// the frame's events so tools do not also start a gesture there.
     pub(crate) fn stage_view_input(&mut self, ui: &egui::Ui, canvas: Rect, origin: Pos2) {
+        self.stage_view.command_suspend = ui.input(|i| i.modifiers.command);
         if self
             .stage_view
             .drag
@@ -894,6 +1014,13 @@ impl Editor {
     pub(crate) fn toggle_grid_over_objects(&mut self) {
         let v = &mut self.stage_view.prefs;
         v.grid_over_objects = !v.grid_over_objects;
+    }
+    pub(crate) fn toggle_object_snap(&mut self) {
+        self.stage_view.toggle_object_snap();
+    }
+    #[allow(dead_code)]
+    pub(crate) fn toggle_pixel_snap(&mut self) {
+        self.stage_view.toggle_pixel_snap();
     }
 
     /// Shortcuts of View ▸ Rulers / Grid / Guides (design §8, spec ST-01…ST-03), skipped while typing.

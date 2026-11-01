@@ -1,6 +1,6 @@
 use super::*;
 use crate::legacy::contents::{BinaryContentsPrefix, ContentsDescriptorClass};
-use crate::legacy::media::decode_binary_bitmap;
+use crate::legacy::media::{decode_binary_bitmap, decode_binary_sound};
 use neoflash_core::{MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, valid_library_folder};
 use std::collections::BTreeMap;
 
@@ -13,6 +13,12 @@ pub(super) struct BitmapAsset {
     pub width: f64,
     pub height: f64,
     pub smoothing: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SoundAsset {
+    pub resource_id: String,
+    pub duration_44: u32,
 }
 
 /// Rebuild library paths from archive identities, never filesystem paths.
@@ -97,13 +103,20 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
     Ok((paths, by_id))
 }
 
+type ExtractedAssets = (
+    Vec<ResourceUnit>,
+    BTreeMap<u16, BitmapAsset>,
+    BTreeMap<u16, SoundAsset>,
+);
+
 pub(super) fn resources(
     document: &BinaryTimelineDocument,
     report: &mut ImportReport,
-) -> Result<(Vec<ResourceUnit>, BTreeMap<u16, BitmapAsset>), String> {
+) -> Result<ExtractedAssets, String> {
     let (_, folders) = folders(&document.contents)?;
     let mut resources = Vec::new();
     let mut bitmaps = BTreeMap::new();
+    let mut sounds = BTreeMap::new();
     let mut total = 0usize;
     let mut streams = BTreeMap::new();
     let mut decoded_streams = std::collections::BTreeSet::new();
@@ -118,8 +131,153 @@ pub(super) fn resources(
         }
         let id = descriptor.media_id.unwrap();
         let location = format!("media {id}");
+        if descriptor.class == ContentsDescriptorClass::Sound {
+            let Some(settings) = descriptor.sound.as_ref() else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Sound descriptor has no typed audio format settings; its bytes remain in the embedded source.",
+                );
+                if let Some(index) = descriptor.stream_index {
+                    decoded_streams.insert(index);
+                }
+                continue;
+            };
+            let stream = streams
+                .get(
+                    &descriptor
+                        .stream_index
+                        .ok_or("A sound descriptor has no resolved stream identity.")?,
+                )
+                .ok_or("The resolved sound stream bytes are absent.")?;
+            if stream.role != crate::legacy::BinaryStreamRole::Media
+                || !stream
+                    .name
+                    .strip_prefix('/')
+                    .unwrap_or(&stream.name)
+                    .eq_ignore_ascii_case(&descriptor.stream_name)
+            {
+                return Err("The sound descriptor and immutable media stream disagree.".into());
+            }
+            decoded_streams.insert(stream.index);
+            if resources.len() >= MAX_RESOURCES - 2 {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "The project resource limit is reached; this sound is not imported and remains in the embedded source.",
+                );
+                continue;
+            }
+            let decoded = match decode_binary_sound(
+                &stream.bytes,
+                descriptor.subtype_revision.unwrap_or(0),
+                settings,
+            ) {
+                Ok(decoded) => decoded,
+                Err(e) => {
+                    report.warning(
+                        "fla_media_not_imported",
+                        &location,
+                        format!(
+                            "Sound library item could not be imported ({e}); its bytes remain in the embedded source."
+                        ),
+                    );
+                    continue;
+                }
+            };
+            match total
+                .checked_add(decoded.bytes.len())
+                .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE)
+            {
+                Some(n) => total = n,
+                None => {
+                    report.warning(
+                        "fla_media_not_imported",
+                        &location,
+                        "Decoded media exceeds the project's resource budget (64 MiB including import provenance); this sound remains in the embedded source.",
+                    );
+                    continue;
+                }
+            }
+            if decoded.short_read {
+                report.warning(
+                    "fla_sound_short_read",
+                    &location,
+                    "The sound stream ended before its declared length; the available complete audio frames were imported.",
+                );
+            }
+            let resource_id = format!("legacy-sound-{id}");
+            let ext = decoded.extension;
+            let fallback = format!("legacy/sounds/{id}/sound.{ext}");
+            let parent = descriptor
+                .library_metadata
+                .as_ref()
+                .and_then(|m| m.parent)
+                .filter(|id| *id != [0, 0]);
+            let folder = match parent.map(|id| folders.get(&id)) {
+                Some(None) => {
+                    report.warning(
+                        "fla_library_folder",
+                        &location,
+                        "The sound's library folder is unresolved; it is placed at the library root.",
+                    );
+                    None
+                }
+                other => other.flatten(),
+            };
+            let name = super::read_string(&document.contents.original_bytes, &descriptor.name).ok();
+            let dot_ext = format!(".{ext}");
+            let path = name.as_deref().map(|name| {
+                let name = if let Some(folder) = folder {
+                    format!("{folder}/{name}")
+                } else {
+                    name.to_owned()
+                };
+                let suffix = if name.to_ascii_lowercase().ends_with(&dot_ext) {
+                    ""
+                } else {
+                    dot_ext.as_str()
+                };
+                format!("legacy/sounds/{id}/{name}{suffix}")
+            });
+            let resource = path.and_then(|path| {
+                ResourceUnit::from_bytes(&resource_id, path, decoded.media_type, &decoded.bytes)
+                    .ok()
+            });
+            let resource = match resource {
+                Some(resource) => resource,
+                None => {
+                    report.warning(
+                        "fla_sound_resource_name",
+                        format!("media {id}"),
+                        "The original sound name cannot be used as a portable resource path. A stable identity path is used; the original name remains in the embedded Contents provenance.",
+                    );
+                    ResourceUnit::from_bytes(
+                        &resource_id,
+                        fallback,
+                        decoded.media_type,
+                        &decoded.bytes,
+                    )
+                    .map_err(|e| e.to_string())?
+                }
+            };
+            if sounds
+                .insert(
+                    id,
+                    SoundAsset {
+                        resource_id,
+                        duration_44: decoded.duration_44,
+                    },
+                )
+                .is_some()
+            {
+                return Err("Sound descriptors have duplicate media identifiers.".into());
+            }
+            resources.push(resource);
+            continue;
+        }
         if descriptor.class != ContentsDescriptorClass::Bitmap {
-            report.warning("fla_media_not_imported",&location,"Sound and video library items are not imported yet; their bytes remain in the embedded source.");
+            report.warning("fla_media_not_imported",&location,"Video and compiled-clip library items are not imported yet; their bytes remain in the embedded source.");
             if let Some(index) = descriptor.stream_index {
                 decoded_streams.insert(index);
             }
@@ -240,7 +398,7 @@ pub(super) fn resources(
     }) {
         report.warning("fla_media_unreferenced","Media streams","Some media streams have no library descriptor (typically deleted items); they remain only in the embedded source.");
     }
-    Ok((resources, bitmaps))
+    Ok((resources, bitmaps, sounds))
 }
 
 #[cfg(test)]

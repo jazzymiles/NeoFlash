@@ -83,6 +83,7 @@ fn relative(base: &Transform, pose: &Transform, target: &Transform) -> Transform
         } else {
             pose.color_transform
         },
+        ..*target
     }
 }
 

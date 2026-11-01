@@ -427,7 +427,7 @@ impl Editor {
         // event remains authoritative after egui clears pointer.press_origin.
         if let Some(origin) = press.filter(|origin| {
             ui.is_enabled()
-                && self.symbol_conversion.is_none()
+                && !self.has_modal_dialog()
                 && grip.contains(*origin)
                 && ui.clip_rect().contains(*origin)
                 && ui.ctx().layer_id_at(*origin) == Some(ui.layer_id())
@@ -450,7 +450,7 @@ impl Editor {
             pointer = Some(global / ui.ctx().zoom_factor() - inner.min.to_vec2());
             released = !down;
         }
-        if escape || self.symbol_conversion.is_some() {
+        if escape || self.has_modal_dialog() {
             if let Some(saved) = saved {
                 self.workspace.dock.area_mut(edge).size = saved.preference;
             }
@@ -566,7 +566,7 @@ impl Editor {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         header_ui.set_clip_rect(parent.clip_rect().intersect(tabs_rect));
-        if self.symbol_conversion.is_some() {
+        if self.has_modal_dialog() {
             header_ui.disable_semantic();
         }
         let nf = neoflash_ui::palette(&ctx);
@@ -743,7 +743,7 @@ impl Editor {
                 .max_rect(grip),
         );
         grip_ui.set_clip_rect(parent.clip_rect().intersect(grip));
-        if self.symbol_conversion.is_some() {
+        if self.has_modal_dialog() {
             grip_ui.disable_semantic();
         }
         let response = grip_ui.interact(grip, grip_ui.id(), egui::Sense::click_and_drag());
@@ -781,7 +781,7 @@ impl Editor {
                 .max_rect(menu_rect),
         );
         menu_ui.set_clip_rect(parent.clip_rect().intersect(menu_rect));
-        if self.symbol_conversion.is_some() {
+        if self.has_modal_dialog() {
             menu_ui.disable_semantic();
         }
         if !tools_only {
@@ -1053,7 +1053,7 @@ impl Editor {
     }
 
     pub(crate) fn dock_panel_contents(&mut self, ui: &mut egui::Ui, panel: PanelId) {
-        if self.symbol_conversion.is_some() {
+        if self.has_modal_dialog() {
             ui.disable_semantic();
         }
         self.detached.content_header = Some(panel);
@@ -1067,6 +1067,10 @@ impl Editor {
             PanelId::Ease => self.ease_panel_ui(ui),
             PanelId::Scene => self.scene_panel_ui(ui),
             PanelId::MotionEditor => self.motion_editor_panel_ui(ui),
+            PanelId::History => self.history_panel_ui(ui),
+            PanelId::Swatches => self.swatches_panel_ui(ui),
+            PanelId::Info => self.info_panel_ui(ui),
+            PanelId::Project => self.project_panel_ui(ui),
             _ => self.bottom_contents(ui, panel),
         }
         self.detached.content_header = None;

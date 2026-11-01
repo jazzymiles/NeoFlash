@@ -218,6 +218,8 @@ pub(crate) struct PointDrag {
 pub(crate) struct VectorState {
     pub draft: Option<PathDraft>,
     pub point_drag: Option<PointDrag>,
+    /// Selected anchor command indices for an editable path `(element_id, command_indices)`.
+    pub selected_anchors: Option<(Id, Vec<usize>)>,
 }
 
 pub(crate) fn handles(commands: &[PathCommand]) -> Vec<PathHandle> {
@@ -561,6 +563,22 @@ impl Editor {
             self.finish_path(false);
         }
         let events = ui.input(|i| i.events.clone());
+        let canvas_hover = ui.input(|i| i.pointer.hover_pos()).filter(|&pos| {
+            response.rect.contains(pos)
+                && ui
+                    .ctx()
+                    .layer_id_at(pos)
+                    .is_none_or(|layer| layer == response.layer_id)
+        });
+        if self.tool == Tool::Pen
+            && self.vector.draft.is_none()
+            && self.layer_editable()
+            && let Some(hover_pos) = canvas_hover
+            && page.contains(hover_pos)
+            && self.pen_subdivide_candidate(origin, hover_pos).is_some()
+        {
+            self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
+        }
         if matches!(self.tool, Tool::Pen | Tool::Pencil) && self.layer_editable() {
             for event in &events {
                 match *event {
@@ -577,6 +595,12 @@ impl Editor {
                             .is_none_or(|layer| layer == response.layer_id) =>
                     {
                         self.playing = false;
+                        if self.tool == Tool::Pen
+                            && self.vector.draft.is_none()
+                            && self.try_pen_subdivide(origin, pos)
+                        {
+                            continue;
+                        }
                         // Pen anchors snap to guides and grid (ST-04); pencil strokes are freehand.
                         let position = if self.tool == Tool::Pen {
                             local(self.snap_screen(origin, pos))
@@ -788,9 +812,16 @@ impl Editor {
                 PathCommand::Close => {}
             }
         }
-        let hover = response
-            .hover_pos()
-            .filter(|_| self.vector.point_drag.is_none());
+        let hover = ui
+            .input(|i| i.pointer.hover_pos())
+            .filter(|&pos| {
+                self.vector.point_drag.is_none()
+                    && response.rect.contains(pos)
+                    && ui
+                        .ctx()
+                        .layer_id_at(pos)
+                        .is_none_or(|layer| layer == response.layer_id)
+            });
         let dragged = self
             .vector
             .point_drag
@@ -800,7 +831,9 @@ impl Editor {
         for handle in &handles {
             if handle.role == PointRole::Anchor {
                 let at = screen(handle.point);
-                let state = if dragged == Some((handle.command, handle.role)) {
+                let is_selected = dragged == Some((handle.command, handle.role))
+                    || self.is_anchor_selected(&element.id, handle.command);
+                let state = if is_selected {
                     cv::AnchorState::Selected
                 } else if near(at) {
                     cv::AnchorState::Hover
@@ -810,9 +843,17 @@ impl Editor {
                 cv::paint_anchor(p, p.ctx(), at, state);
             }
         }
-        if dragged.is_some() || handles.iter().any(|h| near(screen(h.point))) {
+        let near_any_handle = handles.iter().any(|h| near(screen(h.point)));
+        let alt_hover = ui.input(|i| i.modifiers.alt);
+        if dragged.is_some() || near_any_handle {
             self.stage_cursor = Some(neoflash_ui::cursors::SUBSELECT_POINT);
+        } else if alt_hover
+            && let Some(hover_pos) = hover
+            && path_segment_hit_local(commands, matrix, origin, zoom, hover_pos).is_some()
+        {
+            self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
         }
+        let double_clicked = response.double_clicked() && !self.stage_view.guide_pointer;
         let events = ui.input(|i| i.events.clone());
         for event in events {
             match event {
@@ -820,7 +861,7 @@ impl Editor {
                     pos,
                     button: egui::PointerButton::Primary,
                     pressed: true,
-                    ..
+                    modifiers,
                 } if response.rect.contains(pos)
                     && self.selected_editable()
                     && ui
@@ -841,6 +882,17 @@ impl Editor {
                     {
                         self.finish_edits();
                         self.playing = false;
+                        if handle.role == PointRole::Anchor {
+                            if modifiers.shift {
+                                let selected = self.toggle_selected_anchor(&element.id, handle.command);
+                                if !selected {
+                                    continue;
+                                }
+                            } else if !self.is_anchor_selected(&element.id, handle.command) {
+                                self.vector.selected_anchors =
+                                    Some((element.id.clone(), vec![handle.command]));
+                            }
+                        }
                         self.vector.point_drag = Some(PointDrag {
                             handle,
                             original: commands.clone(),
@@ -855,6 +907,36 @@ impl Editor {
                             changed: false,
                             element: element.id.clone(),
                         });
+                    } else if (modifiers.alt || double_clicked)
+                        && let Some((cmd_idx, t)) =
+                            path_segment_hit_local(commands, matrix, origin, zoom, pos)
+                        && let Some((new_commands, inserted)) =
+                            subdivide_path_at(commands, cmd_idx, t)
+                        && validate_path_commands(&new_commands).is_ok()
+                    {
+                        let element_id = element.id.clone();
+                        self.finish_edits();
+                        self.playing = false;
+                        self.transact(|s| {
+                            s.ensure_selected_key();
+                            if let Some(Element {
+                                kind:
+                                    ElementKind::Path {
+                                        commands: destination,
+                                        ..
+                                    }
+                                    | ElementKind::PaintedPath {
+                                        commands: destination,
+                                        ..
+                                    },
+                                ..
+                            }) = s.selected_element_mut()
+                            {
+                                *destination = new_commands;
+                            }
+                        });
+                        self.vector.selected_anchors = Some((element_id, vec![inserted]));
+                        return;
                     }
                 }
                 egui::Event::PointerMoved(pos) => self.update_path_drag(pos, origin),
@@ -935,6 +1017,330 @@ impl Editor {
                 .is_some_and(|target| target.layer == drag.layer && target.element == drag.element)
             && self.selected_editable()
     }
+
+    pub(crate) fn is_anchor_selected(&self, element_id: &str, command: usize) -> bool {
+        self.vector
+            .selected_anchors
+            .as_ref()
+            .is_some_and(|(id, indices)| id == element_id && indices.contains(&command))
+    }
+
+    pub(crate) fn toggle_selected_anchor(&mut self, element_id: &str, command: usize) -> bool {
+        match &mut self.vector.selected_anchors {
+            Some((id, indices)) if id == element_id => {
+                if let Some(pos) = indices.iter().position(|&i| i == command) {
+                    indices.remove(pos);
+                    false
+                } else {
+                    indices.push(command);
+                    true
+                }
+            }
+            _ => {
+                self.vector.selected_anchors = Some((element_id.to_owned(), vec![command]));
+                true
+            }
+        }
+    }
+
+    pub(crate) fn on_selected_path_segment(&self, origin: Pos2, pos: Pos2) -> bool {
+        if !self.selected_editable() {
+            return false;
+        }
+        let Some(element) = self.selected_sampled() else {
+            return false;
+        };
+        let (ElementKind::Path { ref commands, .. }
+        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
+        else {
+            return false;
+        };
+        let matrix = transform_matrix(element.transform);
+        let zoom = self.zoom;
+        let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
+        if handles(commands)
+            .iter()
+            .any(|h| screen(h.point).distance(pos) < 8.)
+        {
+            return false;
+        }
+        path_segment_hit_local(commands, matrix, origin, zoom, pos).is_some()
+    }
+
+    pub(crate) fn pen_subdivide_candidate(
+        &self,
+        origin: Pos2,
+        pos: Pos2,
+    ) -> Option<(crate::selection::SelectionTarget, Vec<PathCommand>, usize)> {
+        let zoom = self.zoom;
+        let try_element = |target: crate::selection::SelectionTarget,
+                           element: Element|
+         -> Option<(
+            crate::selection::SelectionTarget,
+            Vec<PathCommand>,
+            usize,
+        )> {
+            let (ElementKind::Path { ref commands, .. }
+            | ElementKind::PaintedPath { ref commands, .. }) = element.kind
+            else {
+                return None;
+            };
+            let matrix = transform_matrix(element.transform);
+            let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
+            if handles(commands)
+                .iter()
+                .any(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
+            {
+                return None;
+            }
+            let (cmd_idx, t) = path_segment_hit_local(commands, matrix, origin, zoom, pos)?;
+            let (new_commands, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
+            validate_path_commands(&new_commands).ok()?;
+            Some((target, new_commands, inserted))
+        };
+
+        if self.selected_editable()
+            && let Some(target) = self.selection.single().cloned()
+            && let Some(element) = self.selected_sampled()
+            && let Some(found) = try_element(target, element)
+        {
+            return Some(found);
+        }
+
+        let timeline = &self.symbol().timeline;
+        for layer in timeline.layers.iter().rev() {
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                continue;
+            }
+            for element in sample_layer(layer, self.frame).into_iter().rev() {
+                let target = crate::selection::SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: element.id.clone(),
+                };
+                if let Some(found) = try_element(target, element) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn try_pen_subdivide(&mut self, origin: Pos2, pos: Pos2) -> bool {
+        let Some((target, new_commands, inserted)) = self.pen_subdivide_candidate(origin, pos)
+        else {
+            return false;
+        };
+        let element_id = target.element.clone();
+        self.finish_edits();
+        self.playing = false;
+        self.transact(|s| {
+            s.ensure_key_for(&target.layer, false);
+            if let Some(layer_idx) = s.target_layer_index(&target) {
+                let frame = s.frame;
+                if let Some(key) = s.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
+                    && let Some(Element {
+                        kind:
+                            ElementKind::Path {
+                                commands: destination,
+                                ..
+                            }
+                            | ElementKind::PaintedPath {
+                                commands: destination,
+                                ..
+                            },
+                        ..
+                    }) = key.elements.iter_mut().find(|e| e.id == target.element)
+                {
+                    *destination = new_commands;
+                }
+            }
+            s.set_selection(vec![target]);
+        });
+        self.vector.selected_anchors = Some((element_id, vec![inserted]));
+        true
+    }
+
+    pub(crate) fn delete_selected_vector_points(&mut self) -> bool {
+        if !self.selected_editable() {
+            return false;
+        }
+        let Some(target) = self.selection.single().cloned() else {
+            return false;
+        };
+        let Some(element) = self.selected_sampled() else {
+            return false;
+        };
+        let (ElementKind::Path { ref commands, .. }
+        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
+        else {
+            return false;
+        };
+        let Some((selected_id, indices)) = self.vector.selected_anchors.clone() else {
+            return false;
+        };
+        if selected_id != element.id || indices.is_empty() {
+            return false;
+        }
+        let remaining = delete_anchors_from_path(commands, &indices);
+        if remaining == *commands {
+            return false;
+        }
+        self.playing = false;
+        if remaining.is_empty() {
+            self.transact(|s| {
+                s.ensure_key_for(&target.layer, false);
+                if let Some(index) = s.target_layer_index(&target) {
+                    let frame = s.frame;
+                    if let Some(key) = s.symbol_mut().timeline.layers[index].key_at_mut(frame) {
+                        key.elements.retain(|el| el.id != target.element);
+                    }
+                }
+                s.prune_authoring_groups();
+                s.clear_selection();
+            });
+            self.vector.selected_anchors = None;
+            return true;
+        }
+        if validate_path_commands(&remaining).is_err() {
+            return false;
+        }
+        self.transact(|s| {
+            s.ensure_selected_key();
+            if let Some(Element {
+                kind:
+                    ElementKind::Path {
+                        commands: destination,
+                        ..
+                    }
+                    | ElementKind::PaintedPath {
+                        commands: destination,
+                        ..
+                    },
+                ..
+            }) = s.selected_element_mut()
+            {
+                *destination = remaining;
+            }
+        });
+        self.vector.selected_anchors = None;
+        true
+    }
+}
+
+fn path_segment_hit_local(
+    commands: &[PathCommand],
+    matrix: [f64; 6],
+    origin: Pos2,
+    zoom: f32,
+    pos: Pos2,
+) -> Option<(usize, f64)> {
+    let stage_pt = Pos2::ZERO + (pos - origin) / zoom.max(1e-3);
+    let local = crate::stage::inverse(matrix, stage_pt)?;
+    let scale = matrix[0]
+        .hypot(matrix[1])
+        .max(matrix[2].hypot(matrix[3]))
+        .max(1e-3);
+    let tolerance = 7.0 / (scale * f64::from(zoom.max(1e-3)));
+    let (cmd_idx, t, _closest, dist) =
+        nearest_path_segment(commands, [f64::from(local.x), f64::from(local.y)])?;
+    (dist <= tolerance).then_some((cmd_idx, t))
+}
+
+fn anchor_endpoint(cmd: &PathCommand) -> Option<[f64; 2]> {
+    match *cmd {
+        PathCommand::MoveTo { x, y }
+        | PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => Some([x, y]),
+        PathCommand::Close => None,
+    }
+}
+
+pub(crate) fn delete_anchors_from_path(
+    commands: &[PathCommand],
+    remove_indices: &[usize],
+) -> Vec<PathCommand> {
+    if remove_indices.is_empty() {
+        return commands.to_vec();
+    }
+    let mut contours = Vec::new();
+    let mut current_start = None;
+    for (idx, cmd) in commands.iter().enumerate() {
+        if matches!(cmd, PathCommand::MoveTo { .. }) {
+            if let Some(start) = current_start {
+                contours.push(start..idx);
+            }
+            current_start = Some(idx);
+        }
+    }
+    if let Some(start) = current_start {
+        contours.push(start..commands.len());
+    }
+
+    let mut out = Vec::new();
+    for range in contours {
+        let start = range.start;
+        let end = range.end;
+        if end <= start {
+            continue;
+        }
+        let closed = matches!(commands.get(end - 1), Some(PathCommand::Close));
+        let body_end = if closed { end - 1 } else { end };
+        if body_end <= start {
+            continue;
+        }
+        let coincident_seam = closed
+            && body_end > start + 1
+            && anchor_endpoint(&commands[start])
+                .zip(anchor_endpoint(&commands[body_end - 1]))
+                .is_some_and(|(a, b)| (a[0] - b[0]).hypot(a[1] - b[1]) <= 1e-4);
+
+        if coincident_seam {
+            let last = body_end - 1;
+            let remove_seam = remove_indices.contains(&start) || remove_indices.contains(&last);
+            let kept_interior: Vec<PathCommand> = ((start + 1)..last)
+                .filter(|idx| !remove_indices.contains(idx))
+                .map(|idx| commands[idx].clone())
+                .collect();
+            if remove_seam {
+                if kept_interior.len() < 2 {
+                    continue;
+                }
+                if let Some([x, y]) = anchor_endpoint(&kept_interior[0]) {
+                    out.push(PathCommand::MoveTo { x, y });
+                    out.extend(kept_interior.into_iter().skip(1));
+                    out.push(PathCommand::Close);
+                }
+            } else {
+                if kept_interior.is_empty() {
+                    continue;
+                }
+                out.push(commands[start].clone());
+                out.extend(kept_interior);
+                out.push(commands[last].clone());
+                out.push(PathCommand::Close);
+            }
+        } else {
+            let kept: Vec<PathCommand> = (start..body_end)
+                .filter(|idx| !remove_indices.contains(idx))
+                .map(|idx| commands[idx].clone())
+                .collect();
+            if kept.len() < 2 {
+                continue;
+            }
+            if let Some([x, y]) = anchor_endpoint(&kept[0]) {
+                out.push(PathCommand::MoveTo { x, y });
+                out.extend(kept.into_iter().skip(1));
+                if closed {
+                    out.push(PathCommand::Close);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Gradient geometry stays authored; native preview samples the shared brush on

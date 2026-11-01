@@ -122,6 +122,9 @@ enum Action {
     SelectSymbol(String, String),
     EditSymbol(String),
     RenameSymbol(String),
+    DuplicateSymbol(String),
+    SwapSymbol(String),
+    DeleteSymbol(String),
     EditFolder(String),
     NewFolder(String),
 }
@@ -469,12 +472,26 @@ impl Editor {
                             if response.double_clicked() {
                                 action = Some(Action::EditSymbol(symbol.id.clone()));
                             }
+                            let can_swap = self.can_swap_instance_symbol(&symbol.id);
                             nf::context_menu(&response, |ui| {
                                 if ui.add(nf::MenuItem::new("Edit symbol")).clicked() {
                                     action = Some(Action::EditSymbol(symbol.id.clone()));
                                 }
+                                if ui.add(nf::MenuItem::new("Duplicate symbol")).clicked() {
+                                    action = Some(Action::DuplicateSymbol(symbol.id.clone()));
+                                }
+                                if ui
+                                    .add_enabled(can_swap, nf::MenuItem::new("Swap symbol"))
+                                    .clicked()
+                                {
+                                    action = Some(Action::SwapSymbol(symbol.id.clone()));
+                                }
                                 if ui.add(nf::MenuItem::new("Symbol properties…")).clicked() {
                                     action = Some(Action::RenameSymbol(symbol.id.clone()));
+                                }
+                                nf::menu_separator(ui);
+                                if ui.add(nf::MenuItem::new("Delete symbol")).clicked() {
+                                    action = Some(Action::DeleteSymbol(symbol.id.clone()));
                                 }
                             });
                         }
@@ -513,6 +530,21 @@ impl Editor {
                 }
                 Action::EditSymbol(id) => self.enter_symbol(id),
                 Action::RenameSymbol(id) => self.start_library_edit(EditTarget::Symbol(id), ""),
+                Action::DuplicateSymbol(id) => {
+                    self.duplicate_symbol(&id);
+                }
+                Action::SwapSymbol(id) => {
+                    self.swap_instance_symbol(&id);
+                }
+                Action::DeleteSymbol(id) => {
+                    if matches!(
+                        self.library_panel.editing.as_ref().map(|e| &e.target),
+                        Some(EditTarget::Symbol(editing_id)) if editing_id == &id
+                    ) {
+                        self.library_panel.editing = None;
+                    }
+                    self.delete_symbol(&id);
+                }
                 Action::EditFolder(folder) => {
                     self.start_library_edit(EditTarget::Folder(folder), "")
                 }
@@ -604,8 +636,32 @@ impl Editor {
             if ui.add(nf::MenuItem::new("Edit symbol")).clicked() {
                 self.enter_symbol(symbol.id.clone());
             }
+            if ui.add(nf::MenuItem::new("Duplicate symbol")).clicked() {
+                self.duplicate_symbol(&symbol.id);
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    self.can_swap_instance_symbol(&symbol.id),
+                    nf::MenuItem::new("Swap symbol"),
+                )
+                .clicked()
+            {
+                self.swap_instance_symbol(&symbol.id);
+                ui.close();
+            }
             if ui.add(nf::MenuItem::new("Symbol properties…")).clicked() {
                 self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
+            }
+            if ui.add(nf::MenuItem::new("Delete symbol")).clicked() {
+                if matches!(
+                    self.library_panel.editing.as_ref().map(|e| &e.target),
+                    Some(EditTarget::Symbol(editing_id)) if editing_id == &symbol.id
+                ) {
+                    self.library_panel.editing = None;
+                }
+                self.delete_symbol(&symbol.id);
+                ui.close();
             }
         }
         if !self.library_panel.selected_folder.is_empty()

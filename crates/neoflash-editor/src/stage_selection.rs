@@ -40,6 +40,9 @@ impl Scope {
 #[derive(Clone, Copy)]
 enum GestureKind {
     Move,
+    Pivot {
+        initial_world: geometry::Point,
+    },
     Resize {
         bounds: geometry::Bounds,
         handle: geometry::ResizeHandle,
@@ -49,11 +52,11 @@ enum GestureKind {
         center: geometry::Point,
     },
     Rotate {
-        bounds: Option<geometry::Bounds>,
+        single: bool,
         pivot: geometry::Point,
     },
     /// Free Transform edge drag: shear along the edge (`horizontal` = top/bottom edge, x shear)
-    /// about the opposite edge, or about the centre with ⌥. Stage coordinates on the shear's axis.
+    /// about the opposite edge, or about the transformation point with ⌥. Stage coordinates on the shear's axis.
     Skew {
         horizontal: bool,
         edge: f64,
@@ -63,10 +66,11 @@ enum GestureKind {
     Marquee,
 }
 
-/// Free Transform hit zone on the screen (Flash layout): handles scale, the edge between handles
-/// skews, just outside a corner rotates.
+/// Free Transform hit zone on the screen (Flash layout): pivot circle, handles scale, the edge
+/// between handles skews, just outside a corner rotates.
 #[derive(Clone, Copy)]
 enum Zone {
+    Pivot(Pos2),
     Handle(Rect),
     Edge(Pos2, Pos2),
     Rotate { corner: Pos2, frame: Rect },
@@ -74,6 +78,7 @@ enum Zone {
 impl Zone {
     fn contains(self, pos: Pos2) -> bool {
         match self {
+            Zone::Pivot(at) => at.distance(pos) <= 7.,
             Zone::Handle(rect) => rect.expand(3.).contains(pos),
             Zone::Edge(a, b) => {
                 let ab = b - a;
@@ -103,6 +108,8 @@ pub(crate) struct SelectionGesture {
     angle: f64,
     /// Selection bounds (stage) when the move started: the edges that snap (ST-04).
     snap_bounds: Option<Rect>,
+    /// Transient group pivot snapshot when a multi-selection gesture started.
+    initial_group_pivot: Option<geometry::Point>,
     /// NF2 cursor shown for the whole gesture.
     cursor: Cursor,
 }
@@ -118,15 +125,20 @@ struct SelectionGeometry {
     local: Option<geometry::Bounds>,
     initial: Option<Transform>,
     world: Rect,
+    world_pivot: geometry::Point,
     resizable: bool,
     /// Stage bounds and NF2 selection-box kind of every selected placement.
     boxes: Vec<(Rect, cv::SelectionKind)>,
 }
 
 /// `NF2/Selection Box` kind for a placement: symbols show their registration and transformation
-/// points, text shows its sizing handle (point text = auto width, text box = fixed size).
-fn selection_kind(kind: &ElementKind) -> cv::SelectionKind {
-    match kind {
+/// points, text shows its sizing handle (point text = auto width, text box = fixed size), and
+/// parametric primitives show primitive control corners.
+fn selection_kind(element: &Element) -> cv::SelectionKind {
+    if element.has_parametric_options() {
+        return cv::SelectionKind::Primitive;
+    }
+    match element.kind {
         ElementKind::Instance { .. } => cv::SelectionKind::Symbol,
         ElementKind::Text { .. } => cv::SelectionKind::TextStatic,
         ElementKind::TextBox { .. } => cv::SelectionKind::TextDynamic,
@@ -303,7 +315,7 @@ impl Editor {
         let kinds: HashMap<_, _> = self
             .sampled_targets()
             .into_iter()
-            .map(|(target, element)| (target.element, selection_kind(&element.kind)))
+            .map(|(target, element)| (target.element.clone(), selection_kind(&element)))
             .collect();
         let boxes = per_target
             .into_iter()
@@ -313,10 +325,21 @@ impl Editor {
                 (rect, kind)
             })
             .collect();
+        let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
+            let local_pivot = initial.pivot.unwrap_or_else(|| local.center());
+            geometry::transformed_point(initial, local_pivot)
+        } else if let Some((targets, gp)) = &self.authoring_modify.group_pivot
+            && targets == &self.selection.targets
+        {
+            *gp
+        } else {
+            bounds(world).center()
+        };
         Some(SelectionGeometry {
             local,
             initial,
             world,
+            world_pivot,
             resizable,
             boxes,
         })
@@ -365,6 +388,8 @@ impl Editor {
             self.object_gesture = Some(gesture);
             return;
         }
+        p.ctx()
+            .data_mut(|d| d.remove::<(f64, Pos2)>(egui::Id::new("nf2-pivot-click")));
         if matches!(gesture.kind, GestureKind::Marquee) {
             let marquee = Rect::from_two_pos(
                 position(gesture.scope.local(gesture.press)),
@@ -413,6 +438,9 @@ impl Editor {
         // dragged handle point; scaling snaps the pointer.
         let origin = gesture.scope.origin;
         let current = match gesture.kind {
+            GestureKind::Pivot { initial_world } => gesture
+                .scope
+                .local(self.snap_drag(origin, gesture.press, pos, position(initial_world))),
             GestureKind::Resize { bounds, handle } => {
                 let anchor = position(geometry::transformed_point(
                     originals[0],
@@ -443,6 +471,12 @@ impl Editor {
                         .map_or(Rect::NOTHING, |g| g.world)
                 });
                 delta = self.snap_move(origin, bounds, position(press), delta, lock);
+                if let Some(gp) = gesture.initial_group_pivot {
+                    self.authoring_modify.group_pivot = Some((
+                        self.selection.targets.clone(),
+                        [gp[0] + delta[0], gp[1] + delta[1]],
+                    ));
+                }
                 let moved: Vec<_> = originals
                     .iter()
                     .map(|t| Transform {
@@ -458,7 +492,26 @@ impl Editor {
                     })
                     .then_some(moved)
             }
-            GestureKind::Resize { bounds, handle } => geometry::resize_single(
+            GestureKind::Pivot { .. } => {
+                if originals.len() == 1 {
+                    inverse_matrix(transform_matrix(originals[0])).and_then(|inv| {
+                        let lx = inv[0] * current[0] + inv[2] * current[1] + inv[4];
+                        let ly = inv[1] * current[0] + inv[3] * current[1] + inv[5];
+                        (lx.is_finite() && ly.is_finite() && lx.abs() <= 1e9 && ly.abs() <= 1e9)
+                            .then_some(vec![Transform {
+                                pivot: Some([lx, ly]),
+                                ..originals[0]
+                            }])
+                    })
+                } else {
+                    if current[0].is_finite() && current[1].is_finite() {
+                        self.authoring_modify.group_pivot =
+                            Some((self.selection.targets.clone(), current));
+                    }
+                    None
+                }
+            }
+            GestureKind::Resize { bounds, handle } => geometry::resize_single_with_pivot(
                 originals[0],
                 bounds,
                 handle,
@@ -468,6 +521,7 @@ impl Editor {
                     from_center: modifiers.alt,
                     preserve_aspect: modifiers.shift,
                 },
+                originals[0].pivot,
             )
             .map(|t| vec![t]),
             GestureKind::Scale { pivot, center } => geometry::uniform_scale_many(
@@ -477,12 +531,12 @@ impl Editor {
                 current,
             ),
             GestureKind::Rotate {
-                bounds: Some(bounds),
-                ..
-            } => geometry::rotate_single_by(originals[0], bounds, gesture.angle, modifiers.shift)
+                single: true,
+                pivot,
+            } => geometry::rotate_single_about_by(originals[0], pivot, gesture.angle, modifiers.shift)
                 .map(|t| vec![t]),
             GestureKind::Rotate {
-                bounds: None,
+                single: false,
                 pivot,
             } => geometry::rotate_many_by(&originals, pivot, gesture.angle, modifiers.shift),
             GestureKind::Skew {
@@ -518,9 +572,12 @@ impl Editor {
             }
             if gesture.began {
                 let frame = self.frame;
-                // Affine axes (skew) need document format 5, like the Transform panel's Skew field.
+                // Affine axes (skew) need document format 5; custom pivots need format 7.
                 if transforms.iter().any(|t| t.skew != 0.) {
                     self.project.format_version = self.project.format_version.max(5);
+                }
+                if transforms.iter().any(|t| t.pivot.is_some()) {
+                    self.project.format_version = self.project.format_version.max(7);
                 }
                 let changed: HashMap<_, _> = gesture
                     .targets
@@ -565,6 +622,7 @@ impl Editor {
         // Free Transform zones, first match wins: handles, then skew edges, then rotate corners.
         let mut zones: Vec<(Zone, GestureKind, Cursor)> = Vec::new();
         let mut transform_frame = None;
+        let mut transform_pivot_screen = None;
         if let Some(g) = &geometry {
             if self.tool == Tool::Transform {
                 // `NF2/Transform Box` (Scale mode) on the selection's stage bounds, also for
@@ -572,6 +630,23 @@ impl Editor {
                 let frame = Rect::from_min_max(screen(g.world.min), screen(g.world.max));
                 transform_frame = Some(frame);
                 let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
+                let pivot_world = g.world_pivot;
+                let pivot_screen = screen(position(pivot_world));
+                transform_pivot_screen = Some(pivot_screen);
+                if pivot_screen.distance(frame.center()) > 0.5 {
+                    cv::transformation_point(p, p.ctx(), pivot_screen);
+                }
+                let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
+                    || pivot_screen.distance(frame.center()) > 0.5;
+                if pivot_first {
+                    zones.push((
+                        Zone::Pivot(pivot_screen),
+                        GestureKind::Pivot {
+                            initial_world: pivot_world,
+                        },
+                        nf::MOVE,
+                    ));
+                }
                 let world = bounds(g.world);
                 use geometry::ResizeHandle as H;
                 // `paint_transform_box` order: corners clockwise from top-left, then edges T R B L.
@@ -609,7 +684,7 @@ impl Editor {
                         } else {
                             GestureKind::Scale {
                                 pivot: box_handle.opposite().point(world),
-                                center: world.center(),
+                                center: pivot_world,
                             }
                         };
                         let cursor =
@@ -617,8 +692,16 @@ impl Editor {
                         zones.push((Zone::Handle(*rect), kind, cursor));
                     }
                 }
+                if !pivot_first {
+                    zones.push((
+                        Zone::Pivot(pivot_screen),
+                        GestureKind::Pivot {
+                            initial_world: pivot_world,
+                        },
+                        nf::MOVE,
+                    ));
+                }
                 let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
-                let center = world.center();
                 let edges = [
                     (nw, n, true, world.min[1], world.max[1]),
                     (n, ne, true, world.min[1], world.max[1]),
@@ -639,20 +722,16 @@ impl Editor {
                         horizontal,
                         edge,
                         opposite,
-                        center: center[if horizontal { 1 } else { 0 }],
+                        center: pivot_world[if horizontal { 1 } else { 0 }],
                     };
                     let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
                     zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
                 }
-                let pivot = if let (Some(local), Some(initial)) = (g.local, g.initial) {
-                    geometry::transformed_point(initial, local.center())
-                } else {
-                    world.center()
-                };
+                let single = g.local.is_some() && g.initial.is_some();
                 for corner in [nw, ne, se, sw] {
                     let kind = GestureKind::Rotate {
-                        bounds: g.local,
-                        pivot,
+                        single,
+                        pivot: pivot_world,
                     };
                     zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
                 }
@@ -711,6 +790,24 @@ impl Editor {
                         .iter()
                         .find(|(zone, ..)| zone.contains(pos))
                         .map(|(_, kind, cursor)| (*kind, *cursor));
+                    if matches!(zone, Some((GestureKind::Pivot { .. }, _))) {
+                        let pivot_click_id = egui::Id::new("nf2-pivot-click");
+                        let now = ui.input(|i| i.time);
+                        let double = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<(f64, Pos2)>(pivot_click_id))
+                            .is_some_and(|(t, prev)| {
+                                now >= t && now - t <= 0.45 && prev.distance(pos) <= 8.0
+                            });
+                        if double {
+                            ui.ctx()
+                                .data_mut(|d| d.remove::<(f64, Pos2)>(pivot_click_id));
+                            self.reset_transformation_point();
+                            continue;
+                        }
+                        ui.ctx()
+                            .data_mut(|d| d.insert_temp(pivot_click_id, (now, pos)));
+                    }
                     let hit = self.pick_placement(scene, p, local);
                     let mut cursor = move_cursor;
                     let kind = if let Some((kind, zone_cursor)) = zone {
@@ -746,6 +843,12 @@ impl Editor {
                         .into_iter()
                         .map(|(target, element)| (target, element.transform))
                         .collect();
+                    let initial_group_pivot = self
+                        .authoring_modify
+                        .group_pivot
+                        .as_ref()
+                        .filter(|(t, _)| *t == self.selection.targets)
+                        .map(|(_, gp)| *gp);
                     self.object_gesture = Some(SelectionGesture {
                         scope: Scope::new(self, origin),
                         kind,
@@ -760,6 +863,7 @@ impl Editor {
                         changed: false,
                         angle: 0.,
                         snap_bounds: None,
+                        initial_group_pivot,
                         cursor,
                     });
                 }
@@ -806,6 +910,16 @@ impl Editor {
         {
             cv::paint_marquee(p, p.ctx(), Rect::from_two_pos(g.press, g.latest));
         }
+        if self.tool == Tool::Transform
+            && response.double_clicked()
+            && !self.stage_view.guide_pointer
+            && let Some(pivot_screen) = transform_pivot_screen
+            && ui
+                .input(|i| i.pointer.interact_pos())
+                .is_some_and(|pos| pos.distance(pivot_screen) <= 8.0)
+        {
+            self.reset_transformation_point();
+        }
         if self.tool == Tool::Select
             && response.double_clicked()
             && !self.stage_view.guide_pointer
@@ -815,6 +929,38 @@ impl Editor {
             }) = self.selected_element().cloned()
         {
             self.enter_symbol(symbol_id);
+        }
+    }
+
+    /// Reset the Free Transform transformation point (pivot) to the selection's default centre.
+    pub(crate) fn reset_transformation_point(&mut self) {
+        if let Some(target) = self.selection.single().cloned() {
+            if !self.target_editable(&target)
+                || self
+                    .selected_sampled()
+                    .is_none_or(|e| e.transform.pivot.is_none())
+            {
+                return;
+            }
+            self.transact(|s| {
+                s.ensure_key_for(&target.layer, false);
+                if let Some(layer_idx) = s.target_layer_index(&target) {
+                    let frame = s.frame;
+                    if let Some(el) = s.symbol_mut().timeline.layers[layer_idx]
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                    {
+                        el.transform.pivot = None;
+                    }
+                }
+            });
+        } else if self
+            .authoring_modify
+            .group_pivot
+            .as_ref()
+            .is_some_and(|(t, _)| *t == self.selection.targets)
+        {
+            self.authoring_modify.group_pivot = None;
         }
     }
 
@@ -871,16 +1017,23 @@ impl Editor {
                     pos,
                     button: egui::PointerButton::Primary,
                     pressed: false,
-                    ..
+                    modifiers,
                 } => {
                     if let Some(draft) = self.shape_draft.take() {
                         let pos = self.snap_screen(origin, pos);
-                        let bounds = Rect::from_two_pos(
-                            position(draft.scope.local(draft.start)),
-                            position(draft.scope.local(pos)),
-                        );
+                        let bounds = shape_draft_bounds(&draft, pos, modifiers);
                         if bounds.width() > 2. && bounds.height() > 2. {
+                            let mut transform = Transform {
+                                x: bounds.min.x as f64,
+                                y: bounds.min.y as f64,
+                                ..Default::default()
+                            };
                             let kind = if draft.tool == Tool::Rectangle {
+                                if !self.authoring_tools.rect_options.is_default() {
+                                    transform.primitive = Some(PrimitiveOptions::Rectangle(
+                                        self.authoring_tools.rect_options,
+                                    ));
+                                }
                                 ElementKind::Rectangle {
                                     width: bounds.width() as f64,
                                     height: bounds.height() as f64,
@@ -889,6 +1042,11 @@ impl Editor {
                                     stroke_width: self.stroke_width,
                                 }
                             } else {
+                                if !self.authoring_tools.oval_options.is_default() {
+                                    transform.primitive = Some(PrimitiveOptions::Oval(
+                                        self.authoring_tools.oval_options,
+                                    ));
+                                }
                                 ElementKind::Ellipse {
                                     width: bounds.width() as f64,
                                     height: bounds.height() as f64,
@@ -897,7 +1055,7 @@ impl Editor {
                                     stroke_width: self.stroke_width,
                                 }
                             };
-                            self.add_element(kind, bounds.min.x as f64, bounds.min.y as f64);
+                            self.add_element_transformed(kind, transform);
                         }
                     }
                 }
@@ -909,18 +1067,41 @@ impl Editor {
             && let pos = self.snap_screen(origin, pos)
             && let Some(draft) = &self.shape_draft
         {
+            let modifiers = ui.input(|input| input.modifiers);
+            let local_bounds = shape_draft_bounds(draft, pos, modifiers);
+            let screen = |pt: Pos2| draft.scope.origin + pt.to_vec2() * draft.scope.zoom;
+            let preview_rect = Rect::from_min_max(screen(local_bounds.min), screen(local_bounds.max));
             p.rect_stroke(
-                Rect::from_two_pos(draft.start, pos),
+                preview_rect,
                 0.,
                 Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
                 StrokeKind::Inside,
             );
             p.rect_stroke(
-                Rect::from_two_pos(draft.start, pos),
+                preview_rect,
                 0.,
                 Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
                 StrokeKind::Inside,
             );
         }
+    }
+}
+
+fn shape_draft_bounds(draft: &ShapeDraft, pos: Pos2, modifiers: egui::Modifiers) -> Rect {
+    let start = position(draft.scope.local(draft.start));
+    let end = position(draft.scope.local(pos));
+    let mut delta = end - start;
+    if modifiers.shift {
+        let side = delta.x.abs().max(delta.y.abs());
+        delta.x = if delta.x < 0. { -side } else { side };
+        delta.y = if delta.y < 0. { -side } else { side };
+    }
+    if modifiers.alt {
+        Rect::from_center_size(
+            start,
+            egui::vec2(2.0 * delta.x.abs(), 2.0 * delta.y.abs()),
+        )
+    } else {
+        Rect::from_two_pos(start, start + delta)
     }
 }

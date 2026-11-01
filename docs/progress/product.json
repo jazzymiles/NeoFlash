@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform and Color with Light/Dark themes. All ten panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Ease, History, Scene, Motion editor and Project panels with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance.",
       "items": [
         {
@@ -115,10 +115,17 @@
           "id": "canvas-chrome",
           "title": "NF2 selection boxes, transform box and path points on the Stage",
           "status": "working"
+        },
+        {
+          "id": "info-panel",
+          "title": "Info panel: editable selection bounds, cursor position and RGBA color under pointer",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-editor/src/panels/timeline.rs",
+        "crates/neoflash-editor/src/panels/info.rs",
+        "crates/neoflash-editor/src/panels/scene.rs",
         "crates/neoflash-editor/src/detached.rs",
         "crates/neoflash-editor/src/workspace.rs",
         "crates/neoflash-editor/src/panel_tests.rs",
@@ -155,12 +162,22 @@
       "category": "editor",
       "title": "Rectangle and oval",
       "status": "implemented",
-      "scope": "Gesture-based rectangle and oval creation, independent solid fill/stroke RGBA and stroke width defaults, and geometry transforms. Properties preserve RGB while editing alpha and group continuous edits into one Undo.",
-      "limitations": "Rounded corners and arbitrary shape parameters are outside this item.",
+      "scope": "Gesture-based rectangle and oval creation, parametric corner radii (linked or per-corner) and oval start/end angles, inner radius and close-path options (format 7), independent solid fill/stroke RGBA and stroke width defaults, Reset and Break Apart into editable paths, and geometry transforms shared across evaluation, shape morphs, hit testing, native painting and HTML5 export. Properties preserve RGB while editing alpha and group continuous edits into one Undo.",
+      "limitations": "On-stage corner and angle handles are not drawn; parametric options are edited in Properties and Tool options.",
       "items": [
         {
           "id": "rectangle-oval",
           "title": "Draw rectangles and ovals by dragging",
+          "status": "working"
+        },
+        {
+          "id": "parametric-corners-angles",
+          "title": "Parametric rectangle corner radii and oval start/end angles and inner radius",
+          "status": "working"
+        },
+        {
+          "id": "primitive-break-apart",
+          "title": "Reset primitive options or Break Apart into editable paths",
           "status": "working"
         },
         {
@@ -185,7 +202,11 @@
         }
       ],
       "evidence": [
+        "crates/neoflash-core/src/geometry.rs",
+        "crates/neoflash-core/tests/paths.rs",
         "crates/neoflash-editor/src/stage_primitives.rs",
+        "crates/neoflash-editor/src/authoring_tools.rs",
+        "crates/neoflash-editor/src/panels/properties.rs",
         "crates/neoflash-editor/src/tests.rs",
         "crates/neoflash-editor/src/paint_controls.rs"
       ]
@@ -299,8 +320,8 @@
       "category": "editor",
       "title": "Free Transform",
       "status": "partial",
-      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection. Free Transform uses the NF2 transform box with Flash zones: handles scale, edges skew, just outside a corner rotates, inside moves; NF2 cursors show each zone.",
-      "limitations": "Custom pivots remain unfinished; the transform box is axis-aligned for rotated objects (NF2 request R-011). Numeric selection sizing and stage transform gestures have separate supported operations.",
+      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection. Free Transform uses the NF2 transform box with Flash zones and a draggable transformation point (`Transform.pivot` in format 7 for single placements and a transient stage pivot for multi-selections; rotation and ⌥-scale pivot around it, double-click resets to centre): handles scale, edges skew, just outside a corner rotates, inside moves; NF2 cursors show each zone.",
+      "limitations": "The transform box is axis-aligned for rotated objects (NF2 request R-011), and direct numeric skew editing of multi-object groups remains unfinished. Numeric selection sizing and stage transform gestures have separate supported operations.",
       "items": [
         {
           "id": "stage-move-scale-rotate",
@@ -345,7 +366,7 @@
         {
           "id": "custom-pivot",
           "title": "Custom transform pivot",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "group-skew",
@@ -355,7 +376,9 @@
       ],
       "evidence": [
         "crates/neoflash-editor/src/stage_selection.rs",
+        "crates/neoflash-editor/src/transform_geometry.rs",
         "crates/neoflash-editor/src/transform_gesture_tests.rs",
+        "crates/neoflash-core/src/model.rs",
         "docs/BACKLOG.md",
         "crates/neoflash-editor/src/authoring_modify.rs"
       ]
@@ -422,8 +445,8 @@
       "category": "editor",
       "title": "Library and nested editing",
       "status": "partial",
-      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline organization, search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage. Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
-      "limitations": "Arbitrary runtime state-object assignment, empty SimpleButton construction, 9-slice guides and legacy shared libraries remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame; folder organization uses controls, not drag-and-drop. Resource files remain outside the symbol-folder tree.",
+      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline organization, search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage. Duplicate symbol clones non-scene symbols with fresh IDs and cleared linkage; Delete symbol removes the symbol and cleans up any placed instances across timelines in one Undo step; Swap symbol in the Library replaces selected stage instances' symbol while preserving transform, name, scripts and compatible playback. Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
+      "limitations": "Properties Swap… picker and Stage context-menu Swap/Duplicate symbol… wait for NF2 request R-012. Arbitrary runtime state-object assignment, empty SimpleButton construction, 9-slice guides and legacy shared libraries remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame; folder organization uses controls, not drag-and-drop. Resource files remain outside the symbol-folder tree.",
       "items": [
         {
           "id": "convert-to-symbol",
@@ -461,6 +484,16 @@
           "status": "working"
         },
         {
+          "id": "duplicate-delete-symbol",
+          "title": "Duplicate and delete Library symbols with placement cleanup",
+          "status": "working"
+        },
+        {
+          "id": "swap-symbol",
+          "title": "Swap selected stage instances to another Library symbol",
+          "status": "partial"
+        },
+        {
           "id": "nine-slice",
           "title": "9-slice scaling guides",
           "status": "planned"
@@ -479,6 +512,7 @@
       "evidence": [
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/tests.rs",
+        "crates/neoflash-editor/src/panel_tests.rs",
         "README.md",
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/clipboard.rs",
@@ -584,12 +618,17 @@
       "category": "editor",
       "title": "Advanced vector tools",
       "status": "partial",
-      "scope": "Line, round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and existing fill gradient transform. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart, transforms and group-aware alignment/distribution with exact gaps. Stage rulers (units, Auto/fixed labels, movable zero point), per-timeline ruler guides (drag out, move, select, lock, hide, delete, clear; saved in document format 6, stripped from HTML5) and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides and grid with a snap ring and configurable accuracy.",
-      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, point insertion/deletion, general shape splitting/merging, object/pixel snapping, the View ▸ Snapping submenu and nested group editing remain unfinished.",
+      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart (including parametric primitives), transforms and group-aware alignment/distribution with exact gaps. Stage rulers (units, Auto/fixed labels, movable zero point), per-timeline ruler guides (drag out, move, select, lock, hide, delete, clear; saved in document format 6, stripped from HTML5) and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects (bounds corners, centres and registration points; Tools Snap toggle), grid and pixels with a snap ring, configurable accuracy and ⌘-suspend.",
+      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, general shape splitting/merging, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing remain unfinished.",
       "items": [
         {
           "id": "line-brush",
           "title": "Line tool and round vector brush",
+          "status": "working"
+        },
+        {
+          "id": "polystar-tool",
+          "title": "PolyStar tool with polygon/star sides and point-size settings",
           "status": "working"
         },
         {
@@ -630,7 +669,7 @@
         {
           "id": "point-and-shape-editing",
           "title": "Point insertion/deletion and shape splitting/merging",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "snapping",
@@ -640,7 +679,7 @@
         {
           "id": "object-pixel-snapping",
           "title": "Snapping to objects and pixels",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
@@ -648,6 +687,8 @@
         "docs/ROADMAP.md",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/authoring_modify.rs",
+        "crates/neoflash-editor/src/vector.rs",
+        "crates/neoflash-editor/src/panels/tools.rs",
         "crates/neoflash-editor/src/vector_gesture_tests.rs",
         "crates/neoflash-editor/src/selection_tests.rs",
         "docs/WORKSPACE.md",
@@ -662,8 +703,8 @@
       "category": "editor",
       "title": "Gradients, masks and effects",
       "status": "partial",
-      "scope": "Authored vector masks and bounded gradient editing. Gradient Transform moves, scales and rotates an existing gradient fill; it does not create a new gradient or edit its stops. Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored vector mask layers now clip native stage meshes and HTML5 draws using shared Rust geometry; vector-only nested symbols are supported as mask sources. Show Masking exposes the editable source, and clipping is applied to stage picking.",
-      "limitations": "Scripted HTML5 Graphics now supports bounded linear/radial gradients and vector display masks. Native gradient creation/stop editing, radial focal handles, filter authoring, bitmap fills and alpha masks remain pending; runtime support does not complete these authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete native effect authoring, exact Flash kernels or filtered-input composition. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Authored text/bitmap mask sources and masks nested inside mask sources diagnose; native mask preview has a bounded complexity limit.",
+      "scope": "Authored vector masks, Color panel Linear/Radial gradient creation and stop editing, Swatches panel (`Window ▸ Swatches` `⌘F9` and Color panel ⋯ `Add swatch`) and Gradient Transform. The Color panel switches fill and stroke paints between None, Solid colour, Linear gradient and Radial gradient (converting solid shapes to `PaintedPath` while preserving parametric geometry) and edits stops on `NF2/Gradient Bar` with `NF2/Color Picker`. Gradient Transform moves, scales and rotates gradient fills on Stage. Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored vector mask layers now clip native stage meshes and HTML5 draws using shared Rust geometry; vector-only nested symbols are supported as mask sources. Show Masking exposes the editable source, and clipping is applied to stage picking.",
+      "limitations": "Scripted HTML5 Graphics supports bounded linear/radial gradients and vector display masks. Gradient Flow Reflect/Repeat and Linear RGB interpolation, radial focal handles on Stage, project-file swatch persistence (current user-added swatches live in workspace prefs alongside derived document paints), Properties Colour effect style rows (Brightness/Tint/Advanced, R-012), filter authoring, bitmap fills and alpha masks remain pending; runtime support does not complete these authoring operations. This runtime-only filter profile has its own gallery evidence; native filter authoring, remaining classes, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete native effect authoring, exact Flash kernels or filtered-input composition. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Authored text/bitmap mask sources and masks nested inside mask sources diagnose; native mask preview has a bounded complexity limit.",
       "items": [
         {
           "id": "vector-masks",
@@ -678,7 +719,12 @@
         {
           "id": "gradient-creation",
           "title": "Create gradients and edit color stops",
-          "status": "planned"
+          "status": "working"
+        },
+        {
+          "id": "swatches-panel",
+          "title": "Swatches panel with recent, document, palette and gradient swatches",
+          "status": "partial"
         },
         {
           "id": "focal-handles",
@@ -743,6 +789,10 @@
         "crates/neoflash-editor/src/stage_clipping.rs",
         "examples/authoring-workspace.nflash",
         "crates/neoflash-editor/src/authoring_tools.rs",
+        "crates/neoflash-editor/src/authoring_modify.rs",
+        "crates/neoflash-editor/src/panels/swatches.rs",
+        "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-core/tests/paths.rs",
         "docs/WORKSPACE.md"
       ]
     },
@@ -1773,7 +1823,7 @@
       "category": "web",
       "title": "Project sources, modules and debugging",
       "status": "partial",
-      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be edited in Actions. Actions offers a toolbox and code hints generated from the declarations NeoFlash implements or partially implements, plus project classes scanned from source, a Script navigator, auto-indent formatting, comment commands and a silent live check. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services. AS3 lexical class access, final/dynamic declarations and package wildcards connect encapsulated models to public data/display APIs; AS2 retains distinct compile-time private rules. The bounded AS2/AS3 hour adds and migrates large runtime families through the existing compiler and HTML5 exporter: Math (19 migrated paths), geometry/Color (74 migrated and 46 new entries), strings/codecs (19 migrated and 8 new), easing/Tween/CustomEase/timers (121 new), ByteArray codecs (5 migrated and 12 new), and AsBroadcaster (5 new). Individual licensed algorithms are adapted into the shared Rust core; browser adapters bind object identity, callbacks and browser facilities. Shared aliases and reused kernels are counted separately from algorithms; no editor, FLA or full-VM completion is implied.",
+      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be browsed, created, renamed, deleted and published from the Project panel (showing class linkage to symbols or the document class, with double-click opening Actions) and edited in Actions. Actions offers a toolbox and code hints generated from the declarations NeoFlash implements or partially implements, plus project classes scanned from source, a Script navigator, auto-indent formatting, comment commands and a silent live check. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services. AS3 lexical class access, final/dynamic declarations and package wildcards connect encapsulated models to public data/display APIs; AS2 retains distinct compile-time private rules. The bounded AS2/AS3 hour adds and migrates large runtime families through the existing compiler and HTML5 exporter: Math (19 migrated paths), geometry/Color (74 migrated and 46 new entries), strings/codecs (19 migrated and 8 new), easing/Tween/CustomEase/timers (121 new), ByteArray codecs (5 migrated and 12 new), and AsBroadcaster (5 new). Individual licensed algorithms are adapted into the shared Rust core; browser adapters bind object identity, callbacks and browser facilities. Shared aliases and reused kernels are counted separately from algorithms; no editor, FLA or full-VM completion is implied.",
       "limitations": "JS/TS modules, SWC dependencies, complete type checking, compiler-backed completion (current hints are lexical), warnings/quick fixes, debugger/source maps and full class semantics remain pending. Representative linked-class behavior and Restart passed in the shared in-app-browser batch; native Sources acceptance remains pending. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Linked MovieClip and accessor/interface workflows passed the shared in-app-browser batch; native Export identifier editing remains pending. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. These are delivery-batch entry counts, not a complete declaration audit or language-compatibility percentage. Broader product work remains paused; the hour report records executed export/browser evidence and unresolved failures. This hour's batch remains partial; acceptance and any observed failures are recorded separately in docs/AS-RUNTIME-HOUR.md. Earlier browser evidence does not certify the new entries or full historical conformance.",
       "items": [
         {
@@ -1784,6 +1834,11 @@
         {
           "id": "actions-editing",
           "title": "Edit sources in Actions with navigator and formatting",
+          "status": "working"
+        },
+        {
+          "id": "project-panel",
+          "title": "Project panel: source/asset tree, create/rename/delete files, linkage summary and Publish",
           "status": "working"
         },
         {
@@ -1894,6 +1949,7 @@
         "crates/neoflash-editor/src/script_api.rs",
         "crates/neoflash-editor/src/code_tools.rs",
         "crates/neoflash-editor/src/panels/actions_sidebar.rs",
+        "crates/neoflash-editor/src/panels/project.rs",
         "scripts/editor-api-index.py",
         "docs/NF2-ACTIONS-EDITOR.md"
       ]
@@ -2080,8 +2136,8 @@
       "category": "imports",
       "title": "XFL and ZIP-FLA to project",
       "status": "partial",
-      "scope": "One scene, library, held keys, labels, nested instances, TRS/alpha, primitives, simple static text and a bounded subset of convex straight DOMShape geometry with solid fills and round strokes. Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
-      "limitations": "One unchanged real CS6 FLA has browser acceptance. General DOMShape, masks, media, rich text and skew are incomplete. Adjacent same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
+      "scope": "Multiple scenes (`DOMTimeline`), library symbols and folders, normal/guide/mask/folder layers, held keys, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), labels, nested instances (including Graphic `firstFrame` offsets), non-singular 2D affine matrices (including skew) and alpha, primitives, simple static text, single-fill straight convex `DOMShape` polygons and unfilled single-stroke straight/quadratic `DOMShape` paths. Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
+      "limitations": "One unchanged real CS6 FLA has browser acceptance. Concave/curved filled `DOMShape` contours, media/bitmap/font assets, rich/dynamic text, CS4+ motion-object/IK layers and multi-segment/per-property custom eases remain incomplete. Adjacent non-tweened same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
       "items": [
         {
           "id": "xfl-zip-fla",
@@ -2090,7 +2146,7 @@
         },
         {
           "id": "scene-library",
-          "title": "Scene, library and nested instances",
+          "title": "Scenes, library folders and nested instances",
           "status": "working"
         },
         {
@@ -2099,8 +2155,13 @@
           "status": "working"
         },
         {
+          "id": "classic-shape-tweens",
+          "title": "Classic and shape tweens with Flash acceleration, global CustomEase and orient to path",
+          "status": "working"
+        },
+        {
           "id": "trs-alpha",
-          "title": "Position, scale, rotation and alpha",
+          "title": "Affine matrices (including skew), Graphic first-frame offsets and alpha",
           "status": "working"
         },
         {
@@ -2110,13 +2171,13 @@
         },
         {
           "id": "shapes",
-          "title": "Shapes with solid fills and round strokes",
+          "title": "Convex filled shapes and single-stroke straight/quadratic paths",
           "status": "partial"
         },
         {
           "id": "masks",
-          "title": "Masks",
-          "status": "planned"
+          "title": "Mask, guide and folder layers",
+          "status": "working"
         },
         {
           "id": "media",
@@ -2131,12 +2192,13 @@
         {
           "id": "skew",
           "title": "Skew",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/shape.rs",
+        "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/public_fla.rs",
         "crates/neoflash-import/tests/xfl_semantic_guards.rs",
         "docs/IMPORTS.md",
@@ -2349,8 +2411,8 @@
       "category": "imports",
       "title": "Binary FLA to editable document",
       "status": "partial",
-      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits. 101 of 106 local documents import and every one round-trips save/reopen unchanged.",
-      "limitations": "Filters, blend modes, 3D, sound/video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. The four largest geometry-heavy local documents exceed the 128 MiB project JSON limit. Font metrics may differ; output is not claimed pixel-identical to Flash.",
+      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, classic and shape tweens with easing, text, PNG bitmaps, uncompressed PCM (`audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever and preset effects) and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits. 101 of 106 local documents import and every one round-trips save/reopen unchanged.",
+      "limitations": "Filters, blend modes, 3D, compressed legacy audio codecs (ADPCM/GSM/Nellymoser), custom multi-point sound envelopes/trim points, video, dynamic/input and rich text styling, motion-object/IK animation and component behavior are approximated with warnings. The four largest geometry-heavy local documents exceed the 128 MiB project JSON limit. Font metrics may differ; output is not claimed pixel-identical to Flash.",
       "items": [
         {
           "id": "scene-library",
@@ -2400,7 +2462,7 @@
         {
           "id": "audio-video",
           "title": "Audio and video",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "all-save-targets",
@@ -2427,6 +2489,9 @@
         "docs/IMPORTS.md",
         "docs/BACKLOG.md",
         "crates/neoflash-import/src/legacy/convert.rs",
+        "crates/neoflash-import/src/legacy/convert/assets.rs",
+        "crates/neoflash-import/src/legacy/media.rs",
+        "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/legacy_samples.rs",
         "crates/neoflash-script/tests/legacy-import.mjs",
         "crates/neoflash-core/tests/legacy_authoring.rs",
@@ -2442,8 +2507,8 @@
       "category": "imports",
       "title": "SWF inspection",
       "status": "partial",
-      "scope": "Recognizes FWS/CWS/ZWS signatures and header/version fields.",
-      "limitations": "Decompression, tag parsing, AVM1/AVM2 execution and source reconstruction are absent.",
+      "scope": "Recognizes FWS/CWS/ZWS signatures, validates container bounds, streams bounded `CWS` zlib decompression (≤ 64 MiB), parses stage `RECT` bounds, 8.8 fixed-point frame rate and frame count, and walks `FWS`/`CWS` tag headers (including one-level `DefineSprite` control tags) to report character/placement/frame/script tag counts, `SetBackgroundColor`, `FileAttributes` AS3 flag and `DoAction`/`DoABC` presence (`ImportReport.swf`).",
+      "limitations": "`ZWS` LZMA payload decompression, deep tag-payload decoding, AVM1/AVM2 execution and editable source reconstruction remain absent (`can_import: false`).",
       "items": [
         {
           "id": "signatures",
@@ -2458,12 +2523,12 @@
         {
           "id": "decompression",
           "title": "Decompress SWF files",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "tag-parsing",
           "title": "Parse SWF tags",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "avm-execution",
@@ -2478,6 +2543,8 @@
       ],
       "evidence": [
         "crates/neoflash-import/src/lib.rs",
+        "crates/neoflash-import/src/swf.rs",
+        "crates/neoflash-import/tests/batch_import_capabilities.rs",
         "crates/neoflash-import/tests/import.rs",
         "docs/IMPORTS.md"
       ]
@@ -2583,7 +2650,7 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity. Format 6 adds multi-scene lists, tween kinds, motion property keys, motion and ruler guides and frame sounds. Format 7 adds parametric rectangle corner radii, oval start/end angles, inner radius and close-path options (`Transform.primitive`) and custom transform pivots (`Transform.pivot`). Modify ▸ Document… (⌘J) edits stage size, Match contents, anchored content scaling, units, background and frame rate in one Undo step and saves new-document defaults in workspace prefs.",
       "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "items": [
         {
@@ -2625,13 +2692,25 @@
           "id": "format6-timeline",
           "title": "Scenes, tween kinds, motion and ruler guides and frame sounds (format 6)",
           "status": "working"
+        },
+        {
+          "id": "format7-authoring",
+          "title": "Parametric rectangle/oval primitive options and custom transform pivots (format 7)",
+          "status": "working"
+        },
+        {
+          "id": "document-settings-dialog",
+          "title": "Document settings dialog with Match contents, anchored content scaling and saved defaults",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-core/src/model.rs",
         "crates/neoflash-core/src/validation.rs",
         "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-core/tests/paths.rs",
         "crates/neoflash-core/tests/program.rs",
+        "crates/neoflash-editor/src/panels/document_settings.rs",
         "crates/neoflash-core/src/resources.rs",
         "crates/neoflash-editor/src/resources.rs",
         "docs/decisions/0013-portable-resources-and-loading.md",
@@ -2683,7 +2762,7 @@
       "category": "platform",
       "title": "Undo/Redo for authoring operations",
       "status": "implemented",
-      "scope": "Change history with one Undo for a completed gesture; a new edit invalidates the redo branch.",
+      "scope": "Named change history with one Undo for a completed gesture, `Edit ▸ Undo/Redo <step>` menu labels, and the History panel (`Window ▸ History` `⌘F10`) for direct multi-step undo/redo jumping and Clear history; a new edit invalidates the redo branch.",
       "limitations": "Resource-aware history for large projects remains to be implemented.",
       "items": [
         {
@@ -2700,11 +2779,18 @@
           "id": "redo-branch",
           "title": "New edits clear the redo branch",
           "status": "working"
+        },
+        {
+          "id": "history-panel-labels",
+          "title": "History panel with named steps, direct step jumping and Undo/Redo menu labels",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-core/src/history.rs",
         "crates/neoflash-core/tests/core.rs",
+        "crates/neoflash-editor/src/panels/history.rs",
+        "crates/neoflash-editor/src/panel_tests.rs",
         "crates/neoflash-editor/src/selection_tests.rs"
       ]
     },

@@ -406,3 +406,122 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     click(&mut editor, 3.2, rulers.center());
     assert!(!editor.stage_view.prefs.rulers);
 }
+
+#[test]
+fn object_and_pixel_snapping_respect_priority_visibility_and_command_suspend() {
+    let (mut editor, ctx, _page) = select_stage();
+    // Unselected reference rectangle on layer 0: x in [200, 300] (center 250), y in [100, 160] (center 130).
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.,
+            height: 60.,
+            fill: [40, 120, 200, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        200.,
+        100.,
+    );
+    // Add a locked layer with an element at x = 400 (must NOT produce object snap candidates).
+    let mut locked_layer = editor.symbol().timeline.layers[0].clone();
+    locked_layer.id = new_id("layer");
+    locked_layer.name = "Locked".into();
+    locked_layer.locked = true;
+    locked_layer.keyframes[0].elements = vec![Element {
+        accessibility: None,
+        id: new_id("locked-rect"),
+        name: "LockedRect".into(),
+        transform: Transform {
+            x: 400.,
+            y: 100.,
+            ..Default::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 50.,
+            height: 50.,
+            fill: [200, 50, 50, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        scripts: vec![],
+    }];
+    editor.symbol_mut().timeline.layers.push(locked_layer);
+    editor.clear_selection();
+
+    editor.stage_view.prefs.guides_snap = false;
+    editor.stage_view.prefs.grid_snap = false;
+    editor.stage_view.prefs.objects_snap = false;
+    editor.stage_view.prefs.pixels_snap = false;
+    assert!(editor.snapper().is_none());
+
+    // Object snapping snaps to unselected center x=250, y=130 and ignores locked x=400.
+    editor.toggle_object_snap();
+    assert!(editor.stage_view.prefs.objects_snap);
+    let snapped_obj = editor.snapper().unwrap().point([252.5, 128.0]);
+    assert_eq!(snapped_obj.point, [250.0, 130.0]);
+    let near_locked = editor.snapper().unwrap().point([401.0, 102.0]);
+    assert_eq!(
+        near_locked.point[0], 401.0,
+        "locked layer object must not snap"
+    );
+
+    // Selecting the reference object excludes it from snapping against itself.
+    editor.select_all();
+    assert!(
+        editor.snapper().is_none(),
+        "only selected/locked objects exist so no object snap lines remain"
+    );
+    editor.clear_selection();
+
+    // Priority: Guides > Objects > Grid > Pixels around x ≈ 251.3.
+    editor.stage_view.prefs.guides_show = true;
+    editor.stage_view.prefs.guides_snap = true;
+    editor.stage_view.prefs.grid_snap = true;
+    editor.stage_view.prefs.grid_spacing = [126.0, 126.0]; // grid line at 252.0
+    editor.toggle_pixel_snap();
+    assert!(editor.stage_view.prefs.pixels_snap);
+    editor.symbol_mut().timeline.guides.push(Guide {
+        axis: GuideAxis::Vertical,
+        position: 253.0,
+    });
+    let probe = [251.3, 18.4];
+    assert_eq!(
+        editor.snapper().unwrap().point(probe).point[0],
+        253.0,
+        "1. Guides win"
+    );
+
+    editor.stage_view.prefs.guides_snap = false;
+    assert_eq!(
+        editor.snapper().unwrap().point(probe).point[0],
+        250.0,
+        "2. Objects win over Grid and Pixels"
+    );
+
+    editor.toggle_object_snap();
+    assert_eq!(
+        editor.snapper().unwrap().point(probe).point[0],
+        252.0,
+        "3. Grid wins over Pixels"
+    );
+
+    editor.stage_view.prefs.grid_snap = false;
+    assert_eq!(
+        editor.snapper().unwrap().point(probe).point,
+        [251.0, 18.0],
+        "4. Pixels snap to nearest integer"
+    );
+
+    // Holding Command (⌘) suspends all snapping.
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280., 900.))),
+            time: Some(0.5),
+            modifiers: egui::Modifiers::COMMAND,
+            ..Default::default()
+        },
+        |ctx| editor.stage(ctx),
+    );
+    assert!(editor.stage_view.command_suspend);
+    assert!(editor.snapper().is_none());
+}

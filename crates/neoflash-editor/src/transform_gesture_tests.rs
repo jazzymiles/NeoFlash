@@ -425,3 +425,103 @@ fn stage_cursor_follows_transform_zones_and_selection_targets() {
     editor.set_tool(Tool::Brush);
     assert_eq!(hover(&mut editor, at(400., 400.)), Some("brush"));
 }
+
+#[test]
+fn custom_transformation_point_drags_rotates_alt_resizes_and_resets_with_undo() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    clean(&mut editor);
+    let before = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+
+    // Default pivot is box center (200, 180); drag it to the top-left corner (150, 150).
+    let default_pivot = page.min + egui::vec2(200., 180.);
+    let custom_pivot = page.min + egui::vec2(150., 150.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(default_pivot),
+            button(default_pivot, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(default_pivot.lerp(custom_pivot, 0.5)),
+            egui::Event::PointerMoved(custom_pivot),
+            button(custom_pivot, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let after_pivot = editor.selected_element().unwrap().transform;
+    assert_eq!(editor.project.format_version, 7);
+    let pivot_local = after_pivot.pivot.expect("custom local pivot persisted");
+    near(pivot_local[0], 0.);
+    near(pivot_local[1], 0.);
+    near(after_pivot.x, 150.);
+    near(after_pivot.y, 150.);
+    editor.project.validate().unwrap();
+    let pivot_project = editor.project.clone();
+
+    // Rotate 90° clockwise around the custom pivot (150, 150): top-left stays fixed at (150, 150).
+    let rot_start = page.min + egui::vec2(250., 150.) + egui::vec2(8., -8.);
+    let rot_vec = rot_start - custom_pivot;
+    let rot_end = custom_pivot + egui::vec2(-rot_vec.y, rot_vec.x);
+    frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            egui::Event::PointerMoved(rot_start),
+            button(rot_start, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(rot_end),
+            button(rot_end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let rotated = editor.selected_element().unwrap().transform;
+    let world_pivot = geometry::transformed_point(rotated, rotated.pivot.unwrap());
+    near(world_pivot[0], 150.);
+    near(world_pivot[1], 150.);
+    near(rotated.rotation, 90.);
+    editor.project.validate().unwrap();
+
+    // Undo rotation back to unrotated custom pivot state, then Alt-resize around custom pivot.
+    editor.undo();
+    assert_eq!(editor.project, pivot_project);
+    stage_input_frame(&mut editor, &ctx, 0.35, vec![]);
+
+    let br_corner = page.min + egui::vec2(250., 210.);
+    let br_end = page.min + egui::vec2(300., 240.);
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![
+            egui::Event::PointerMoved(br_corner),
+            button(br_corner, true, alt),
+            egui::Event::PointerMoved(br_end),
+            button(br_end, false, alt),
+        ],
+        alt,
+    );
+    let resized = editor.selected_element().unwrap().transform;
+    let resized_pivot = geometry::transformed_point(resized, resized.pivot.unwrap());
+    near(resized_pivot[0], 150.);
+    near(resized_pivot[1], 150.);
+    near(resized.scale_x, 1.5);
+    near(resized.scale_y, 1.5);
+    editor.project.validate().unwrap();
+
+    // Resetting the transformation point restores default None pivot in one Undo.
+    editor.reset_transformation_point();
+    assert!(editor.selected_element().unwrap().transform.pivot.is_none());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert!(editor.selected_element().unwrap().transform.pivot.is_some());
+    editor.undo();
+    assert_eq!(editor.project, pivot_project);
+    editor.undo();
+    assert_eq!(editor.project, before);
+}

@@ -97,6 +97,7 @@ const RECTANGLE: ToolSpec = spec(
     "Rectangle (R)",
 );
 const OVAL: ToolSpec = spec(Tool::Ellipse, Icon::Ellipse, "Oval", "O", "Oval (O)");
+const POLYSTAR: ToolSpec = spec(Tool::PolyStar, Icon::PolyStar, "PolyStar", "", "PolyStar");
 const PENCIL: ToolSpec = spec(Tool::Pencil, Icon::Pencil, "Pencil", "Y", "Pencil (Y)");
 const BRUSH: ToolSpec = spec(Tool::Brush, Icon::Brush, "Brush", "B", "Brush (B)");
 const BUCKET: ToolSpec = spec(
@@ -121,14 +122,19 @@ const ZOOM: ToolSpec = spec(Tool::Zoom, Icon::ZoomIn, "Zoom", "Z", "Zoom (Z / M)
 /// 1 Column rail: sections (separated by dividers) of tool groups (one button + flyout each).
 const RAIL: &[&[&[ToolSpec]]] = &[
     &[&[SELECT, SUBSELECT], &[TRANSFORM, GRADIENT], &[LASSO]],
-    &[&[PEN, LINE], &[TEXT], &[RECTANGLE, OVAL], &[PENCIL, BRUSH]],
+    &[
+        &[PEN, LINE],
+        &[TEXT],
+        &[RECTANGLE, OVAL, POLYSTAR],
+        &[PENCIL, BRUSH],
+    ],
     &[&[BUCKET, INK], &[EYEDROPPER], &[ERASER]],
     &[&[HAND, ZOOM]],
 ];
 /// 2 Columns grid, classic Flash order.
 const GRID: &[ToolSpec] = &[
-    SELECT, SUBSELECT, LINE, LASSO, PEN, TEXT, OVAL, RECTANGLE, PENCIL, BRUSH, TRANSFORM, GRADIENT,
-    INK, BUCKET, EYEDROPPER, ERASER,
+    SELECT, SUBSELECT, LINE, LASSO, PEN, TEXT, OVAL, RECTANGLE, POLYSTAR, PENCIL, BRUSH, TRANSFORM,
+    GRADIENT, INK, BUCKET, EYEDROPPER, ERASER,
 ];
 const VIEW: &[ToolSpec] = &[HAND, ZOOM];
 
@@ -267,22 +273,52 @@ impl Editor {
         let keep = rail_popover(ui, response.rect, |ui| {
             ui.set_min_width(220.);
             let mut done = false;
-            for entry in hidden {
-                match *entry {
-                    RailEntry::Divider => nf::menu_separator(ui),
-                    RailEntry::Group(index, group) => {
-                        for spec in group {
-                            let item = nf::MenuItem::new(spec.name)
-                                .icon(spec.icon.nf2(false))
-                                .shortcut(spec.key)
-                                .checked(self.tool == spec.tool);
-                            if ui.add(item).clicked() {
-                                self.set_tool(spec.tool);
-                                remember_group_tool(ui.ctx(), index, group, spec.tool);
-                                done = true;
+            let split = hidden
+                .iter()
+                .position(|e| matches!(e, RailEntry::ZoomOut | RailEntry::Fit))
+                .unwrap_or(hidden.len());
+            let mut tool_hidden = &hidden[..split];
+            let view_hidden = &hidden[split..];
+            let trailing_sep = !view_hidden.is_empty()
+                && tool_hidden
+                    .last()
+                    .is_some_and(|e| matches!(e, RailEntry::Divider));
+            if trailing_sep {
+                tool_hidden = &tool_hidden[..tool_hidden.len() - 1];
+            }
+            if !tool_hidden.is_empty() {
+                let max_h = (ui.ctx().content_rect().height() - 120.).max(80.);
+                egui::ScrollArea::vertical()
+                    .id_salt("rail_overflow_tools")
+                    .max_height(max_h)
+                    .themed()
+                    .show(ui, |ui| {
+                        for entry in tool_hidden {
+                            match *entry {
+                                RailEntry::Divider => nf::menu_separator(ui),
+                                RailEntry::Group(index, group) => {
+                                    for spec in group {
+                                        let item = nf::MenuItem::new(spec.name)
+                                            .icon(spec.icon.nf2(false))
+                                            .shortcut(spec.key)
+                                            .checked(self.tool == spec.tool);
+                                        if ui.add(item).clicked() {
+                                            self.set_tool(spec.tool);
+                                            remember_group_tool(ui.ctx(), index, group, spec.tool);
+                                            done = true;
+                                        }
+                                    }
+                                }
+                                RailEntry::ZoomOut | RailEntry::Fit => {}
                             }
                         }
-                    }
+                    });
+            }
+            if !tool_hidden.is_empty() && !view_hidden.is_empty() && trailing_sep {
+                nf::menu_separator(ui);
+            }
+            for entry in view_hidden {
+                match *entry {
                     RailEntry::ZoomOut => {
                         if ui
                             .add(nf::MenuItem::new("Zoom out").icon(Icon::ZoomOut.nf2(false)))
@@ -301,6 +337,7 @@ impl Editor {
                             done = true;
                         }
                     }
+                    _ => {}
                 }
             }
             done
@@ -490,6 +527,11 @@ impl Editor {
         ];
         let document = [rgb(self.fill), rgb(self.stroke)];
         let (mut eyedropper, mut mixer) = (false, false);
+        let mut chosen_gradient: Option<(
+            crate::authoring_modify::PaintFillType,
+            neoflash_core::Color,
+            neoflash_core::Color,
+        )> = None;
         let keep = rail_popover(ui, chip.response.rect, |ui| {
             ui.set_width(300.);
             nf::menu_section(ui, if fill { "Fill colour" } else { "Stroke colour" });
@@ -526,12 +568,51 @@ impl Editor {
             if out.add_swatch {
                 Editor::open_planned(ui.ctx(), "Swatches popover ▸ Add swatch");
             }
-            if out.gradient.is_some() {
-                Editor::open_planned(ui.ctx(), "Swatches popover ▸ Gradient");
+            if let Some(swatch) = out.gradient {
+                let mode = if swatch.radial {
+                    crate::authoring_modify::PaintFillType::RadialGradient
+                } else {
+                    crate::authoring_modify::PaintFillType::LinearGradient
+                };
+                chosen_gradient = Some((
+                    mode,
+                    swatch.from.to_srgba_unmultiplied(),
+                    swatch.to.to_srgba_unmultiplied(),
+                ));
             }
-            out.picked || out.no_colour || out.eyedropper || out.open_mixer
+            out.picked
+                || out.no_colour
+                || out.eyedropper
+                || out.open_mixer
+                || out.gradient.is_some()
         });
         ctx.data_mut(|d| d.insert_temp(recent_id, recent));
+        if let Some((mode, from, to)) = chosen_gradient {
+            let stroke_well = !fill;
+            ctx.data_mut(|d| {
+                d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke_well);
+            });
+            let stops = vec![
+                neoflash_core::GradientStop {
+                    ratio: 0,
+                    color: from,
+                },
+                neoflash_core::GradientStop {
+                    ratio: 255,
+                    color: to,
+                },
+            ];
+            if !self.selection.targets.is_empty() {
+                self.authoring_modify.color_selection = true;
+                self.set_selection_fill_type(stroke_well, mode);
+                self.set_selection_gradient_stops(stroke_well, stops, None);
+            } else {
+                self.authoring_modify.color_selection = false;
+                self.set_drawing_fill_type(stroke_well, mode);
+                self.set_selection_gradient_stops(stroke_well, stops, None);
+            }
+            self.show_panel(PanelId::Color);
+        }
         // Eyedropper and colour wheel hand off to the tool / the Color panel's mixer.
         if eyedropper {
             self.set_tool(Tool::Eyedropper);
@@ -582,14 +663,15 @@ impl Editor {
         let planned: &[&str] = match self.tool {
             Tool::Rectangle => &[
                 "Tool options ▸ Rectangle primitive…",
-                "Tool options ▸ PolyStar settings…",
                 "Tool options ▸ Stroke style…",
             ],
             Tool::Ellipse => &[
                 "Tool options ▸ Oval primitive…",
                 "Tool options ▸ Stroke style…",
             ],
-            Tool::Line | Tool::Pen | Tool::Pencil => &["Tool options ▸ Stroke style…"],
+            Tool::Line | Tool::Pen | Tool::Pencil | Tool::PolyStar => {
+                &["Tool options ▸ Stroke style…"]
+            }
             Tool::Brush => &["Tool options ▸ Spray brush…", "Tool options ▸ Deco tool…"],
             Tool::Transform => &["Tool options ▸ Bone tool…"],
             _ => &[],
@@ -736,6 +818,12 @@ fn long_press(ui: &egui::Ui, response: &egui::Response) -> bool {
 /// `true`, Esc, or a press outside the popover, its anchor and any nested popup.
 fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui) -> bool) -> bool {
     let ctx = ui.ctx().clone();
+    let on_right = anchor.center().x > ctx.content_rect().center().x;
+    let (primary, alt) = if on_right {
+        (egui::RectAlign::LEFT_START, egui::RectAlign::LEFT_END)
+    } else {
+        (egui::RectAlign::RIGHT_START, egui::RectAlign::RIGHT_END)
+    };
     let shown = egui::Popup::new(
         popover_id().with("area"),
         ctx.clone(),
@@ -744,8 +832,8 @@ fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui)
     )
     .kind(egui::PopupKind::Menu)
     .open(true)
-    .align(egui::RectAlign::RIGHT_START)
-    .align_alternatives(&[egui::RectAlign::RIGHT_END, egui::RectAlign::LEFT_START])
+    .align(primary)
+    .align_alternatives(&[alt])
     .gap(space::S2)
     .frame(nf::popover_frame(&ctx))
     .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)

@@ -18,11 +18,19 @@
 //! | `scene.rs` | Scene (list, add, duplicate, delete, rename, reorder) |
 //! | `motion_tween.rs` | Properties — Motion tween sections and motion-span editing helpers |
 //! | `motion_editor.rs` | Motion editor (property tracks of a motion tween) |
+//! | `history.rs` | History (undo/redo step list and clear) |
+//! | `swatches.rs` | Swatches (recent, document, palette and gradient swatches) |
+//! | `info.rs` | Info (selection bounds and live stage cursor / RGBA readout) |
+//! | `project.rs` | Project (source/asset file tree, search, create/delete/publish) |
+//! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
 //! | `planned.rs` | NF2 panels the engine does not support yet (read-only previews; bodies in `planned_*.rs`) |
 pub(crate) mod accessibility;
 mod actions;
 pub(crate) mod actions_sidebar;
+pub(crate) mod document_settings;
 pub(crate) mod ease;
+mod history;
+mod info;
 pub(crate) mod library;
 mod menu;
 mod motion_editor;
@@ -33,9 +41,11 @@ mod planned_dialogs;
 mod planned_documents;
 mod planned_drawing;
 mod planned_panels;
+pub(crate) mod project;
 pub(crate) mod properties;
 mod properties_sound;
-mod scene;
+pub(crate) mod scene;
+mod swatches;
 mod timeline;
 mod timeline_controls;
 mod tools;

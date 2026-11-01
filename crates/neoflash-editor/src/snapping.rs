@@ -6,6 +6,7 @@
 //! its tolerance wins over the grid; the nearest line wins; nothing snaps outside its tolerance.
 
 /// Lines a gesture can snap to, in timeline coordinates.
+/// Priority per axis: **1. Guides > 2. Objects > 3. Grid > 4. Pixels**.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Snapper {
     /// x of visible vertical guides.
@@ -14,8 +15,16 @@ pub(crate) struct Snapper {
     pub guides_y: Vec<f64>,
     /// Guide tolerance in stage units.
     pub guide_tolerance: f64,
+    /// x of unselected object edges and centres on the current frame.
+    pub objects_x: Vec<f64>,
+    /// y of unselected object edges and centres on the current frame.
+    pub objects_y: Vec<f64>,
+    /// Object snap tolerance in stage units.
+    pub object_tolerance: f64,
     /// Grid spacing (x, y) and tolerance in stage units, when grid snapping is on.
     pub grid: Option<([f64; 2], f64)>,
+    /// Pixel snap tolerance in stage units (capped at `<= 0.5`), when pixel snapping is on.
+    pub pixel_tolerance: Option<f64>,
 }
 
 /// Outcome of snapping one point.
@@ -34,35 +43,62 @@ impl Snapped {
 }
 
 impl Snapper {
-    /// No guides and no grid: snapping cannot change anything.
+    /// No guides, objects, grid or pixels: snapping cannot change anything.
     pub fn is_empty(&self) -> bool {
-        self.guides_x.is_empty() && self.guides_y.is_empty() && self.grid.is_none()
+        self.guides_x.is_empty()
+            && self.guides_y.is_empty()
+            && self.objects_x.is_empty()
+            && self.objects_y.is_empty()
+            && self.grid.is_none()
+            && self.pixel_tolerance.is_none()
     }
 
     /// Offset that moves `value` onto the best line of one axis, if any is within tolerance.
-    fn axis(&self, value: f64, guides: &[f64], axis: usize) -> Option<f64> {
-        let guide = guides
-            .iter()
-            .map(|g| g - value)
-            .filter(|d| d.abs() <= self.guide_tolerance)
-            .min_by(|a, b| a.abs().total_cmp(&b.abs()));
-        guide.or_else(|| {
-            let (spacing, tolerance) = self.grid?;
+    /// Priority: **1. Guides > 2. Objects > 3. Grid > 4. Pixels**.
+    fn axis(&self, value: f64, guides: &[f64], objects: &[f64], axis: usize) -> Option<f64> {
+        if !value.is_finite() {
+            return None;
+        }
+        let nearest = |candidates: &[f64], tol: f64| {
+            candidates
+                .iter()
+                .map(|c| c - value)
+                .filter(|d| d.is_finite() && d.abs() <= tol)
+                .min_by(|a, b| a.abs().total_cmp(&b.abs()))
+        };
+        if let Some(d) = nearest(guides, self.guide_tolerance) {
+            return Some(d);
+        }
+        if let Some(d) = nearest(objects, self.object_tolerance) {
+            return Some(d);
+        }
+        if let Some((spacing, tolerance)) = self.grid {
             let s = spacing[axis];
-            if !(s.is_finite() && s > 0.0) {
-                return None;
+            if s.is_finite() && s > 0.0 {
+                let d = (value / s).round() * s - value;
+                if d.is_finite() && d.abs() <= tolerance {
+                    return Some(d);
+                }
             }
-            let d = (value / s).round() * s - value;
-            (d.abs() <= tolerance).then_some(d)
-        })
+        }
+        if let Some(pixel_tol) = self.pixel_tolerance
+            && pixel_tol.is_finite()
+            && pixel_tol >= 0.0
+        {
+            let d = value.round() - value;
+            if d.is_finite() && d.abs() <= pixel_tol {
+                return Some(d);
+            }
+        }
+        None
     }
 
     pub fn snap_x(&self, x: f64) -> Option<f64> {
-        self.axis(x, &self.guides_x, 0).map(|d| x + d)
+        self.axis(x, &self.guides_x, &self.objects_x, 0).map(|d| x + d)
     }
 
     pub fn snap_y(&self, y: f64) -> Option<f64> {
-        self.axis(y, &self.guides_y, 1).map(|d| y + d)
+        self.axis(y, &self.guides_y, &self.objects_y, 1).map(|d| y + d)
     }
 
     /// Snap one point (pen anchor, shape corner, path handle).
@@ -80,15 +116,15 @@ impl Snapper {
     /// right; top, centre, bottom): per axis, the smallest offset that puts any candidate on a line.
     /// Returns the offset and the candidate indices that snapped.
     pub fn offset(&self, xs: &[f64], ys: &[f64]) -> ([f64; 2], [Option<usize>; 2]) {
-        let best = |values: &[f64], guides: &[f64], axis: usize| {
+        let best = |values: &[f64], guides: &[f64], objects: &[f64], axis: usize| {
             values
                 .iter()
                 .enumerate()
-                .filter_map(|(i, v)| self.axis(*v, guides, axis).map(|d| (i, d)))
+                .filter_map(|(i, v)| self.axis(*v, guides, objects, axis).map(|d| (i, d)))
                 .min_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
         };
-        let x = best(xs, &self.guides_x, 0);
-        let y = best(ys, &self.guides_y, 1);
+        let x = best(xs, &self.guides_x, &self.objects_x, 0);
+        let y = best(ys, &self.guides_y, &self.objects_y, 1);
         (
             [x.map_or(0.0, |v| v.1), y.map_or(0.0, |v| v.1)],
             [x.map(|v| v.0), y.map(|v| v.0)],
@@ -106,6 +142,7 @@ mod tests {
             guides_y: vec![-30.0],
             guide_tolerance: 8.0,
             grid: Some(([20.0, 10.0], 4.0)),
+            ..Default::default()
         }
     }
 
@@ -158,7 +195,7 @@ mod tests {
             guides_x: vec![200.0],
             guides_y: vec![],
             guide_tolerance: 6.0,
-            grid: None,
+            ..Default::default()
         };
         // Left 150, centre 175, right 197: the right edge is 3 from the guide.
         let (offset, which) = s.offset(&[150.0, 175.0, 197.0], &[0.0, 10.0, 20.0]);
