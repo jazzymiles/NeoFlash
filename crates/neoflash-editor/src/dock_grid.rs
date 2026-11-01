@@ -1064,6 +1064,9 @@ impl Editor {
             PanelId::Align => self.align_panel_ui(ui),
             PanelId::Transform => self.transform_panel_ui(ui),
             PanelId::Color => self.color_panel_ui(ui),
+            PanelId::Ease => self.ease_panel_ui(ui),
+            PanelId::Scene => self.scene_panel_ui(ui),
+            PanelId::MotionEditor => self.motion_editor_panel_ui(ui),
             _ => self.bottom_contents(ui, panel),
         }
         self.detached.content_header = None;

@@ -453,9 +453,9 @@ Each card is one delivery. Do not change visuals (§1); file a request when the 
 
 | Card | Spec | Work | Notes |
 | --- | --- | --- | --- |
-| T1 · Ease panel | PP-01, TL-06 | W0.3 as written; then enable the Ease button and Frame menu ▸ Ease… for any tween kind. | Motion tweens use `Keyframe.tween` of the span start. |
-| T2 · Scene panel | PP-08 | Turn `planned_panels::scene` into `panels/scene.rs` (§3.2): list from `Editor::scene_list`, Add = `new_scene`, Delete = `delete_scene` (exists, tested), Duplicate (clone symbol with fresh IDs), rename inline (symbol name), drag reorder (`Project.scenes` order; keep `root == scenes[0]`). | One Undo per action. |
-| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Bind the previews to `motion_span` / `keyed_properties`; per-property eases need a model field (`Keyframe.property_eases`). | Motion path drawing waits for R-005. |
+| T1 · Ease panel | PP-01, TL-06 | Done: `panels/ease.rs`; Ease button, Frame menu ▸ Ease…, Window ▸ Ease. | Bounce/Elastic need easing variants in the engine. |
+| T2 · Scene panel | PP-08 | Done: `panels/scene.rs` (find, add, duplicate with fresh IDs, delete, inline rename, drag reorder keeping `root == scenes[0]`). | One Undo per action. |
+| T3 · Motion tween properties + Motion editor | PR-10/PP-03, PP-02 | Done: `panels/motion_tween.rs`, `panels/motion_editor.rs`. Remaining: per-property eases need a model field (`Keyframe.property_eases`); moving keys in time. | Motion path drawing waits for R-005. |
 | T4 · Orient to path / Snap | PR-10, TL-01 | `Keyframe.orient_to_path: bool` (format 6, serde default); in `sample_layer_in` set rotation from the path tangent. | Properties classic-tween section already exists. |
 | T5 · Edit multiple frames, rest | TL-08 | Selection of objects that exist only on other keyframes; scale/rotate across frames. | `move_on_other_keyframes` is the pattern. |
 | T6 · Timeline sound | TL-07, W2.6 | Largest remaining item; needs E-18 audio sync. | |

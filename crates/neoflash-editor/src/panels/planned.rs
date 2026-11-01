@@ -8,8 +8,7 @@
 //! format tabs that switch between preview pages. Open previews live in egui temp memory, not in the
 //! document or the workspace prefs.
 //!
-//! Bodies: `planned_motion.rs` (Motion editor, Motion tween properties, Ease), `planned_panels.rs` (Scene,
-//! History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets, Sound and
+//! Bodies: `planned_panels.rs` (History, Swatches, Info, Compiler errors, Debugger, Project, Code snippets, Sound and
 //! movie clip display/filter properties), `planned_dialogs.rs` (Preferences, Document settings, Publish
 //! settings, Export image / video / audio, Import video, Sound properties), `planned_color.rs` (Color — radial
 //! gradient / solid mixer, bitmap fill), `planned_drawing.rs` (oval / rectangle primitive, PolyStar, Deco, Spray
@@ -24,14 +23,10 @@ use neoflash_ui::typography::rich;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PlannedPanel {
-    MotionEditor,
-    MotionTween,
-    Ease,
     Debugger,
     Project,
     CodeSnippets,
     CompilerErrors,
-    Scene,
     History,
     Swatches,
     Info,
@@ -81,15 +76,11 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 38] = [
-        Self::MotionEditor,
-        Self::MotionTween,
-        Self::Ease,
+    pub(crate) const ALL: [Self; 34] = [
         Self::Debugger,
         Self::Project,
         Self::CodeSnippets,
         Self::CompilerErrors,
-        Self::Scene,
         Self::History,
         Self::Swatches,
         Self::Info,
@@ -125,14 +116,10 @@ impl PlannedPanel {
     /// Menu label (Window ▸ Planned panels ▸ …).
     pub(crate) const fn title(self) -> &'static str {
         match self {
-            Self::MotionEditor => "Motion editor",
-            Self::MotionTween => "Properties — Motion tween",
-            Self::Ease => "Ease",
             Self::Debugger => "Debugger",
             Self::Project => "Project",
             Self::CodeSnippets => "Code snippets",
             Self::CompilerErrors => "Compiler errors",
-            Self::Scene => "Scene",
             Self::History => "History",
             Self::Swatches => "Swatches",
             Self::Info => "Info",
@@ -169,11 +156,9 @@ impl PlannedPanel {
     /// Reference PNG under `interface/design-system/exports/panels/{dark,light}/png/`.
     pub(crate) const fn reference(self) -> &'static str {
         match self {
-            Self::MotionEditor | Self::MotionTween => "motion-panels.png",
-            Self::Ease => "panel-ease.png, ease-range-states.png",
             Self::Debugger | Self::Project | Self::CodeSnippets => "scripting-panels.png",
             Self::CompilerErrors | Self::Info => "panels-more-2.png",
-            Self::Scene | Self::History => "panels-more.png",
+            Self::History => "panels-more.png",
             Self::Swatches => "swatches-popover.png, panels-more.png",
             Self::PropertiesSound => "panel-properties-sound.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
@@ -200,15 +185,12 @@ impl PlannedPanel {
 
     pub(crate) const fn chrome(self) -> Chrome {
         match self {
-            Self::MotionEditor => Chrome::Panel(&["Motion editor"]),
-            Self::MotionTween | Self::PropertiesSound => Chrome::Panel(&["Properties"]),
+            Self::PropertiesSound => Chrome::Panel(&["Properties"]),
             Self::PropertiesFilters => Chrome::Panel(&["Properties", "Filters"]),
-            Self::Ease => Chrome::Panel(&["Ease"]),
             Self::Debugger => Chrome::Panel(&["Debugger"]),
             Self::Project => Chrome::Panel(&["Project"]),
             Self::CodeSnippets => Chrome::Panel(&["Code snippets"]),
             Self::CompilerErrors => Chrome::Panel(&["Compiler errors"]),
-            Self::Scene => Chrome::Panel(&["Scene"]),
             Self::History => Chrome::Panel(&["History"]),
             Self::Swatches => Chrome::Panel(&["Swatches"]),
             Self::Info => Chrome::Panel(&["Info"]),
@@ -241,7 +223,6 @@ impl PlannedPanel {
     /// Outer width from the reference frame.
     pub(crate) const fn width(self) -> f32 {
         match self {
-            Self::MotionEditor => 960.,
             Self::Debugger => 960.,
             Self::Preferences => 920.,
             Self::PublishSettings => 900.,
@@ -251,14 +232,10 @@ impl PlannedPanel {
             Self::ExportAudio => 640.,
             Self::CompilerErrors => 560.,
             Self::DocumentSettings | Self::SoundProperties => 520.,
-            Self::Ease => 376.,
             Self::CodeSnippets => 340.,
-            Self::Swatches
-            | Self::MotionTween
-            | Self::PropertiesSound
-            | Self::PropertiesFilters => 324.,
+            Self::Swatches | Self::PropertiesSound | Self::PropertiesFilters => 324.,
             Self::Project | Self::Info => 300.,
-            Self::Scene | Self::History => 260.,
+            Self::History => 260.,
             Self::TestMovie => 1000.,
             Self::EditEnvelope => 680.,
             Self::FindReplace => 640.,
@@ -289,8 +266,6 @@ pub(crate) struct PlannedState {
     pub(crate) preferences_page: usize,
     /// Export image format index (PNG, SVG, PSD, AI, PDF).
     pub(crate) export_format: usize,
-    /// Ease graph range shown (0 = 0–100 %, 1 = overshoot, 2 = undershoot).
-    pub(crate) ease_range: usize,
     /// Color panel preview page: radial gradient (false) or solid colour (true, color-type-menu-open.png).
     pub(crate) color_solid: bool,
 }
@@ -619,7 +594,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
         P::ExportImage => {
             return super::planned_dialogs::export_image(ui, &mut state.export_format);
         }
-        P::Ease => return super::planned_motion::ease(ui, &mut state.ease_range),
         P::ColorGradient => {
             return super::planned_color::color_gradient(ui, &mut state.color_solid);
         }
@@ -628,13 +602,10 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
     ui.scope(|ui| {
         ui.disable();
         match panel {
-            P::MotionEditor => super::planned_motion::motion_editor(ui),
-            P::MotionTween => super::planned_motion::motion_tween(ui),
             P::Debugger => super::planned_panels::debugger(ui),
             P::Project => super::planned_panels::project(ui),
             P::CodeSnippets => super::planned_panels::code_snippets(ui),
             P::CompilerErrors => super::planned_panels::compiler_errors(ui),
-            P::Scene => super::planned_panels::scene(ui),
             P::History => super::planned_panels::history(ui),
             P::Swatches => super::planned_panels::swatches(ui),
             P::Info => super::planned_panels::info(ui),
@@ -662,7 +633,7 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) {
             P::FindReplace => super::planned_documents::find_replace(ui),
             P::MovieExplorer => super::planned_documents::movie_explorer(ui),
             P::SymbolsPopover => super::planned_documents::symbols_popover(ui),
-            P::Preferences | P::ExportImage | P::Ease | P::ColorGradient => {}
+            P::Preferences | P::ExportImage | P::ColorGradient => {}
         }
     });
 }
@@ -867,12 +838,10 @@ mod tests {
         let ctx = egui::Context::default();
         set_open(&ctx, PlannedPanel::Preferences, true);
         set_open(&ctx, PlannedPanel::ExportImage, true);
-        set_open(&ctx, PlannedPanel::Ease, true);
         for page in 0..super::super::planned_dialogs::PREFERENCE_PAGES.len() {
             let mut state = planned_state(&ctx);
             state.preferences_page = page;
             state.export_format = page % 5;
-            state.ease_range = page % 3;
             state.color_solid = page % 2 == 1;
             store_state(&ctx, state);
             assert!(render(&ctx, neoflash_ui::Theme::Dark, 1) > 50);

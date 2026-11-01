@@ -21,6 +21,9 @@ pub enum PanelId {
     Align,
     Transform,
     Color,
+    Ease,
+    Scene,
+    MotionEditor,
 }
 impl PanelId {
     pub fn title(self) -> &'static str {
@@ -35,6 +38,9 @@ impl PanelId {
             Self::Align => "Align",
             Self::Transform => "Transform",
             Self::Color => "Color",
+            Self::Ease => "Ease",
+            Self::Scene => "Scene",
+            Self::MotionEditor => "Motion editor",
         }
     }
     /// Body padding of the docked panel, from the Figma outlines: inspector 16, Library 8,
@@ -74,9 +80,12 @@ impl PanelId {
             Self::Align => i16::ALIGN_LEFT,
             Self::Transform => i16::TRANSFORM,
             Self::Color => i16::COLORWHEEL,
+            Self::Ease => i16::EASE,
+            Self::Scene => i16::SCENE,
+            Self::MotionEditor => i16::TWEEN_MOTION,
         }
     }
-    pub const DETACHABLE: [Self; 10] = [
+    pub const DETACHABLE: [Self; 13] = [
         Self::Tools,
         Self::Timeline,
         Self::Library,
@@ -87,6 +96,19 @@ impl PanelId {
         Self::Align,
         Self::Transform,
         Self::Color,
+        Self::Ease,
+        Self::Scene,
+        Self::MotionEditor,
+    ];
+    /// Panels that are hidden in every built-in workspace and open beside Properties (or, for the
+    /// Motion editor, beside the Timeline) the first time they are shown.
+    pub const UTILITY: [Self; 6] = [
+        Self::Align,
+        Self::Transform,
+        Self::Color,
+        Self::Ease,
+        Self::Scene,
+        Self::MotionEditor,
     ];
     pub fn detachable(self) -> bool {
         Self::DETACHABLE.contains(&self)
@@ -104,10 +126,13 @@ impl PanelId {
             Self::Align => Some("neoflash.panel.align"),
             Self::Transform => Some("neoflash.panel.transform"),
             Self::Color => Some("neoflash.panel.color"),
+            Self::Ease => Some("neoflash.panel.ease"),
+            Self::Scene => Some("neoflash.panel.scene"),
+            Self::MotionEditor => Some("neoflash.panel.motion_editor"),
         }
     }
     #[cfg(test)]
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 13] = [
         Self::Timeline,
         Self::Tools,
         Self::Library,
@@ -118,6 +143,9 @@ impl PanelId {
         Self::Align,
         Self::Transform,
         Self::Color,
+        Self::Ease,
+        Self::Scene,
+        Self::MotionEditor,
     ];
     pub const BOTTOM: [Self; 4] = [
         Self::Properties,
@@ -157,6 +185,9 @@ pub struct PanelVisibility {
     pub align: bool,
     pub transform: bool,
     pub color: bool,
+    pub ease: bool,
+    pub scene: bool,
+    pub motion_editor: bool,
 }
 impl Default for PanelVisibility {
     fn default() -> Self {
@@ -171,6 +202,9 @@ impl Default for PanelVisibility {
             align: false,
             transform: false,
             color: false,
+            ease: false,
+            scene: false,
+            motion_editor: false,
         }
     }
 }
@@ -187,6 +221,9 @@ impl PanelVisibility {
             PanelId::Align => &mut self.align,
             PanelId::Transform => &mut self.transform,
             PanelId::Color => &mut self.color,
+            PanelId::Ease => &mut self.ease,
+            PanelId::Scene => &mut self.scene,
+            PanelId::MotionEditor => &mut self.motion_editor,
         }
     }
     pub fn is_visible(self, panel: PanelId) -> bool {
@@ -201,6 +238,9 @@ impl PanelVisibility {
             PanelId::Align => self.align,
             PanelId::Transform => self.transform,
             PanelId::Color => self.color,
+            PanelId::Ease => self.ease,
+            PanelId::Scene => self.scene,
+            PanelId::MotionEditor => self.motion_editor,
         }
     }
 }
@@ -300,7 +340,9 @@ impl DockEdge {
             | PanelId::Properties
             | PanelId::Align
             | PanelId::Transform
-            | PanelId::Color => Self::Right,
+            | PanelId::Color
+            | PanelId::Ease
+            | PanelId::Scene => Self::Right,
             _ => Self::Bottom,
         }
     }
@@ -682,6 +724,7 @@ impl Default for DockLayout {
                         PanelId::Actions,
                         PanelId::Output,
                         PanelId::Accessibility,
+                        PanelId::MotionEditor,
                     ],
                 )],
             },
@@ -703,6 +746,8 @@ impl Default for DockLayout {
                                 PanelId::Align,
                                 PanelId::Transform,
                                 PanelId::Color,
+                                PanelId::Ease,
+                                PanelId::Scene,
                             ],
                         )
                     },
@@ -909,26 +954,34 @@ impl DockLayout {
                 .is_some_and(|w| w.placement == PanelPlacement::Docked)
                 && self.location(panel).is_none()
             {
-                let edge = DockEdge::default_for(panel);
-                let destination = self
-                    .area(edge)
-                    .groups
-                    .iter()
-                    .find(|group| {
-                        matches!(panel, PanelId::Align | PanelId::Transform | PanelId::Color)
-                            && group.tabs.contains(&PanelId::Properties)
-                    })
-                    .or_else(|| self.area(edge).groups.first())
-                    .map_or(DockDestination::Edge(edge), |g| {
-                        DockDestination::Tabs(DockLocation {
-                            edge,
-                            group: g.id,
-                            index: g.tabs.len(),
-                        })
-                    });
-                self.insert(panel, destination);
+                self.insert_at_default(panel);
             }
         }
+    }
+    /// Dock a panel that is in no group (new utility panels, layouts saved before they existed):
+    /// utility panels join the Properties group, the Motion editor the Timeline group, anything
+    /// else the first group of its default edge.
+    pub fn insert_at_default(&mut self, panel: PanelId) {
+        let edge = DockEdge::default_for(panel);
+        let companion = match panel {
+            PanelId::MotionEditor => Some(PanelId::Timeline),
+            p if PanelId::UTILITY.contains(&p) => Some(PanelId::Properties),
+            _ => None,
+        };
+        let destination = self
+            .area(edge)
+            .groups
+            .iter()
+            .find(|group| companion.is_some_and(|c| group.tabs.contains(&c)))
+            .or_else(|| self.area(edge).groups.first())
+            .map_or(DockDestination::Edge(edge), |g| {
+                DockDestination::Tabs(DockLocation {
+                    edge,
+                    group: g.id,
+                    index: g.tabs.len(),
+                })
+            });
+        self.insert(panel, destination);
     }
 }
 
@@ -983,6 +1036,9 @@ pub struct DetachedPanels {
     pub align: PanelWindowPrefs,
     pub transform: PanelWindowPrefs,
     pub color: PanelWindowPrefs,
+    pub ease: PanelWindowPrefs,
+    pub scene: PanelWindowPrefs,
+    pub motion_editor: PanelWindowPrefs,
 }
 impl DetachedPanels {
     fn get(&self, panel: PanelId) -> Option<&PanelWindowPrefs> {
@@ -997,6 +1053,9 @@ impl DetachedPanels {
             PanelId::Align => Some(&self.align),
             PanelId::Transform => Some(&self.transform),
             PanelId::Color => Some(&self.color),
+            PanelId::Ease => Some(&self.ease),
+            PanelId::Scene => Some(&self.scene),
+            PanelId::MotionEditor => Some(&self.motion_editor),
         }
     }
     fn get_mut(&mut self, panel: PanelId) -> Option<&mut PanelWindowPrefs> {
@@ -1011,6 +1070,9 @@ impl DetachedPanels {
             PanelId::Align => Some(&mut self.align),
             PanelId::Transform => Some(&mut self.transform),
             PanelId::Color => Some(&mut self.color),
+            PanelId::Ease => Some(&mut self.ease),
+            PanelId::Scene => Some(&mut self.scene),
+            PanelId::MotionEditor => Some(&mut self.motion_editor),
         }
     }
     fn sanitize(&mut self) {
@@ -1065,7 +1127,9 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Tools => [88., 300.],
         PanelId::Timeline => [320., 180.],
         PanelId::Library => [248., 300.],
-        PanelId::Align | PanelId::Transform | PanelId::Color => [248., 200.],
+        PanelId::Align | PanelId::Transform | PanelId::Color | PanelId::Scene => [248., 200.],
+        PanelId::Ease => [320., 420.],
+        PanelId::MotionEditor => [640., 260.],
         _ => [320., 220.],
     }
 }
@@ -1075,6 +1139,9 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Timeline => [900., 280.],
         PanelId::Library => [300., 600.],
         PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
+        PanelId::Scene => [260., 360.],
+        PanelId::Ease => [376., 640.],
+        PanelId::MotionEditor => [960., 520.],
         _ => [680., 440.],
     }
 }
@@ -1294,13 +1361,21 @@ impl WorkspaceTemplate {
                     top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
                     bottom: area(
                         520.,
-                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                        vec![group(
+                            2,
+                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            1.,
+                        )],
                     ),
                     left: tools(two_columns),
                     right: area(
                         inspector,
                         vec![
-                            group(5, vec![Properties, Transform, Align, Color], 0.55),
+                            group(
+                                5,
+                                vec![Properties, Transform, Align, Color, Ease, Scene],
+                                0.55,
+                            ),
                             group(4, vec![Library], 0.45),
                         ],
                     ),
@@ -1316,13 +1391,17 @@ impl WorkspaceTemplate {
                     top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
                     bottom: area(
                         300.,
-                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                        vec![group(
+                            2,
+                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            1.,
+                        )],
                     ),
                     left: tools(two_columns),
                     right: area(
                         inspector,
                         vec![
-                            group(5, vec![Properties, Library], 0.5),
+                            group(5, vec![Properties, Library, Ease, Scene], 0.5),
                             group(6, vec![Color, Align, Transform], 0.5),
                         ],
                     ),
@@ -1331,7 +1410,11 @@ impl WorkspaceTemplate {
                 (dock, BottomTab::Properties)
             }
             Self::Developer => {
-                let mut bottom = group(2, vec![Actions, Output, Timeline, Accessibility], 1.);
+                let mut bottom = group(
+                    2,
+                    vec![Actions, Output, Timeline, Accessibility, MotionEditor],
+                    1.,
+                );
                 bottom.active = Actions;
                 let dock = DockLayout {
                     top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
@@ -1340,7 +1423,11 @@ impl WorkspaceTemplate {
                     right: area(
                         inspector,
                         vec![
-                            group(5, vec![Properties, Align, Transform, Color], 0.5),
+                            group(
+                                5,
+                                vec![Properties, Align, Transform, Color, Ease, Scene],
+                                0.5,
+                            ),
                             group(4, vec![Library], 0.5),
                         ],
                     ),
@@ -1353,14 +1440,18 @@ impl WorkspaceTemplate {
                     top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
                     bottom: area(
                         300.,
-                        vec![group(2, vec![Timeline, Actions, Output, Accessibility], 1.)],
+                        vec![group(
+                            2,
+                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            1.,
+                        )],
                     ),
                     left: tools(neoflash_ui::metrics::TOOLS_RAIL),
                     right: area(
                         280.,
                         vec![group(
                             5,
-                            vec![Properties, Library, Align, Transform, Color],
+                            vec![Properties, Library, Align, Transform, Color, Ease, Scene],
                             1.,
                         )],
                     ),
@@ -1497,6 +1588,9 @@ impl WorkspacePrefs {
     /// Revealing a bottom panel also selects it. F9 and error-reveal commands
     /// must use this even when a dock/tab was previously hidden.
     pub fn show_panel(&mut self, panel: PanelId) -> bool {
+        if self.dock.location(panel).is_none() && self.floating_window(panel).is_none() {
+            self.dock.insert_at_default(panel);
+        }
         let mut changed = !*self.panels.slot(panel);
         *self.panels.slot(panel) = true;
         changed |= self.dock.select(panel);

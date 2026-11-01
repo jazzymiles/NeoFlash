@@ -1,5 +1,5 @@
 //! Planned previews of small panels: Debugger, Project, Code snippets (`scripting-panels.png`), Compiler errors,
-//! Info (`panels-more-2.png`), Scene, History, Swatches (`panels-more.png`, `swatches-popover.png`),
+//! Info (`panels-more-2.png`), History, Swatches (`panels-more.png`, `swatches-popover.png`),
 //! Properties — Sound (`panel-properties-sound.png`) and movie clip Display & Filters
 //! (`panel-properties-movie-clip.png`). All values are fixed samples from the reference.
 use super::planned::{caption, check, mono, num, select, switch, type_header};
@@ -292,28 +292,6 @@ pub(super) fn compiler_errors(ui: &mut Ui) {
             });
         });
     }
-}
-
-/// Panel / Scene.
-pub(super) fn scene(ui: &mut Ui) {
-    search(ui, "Find scene");
-    ui.spacing_mut().item_spacing.y = 0.0;
-    for (name, selected) in [
-        ("Intro", false),
-        ("Scene 1", true),
-        ("Gallery", false),
-        ("Outro", false),
-    ] {
-        c::TreeItem::new(name, c::TreeItemType::Symbol(i16::SCENE))
-            .selected(selected)
-            .show(ui);
-    }
-    ui.add_space(space::S2);
-    action_row(
-        ui,
-        &[(i16::PLUS, "Add scene"), (i16::COPY, "Duplicate scene")],
-        &[(i16::TRASH, "Delete scene")],
-    );
 }
 
 /// Panel / History.

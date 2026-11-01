@@ -444,8 +444,7 @@ impl Editor {
     }
 
     /// Delete the current scene (not the last one). The next scene, or the previous, is shown.
-    /// Its entry point is the Scene panel (PP-08), which is still a planned preview.
-    #[allow(dead_code)]
+    /// Scene panel ▸ Delete scene. One Undo step.
     pub(crate) fn delete_scene(&mut self) {
         let scenes = self.project.scene_ids();
         if scenes.len() < 2 {

@@ -226,7 +226,12 @@ impl Editor {
                 if frame_context {
                     let range = self.selected_frame_range();
                     let subtitle = range.map(|(start, end, layers)| format!("Frames {}–{} · {} layer{}", start + 1, end + 1, layers, if layers == 1 { "" } else { "s" })).unwrap_or_default();
-                    ui.add(TypeHeader { icon: i16::FRAME, title: "Frame", subtitle: &subtitle });
+                    // Inside a motion tween the frame inspector is Properties — Motion tween (PR-10).
+                    let motion = self.motion_tween_span();
+                    match &motion {
+                        Some(span) => { ui.add(TypeHeader { icon: i16::TWEEN_MOTION, title: "Motion tween", subtitle: &format!("Layer \"{}\" · {}", span.layer_name, span.frame_label()) }); }
+                        None => { ui.add(TypeHeader { icon: i16::FRAME, title: "Frame", subtitle: &subtitle }); }
+                    }
                     let mut layer_end = None;
                     inspector_section(ui, "Range / duration", |ui| {
                         changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
@@ -235,21 +240,28 @@ impl Editor {
                         if response.changed() { layer_end = Some(end); }
                     });
                     if let Some(end) = layer_end { self.set_layer_duration(end); return; }
+                    if let Some(span) = &motion { self.motion_tween_properties(ui, span); } else {
                     inspector_section(ui, "Tween", |ui| {
                         ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
                                 let mut options = vec![(None, "No tween"), (Some(Easing::Linear), "Linear"), (Some(Easing::EaseIn), "Ease in"), (Some(Easing::EaseOut), "Ease out"), (Some(Easing::EaseInOut), "Ease in/out")];
                                 options.push((if let Some(curve @ Easing::CubicBezier { .. }) = key.tween { Some(curve) } else { Some(Easing::CubicBezier { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1. }) }, "Custom curve"));
-                                if let Some(flash @ Easing::Flash { .. }) = key.tween { options.push((Some(flash), "Flash ease")); }
+                                options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
+                                // Y may overshoot (Back) or undershoot; the document allows |y| ≤ 100, x stays in 0–1.
                                 if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
-                                    for (labels, values) in [(["X1","Y1"],[x1,y1]),(["X2","Y2"],[x2,y2])] {
-                                        for r in numeric_pair(ui, labels, values,0. ..=1.,0.01) { changes.note(r); }
+                                    for (labels, values) in [(["X1","Y1"],[&mut *x1,&mut *y1]),(["X2","Y2"],[&mut *x2,&mut *y2])] {
+                                        for r in numeric_pair(ui, labels, values,-100. ..=100.,0.01) { changes.note(r); }
                                     }
+                                    *x1 = x1.clamp(0., 1.); *x2 = x2.clamp(0., 1.);
+                                }
+                                if let Some(Easing::Flash{acceleration})=&mut key.tween {
+                                    changes.note(numeric_row(ui, "Acceleration", acceleration, -100. ..=100., 1.));
                                 }
                             } else { hint(ui, "Select a frame with a keyframe to edit its tween."); }
                         });
                     });
+                    }
                     inspector_section(ui, "Label / script", |ui| {
                         ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) { changes.note(text_row(ui, "Frame label", &mut key.label)); }
@@ -286,6 +298,7 @@ impl Editor {
                         if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
                             target.name=draft.layers[layer].name.clone();
                             if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; }
+                            if matches!(draft.layers[layer].key_at(frame).and_then(|k| k.tween), Some(Easing::Flash { .. })) { self.project.format_version = self.project.format_version.max(5); }
                         }
                     }
                     self.normalize_selection();

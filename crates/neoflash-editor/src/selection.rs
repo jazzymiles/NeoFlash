@@ -253,7 +253,10 @@ impl Editor {
         sampled
     }
     pub(crate) fn ensure_key_for(&mut self, layer_id: &str, blank: bool) {
-        let frame = self.frame;
+        self.ensure_key_at(layer_id, self.frame, blank);
+    }
+    /// Make `frame` a keyframe of the layer (a ◆ property key inside a motion tween).
+    pub(crate) fn ensure_key_at(&mut self, layer_id: &str, frame: u32, blank: bool) {
         let Some(layer) = self
             .symbol_mut()
             .timeline
