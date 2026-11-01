@@ -448,7 +448,7 @@ impl Editor {
             );
             if remove.clicked() {
                 let selected = self.selected_source.clone();
-                self.transact(|editor| {
+                self.transact_named("Delete source file", |editor| {
                     editor
                         .project
                         .sources
@@ -499,7 +499,7 @@ impl Editor {
             || symbol_class != self.symbol().class_name
             || linkage_id != self.symbol().linkage_id
         {
-            self.transact(|editor| {
+            self.transact_named("Class linkage", |editor| {
                 editor.project.enable_program();
                 editor.project.document_class = document_class;
                 editor.symbol_mut().class_name = symbol_class;
@@ -535,7 +535,7 @@ impl Editor {
             self.set_playing(false);
         }
         if unit != original {
-            self.transact(|editor| editor.project.sources[index] = unit);
+            self.transact_named("Edit script", |editor| editor.project.sources[index] = unit);
         }
     }
 
@@ -564,7 +564,7 @@ impl Editor {
             source,
         };
         self.selected_source = Some(unit.id.clone());
-        self.transact(|editor| {
+        self.transact_named("New class", |editor| {
             editor.project.enable_program();
             editor.project.sources.push(unit);
         });

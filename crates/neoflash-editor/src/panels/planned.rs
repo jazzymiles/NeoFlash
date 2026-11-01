@@ -26,15 +26,10 @@ use neoflash_ui::typography::rich;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PlannedPanel {
     Debugger,
-    Project,
     CodeSnippets,
     CompilerErrors,
-    History,
-    Swatches,
-    Info,
     PropertiesFilters,
     Preferences,
-    DocumentSettings,
     PublishSettings,
     ExportImage,
     ExportVideo,
@@ -77,17 +72,12 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 33] = [
+    pub(crate) const ALL: [Self; 28] = [
         Self::Debugger,
-        Self::Project,
         Self::CodeSnippets,
         Self::CompilerErrors,
-        Self::History,
-        Self::Swatches,
-        Self::Info,
         Self::PropertiesFilters,
         Self::Preferences,
-        Self::DocumentSettings,
         Self::PublishSettings,
         Self::ExportImage,
         Self::ExportVideo,
@@ -117,15 +107,10 @@ impl PlannedPanel {
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Debugger => "Debugger",
-            Self::Project => "Project",
             Self::CodeSnippets => "Code snippets",
             Self::CompilerErrors => "Compiler errors",
-            Self::History => "History",
-            Self::Swatches => "Swatches",
-            Self::Info => "Info",
             Self::PropertiesFilters => "Properties — Display & filters",
             Self::Preferences => "Preferences",
-            Self::DocumentSettings => "Document settings",
             Self::PublishSettings => "Publish settings",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
@@ -155,13 +140,10 @@ impl PlannedPanel {
     /// Reference PNG under `interface/design-system/exports/panels/{dark,light}/png/`.
     pub(crate) const fn reference(self) -> &'static str {
         match self {
-            Self::Debugger | Self::Project | Self::CodeSnippets => "scripting-panels.png",
-            Self::CompilerErrors | Self::Info => "panels-more-2.png",
-            Self::History => "panels-more.png",
-            Self::Swatches => "swatches-popover.png, panels-more.png",
+            Self::Debugger | Self::CodeSnippets => "scripting-panels.png",
+            Self::CompilerErrors => "panels-more-2.png",
             Self::PropertiesFilters => "panel-properties-movie-clip.png",
             Self::Preferences => "dialog-preferences-*.png",
-            Self::DocumentSettings => "document-dialogs.png",
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
@@ -185,12 +167,8 @@ impl PlannedPanel {
         match self {
             Self::PropertiesFilters => Chrome::Panel(&["Properties", "Filters"]),
             Self::Debugger => Chrome::Panel(&["Debugger"]),
-            Self::Project => Chrome::Panel(&["Project"]),
             Self::CodeSnippets => Chrome::Panel(&["Code snippets"]),
             Self::CompilerErrors => Chrome::Panel(&["Compiler errors"]),
-            Self::History => Chrome::Panel(&["History"]),
-            Self::Swatches => Chrome::Panel(&["Swatches"]),
-            Self::Info => Chrome::Panel(&["Info"]),
             Self::ColorGradient | Self::BitmapFill => Chrome::Panel(&["Color", "Swatches"]),
             Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => {
                 Chrome::Panel(&["Properties", "Filters"])
@@ -228,11 +206,9 @@ impl PlannedPanel {
             Self::ImportVideo => 720.,
             Self::ExportAudio => 640.,
             Self::CompilerErrors => 560.,
-            Self::DocumentSettings | Self::SoundProperties => 520.,
+            Self::SoundProperties => 520.,
             Self::CodeSnippets => 340.,
-            Self::Swatches | Self::PropertiesFilters => 324.,
-            Self::Project | Self::Info => 300.,
-            Self::History => 260.,
+            Self::PropertiesFilters => 324.,
             Self::TestMovie => 1000.,
             Self::EditEnvelope => 680.,
             Self::FindReplace => 640.,
@@ -320,6 +296,7 @@ impl Editor {
     /// Draw open planned-panel previews. They never touch the project; the only wired setting,
     /// Preferences ▸ General ▸ Theme, changes the editor theme preference when Save is clicked.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
+        self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
         show_planned_panels(ctx);
         let mut state = planned_state(ctx);
@@ -638,14 +615,9 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
         ui.disable();
         match panel {
             P::Debugger => super::planned_panels::debugger(ui),
-            P::Project => super::planned_panels::project(ui),
             P::CodeSnippets => super::planned_panels::code_snippets(ui),
             P::CompilerErrors => super::planned_panels::compiler_errors(ui),
-            P::History => super::planned_panels::history(ui),
-            P::Swatches => super::planned_panels::swatches(ui),
-            P::Info => super::planned_panels::info(ui),
             P::PropertiesFilters => super::planned_panels::properties_filters(ui),
-            P::DocumentSettings => super::planned_dialogs::document_settings(ui),
             P::PublishSettings => super::planned_dialogs::publish_settings(ui),
             P::ExportVideo => super::planned_dialogs::export_video(ui),
             P::ExportAudio => super::planned_dialogs::export_audio(ui),

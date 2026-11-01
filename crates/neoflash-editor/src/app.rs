@@ -95,6 +95,8 @@ pub struct Editor {
     pub(crate) library_panel: crate::library::LibraryPanel,
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
+    pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
+    pub(crate) project_panel: crate::panels::project::ProjectPanelState,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
     pub vector: crate::vector::VectorState,
@@ -187,6 +189,27 @@ impl Editor {
                 s.select_all();
             }
         }
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_PANELS=swatches,info,history,project` reveals real panels.
+        if let Ok(list) = std::env::var("NEOFLASH_SCREENSHOT_PANELS") {
+            for raw in list.split(',') {
+                let panel = match raw.trim().to_ascii_lowercase().as_str() {
+                    "history" => Some(PanelId::History),
+                    "swatches" => Some(PanelId::Swatches),
+                    "info" => Some(PanelId::Info),
+                    "project" => Some(PanelId::Project),
+                    "ease" => Some(PanelId::Ease),
+                    "scene" => Some(PanelId::Scene),
+                    "motion_editor" => Some(PanelId::MotionEditor),
+                    _ => None,
+                };
+                if let Some(panel) = panel {
+                    s.show_panel(panel);
+                }
+            }
+        }
+        if std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() == Ok("document_settings") {
+            s.open_document_settings();
+        }
         s
     }
     pub(crate) fn from_project(ctx: &egui::Context, project: Project) -> Self {
@@ -210,6 +233,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
+            document_settings: None, project_panel: Default::default(),
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -315,17 +339,23 @@ impl Editor {
             .is_some_and(|d| d.anchors.len() >= 2)
             || self.saved_project.as_ref() != Some(&self.project)
     }
+    pub(crate) fn has_modal_dialog(&self) -> bool {
+        self.symbol_conversion.is_some() || self.document_settings.is_some()
+    }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
         self.output.push(self.status.clone());
     }
     pub fn transact(&mut self, f: impl FnOnce(&mut Self)) {
+        self.transact_named("Edit", f);
+    }
+    pub fn transact_named(&mut self, label: impl Into<String>, f: impl FnOnce(&mut Self)) {
         self.finish_property_edit();
         self.finish_selection_gesture();
         self.shape_draft = None;
         self.timeline_key_drag = None;
         self.finish_point_drag();
-        self.history.begin(&self.project);
+        self.history.begin_named(&self.project, label);
         f(self);
         self.project.prune_authoring_groups();
         self.commit_history();
@@ -374,6 +404,20 @@ impl Editor {
         self.history.redo(&mut self.project);
         self.normalize_selection();
     }
+    pub fn step_history_to(&mut self, index: usize) -> bool {
+        self.finish_edits();
+        self.timeline_key_drag = None;
+        self.vector = Default::default();
+        let moved = self.history.step_to(&mut self.project, index);
+        self.normalize_selection();
+        moved
+    }
+    pub fn clear_history(&mut self) {
+        self.finish_edits();
+        self.timeline_key_drag = None;
+        self.vector = Default::default();
+        self.history = History::new(150);
+    }
     pub fn layer_editable(&self) -> bool {
         self.symbol()
             .timeline
@@ -390,7 +434,8 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
-        self.transact(|s| {
+        let label = if blank { "Blank keyframe" } else { "Keyframe" };
+        self.transact_named(label, |s| {
             s.ensure_key(blank);
             // F6 inside a motion tween keys every property at this frame (◆).
             let (l, f) = (s.layer, s.frame);
@@ -434,7 +479,16 @@ impl Editor {
             self.message("Cannot place this symbol here: it would create a recursive symbol.");
             return;
         }
-        self.transact(|s| {
+        let step_label = match &kind {
+            ElementKind::Rectangle { .. } => "Rectangle",
+            ElementKind::Ellipse { .. } => "Oval",
+            ElementKind::Text { .. } | ElementKind::TextBox { .. } => "Text",
+            ElementKind::Instance { .. } => "Place symbol",
+            ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => "Path",
+            ElementKind::Bitmap { .. } => "Bitmap",
+            ElementKind::Video { .. } => "Video",
+        };
+        self.transact_named(step_label, |s| {
             s.ensure_key(false);
             let id = new_id("object");
             let name = match &kind {
@@ -517,13 +571,24 @@ impl Editor {
         match pending {
             Pending::New | Pending::Demo => {
                 self.project = if matches!(pending, Pending::New) {
-                    Project::blank()
+                    let mut blank = Project::blank();
+                    if let Some(mut defaults) = self.workspace.document_defaults {
+                        defaults.sanitize();
+                        blank.width = defaults.width;
+                        blank.height = defaults.height;
+                        blank.fps = defaults.fps;
+                        blank.background = defaults.background;
+                        self.stage_view.prefs.units = defaults.units;
+                    }
+                    blank
                 } else {
                     Project::demo()
                 };
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
                 self.library_panel = Default::default();
+                self.project_panel = Default::default();
+                self.document_settings = None;
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
@@ -570,6 +635,8 @@ impl Editor {
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
                 self.library_panel = Default::default();
+                self.project_panel = Default::default();
+                self.document_settings = None;
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
@@ -607,6 +674,8 @@ impl Editor {
                             self.clipboard = Default::default();
                             self.resource_panel = Default::default();
                             self.library_panel = Default::default();
+                            self.project_panel = Default::default();
+                            self.document_settings = None;
                             self.timeline_edit = Default::default();
                             self.graphic_drop_position = None;
                             self.bitmap_textures = Default::default();
@@ -722,7 +791,7 @@ impl Editor {
         }
     }
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
-        if self.symbol_conversion.is_some() {
+        if self.has_modal_dialog() {
             return;
         }
         self.menu_shortcuts(ctx);
@@ -916,7 +985,7 @@ impl Editor {
         }
         // Modify.
         if exact(cmd, Key::J) {
-            Self::open_planned(ctx, "Modify ▸ Document…");
+            self.open_document_settings();
         }
         if exact(cmd, Key::B) && !self.selection.is_empty() {
             self.break_apart_selection();
@@ -952,7 +1021,10 @@ impl Editor {
             (cmd, Key::L, PanelId::Library),
             (cmd, Key::K, PanelId::Align),
             (cmd | shift, Key::F9, PanelId::Color),
+            (cmd, Key::F9, PanelId::Swatches),
             (cmd, Key::T, PanelId::Transform),
+            (cmd, Key::I, PanelId::Info),
+            (cmd, Key::F10, PanelId::History),
             (none, Key::F2, PanelId::Output),
             (shift, Key::F11, PanelId::Accessibility),
             (shift, Key::F2, PanelId::Scene),
@@ -962,15 +1034,8 @@ impl Editor {
                 self.set_panel_visible(panel, !visible);
             }
         }
-        for (m, key, path) in [
-            (cmd, Key::F9, "Window ▸ Swatches"),
-            (cmd, Key::I, "Window ▸ Info"),
-            (cmd, Key::F10, "Window ▸ History"),
-            (alt, Key::F2, "Window ▸ Compiler errors"),
-        ] {
-            if exact(m, key) {
-                Self::toggle_planned(ctx, path);
-            }
+        if exact(alt, Key::F2) {
+            Self::toggle_planned(ctx, "Window ▸ Compiler errors");
         }
         if exact(shift, Key::F6) {
             self.clear_keyframe();
@@ -1034,7 +1099,12 @@ impl Editor {
             self.message("A frame script already exists at the destination. The key and script were not moved.");
             return false;
         }
-        self.transact(|s| {
+        let step_label = if copy {
+            "Copy keyframe"
+        } else {
+            "Move keyframe"
+        };
+        self.transact_named(step_label, |s| {
             let l = &mut s.symbol_mut().timeline.layers[layer];
             if !copy {
                 l.keyframes.retain(|k| k.frame != from);
@@ -1082,6 +1152,8 @@ impl Editor {
     }
 
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
+        self.drain_converted_entry_triggers(ctx);
+        self.document_settings_dialog(ctx);
         use neoflash_ui::{
             TextStyle,
             components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},

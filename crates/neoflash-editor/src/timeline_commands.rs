@@ -176,7 +176,12 @@ impl Editor {
             }
             TweenKind::Classic => {}
         }
-        self.transact(|s| {
+        let tween_label = match kind {
+            TweenKind::Classic => "Classic tween",
+            TweenKind::Shape => "Shape tween",
+            TweenKind::Motion => "Motion tween",
+        };
+        self.transact_named(tween_label, |s| {
             let l = s.layer;
             let layer = &mut s.symbol_mut().timeline.layers[l];
             let mut in_span = false;
@@ -212,7 +217,7 @@ impl Editor {
         let Some(start) = self.span_start() else {
             return;
         };
-        self.transact(|s| {
+        self.transact_named("Remove tween", |s| {
             let l = s.layer;
             let layer = &mut s.symbol_mut().timeline.layers[l];
             layer.keyframes.sort_by_key(|k| k.frame);
@@ -265,7 +270,7 @@ impl Editor {
             );
             return;
         }
-        self.transact(|s| {
+        self.transact_named("Add motion guide", |s| {
             let l = s.layer;
             let timeline = &mut s.symbol_mut().timeline;
             let guided = &timeline.layers[l];
@@ -307,7 +312,7 @@ impl Editor {
             self.message("Select a keyframe to clear.");
             return;
         }
-        self.transact(|s| {
+        self.transact_named("Clear keyframe", |s| {
             let l = s.layer;
             let layer = &mut s.symbol_mut().timeline.layers[l];
             if layer.keyframes.iter().any(|k| k.frame < frame) {
@@ -450,7 +455,7 @@ impl Editor {
             class_name: None,
             linkage_id: None,
         };
-        self.transact(|s| {
+        self.transact_named("New scene", |s| {
             if s.project.scenes.is_empty() {
                 s.project.scenes.push(s.project.root.clone());
             }
@@ -472,7 +477,7 @@ impl Editor {
         let current = self.current_scene().to_owned();
         let index = scenes.iter().position(|id| id == &current).unwrap_or(0);
         self.finish_edits();
-        self.transact(|s| {
+        self.transact_named("Delete scene", |s| {
             s.project.scenes.retain(|id| id != &current);
             s.project.symbols.retain(|symbol| symbol.id != current);
             s.project.root = s.project.scenes[0].clone();

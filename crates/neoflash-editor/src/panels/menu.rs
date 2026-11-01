@@ -33,23 +33,17 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("Edit ▸ Find and replace", P::FindReplace),
     ("Edit ▸ Preferences…", P::Preferences),
     ("Edit ▸ Keyboard shortcuts…", P::Preferences),
-    ("Modify ▸ Document…", P::DocumentSettings),
     ("Modify ▸ Timeline ▸ Layer properties…", P::LayerProperties),
     ("Control ▸ Test scene", P::TestMovie),
-    ("Window ▸ Swatches", P::Swatches),
-    ("Window ▸ Info", P::Info),
-    ("Window ▸ History", P::History),
     ("Window ▸ Compiler errors", P::CompilerErrors),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
-    ("Window ▸ Project", P::Project),
     ("Window ▸ Code snippets", P::CodeSnippets),
     ("Window ▸ Movie Explorer", P::MovieExplorer),
     ("Window ▸ Filters", P::PropertiesFilters),
     // Context menus (§8).
     ("Layer menu ▸ Properties…", P::LayerProperties),
     // Panel menus (§6).
-    ("Color menu ▸ Add swatch", P::Swatches),
     ("Color fill type ▸ Linear gradient", P::ColorGradient),
     ("Color fill type ▸ Radial gradient", P::ColorGradient),
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
@@ -59,7 +53,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Buttons and popovers (§4–§6).
     ("Breadcrumb ▸ Symbols & scenes", P::SymbolsPopover),
     ("Properties ▸ Publish settings…", P::PublishSettings),
-    ("Swatches popover ▸ Add swatch", P::Swatches),
     ("Swatches popover ▸ Gradient", P::ColorGradient),
     (
         "Tool options ▸ Rectangle primitive…",
@@ -89,7 +82,7 @@ fn entry_label(path: &str) -> &str {
 }
 
 /// Real panels in Window, in §8 order, with their shortcuts.
-const WINDOW_PANELS: [(&str, &str, PanelId); 13] = [
+const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
     ("Timeline", "⌥⌘T", PanelId::Timeline),
     ("Tools", "⌘F2", PanelId::Tools),
     ("Properties", "⌘F3", PanelId::Properties),
@@ -97,19 +90,85 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 13] = [
     ("Actions", "F9", PanelId::Actions),
     ("Align", "⌘K", PanelId::Align),
     ("Color", "⇧⌘F9", PanelId::Color),
+    ("Swatches", "⌘F9", PanelId::Swatches),
     ("Transform", "⌘T", PanelId::Transform),
+    ("Info", "⌘I", PanelId::Info),
+    ("Ease", "", PanelId::Ease),
+    ("History", "⌘F10", PanelId::History),
+    ("Scene", "⇧F2", PanelId::Scene),
     ("Output", "F2", PanelId::Output),
     ("Accessibility", "⇧F11", PanelId::Accessibility),
-    ("Ease", "", PanelId::Ease),
-    ("Scene", "⇧F2", PanelId::Scene),
     ("Motion editor", "", PanelId::MotionEditor),
+    ("Project", "", PanelId::Project),
 ];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConvertedTrigger {
+    DocumentSettings,
+    AddSwatch,
+}
+
+fn converted_triggers_id() -> egui::Id {
+    egui::Id::new("nf2-converted-entry-triggers")
+}
 
 impl Editor {
     /// Open the preview registered for `path` (buttons, shortcuts and menus share this).
+    /// Entry points whose panel/dialog has become real route through a frame trigger so call sites
+    /// that only hold `&egui::Context` still open the real feature.
     pub(crate) fn open_planned(ctx: &egui::Context, path: &str) {
+        let converted = match path {
+            "Modify ▸ Document…" => Some(ConvertedTrigger::DocumentSettings),
+            "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
+                Some(ConvertedTrigger::AddSwatch)
+            }
+            _ => None,
+        };
+        if let Some(trigger) = converted {
+            let id = converted_triggers_id();
+            ctx.data_mut(|d| {
+                let mut queue = d.get_temp::<Vec<ConvertedTrigger>>(id).unwrap_or_default();
+                queue.push(trigger);
+                d.insert_temp(id, queue);
+            });
+            return;
+        }
         if let Some(panel) = planned_entry(path) {
             planned::set_open(ctx, panel, true);
+        }
+    }
+
+    /// Execute any converted entry-point triggers queued during the frame.
+    pub(crate) fn drain_converted_entry_triggers(&mut self, ctx: &egui::Context) {
+        let id = converted_triggers_id();
+        let triggers = ctx
+            .data_mut(|d| d.remove_temp::<Vec<ConvertedTrigger>>(id))
+            .unwrap_or_default();
+        for trigger in triggers {
+            match trigger {
+                ConvertedTrigger::DocumentSettings => self.open_document_settings(),
+                ConvertedTrigger::AddSwatch => {
+                    self.add_active_swatch(ctx);
+                    self.show_panel(PanelId::Swatches);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn undo_menu_label(&self) -> String {
+        if self.vector.draft.as_ref().is_some_and(|d| !d.anchors.is_empty()) {
+            return "Undo".to_owned();
+        }
+        match self.history.undo_label() {
+            Some(step) if !step.is_empty() => format!("Undo {step}"),
+            _ => "Undo".to_owned(),
+        }
+    }
+
+    pub(crate) fn redo_menu_label(&self) -> String {
+        match self.history.redo_label() {
+            Some(step) if !step.is_empty() => format!("Redo {step}"),
+            _ => "Redo".to_owned(),
         }
     }
 
@@ -222,7 +281,13 @@ impl Editor {
                         menu_popup(ui, "File", "Publish settings…", "⇧F12", |ui| {
                             self.file_menu(ui, ctx);
                         });
-                        menu_popup(ui, "Edit", "Keyboard shortcuts…", "⌥⇧⌘K", |ui| {
+                        let undo_w = self.undo_menu_label();
+                        let redo_w = self.redo_menu_label();
+                        let edit_widest = ["Keyboard shortcuts…", undo_w.as_str(), redo_w.as_str()]
+                            .into_iter()
+                            .max_by_key(|s| s.len())
+                            .unwrap_or("Keyboard shortcuts…");
+                        menu_popup(ui, "Edit", edit_widest, "⌥⇧⌘K", |ui| {
                             edit_open = true;
                             if !self.clipboard.menu_open
                                 || self.clipboard.menu_viewport != Some(ctx.viewport_id())
@@ -335,10 +400,12 @@ impl Editor {
 
     /// Edit (§8) with the Edit ▸ Timeline submenu.
     fn edit_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let undo_label = self.undo_menu_label();
+        let redo_label = self.redo_menu_label();
         if menu_item_enabled(
             ui,
             self.history.can_undo() || self.vector.draft.is_some(),
-            "Undo",
+            &undo_label,
             "⌘Z",
         )
         .clicked()
@@ -346,7 +413,7 @@ impl Editor {
             self.undo();
             ui.close();
         }
-        if menu_item_enabled(ui, self.history.can_redo(), "Redo", "⇧⌘Z").clicked() {
+        if menu_item_enabled(ui, self.history.can_redo(), &redo_label, "⇧⌘Z").clicked() {
             self.redo();
             ui.close();
         }
@@ -660,23 +727,17 @@ impl Editor {
                 ui.close();
             }
         };
-        // Timeline · Tools · Properties · Library · Actions · Align · Color.
-        for index in 0..7 {
+        // Timeline · Tools · Properties · Library · Actions · Align · Color · Swatches ·
+        // Transform · Info · Ease · History · Scene · Output.
+        for index in 0..14 {
             toggle(self, ui, index);
         }
-        Self::planned_menu_toggle(ui, "Window ▸ Swatches", "⌘F9");
-        toggle(self, ui, 7);
-        Self::planned_menu_toggle(ui, "Window ▸ Info", "⌘I");
-        toggle(self, ui, 10);
-        Self::planned_menu_toggle(ui, "Window ▸ History", "⌘F10");
-        toggle(self, ui, 11);
-        toggle(self, ui, 8);
         Self::planned_menu_toggle(ui, "Window ▸ Compiler errors", "⌥F2");
-        toggle(self, ui, 9);
+        toggle(self, ui, 14);
         nf::menu_separator(ui);
-        toggle(self, ui, 12);
+        toggle(self, ui, 15);
         Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
-        Self::planned_menu_toggle(ui, "Window ▸ Project", "");
+        toggle(self, ui, 16);
         Self::planned_menu_toggle(ui, "Window ▸ Code snippets", "");
         Self::planned_menu_toggle(ui, "Window ▸ Movie Explorer", "");
         Self::planned_menu_toggle(ui, "Window ▸ Filters", "");

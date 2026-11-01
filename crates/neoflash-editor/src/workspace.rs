@@ -24,6 +24,10 @@ pub enum PanelId {
     Ease,
     Scene,
     MotionEditor,
+    History,
+    Swatches,
+    Info,
+    Project,
 }
 impl PanelId {
     pub fn title(self) -> &'static str {
@@ -41,6 +45,10 @@ impl PanelId {
             Self::Ease => "Ease",
             Self::Scene => "Scene",
             Self::MotionEditor => "Motion editor",
+            Self::History => "History",
+            Self::Swatches => "Swatches",
+            Self::Info => "Info",
+            Self::Project => "Project",
         }
     }
     /// Body padding of the docked panel, from the Figma outlines: inspector 16, Library 8,
@@ -83,9 +91,13 @@ impl PanelId {
             Self::Ease => i16::EASE,
             Self::Scene => i16::SCENE,
             Self::MotionEditor => i16::TWEEN_MOTION,
+            Self::History => i16::HISTORY,
+            Self::Swatches => i16::SWATCHES,
+            Self::Info => i16::INFO_PANEL,
+            Self::Project => i16::FOLDER,
         }
     }
-    pub const DETACHABLE: [Self; 13] = [
+    pub const DETACHABLE: [Self; 17] = [
         Self::Tools,
         Self::Timeline,
         Self::Library,
@@ -99,16 +111,24 @@ impl PanelId {
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::History,
+        Self::Swatches,
+        Self::Info,
+        Self::Project,
     ];
     /// Panels that are hidden in every built-in workspace and open beside Properties (or, for the
     /// Motion editor, beside the Timeline) the first time they are shown.
-    pub const UTILITY: [Self; 6] = [
+    pub const UTILITY: [Self; 10] = [
         Self::Align,
         Self::Transform,
         Self::Color,
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::History,
+        Self::Swatches,
+        Self::Info,
+        Self::Project,
     ];
     pub fn detachable(self) -> bool {
         Self::DETACHABLE.contains(&self)
@@ -129,10 +149,14 @@ impl PanelId {
             Self::Ease => Some("neoflash.panel.ease"),
             Self::Scene => Some("neoflash.panel.scene"),
             Self::MotionEditor => Some("neoflash.panel.motion_editor"),
+            Self::History => Some("neoflash.panel.history"),
+            Self::Swatches => Some("neoflash.panel.swatches"),
+            Self::Info => Some("neoflash.panel.info"),
+            Self::Project => Some("neoflash.panel.project"),
         }
     }
     #[cfg(test)]
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 17] = [
         Self::Timeline,
         Self::Tools,
         Self::Library,
@@ -146,6 +170,10 @@ impl PanelId {
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::History,
+        Self::Swatches,
+        Self::Info,
+        Self::Project,
     ];
     pub const BOTTOM: [Self; 4] = [
         Self::Properties,
@@ -188,6 +216,10 @@ pub struct PanelVisibility {
     pub ease: bool,
     pub scene: bool,
     pub motion_editor: bool,
+    pub history: bool,
+    pub swatches: bool,
+    pub info: bool,
+    pub project: bool,
 }
 impl Default for PanelVisibility {
     fn default() -> Self {
@@ -205,6 +237,10 @@ impl Default for PanelVisibility {
             ease: false,
             scene: false,
             motion_editor: false,
+            history: false,
+            swatches: false,
+            info: false,
+            project: false,
         }
     }
 }
@@ -224,6 +260,10 @@ impl PanelVisibility {
             PanelId::Ease => &mut self.ease,
             PanelId::Scene => &mut self.scene,
             PanelId::MotionEditor => &mut self.motion_editor,
+            PanelId::History => &mut self.history,
+            PanelId::Swatches => &mut self.swatches,
+            PanelId::Info => &mut self.info,
+            PanelId::Project => &mut self.project,
         }
     }
     pub fn is_visible(self, panel: PanelId) -> bool {
@@ -241,6 +281,10 @@ impl PanelVisibility {
             PanelId::Ease => self.ease,
             PanelId::Scene => self.scene,
             PanelId::MotionEditor => self.motion_editor,
+            PanelId::History => self.history,
+            PanelId::Swatches => self.swatches,
+            PanelId::Info => self.info,
+            PanelId::Project => self.project,
         }
     }
 }
@@ -342,7 +386,11 @@ impl DockEdge {
             | PanelId::Transform
             | PanelId::Color
             | PanelId::Ease
-            | PanelId::Scene => Self::Right,
+            | PanelId::Scene
+            | PanelId::History
+            | PanelId::Swatches
+            | PanelId::Info
+            | PanelId::Project => Self::Right,
             _ => Self::Bottom,
         }
     }
@@ -746,8 +794,12 @@ impl Default for DockLayout {
                                 PanelId::Align,
                                 PanelId::Transform,
                                 PanelId::Color,
+                                PanelId::Swatches,
+                                PanelId::Info,
                                 PanelId::Ease,
+                                PanelId::History,
                                 PanelId::Scene,
+                                PanelId::Project,
                             ],
                         )
                     },
@@ -963,6 +1015,23 @@ impl DockLayout {
     /// else the first group of its default edge.
     pub fn insert_at_default(&mut self, panel: PanelId) {
         let edge = DockEdge::default_for(panel);
+        if panel == PanelId::Swatches
+            && let Some(g) = self
+                .area(edge)
+                .groups
+                .iter()
+                .find(|group| group.tabs.contains(&PanelId::Color))
+        {
+            self.insert(
+                panel,
+                DockDestination::Tabs(DockLocation {
+                    edge,
+                    group: g.id,
+                    index: g.tabs.len(),
+                }),
+            );
+            return;
+        }
         let companion = match panel {
             PanelId::MotionEditor => Some(PanelId::Timeline),
             p if PanelId::UTILITY.contains(&p) => Some(PanelId::Properties),
@@ -1039,6 +1108,10 @@ pub struct DetachedPanels {
     pub ease: PanelWindowPrefs,
     pub scene: PanelWindowPrefs,
     pub motion_editor: PanelWindowPrefs,
+    pub history: PanelWindowPrefs,
+    pub swatches: PanelWindowPrefs,
+    pub info: PanelWindowPrefs,
+    pub project: PanelWindowPrefs,
 }
 impl DetachedPanels {
     fn get(&self, panel: PanelId) -> Option<&PanelWindowPrefs> {
@@ -1056,6 +1129,10 @@ impl DetachedPanels {
             PanelId::Ease => Some(&self.ease),
             PanelId::Scene => Some(&self.scene),
             PanelId::MotionEditor => Some(&self.motion_editor),
+            PanelId::History => Some(&self.history),
+            PanelId::Swatches => Some(&self.swatches),
+            PanelId::Info => Some(&self.info),
+            PanelId::Project => Some(&self.project),
         }
     }
     fn get_mut(&mut self, panel: PanelId) -> Option<&mut PanelWindowPrefs> {
@@ -1073,6 +1150,10 @@ impl DetachedPanels {
             PanelId::Ease => Some(&mut self.ease),
             PanelId::Scene => Some(&mut self.scene),
             PanelId::MotionEditor => Some(&mut self.motion_editor),
+            PanelId::History => Some(&mut self.history),
+            PanelId::Swatches => Some(&mut self.swatches),
+            PanelId::Info => Some(&mut self.info),
+            PanelId::Project => Some(&mut self.project),
         }
     }
     fn sanitize(&mut self) {
@@ -1127,7 +1208,14 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Tools => [88., 300.],
         PanelId::Timeline => [320., 180.],
         PanelId::Library => [248., 300.],
-        PanelId::Align | PanelId::Transform | PanelId::Color | PanelId::Scene => [248., 200.],
+        PanelId::Align
+        | PanelId::Transform
+        | PanelId::Color
+        | PanelId::Scene
+        | PanelId::History
+        | PanelId::Info => [248., 190.],
+        PanelId::Swatches => [300., 360.],
+        PanelId::Project => [248., 280.],
         PanelId::Ease => [320., 420.],
         PanelId::MotionEditor => [640., 260.],
         _ => [320., 220.],
@@ -1139,6 +1227,10 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Timeline => [900., 280.],
         PanelId::Library => [300., 600.],
         PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
+        PanelId::Swatches => [324., 490.],
+        PanelId::Info => [300., 220.],
+        PanelId::History => [260., 320.],
+        PanelId::Project => [300., 484.],
         PanelId::Scene => [260., 360.],
         PanelId::Ease => [376., 640.],
         PanelId::MotionEditor => [960., 520.],
@@ -1214,6 +1306,38 @@ pub fn recover_geometry(
     geometry
 }
 
+/// Default document properties saved from Document settings ▸ Make default (`DL-02`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DocumentDefaults {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub background: neoflash_core::Color,
+    pub units: crate::stage_view::RulerUnits,
+}
+
+impl Default for DocumentDefaults {
+    fn default() -> Self {
+        let blank = neoflash_core::Project::blank();
+        Self {
+            width: blank.width,
+            height: blank.height,
+            fps: blank.fps,
+            background: blank.background,
+            units: crate::stage_view::RulerUnits::Pixels,
+        }
+    }
+}
+
+impl DocumentDefaults {
+    pub fn sanitize(&mut self) {
+        self.width = self.width.clamp(1, 65535);
+        self.height = self.height.clamp(1, 65535);
+        self.fps = self.fps.clamp(1, 120);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspacePrefs {
@@ -1232,6 +1356,15 @@ pub struct WorkspacePrefs {
     /// Rulers, guides & grid settings saved with "Save as default" (View settings popover); every
     /// session starts from them. `None` = NF2 defaults.
     pub view_defaults: Option<crate::stage_view::ViewPrefs>,
+    /// Last picked colours in Swatches (`PP-10`), most recent first (bounded to 12).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_colors: Vec<neoflash_core::Color>,
+    /// User-added swatches (`Add swatch`, `PP-10`, bounded to 64).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_swatches: Vec<neoflash_core::Color>,
+    /// Default document settings saved with "Make default" (`DL-02`); `None` = `Project::blank()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_defaults: Option<DocumentDefaults>,
 }
 
 /// Presentation and playback options of the Timeline. Workspace-only, never in the document.
@@ -1302,6 +1435,9 @@ impl Default for WorkspacePrefs {
             template: WorkspaceTemplate::Classic,
             timeline: TimelineView::default(),
             view_defaults: None,
+            recent_colors: Vec::new(),
+            custom_swatches: Vec::new(),
+            document_defaults: None,
         }
     }
 }
@@ -1390,7 +1526,10 @@ impl WorkspaceTemplate {
                         vec![
                             group(
                                 5,
-                                vec![Properties, Transform, Align, Color, Ease, Scene],
+                                vec![
+                                    Properties, Transform, Align, Color, Swatches, Info, Ease,
+                                    History, Scene, Project,
+                                ],
                                 0.55,
                             ),
                             group(4, vec![Library], 0.45),
@@ -1418,8 +1557,12 @@ impl WorkspaceTemplate {
                     right: area(
                         inspector,
                         vec![
-                            group(5, vec![Properties, Library, Ease, Scene], 0.5),
-                            group(6, vec![Color, Align, Transform], 0.5),
+                            group(
+                                5,
+                                vec![Properties, Library, Info, Ease, History, Scene, Project],
+                                0.5,
+                            ),
+                            group(6, vec![Color, Swatches, Align, Transform], 0.5),
                         ],
                     ),
                     next_group: 7,
@@ -1442,7 +1585,10 @@ impl WorkspaceTemplate {
                         vec![
                             group(
                                 5,
-                                vec![Properties, Align, Transform, Color, Ease, Scene],
+                                vec![
+                                    Properties, Align, Transform, Color, Swatches, Info, Ease,
+                                    History, Scene, Project,
+                                ],
                                 0.5,
                             ),
                             group(4, vec![Library], 0.5),
@@ -1468,7 +1614,10 @@ impl WorkspaceTemplate {
                         280.,
                         vec![group(
                             5,
-                            vec![Properties, Library, Align, Transform, Color, Ease, Scene],
+                            vec![
+                                Properties, Library, Align, Transform, Color, Swatches, Info, Ease,
+                                History, Scene, Project,
+                            ],
                             1.,
                         )],
                     ),
@@ -1554,6 +1703,12 @@ impl WorkspacePrefs {
         if let Some(view) = &mut self.view_defaults {
             view.sanitize();
         }
+        if let Some(doc) = &mut self.document_defaults {
+            doc.sanitize();
+        }
+        self.recent_colors
+            .truncate(neoflash_ui::components::swatches::PALETTE_COLUMNS);
+        self.custom_swatches.truncate(64);
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
@@ -1638,6 +1793,9 @@ impl WorkspacePrefs {
         *self = Self {
             theme: self.theme,
             view_defaults: self.view_defaults.take(),
+            recent_colors: std::mem::take(&mut self.recent_colors),
+            custom_swatches: std::mem::take(&mut self.custom_swatches),
+            document_defaults: self.document_defaults.take(),
             dock,
             panels,
             active_bottom,
@@ -2033,7 +2191,39 @@ mod tests {
         assert_eq!(storage.values["unrelated"], "keep me");
         assert_eq!(storage.flushes, 0);
         assert!(storage.values[PREFS_KEY].len() < MAX_PREFS_BYTES);
-        assert!(!storage.values[PREFS_KEY].contains("project"));
+        assert!(!storage.values[PREFS_KEY].contains("symbols"));
+        assert!(!storage.values[PREFS_KEY].contains("keyframes"));
+    }
+    #[test]
+    fn legacy_preferences_without_track2_panels_or_swatches_load_and_new_fields_roundtrip() {
+        let legacy = r#"{"version":1,"theme":"dark","panels":{"timeline":true,"tools":true,"library":true,"properties":true,"actions":false,"accessibility":false,"output":false}}"#;
+        let loaded = WorkspacePrefs::from_json(legacy);
+        assert_eq!(loaded.theme, ThemeMode::Dark);
+        assert!(!loaded.panels.history);
+        assert!(!loaded.panels.swatches);
+        assert!(!loaded.panels.info);
+        assert!(!loaded.panels.project);
+        assert!(loaded.recent_colors.is_empty());
+        assert!(loaded.custom_swatches.is_empty());
+        assert!(loaded.document_defaults.is_none());
+
+        let mut prefs = loaded;
+        prefs.show_panel(PanelId::History);
+        prefs.show_panel(PanelId::Swatches);
+        prefs.show_panel(PanelId::Info);
+        prefs.show_panel(PanelId::Project);
+        prefs.recent_colors = vec![[91, 140, 255, 255], [255, 120, 64, 200]];
+        prefs.custom_swatches = vec![[24, 32, 48, 255]];
+        prefs.document_defaults = Some(DocumentDefaults {
+            width: 1280,
+            height: 720,
+            fps: 30,
+            background: [20, 24, 32, 255],
+            units: crate::stage_view::RulerUnits::Pixels,
+        });
+        let mut storage = Storage::default();
+        prefs.save(&mut storage);
+        assert_eq!(WorkspacePrefs::load(Some(&storage)), prefs);
     }
     #[test]
     fn malformed_large_unknown_version_and_unknown_theme_preferences_fail_soft() {

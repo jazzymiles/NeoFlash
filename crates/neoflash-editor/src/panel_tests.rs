@@ -1459,6 +1459,23 @@ impl Driver {
         labels.dedup();
         labels
     }
+    fn texts(&self) -> Vec<String> {
+        let mut texts: Vec<String> = self
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        texts.sort();
+        texts.dedup();
+        texts
+    }
     fn press(&mut self, at: Pos2, button: egui::PointerButton) {
         let event = |pressed| Event::PointerButton {
             pos: at,
@@ -1515,12 +1532,16 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         PanelId::Actions => "Actions (F9)",
         PanelId::Align => "Align (⌘K)",
         PanelId::Color => "Color (⇧⌘F9)",
+        PanelId::Swatches => "Swatches (⌘F9)",
         PanelId::Transform => "Transform (⌘T)",
+        PanelId::Info => "Info (⌘I)",
         PanelId::Output => "Output (F2)",
         PanelId::Accessibility => "Accessibility (⇧F11)",
         PanelId::Ease => "Ease",
+        PanelId::History => "History (⌘F10)",
         PanelId::Scene => "Scene (⇧F2)",
         PanelId::MotionEditor => "Motion editor",
+        PanelId::Project => "Project",
     };
 
     // Real panels: Window menu opens and closes; the tab menu's Hide closes too.
@@ -1597,6 +1618,18 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         "New symbol closes with Cancel"
     );
 
+    d.click("Modify");
+    d.click("Document… (⌘J)");
+    assert!(
+        d.editor.document_settings.is_some(),
+        "Document settings opens"
+    );
+    d.click("Cancel");
+    assert!(
+        d.editor.document_settings.is_none(),
+        "Document settings closes with Cancel"
+    );
+
     // Detached panels are native macOS windows here; their system close is handled in
     // `detached_panels` (`close_requested`) and is not reachable from a headless egui test.
     assert_eq!(
@@ -1616,4 +1649,529 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         "confirmation closes with Cancel"
     );
     assert_eq!(d.editor.project, edited);
+}
+
+#[test]
+fn history_panel_lists_named_steps_jumps_back_and_forward_clears_and_updates_edit_menu() {
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.editor.show_panel(PanelId::History);
+    let initial = d.editor.project.clone();
+
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.,
+            height: 50.,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        20.,
+        30.,
+    );
+    d.editor.transact_named("Move", |s| {
+        s.symbol_mut().timeline.layers[0].keyframes[0].elements[0].transform.x = 60.;
+    });
+    d.editor.transact_named("Recolour", |s| {
+        if let ElementKind::Rectangle { fill, .. } =
+            &mut s.symbol_mut().timeline.layers[0].keyframes[0].elements[0].kind
+        {
+            *fill = [240, 100, 40, 255];
+        }
+    });
+    let after_three = d.editor.project.clone();
+    assert_eq!(
+        d.editor.history.undo_labels().collect::<Vec<_>>(),
+        vec!["Rectangle", "Move", "Recolour"]
+    );
+    d.settle();
+
+    // Edit menu shows the descriptive top step label.
+    d.click("Edit");
+    assert!(
+        d.find("Undo Recolour (⌘Z)").is_some(),
+        "visible: {:?}",
+        d.labels()
+    );
+    // Close Edit menu by clicking History panel's "Move" step row to jump back to step 2.
+    d.click("Edit");
+    d.click("Move");
+    assert_eq!(d.editor.history.undo_len(), 2);
+    assert_eq!(d.editor.history.undo_label(), Some("Move"));
+    assert_eq!(d.editor.history.redo_label(), Some("Recolour"));
+
+    d.click("Edit");
+    assert!(d.find("Undo Move (⌘Z)").is_some());
+    assert!(d.find("Redo Recolour (⇧⌘Z)").is_some());
+    d.click("Edit");
+
+    // Jump all the way back to "Open" (step 0) without losing the 3 undone steps.
+    d.click("Open");
+    assert_eq!(d.editor.history.undo_len(), 0);
+    assert_eq!(d.editor.project, initial);
+    assert_eq!(d.editor.history.redo_len(), 3);
+
+    // Click the dimmed "Recolour" row to jump forward across all 3 steps.
+    d.click("Recolour");
+    assert_eq!(d.editor.history.undo_len(), 3);
+    assert_eq!(d.editor.project, after_three);
+    d.editor.project.validate().unwrap();
+
+    // Clear history preserves the document and empties both stacks.
+    d.click("Clear history");
+    assert!(!d.editor.history.can_undo());
+    assert!(!d.editor.history.can_redo());
+    assert_eq!(d.editor.project, after_three);
+}
+
+#[test]
+fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_persists_swatches() {
+    let mut d = Driver::new();
+    let mut project = Project::blank();
+    project.format_version = 5;
+    let grad = GradientPaint {
+        kind: GradientKind::Linear,
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: [255, 20, 120, 255],
+            },
+            GradientStop {
+                ratio: 255,
+                color: [20, 200, 255, 255],
+            },
+        ],
+        matrix: [80.0, 0.0, 0.0, 80.0, 40.0, 40.0],
+        focal_point_ratio: 0.0,
+    };
+    let mut editor = Editor::from_project(&d.ctx, project);
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 90.,
+            height: 60.,
+            fill: [18, 52, 86, 255],
+            stroke: [12, 34, 56, 255],
+            stroke_width: 2.,
+        },
+        40.,
+        40.,
+    );
+    let rect_selection = editor.selection.clone();
+    editor.add_element(
+        ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 80., y: 0. },
+                PathCommand::LineTo { x: 80., y: 80. },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::default(),
+            fill: [255, 20, 120, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+            fill_gradient: Some(grad.clone()),
+            stroke_gradient: None,
+        },
+        160.,
+        40.,
+    );
+    let painted_selection = editor.selection.clone();
+    editor.clear_history();
+    editor.show_panel(PanelId::Swatches);
+    d.editor = editor;
+    d.settle();
+
+    let doc_colors = d.editor.document_swatch_colors();
+    assert!(doc_colors.contains(&[18, 52, 86, 255]));
+    assert!(doc_colors.contains(&[12, 34, 56, 255]));
+    assert!(doc_colors.contains(&[255, 20, 120, 255]));
+    let palette = neoflash_ui::components::default_palette();
+    let doc_grads = d.editor.document_gradient_swatches(&palette);
+    assert!(doc_grads.len() > 6, "includes authored gradient + NF2 presets");
+
+    // Solid swatch application + Undo on the selected rectangle.
+    d.editor.selection = rect_selection.clone();
+    d.editor.apply_swatch_solid(&d.ctx, [240, 100, 40, 255]);
+    assert_eq!(d.editor.history.undo_label(), Some("Fill colour"));
+    d.editor.project.validate().unwrap();
+    if let ElementKind::Rectangle { fill, .. } =
+        &d.editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind
+    {
+        assert_eq!(*fill, [240, 100, 40, 255]);
+    } else {
+        panic!("expected rectangle");
+    }
+    d.editor.undo();
+    if let ElementKind::Rectangle { fill, .. } =
+        &d.editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind
+    {
+        assert_eq!(*fill, [18, 52, 86, 255]);
+    }
+
+    // No-colour fill & active-stroke handoff with Color panel.
+    d.click("No colour");
+    assert_eq!(d.editor.history.undo_label(), Some("No fill"));
+    d.editor.undo();
+    d.ctx.data_mut(|data| {
+        data.insert_temp(egui::Id::new("color-panel-active-stroke"), true);
+    });
+    d.editor.apply_swatch_solid(&d.ctx, [200, 40, 60, 255]);
+    assert_eq!(d.editor.history.undo_label(), Some("Stroke colour"));
+    d.ctx.data_mut(|data| {
+        data.insert_temp(egui::Id::new("color-panel-active-stroke"), false);
+    });
+
+    // Gradient swatch application on PaintedPath + Undo.
+    d.editor.selection = painted_selection;
+    let preset_grad = doc_grads.last().unwrap().1.clone();
+    d.editor.apply_swatch_gradient(&d.ctx, &preset_grad);
+    assert_eq!(d.editor.history.undo_label(), Some("Fill gradient"));
+    d.editor.project.validate().unwrap();
+    d.editor.undo();
+
+    // Converted `Add swatch` menu trigger persists custom swatch in WorkspacePrefs.
+    d.editor.clear_selection();
+    d.editor.fill = [77, 88, 99, 255];
+    Editor::open_planned(&d.ctx, "Color menu ▸ Add swatch");
+    d.settle();
+    assert!(d.editor.workspace.custom_swatches.contains(&[77, 88, 99, 255]));
+}
+
+#[test]
+fn info_panel_edits_selection_bounds_and_samples_live_stage_cursor_and_rgba() {
+    let mut d = Driver::new();
+    let mut project = Project::blank();
+    project.background = [20, 30, 40, 255];
+    let mut editor = Editor::from_project(&d.ctx, project);
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.,
+            height: 60.,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        100.,
+        150.,
+    );
+    let sel = editor.selection.clone();
+    editor.clear_history();
+    editor.show_panel(PanelId::Info);
+    d.editor = editor;
+    d.editor.selection = sel;
+    d.settle();
+
+    let (bounds, editable) = d.editor.selection_info_bounds(&d.ctx).expect("selected rect");
+    assert!(editable);
+    assert!((bounds.min.x - 100.).abs() < 0.5 && (bounds.min.y - 150.).abs() < 0.5);
+    assert!((bounds.width() - 80.).abs() < 0.5 && (bounds.height() - 60.).abs() < 0.5);
+
+    d.editor.transact_named("Transform", |s| {
+        s.apply_info_bounds_edit(bounds, 200.0, 250.0, 160.0, 120.0);
+    });
+    d.editor.project.validate().unwrap();
+    let (moved, _) = d.editor.selection_info_bounds(&d.ctx).unwrap();
+    assert!((moved.min.x - 200.).abs() < 0.5 && (moved.min.y - 250.).abs() < 0.5);
+    assert!((moved.width() - 160.).abs() < 0.5 && (moved.height() - 120.).abs() < 0.5);
+    d.editor.undo();
+    let (restored, _) = d.editor.selection_info_bounds(&d.ctx).unwrap();
+    assert!((restored.min.x - 100.).abs() < 0.5 && (restored.width() - 80.).abs() < 0.5);
+
+    // Move pointer over painted rectangle on stage: live coordinates and RGBA readout update.
+    let zoom = d.editor.zoom.max(0.01);
+    let origin = d.editor.stage_view.origin;
+    let over_rect = Pos2::new(origin.x + 140.0 * zoom, origin.y + 180.0 * zoom);
+    d.step(vec![Event::PointerMoved(over_rect)]);
+    d.step(vec![Event::PointerMoved(over_rect)]);
+    assert_eq!(
+        d.editor.sample_stage_color_at(&d.ctx, Pos2::new(140.0, 180.0)),
+        [91, 140, 255, 255]
+    );
+    assert!(
+        d.texts().iter().any(|l| l == "R 91  G 140  B 255  A 100%"),
+        "visible: {:?}",
+        d.texts()
+    );
+    assert_eq!(
+        d.editor.sample_stage_color_at(&d.ctx, Pos2::new(10.0, 10.0)),
+        [20, 30, 40, 255],
+        "bare stage reports document background colour"
+    );
+
+    // Off-stage pointer shows "—".
+    d.step(vec![Event::PointerMoved(Pos2::new(4.0, 4.0))]);
+    d.step(vec![Event::PointerMoved(Pos2::new(4.0, 4.0))]);
+    assert!(d.texts().iter().any(|l| l == "—"));
+}
+
+#[test]
+fn project_panel_manages_folders_sources_actions_handoff_and_status() {
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.editor.set_panel_visible(PanelId::Timeline, false);
+    d.editor.set_panel_visible(PanelId::Library, false);
+    d.editor.set_panel_visible(PanelId::Actions, false);
+    d.editor.show_panel(PanelId::Project);
+    d.settle();
+
+    d.click("New folder");
+    assert!(d.editor.project_panel.folders.contains("folder"));
+    let src_id = d.editor.project_new_source_file(ScriptLanguage::ActionScript3);
+    d.editor.project.validate().unwrap();
+    assert_eq!(d.editor.project.sources.len(), 1);
+    assert_eq!(d.editor.project.sources[0].path, "folder/Class1.as");
+    assert_eq!(d.editor.selected_source.as_deref(), Some(src_id.as_str()));
+    assert!(d.editor.workspace.is_panel_visible(PanelId::Actions));
+    assert_eq!(d.editor.history.undo_label(), Some("New source file"));
+
+    // Link a symbol to `folder.Class1` and verify Project panel's dirty + linkage status caption.
+    let sym_name = "OrbitClip".to_owned();
+    d.editor.transact_named("Class linkage", |s| {
+        let mut sym = s.project.symbols[0].clone();
+        sym.id = new_id("symbol");
+        sym.name = sym_name.clone();
+        sym.timeline.layers[0].id = new_id("layer");
+        sym.timeline.layers[0].keyframes[0].elements.clear();
+        sym.class_name = Some("folder.Class1".into());
+        s.project.enable_program();
+        s.project.symbols.push(sym);
+    });
+    d.settle();
+    let expected_caption = format!("● unsaved changes · Class1.as is linked to symbol \"{sym_name}\"");
+    assert!(
+        d.texts().iter().any(|l| l == &expected_caption),
+        "expected {expected_caption:?} in {:?}",
+        d.texts()
+    );
+
+    // Delete the selected source file and undo.
+    assert!(d.editor.project_delete_selected());
+    assert!(d.editor.project.sources.is_empty());
+    d.editor.project.validate().unwrap();
+    d.editor.undo();
+    assert_eq!(d.editor.project.sources.len(), 1);
+    assert_eq!(d.editor.project.sources[0].path, "folder/Class1.as");
+}
+
+#[test]
+fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_validity() {
+    use crate::app::Pending;
+    use crate::panels::document_settings::DocumentSettingsDraft;
+    use crate::stage_view::RulerUnits;
+
+    let mut d = Driver::new();
+    let mut project = Project::blank();
+    project.width = 500;
+    project.height = 400;
+    project.fps = 24;
+    let mut editor = Editor::from_project(&d.ctx, project);
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.,
+            height: 80.,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        50.,
+        40.,
+    );
+    editor.clear_history();
+    let before_doc = editor.project.clone();
+    d.editor = editor;
+    d.settle();
+
+    // Open Document settings via Modify ▸ Document…, click Match contents, Make default, and OK.
+    d.click("Modify");
+    d.click("Document… (⌘J)");
+    assert!(d.editor.document_settings.is_some());
+    d.click("Match contents");
+    {
+        let draft = d.editor.document_settings.as_mut().unwrap();
+        assert!((draft.width - 100.0).abs() < 0.5);
+        assert!((draft.height - 80.0).abs() < 0.5);
+        draft.fps = 30.0;
+        draft.units = RulerUnits::Inches;
+    }
+    d.click("Make default");
+    assert_eq!(d.editor.workspace.document_defaults.unwrap().fps, 30);
+    d.click("OK");
+    assert!(d.editor.document_settings.is_none());
+    assert_eq!(d.editor.project.width, 100);
+    assert_eq!(d.editor.project.height, 80);
+    assert_eq!(d.editor.project.fps, 30);
+    assert_eq!(d.editor.stage_view.prefs.units, RulerUnits::Inches);
+    assert_eq!(d.editor.history.undo_label(), Some("Document settings"));
+    d.editor.project.validate().unwrap();
+    let shifted = &d.editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    assert!(shifted.transform.x.abs() < 1e-3 && shifted.transform.y.abs() < 1e-3);
+
+    // One Undo restores original 500×400 stage and (50, 40) artwork position.
+    d.editor.undo();
+    assert_eq!(d.editor.project, before_doc);
+
+    // Scale content with stage scales root elements proportionally in one Undo.
+    d.editor.commit_document_settings(DocumentSettingsDraft {
+        width: 1000.0,
+        height: 800.0,
+        constrain: true,
+        aspect: 1.25,
+        scale_content: true,
+        anchor: neoflash_ui::components::RegistrationPoint::TopLeft,
+        units: RulerUnits::Pixels,
+        background: egui::Color32::from_rgb(16, 20, 28),
+        fps: 60.0,
+        match_shift: None,
+    });
+    d.editor.project.validate().unwrap();
+    let scaled = &d.editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    assert!((scaled.transform.x - 100.0).abs() < 1e-3 && (scaled.transform.y - 80.0).abs() < 1e-3);
+    d.editor.undo();
+    assert_eq!(d.editor.project, before_doc);
+
+    // `Make default` applies to `File ▸ New`.
+    d.editor.perform(Pending::New, &d.ctx);
+    assert_eq!(d.editor.project.width, 100);
+    assert_eq!(d.editor.project.height, 80);
+    assert_eq!(d.editor.project.fps, 30);
+    assert_eq!(d.editor.stage_view.prefs.units, RulerUnits::Inches);
+
+    // Library symbol commands: Duplicate, Swap (with playback clamping & cycle rejection), Delete.
+    fn push_test_symbol(project: &mut Project, name: &str, kind: SymbolKind, frames: u32) -> Id {
+        let mut sym = project.symbols[0].clone();
+        sym.id = new_id("symbol");
+        sym.name = name.into();
+        sym.kind = kind;
+        sym.folder.clear();
+        sym.timeline.frame_count = frames;
+        sym.timeline.layers[0].id = new_id("layer");
+        sym.timeline.layers[0].keyframes[0].elements.clear();
+        let id = sym.id.clone();
+        project.symbols.push(sym);
+        id
+    }
+    let sym_a = push_test_symbol(&mut d.editor.project, "Hero", SymbolKind::MovieClip, 4);
+    d.editor.project.symbol_mut(&sym_a).unwrap().class_name = Some("Hero".into());
+    d.editor.project.symbol_mut(&sym_a).unwrap().linkage_id = Some("hero_mc".into());
+    d.editor.project.format_version = 4;
+
+    let sym_b = push_test_symbol(&mut d.editor.project, "Badge", SymbolKind::Graphic, 2);
+    let sym_c = push_test_symbol(&mut d.editor.project, "Spark", SymbolKind::Graphic, 1);
+
+    // Duplicate clears class/linkage and assigns fresh IDs.
+    let dup_id = d.editor.duplicate_symbol(&sym_a).expect("duplicated Hero");
+    d.editor.project.validate().unwrap();
+    let dup = d.editor.project.symbol(&dup_id).unwrap();
+    assert_eq!(dup.name, "Hero copy");
+    assert!(dup.class_name.is_none() && dup.linkage_id.is_none());
+    d.editor.undo();
+    assert!(d.editor.project.symbol(&dup_id).is_none());
+
+    // Place an instance of Hero on root with custom transform, instance name, script & accessibility,
+    // and place Badge inside Hero (`Hero -> Badge`) and Spark inside Badge (`Badge -> Spark`).
+    d.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: sym_a.clone(),
+            playback: InstancePlayback::Independent,
+        },
+        120.,
+        140.,
+    );
+    let placed_id = {
+        let el = &mut d.editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0];
+        el.name = "player1".into();
+        el.transform.rotation = 35.0;
+        el.scripts.push(ObjectScript {
+            event: ObjectEvent::EnterFrame,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace(1);".into(),
+            },
+        });
+        el.accessibility = Some(Accessibility {
+            name: "Player".into(),
+            description: String::new(),
+            role: AccessibleRole::Button,
+            tab_order: 0,
+            disabled: false,
+        });
+        el.id.clone()
+    };
+
+    // Enter Hero and place Badge inside Hero (`Hero -> Badge`), then enter Badge and place Spark:
+    // swapping inside Hero to Hero (direct cycle) or inside Badge to Hero (indirect cycle) is rejected.
+    d.editor.enter_symbol(sym_a.clone());
+    d.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: sym_b.clone(),
+            playback: InstancePlayback::Loop,
+        },
+        10.,
+        10.,
+    );
+    assert!(!d.editor.can_swap_instance_symbol(&sym_a));
+    assert!(!d.editor.swap_instance_symbol(&sym_a));
+    d.editor.enter_symbol(sym_b.clone());
+    d.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: sym_c,
+            playback: InstancePlayback::Loop,
+        },
+        5.,
+        5.,
+    );
+    assert!(!d.editor.can_swap_instance_symbol(&sym_a));
+    assert!(!d.editor.swap_instance_symbol(&sym_a));
+    d.editor.editing.truncate(1);
+
+    // On root, select the Hero instance and swap it to Badge (MovieClip -> Graphic).
+    d.editor.select_single_id(placed_id.clone());
+    assert!(d.editor.can_swap_instance_symbol(&sym_b));
+    assert!(d.editor.swap_instance_symbol(&sym_b));
+    assert_eq!(d.editor.history.undo_label(), Some("Swap symbol"));
+    d.editor.project.validate().unwrap();
+    let swapped = d.editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .find(|e| e.id == placed_id)
+        .unwrap();
+    assert_eq!(swapped.name, "player1");
+    assert_eq!(swapped.transform.rotation, 35.0);
+    assert_eq!(swapped.scripts.len(), 1);
+    assert!(swapped.accessibility.is_some());
+    assert!(matches!(
+        &swapped.kind,
+        ElementKind::Instance {
+            symbol_id,
+            playback: InstancePlayback::Loop
+        } if symbol_id == &sym_b
+    ));
+    d.editor.undo();
+    let unswapped = d.editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .find(|e| e.id == placed_id)
+        .unwrap();
+    assert!(matches!(
+        &unswapped.kind,
+        ElementKind::Instance { symbol_id, .. } if symbol_id == &sym_a
+    ));
+
+    // Delete symbol refuses root/scene symbols, exits active editing breadcrumb, removes instances, and undoes.
+    let root_id = d.editor.project.root.clone();
+    assert!(!d.editor.delete_symbol(&root_id));
+    d.editor.editing.push(sym_a.clone());
+    let before_delete = d.editor.project.clone();
+    assert!(d.editor.delete_symbol(&sym_a));
+    assert_eq!(d.editor.editing, vec![root_id]);
+    assert!(d.editor.project.symbol(&sym_a).is_none());
+    assert!(
+        !d.editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .any(|e| e.id == placed_id)
+    );
+    d.editor.project.validate().unwrap();
+    d.editor.undo();
+    assert_eq!(d.editor.project, before_delete);
 }
