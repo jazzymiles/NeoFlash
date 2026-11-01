@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "eaee2fcb68297cd2aa59943bbae2ce6549765580aa931a1528059cff3987738c",
+  "reviews": [
+    {
+      "id": "AS2-FOUNDATION-COMPLETE-20261101",
+      "date": "2026-11-01",
+      "commit": "6230c1484361b94aea96a9368bf531864103e472",
+      "title": "Complete AS2 foundation areas 1-6 and adjacent Accessibility, Video, and loader APIs",
+      "summary": "Implements and verifies #initclip/#endinitclip, intrinsic declarations, MovieClip.beginBitmapFill, tellTarget, ifFrameLoaded, call, _level0/_levelN, variable.scroll/maxscroll, Accessibility and _accProps, Video typing and deblocking, MovieClipLoader.removeListener and load lifecycle callbacks, and checkPolicyFile validation across MovieClipLoader, Sound, and NetStream.",
+      "tests": [
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-core/tests/as2_input.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "web/tests/path-cache.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:directives.html##initclip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:directives.html##endinitclip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#intrinsic",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginBitmapFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#tellTarget()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "partial",
+          "note": "Evaluates 1..=_totalframes, frame labels, and scene names on the current MovieClip timeline; self-contained HTML5 bundles preload all authored frames up front rather than progressive SWF frame streaming."
+        },
+        {
+          "catalogId": "as2:global_functions.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "partial",
+          "note": "_level0 resolves to the main publication root timeline independently of _lockroot across expressions, target paths, and eval(); _levelN (N >= 1) resolves to undefined because multi-SWF levels are outside single-document HTML5 exports."
+        },
+        {
+          "catalogId": "as2:global_props.html#scroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#maxscroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#isActive()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#updateProperties()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_accProps",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "partial",
+          "note": "Validates and stores integer 0..=5 on VideoState in shared Rust and resets on restart; browser HTML5 <video> decoders manage post-processing internally rather than applying Flash On2/Sorenson deblocking levels."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Validates and stores Boolean checkPolicyFile state on MovieClipLoader instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadStart",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadProgress",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadError",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Validates and stores Boolean checkPolicyFile state on AS2 Sound instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Validates and stores Boolean checkPolicyFile state on AS2 NetStream instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        }
+      ]
+    }
+  ]
+}

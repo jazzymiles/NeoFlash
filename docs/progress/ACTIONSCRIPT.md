@@ -15,13 +15,13 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 1. Mathematics and 2D geometry | 155 | 0 | 152 | 1 | 2 | 0.0% | 98.1% |
 | 2. Objects, language and collections | 582 | 16 | 361 | 112 | 93 | 2.7% | 64.8% |
 | 3. MovieClip and timeline | 37 | 10 | 22 | 5 | 0 | 27.0% | 86.5% |
-| 4. Display, events and basic input | 678 | 359 | 195 | 124 | 0 | 52.9% | 81.7% |
-| 5. Graphics, bitmaps and filters | 313 | 8 | 151 | 154 | 0 | 2.6% | 50.8% |
-| 6. Text and fonts | 174 | 23 | 59 | 92 | 0 | 13.2% | 47.1% |
+| 4. Display, events and basic input | 678 | 361 | 196 | 121 | 0 | 53.2% | 82.2% |
+| 5. Graphics, bitmaps and filters | 313 | 102 | 114 | 97 | 0 | 32.6% | 69.0% |
+| 6. Text and fonts | 174 | 84 | 26 | 64 | 0 | 48.3% | 63.2% |
 | 7. File audio and video playback | 91 | 1 | 36 | 52 | 2 | 1.1% | 40.7% |
 | 8. Services and advanced Player APIs | 2,134 | 0 | 359 | 1,775 | 0 | 0.0% | 16.8% |
-| **Now: areas 1–6** | 1,939 | 416 | 940 | 488 | 95 | 21.5% | 69.9% |
-| **All Flash Player areas** | 4,164 | 417 | 1,335 | 2,315 | 97 | 10.0% | 42.1% |
+| **Now: areas 1–6** | 1,939 | 573 | 871 | 400 | 95 | 29.6% | 74.5% |
+| **All Flash Player areas** | 4,164 | 574 | 1,266 | 2,227 | 97 | 13.8% | 44.2% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -30,15 +30,15 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 0 | 128 | 0 | 0 | 0.0% | 100.0% |
-| 2. Objects, language and collections | 281 | 23 | 255 | 3 | 0 | 8.2% | 98.9% |
-| 3. MovieClip and timeline | 123 | 4 | 114 | 1 | 4 | 3.3% | 95.9% |
+| 2. Objects, language and collections | 281 | 26 | 255 | 0 | 0 | 9.3% | 100.0% |
+| 3. MovieClip and timeline | 123 | 7 | 116 | 0 | 0 | 5.7% | 100.0% |
 | 4. Display, events and basic input | 130 | 5 | 125 | 0 | 0 | 3.8% | 100.0% |
 | 5. Graphics, bitmaps and filters | 145 | 3 | 142 | 0 | 0 | 2.1% | 100.0% |
-| 6. Text and fonts | 118 | 2 | 114 | 0 | 2 | 1.7% | 98.3% |
-| 7. File audio and video playback | 83 | 1 | 66 | 16 | 0 | 1.2% | 80.7% |
-| 8. Services and advanced Player APIs | 230 | 0 | 163 | 54 | 13 | 0.0% | 70.9% |
-| **Now: areas 1–6** | 925 | 37 | 878 | 4 | 6 | 4.0% | 98.9% |
-| **All Flash Player areas** | 1,238 | 38 | 1,107 | 74 | 19 | 3.1% | 92.5% |
+| 6. Text and fonts | 118 | 4 | 114 | 0 | 0 | 3.4% | 100.0% |
+| 7. File audio and video playback | 83 | 2 | 69 | 12 | 0 | 2.4% | 85.5% |
+| 8. Services and advanced Player APIs | 230 | 8 | 164 | 46 | 12 | 3.5% | 74.8% |
+| **Now: areas 1–6** | 925 | 45 | 880 | 0 | 0 | 4.9% | 100.0% |
+| **All Flash Player areas** | 1,238 | 55 | 1,113 | 58 | 12 | 4.4% | 94.3% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -51,15 +51,15 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
 | AS2 | core | 145 | 9 | 136 | 0 | 0 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 19 | 144 | 3 | 19 |
+| AS2 | language | 185 | 27 | 146 | 0 | 12 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 10 | 827 | 71 | 0 |
+| AS2 | runtime | 908 | 19 | 831 | 58 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
 | AS3 | core | 376 | 2 | 277 | 4 | 93 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 14 | 94 | 13 | 3 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 403 | 997 | 3,848 | 2 |
+| AS3 | runtime | 5,250 | 562 | 928 | 3,758 | 2 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-TEXT-DISPLAY-BITMAP-20261101` | 2026-11-01 | `6230c1484361` | 9 → partial, 159 → working |
+| `AS2-FOUNDATION-COMPLETE-20261101` | 2026-11-01 | `6230c1484361` | 6 → partial, 17 → working |
 | `AS3-STAGE-UI-TEXT-20261101` | 2026-11-01 | `1db72af7575f` | 14 → partial, 362 → working |
 | `AS2-FOUNDATION-20261101` | 2026-11-01 | `1db72af7575f` | 19 → partial, 22 → working |
 | `AS2-TIMELINE-SOUND-20261101` | 2026-11-01 | `feb7cea5cad5` | 1 → working |
@@ -4489,3 +4491,212 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:property:flash/ui/Mouse.html#supportsNativeCursor` — **working**: Main contract covered by the listed tests.
 
 Evidence: [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs)
+
+### AS2-FOUNDATION-COMPLETE-20261101 — Complete AS2 foundation areas 1-6 and adjacent Accessibility, Video, and loader APIs
+
+Implements and verifies #initclip/#endinitclip, intrinsic declarations, MovieClip.beginBitmapFill, tellTarget, ifFrameLoaded, call, _level0/_levelN, variable.scroll/maxscroll, Accessibility and _accProps, Video typing and deblocking, MovieClipLoader.removeListener and load lifecycle callbacks, and checkPolicyFile validation across MovieClipLoader, Sound, and NetStream.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:directives.html##initclip()` — **working**: Main contract covered by the listed tests.
+- `as2:directives.html##endinitclip()` — **working**: Main contract covered by the listed tests.
+- `as2:statements.html#intrinsic` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClip.html#beginBitmapFill()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#tellTarget()` — **working**: Main contract covered by the listed tests.
+- `as2:global_functions.html#ifFrameLoaded()` — **partial**: Evaluates 1..=_totalframes, frame labels, and scene names on the current MovieClip timeline; self-contained HTML5 bundles preload all authored frames up front rather than progressive SWF frame streaming.
+- `as2:global_functions.html#call()` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#_level` — **partial**: _level0 resolves to the main publication root timeline independently of _lockroot across expressions, target paths, and eval(); _levelN (N >= 1) resolves to undefined because multi-SWF levels are outside single-document HTML5 exports.
+- `as2:global_props.html#scroll` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#maxscroll` — **working**: Main contract covered by the listed tests.
+- `as2:Accessibility.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:Accessibility.html#isActive()` — **working**: Main contract covered by the listed tests.
+- `as2:Accessibility.html#updateProperties()` — **working**: Main contract covered by the listed tests.
+- `as2:global_props.html#_accProps` — **working**: Main contract covered by the listed tests.
+- `as2:Video.html#class` — **working**: Main contract covered by the listed tests.
+- `as2:Video.html#deblocking` — **partial**: Validates and stores integer 0..=5 on VideoState in shared Rust and resets on restart; browser HTML5 <video> decoders manage post-processing internally rather than applying Flash On2/Sorenson deblocking levels.
+- `as2:MovieClipLoader.html#removeListener()` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClipLoader.html#checkPolicyFile` — **partial**: Validates and stores Boolean checkPolicyFile state on MovieClipLoader instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5.
+- `as2:MovieClipLoader.html#event:onLoadStart` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClipLoader.html#event:onLoadProgress` — **working**: Main contract covered by the listed tests.
+- `as2:MovieClipLoader.html#event:onLoadError` — **working**: Main contract covered by the listed tests.
+- `as2:Sound.html#checkPolicyFile` — **partial**: Validates and stores Boolean checkPolicyFile state on AS2 Sound instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5.
+- `as2:NetStream.html#checkPolicyFile` — **partial**: Validates and stores Boolean checkPolicyFile state on AS2 NetStream instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5.
+
+Evidence: [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-core/tests/as2_input.rs](../../crates/neoflash-core/tests/as2_input.rs), [crates/neoflash-core/tests/dynamic_display.rs](../../crates/neoflash-core/tests/dynamic_display.rs), [web/tests/path-cache.test.cjs](../../web/tests/path-cache.test.cjs)
+
+### AS3-TEXT-DISPLAY-BITMAP-20261101 — AS3 TextField/TextFormat layout & queries, display blend/enums and BitmapData pixel/Vector APIs
+
+Implement AS3 TextFormat 18-property uniform profile, TextField viewport/scroll/autoSize/render flags and Rust-backed paragraph/character/point queries, DisplayObject blendMode/cacheAsBitmap/opaqueBackground, flash.display graphics/blend enum classes, and BitmapData pixel/channel/noise/hitTest/Vector.<uint> operations.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:class:flash/display/Bitmap.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/BlendMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/CapsStyle.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/GradientType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/GraphicsPathCommand.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/GraphicsPathWinding.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/InterpolationMethod.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/JointStyle.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/LineScaleMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/PNGEncoderOptions.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/PixelSnapping.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/display/SpreadMethod.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextFieldType.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:class:flash/text/TextFormatAlign.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#ADD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#ALPHA` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#DARKEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#DIFFERENCE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#ERASE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#HARDLIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#INVERT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#LAYER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#LIGHTEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#MULTIPLY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#NORMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#OVERLAY` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#SCREEN` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#SHADER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/BlendMode.html#SUBTRACT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/CapsStyle.html#NONE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/CapsStyle.html#ROUND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/CapsStyle.html#SQUARE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GradientType.html#LINEAR` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GradientType.html#RADIAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#CUBIC_CURVE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#CURVE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#LINE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#MOVE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#NO_OP` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_LINE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_MOVE_TO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathWinding.html#EVEN_ODD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/GraphicsPathWinding.html#NON_ZERO` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/InterpolationMethod.html#RGB` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/JointStyle.html#BEVEL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/JointStyle.html#MITER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/JointStyle.html#ROUND` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/LineScaleMode.html#NONE` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/LineScaleMode.html#NORMAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/LineScaleMode.html#VERTICAL` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/SpreadMethod.html#PAD` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/SpreadMethod.html#REFLECT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/display/SpreadMethod.html#REPEAT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFieldType.html#INPUT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFormatAlign.html#CENTER` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFormatAlign.html#END` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFormatAlign.html#LEFT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFormatAlign.html#RIGHT` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextFormatAlign.html#START` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/display/Bitmap.html#Bitmap()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/display/BitmapData.html#BitmapData()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/display/PNGEncoderOptions.html#PNGEncoderOptions()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/text/TextField.html#TextField()` — **working**: Main contract covered by the listed tests.
+- `AS3:constructor:flash/text/TextFormat.html#TextFormat()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#clone()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#colorTransform()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#compare()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#copyChannel()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#copyPixels()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#copyPixelsToByteArray()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#dispose()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#encode()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#fillRect()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#floodFill()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#generateFilterRect()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#getColorBoundsRect()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#getPixel()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#getPixel32()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#getPixels()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#getVector()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#hitTest()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#lock()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#merge()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#noise()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#paletteMap()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#perlinNoise()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#pixelDissolve()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#scroll()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#setPixel()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#setPixel32()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#setPixels()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#setVector()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#threshold()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/display/BitmapData.html#unlock()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getCharBoundaries()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getCharIndexAtPoint()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getFirstCharInParagraph()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineIndexAtPoint()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineIndexOfChar()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineLength()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineOffset()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getLineText()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#getParagraphLength()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#replaceSelectedText()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/TextField.html#setSelection()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Bitmap.html#bitmapData` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Bitmap.html#pixelSnapping` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/Bitmap.html#smoothing` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/BitmapData.html#height` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/BitmapData.html#rect` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/BitmapData.html#transparent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/BitmapData.html#width` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/DisplayObject.html#blendMode` — **partial**: Supports normal, layer, multiply, screen, lighten, darken, difference, add, overlay and hardlight on Canvas 2D; alpha, erase, invert, subtract and shader throw explicit diagnostics.
+- `AS3:property:flash/display/DisplayObject.html#cacheAsBitmap` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/DisplayObject.html#opaqueBackground` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/display/PNGEncoderOptions.html#fastCompression` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#alwaysShowSelection` — **partial**: Validates and stores Boolean state on Rust TextFieldState; unfocused selection highlight rendering is not drawn on Canvas 2D yet.
+- `AS3:property:flash/text/TextField.html#antiAliasType` — **partial**: Validates and stores normal/advanced anti-aliasing mode on Rust TextFieldState; Canvas 2D uses host browser glyph rasterization rather than Flash Saffron outlines.
+- `AS3:property:flash/text/TextField.html#autoSize` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#background` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#backgroundColor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#border` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#borderColor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#bottomScrollV` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#caretIndex` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#condenseWhite` — **partial**: Validates and stores Boolean state on Rust TextFieldState; HTML whitespace condensation awaits htmlText support.
+- `AS3:property:flash/text/TextField.html#defaultTextFormat` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#displayAsPassword` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#embedFonts` — **partial**: Validates and stores Boolean state on Rust TextFieldState; embedded SWF/CFF font outline lookup is not implemented yet.
+- `AS3:property:flash/text/TextField.html#gridFitType` — **partial**: Validates and stores none/pixel/subpixel grid-fitting mode on Rust TextFieldState; Canvas 2D uses host browser glyph hinting.
+- `AS3:property:flash/text/TextField.html#length` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#maxChars` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#maxScrollH` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#maxScrollV` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#mouseWheelEnabled` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#multiline` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#numLines` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#restrict` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#scrollH` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#scrollV` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#selectable` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#selectionBeginIndex` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#selectionEndIndex` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#sharpness` — **partial**: Clamps to [-400, 400] and persists on Rust TextFieldState; Saffron-specific glyph sharpness modulation is not applied on Canvas 2D.
+- `AS3:property:flash/text/TextField.html#text` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#textColor` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#textHeight` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#textWidth` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#thickness` — **partial**: Clamps to [-200, 200] and persists on Rust TextFieldState; Saffron-specific glyph thickness modulation is not applied on Canvas 2D.
+- `AS3:property:flash/text/TextField.html#type` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#wordWrap` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#blockIndent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#bold` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#bullet` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#color` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#font` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#indent` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#italic` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#kerning` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#leading` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#leftMargin` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#letterSpacing` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#rightMargin` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#size` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextFormat.html#tabStops` — **partial**: Custom increasing tab stop positions work in Rust layout when wordWrap is false; wrapped custom tabStops throw an explicit diagnostic.
+- `AS3:property:flash/text/TextFormat.html#underline` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-core/src/text.rs](../../crates/neoflash-core/src/text.rs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/core-surface.mjs](../../crates/neoflash-script/tests/core-surface.mjs), [crates/neoflash-script/tests/filter-gallery.mjs](../../crates/neoflash-script/tests/filter-gallery.mjs), [crates/neoflash-script/tests/project.rs](../../crates/neoflash-script/tests/project.rs), [crates/neoflash-script/tests/text-layout.mjs](../../crates/neoflash-script/tests/text-layout.mjs)

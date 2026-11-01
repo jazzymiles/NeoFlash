@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "eaee2fcb68297cd2aa59943bbae2ce6549765580aa931a1528059cff3987738c",
+  "catalogSha256": "4969e774c1fe3c3e3b10ea3351906f67c53405641ecf927c5f328ee54eee02f3",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -1321,6 +1321,22 @@
         "reviewIds": [
           "AS3-STAGE-UI-TEXT-20261101"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-as2-foundation-complete.json",
+        "sha256": "8079ded8da7edf044730147f613f7caab213c11bcff4466bfa1a1613a7b0d3c4",
+        "baseCatalogSha256": "eaee2fcb68297cd2aa59943bbae2ce6549765580aa931a1528059cff3987738c",
+        "reviewIds": [
+          "AS2-FOUNDATION-COMPLETE-20261101"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-01-as3-text-display-bitmap.json",
+        "sha256": "2f99fb55926f558cdab09a45a73775d62fecdd5796b59cf5731fe055461055d5",
+        "baseCatalogSha256": "a9bbdf5919606902fd03556b661fd1a3f18edfa604d42afb32d12fb30bad4624",
+        "reviewIds": [
+          "AS3-TEXT-DISPLAY-BITMAP-20261101"
+        ]
       }
     ],
     "statusReviews": [
@@ -1390,29 +1406,49 @@
           "partial": 14,
           "working": 362
         }
+      },
+      {
+        "id": "AS2-FOUNDATION-COMPLETE-20261101",
+        "date": "2026-11-01",
+        "commit": "6230c1484361b94aea96a9368bf531864103e472",
+        "path": "docs/progress/reviews/2026-11-01-as2-foundation-complete.json",
+        "changes": {
+          "partial": 6,
+          "working": 17
+        }
+      },
+      {
+        "id": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+        "date": "2026-11-01",
+        "commit": "6230c1484361b94aea96a9368bf531864103e472",
+        "path": "docs/progress/reviews/2026-11-01-as3-text-display-bitmap.json",
+        "changes": {
+          "partial": 9,
+          "working": 159
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 457,
-      "partial": 3030,
-      "missing": 42443,
-      "needs_review": 117,
+      "implemented_subset": 633,
+      "partial": 2967,
+      "missing": 42337,
+      "needs_review": 110,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 38,
-        "partial": 1538,
-        "missing": 712,
-        "needs_review": 19,
+        "implemented_subset": 55,
+        "partial": 1544,
+        "missing": 696,
+        "needs_review": 12,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 419,
-        "partial": 1492,
-        "missing": 41731,
+        "implemented_subset": 578,
+        "partial": 1423,
+        "missing": 41641,
         "needs_review": 98,
         "total": 43740
       }
@@ -1440,10 +1476,10 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 33,
-        "partial": 238,
-        "missing": 16,
-        "needs_review": 22,
+        "implemented_subset": 41,
+        "partial": 240,
+        "missing": 13,
+        "needs_review": 15,
         "total": 309
       },
       "platform_extension": {
@@ -1454,9 +1490,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 413,
-        "partial": 1824,
-        "missing": 3919,
+        "implemented_subset": 581,
+        "partial": 1759,
+        "missing": 3816,
         "needs_review": 2,
         "total": 6158
       }
@@ -1485,10 +1521,10 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 19,
-          "partial": 144,
-          "missing": 3,
-          "needs_review": 19,
+          "implemented_subset": 27,
+          "partial": 146,
+          "missing": 0,
+          "needs_review": 12,
           "total": 185
         },
         "platform_extension": {
@@ -1499,9 +1535,9 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 10,
-          "partial": 827,
-          "missing": 71,
+          "implemented_subset": 19,
+          "partial": 831,
+          "missing": 58,
           "needs_review": 0,
           "total": 908
         }
@@ -1543,9 +1579,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 403,
-          "partial": 997,
-          "missing": 3848,
+          "implemented_subset": 562,
+          "partial": 928,
+          "missing": 3758,
           "needs_review": 2,
           "total": 5250
         }
@@ -53707,6 +53743,2175 @@
           "status": "missing",
           "ruleId": "B01",
           "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS2-FOUNDATION-COMPLETE-20261101",
+      "title": "Complete AS2 foundation areas 1-6 and adjacent Accessibility, Video, and loader APIs",
+      "reason": "Implements and verifies #initclip/#endinitclip, intrinsic declarations, MovieClip.beginBitmapFill, tellTarget, ifFrameLoaded, call, _level0/_levelN, variable.scroll/maxscroll, Accessibility and _accProps, Video typing and deblocking, MovieClipLoader.removeListener and load lifecycle callbacks, and checkPolicyFile validation across MovieClipLoader, Sound, and NetStream.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "6a68e9382fbcfbd69db81dc899dad8938cf962714c3fb2a0060c24cc13b44010"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "6c226d7079ddc6cd4c838716060f96c9810add46a34bf52af055d94867d782c8"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_input.rs",
+          "sha256": "b68f8d3d7f3d3d9757d298f4354e2af703d27a658419574f8e187c207f5377ab"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "7605440fffd03a7c3f4ac816d1f3a2bde7371fc064cf8696f7f0c0d42b822d20"
+        },
+        {
+          "path": "web/tests/path-cache.test.cjs",
+          "sha256": "202efccf67ee7dfd9591e32dc89e66091c2dfddb99012f509e595a54282674cd"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:directives.html##initclip()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:directives.html##endinitclip()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:statements.html#intrinsic",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginBitmapFill()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_functions.html#tellTarget()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "partial",
+          "scopeNote": "Evaluates 1..=_totalframes, frame labels, and scene names on the current MovieClip timeline; self-contained HTML5 bundles preload all authored frames up front rather than progressive SWF frame streaming."
+        },
+        {
+          "catalogId": "as2:global_functions.html#call()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "partial",
+          "scopeNote": "_level0 resolves to the main publication root timeline independently of _lockroot across expressions, target paths, and eval(); _levelN (N >= 1) resolves to undefined because multi-SWF levels are outside single-document HTML5 exports."
+        },
+        {
+          "catalogId": "as2:global_props.html#scroll",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#maxscroll",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Accessibility.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Accessibility.html#isActive()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Accessibility.html#updateProperties()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:global_props.html#_accProps",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Video.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "partial",
+          "scopeNote": "Validates and stores integer 0..=5 on VideoState in shared Rust and resets on restart; browser HTML5 <video> decoders manage post-processing internally rather than applying Flash On2/Sorenson deblocking levels."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#removeListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean checkPolicyFile state on MovieClipLoader instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadStart",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadProgress",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadError",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean checkPolicyFile state on AS2 Sound instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean checkPolicyFile state on AS2 NetStream instances; browser CORS replaces Flash crossdomain.xml policy-file fetches in HTML5."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:directives.html##initclip()",
+          "status": "missing",
+          "ruleId": "C16",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "as2:directives.html##endinitclip()",
+          "status": "missing",
+          "ruleId": "C16",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "as2:statements.html#intrinsic",
+          "status": "missing",
+          "ruleId": "C12",
+          "evidenceKind": "source_routing_and_selected_probes"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginBitmapFill()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:global_functions.html#tellTarget()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_functions.html#call()",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#scroll",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:global_props.html#maxscroll",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#class",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#isActive()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Accessibility.html#updateProperties()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:global_props.html#_accProps",
+          "status": "needs_review",
+          "ruleId": "U01",
+          "evidenceKind": "unassessed_individually"
+        },
+        {
+          "catalogId": "as2:Video.html#class",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#removeListener()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadStart",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadProgress",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadError",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+      "title": "AS3 TextField/TextFormat layout & queries, display blend/enums and BitmapData pixel/Vector APIs",
+      "reason": "Implement AS3 TextFormat 18-property uniform profile, TextField viewport/scroll/autoSize/render flags and Rust-backed paragraph/character/point queries, DisplayObject blendMode/cacheAsBitmap/opaqueBackground, flash.display graphics/blend enum classes, and BitmapData pixel/channel/noise/hitTest/Vector.<uint> operations.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/text.rs",
+          "sha256": "2baba8e1baff32e9a4ff32354cb55d2490db55ddd48abc0f38e5be25cb054321"
+        },
+        {
+          "path": "crates/neoflash-script/tests/bitmap-pixels.mjs",
+          "sha256": "8839effefb7476b0164d242a3df13c2836dab66b45e976013116d239bb5d730d"
+        },
+        {
+          "path": "crates/neoflash-script/tests/core-surface.mjs",
+          "sha256": "74303d2fa61a0b8d66df940bbd21e416586195c877abe99aaef0ae5baaeeba54"
+        },
+        {
+          "path": "crates/neoflash-script/tests/filter-gallery.mjs",
+          "sha256": "7f3fbf3bf647fd331fd269baddbe186e0977cb9c8b04507c50d6c2bfd45aacad"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "6c226d7079ddc6cd4c838716060f96c9810add46a34bf52af055d94867d782c8"
+        },
+        {
+          "path": "crates/neoflash-script/tests/text-layout.mjs",
+          "sha256": "5ed4321eaebd5a54e068600d7ca47cb341f09c98632d15e9169dce290fb2c655"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/Bitmap.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BlendMode.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/CapsStyle.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GradientType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsPathCommand.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsPathWinding.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/InterpolationMethod.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JointStyle.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/LineScaleMode.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PNGEncoderOptions.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SpreadMethod.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ADD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#DARKEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#DIFFERENCE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#HARDLIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LIGHTEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#MULTIPLY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#NORMAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#OVERLAY",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SCREEN",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#ROUND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GradientType.html#LINEAR",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GradientType.html#RADIAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CUBIC_CURVE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CURVE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#LINE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#MOVE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#NO_OP",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_LINE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_MOVE_TO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#EVEN_ODD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#NON_ZERO",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#RGB",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#ROUND",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NORMAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#PAD",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldType.html#INPUT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#CENTER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#END",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#LEFT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#RIGHT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#START",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Bitmap.html#Bitmap()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/BitmapData.html#BitmapData()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/PNGEncoderOptions.html#PNGEncoderOptions()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextField.html#TextField()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextFormat.html#TextFormat()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#clone()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#colorTransform()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#compare()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyChannel()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixels()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixelsToByteArray()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#dispose()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#fillRect()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#floodFill()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#generateFilterRect()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getColorBoundsRect()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel32()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixels()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getVector()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#hitTest()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#merge()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#noise()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#paletteMap()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#perlinNoise()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#pixelDissolve()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#scroll()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel32()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixels()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setVector()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#threshold()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getCharBoundaries()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getCharIndexAtPoint()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getFirstCharInParagraph()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexAtPoint()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexOfChar()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineLength()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineOffset()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineText()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getParagraphLength()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#replaceSelectedText()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#setSelection()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#bitmapData",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#height",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#rect",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#transparent",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#width",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#blendMode",
+          "status": "partial",
+          "scopeNote": "Supports normal, layer, multiply, screen, lighten, darken, difference, add, overlay and hardlight on Canvas 2D; alpha, erase, invert, subtract and shader throw explicit diagnostics."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#cacheAsBitmap",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#opaqueBackground",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/PNGEncoderOptions.html#fastCompression",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#alwaysShowSelection",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean state on Rust TextFieldState; unfocused selection highlight rendering is not drawn on Canvas 2D yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#antiAliasType",
+          "status": "partial",
+          "scopeNote": "Validates and stores normal/advanced anti-aliasing mode on Rust TextFieldState; Canvas 2D uses host browser glyph rasterization rather than Flash Saffron outlines."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#autoSize",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#background",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#backgroundColor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#border",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#borderColor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#bottomScrollV",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#caretIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#condenseWhite",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean state on Rust TextFieldState; HTML whitespace condensation awaits htmlText support."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#defaultTextFormat",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#embedFonts",
+          "status": "partial",
+          "scopeNote": "Validates and stores Boolean state on Rust TextFieldState; embedded SWF/CFF font outline lookup is not implemented yet."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#gridFitType",
+          "status": "partial",
+          "scopeNote": "Validates and stores none/pixel/subpixel grid-fitting mode on Rust TextFieldState; Canvas 2D uses host browser glyph hinting."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#length",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxChars",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxScrollH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxScrollV",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#mouseWheelEnabled",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#multiline",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#numLines",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#restrict",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#scrollH",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#scrollV",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectable",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionBeginIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionEndIndex",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#sharpness",
+          "status": "partial",
+          "scopeNote": "Clamps to [-400, 400] and persists on Rust TextFieldState; Saffron-specific glyph sharpness modulation is not applied on Canvas 2D."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#text",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textColor",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textHeight",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textWidth",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#thickness",
+          "status": "partial",
+          "scopeNote": "Clamps to [-200, 200] and persists on Rust TextFieldState; Saffron-specific glyph thickness modulation is not applied on Canvas 2D."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#type",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#wordWrap",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#blockIndent",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#bold",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#bullet",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#color",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#italic",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#kerning",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leading",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#letterSpacing",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#tabStops",
+          "status": "partial",
+          "scopeNote": "Custom increasing tab stop positions work in Rust layout when wordWrap is false; wrapped custom tabStops throw an explicit diagnostic."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/Bitmap.html#",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BlendMode.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/CapsStyle.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GradientType.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsPathCommand.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsPathWinding.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/InterpolationMethod.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JointStyle.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/LineScaleMode.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PNGEncoderOptions.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/PixelSnapping.html#",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SpreadMethod.html#",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFieldType.html#",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextFormatAlign.html#",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ADD",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#DARKEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#DIFFERENCE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#HARDLIGHT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LIGHTEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#MULTIPLY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#NORMAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#OVERLAY",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SCREEN",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#ROUND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GradientType.html#LINEAR",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GradientType.html#RADIAL",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CUBIC_CURVE_TO",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CURVE_TO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#LINE_TO",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#MOVE_TO",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#NO_OP",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_LINE_TO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_MOVE_TO",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#EVEN_ODD",
+          "status": "partial",
+          "ruleId": "CLIPPING-HTML5-20261027T0652Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#NON_ZERO",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#RGB",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#ROUND",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NORMAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#PAD",
+          "status": "partial",
+          "ruleId": "GRAPHICS-HTML5-20261027T0619Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFieldType.html#INPUT",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#CENTER",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#END",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#LEFT",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#RIGHT",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#START",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Bitmap.html#Bitmap()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/BitmapData.html#BitmapData()",
+          "status": "partial",
+          "ruleId": "TRANSFORMS-HTML5-20261027T0502Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/PNGEncoderOptions.html#PNGEncoderOptions()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextField.html#TextField()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/TextFormat.html#TextFormat()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#clone()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#colorTransform()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#compare()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyChannel()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixels()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixelsToByteArray()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#dispose()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#fillRect()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#floodFill()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#generateFilterRect()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getColorBoundsRect()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel32()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getPixels()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#getVector()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#hitTest()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#merge()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#noise()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#paletteMap()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#perlinNoise()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#pixelDissolve()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#scroll()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel32()",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setPixels()",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#setVector()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#threshold()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getCharBoundaries()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getCharIndexAtPoint()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getFirstCharInParagraph()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexAtPoint()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexOfChar()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineLength()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineOffset()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getLineText()",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#getParagraphLength()",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#replaceSelectedText()",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextField.html#setSelection()",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#bitmapData",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#height",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#rect",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#transparent",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/BitmapData.html#width",
+          "status": "partial",
+          "ruleId": "BITMAP-HTML5-20261027T0345Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#blendMode",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#cacheAsBitmap",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#opaqueBackground",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/PNGEncoderOptions.html#fastCompression",
+          "status": "partial",
+          "ruleId": "IMAGE-PIPELINE-HTML5-20261027T0943Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#alwaysShowSelection",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#antiAliasType",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#autoSize",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#background",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#backgroundColor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#border",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#borderColor",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#bottomScrollV",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#caretIndex",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#condenseWhite",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#defaultTextFormat",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#embedFonts",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#gridFitType",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#length",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_html5_browser"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxChars",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxScrollH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#maxScrollV",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#mouseWheelEnabled",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#multiline",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#numLines",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#restrict",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#scrollH",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#scrollV",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectable",
+          "status": "partial",
+          "ruleId": "FILTERS-HTML5-20261027T0844Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionBeginIndex",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#selectionEndIndex",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#sharpness",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#text",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textColor",
+          "status": "partial",
+          "ruleId": "COLLECTIONS-TEXT-HTML5-20261027T0120Z",
+          "evidenceKind": "independent_html5_browser"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textHeight",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textWidth",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#thickness",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#type",
+          "status": "partial",
+          "ruleId": "FORMS-HTML5-20261027T0811Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#wordWrap",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#blockIndent",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#bold",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#bullet",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#color",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#font",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#italic",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#kerning",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leading",
+          "status": "partial",
+          "ruleId": "TEXT-LAYOUT-HTML5-20261027T0409Z",
+          "evidenceKind": "independent_browser_bounded_profile"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#letterSpacing",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#size",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#tabStops",
+          "status": "missing",
+          "ruleId": "B01",
+          "evidenceKind": "architectural_absence_inference"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
+          "status": "partial",
+          "ruleId": "AS3-CORE-SURFACE-20261101",
+          "evidenceKind": "test_backed_review"
         }
       ]
     }

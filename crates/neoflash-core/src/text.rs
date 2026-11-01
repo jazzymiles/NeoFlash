@@ -1550,12 +1550,10 @@ where
             let row_advance = layout.line_height.max(0.0);
             for (idx, line) in layout.lines.iter().enumerate() {
                 let bottom = line.y + row_advance.max(line.height);
-                let left = field
-                    .box_size
-                    .map_or(line.x, |_| 2.0_f64.min(line.x));
-                let right = field
-                    .box_size
-                    .map_or(line.x + line.width, |b| (b.width - 2.0).max(line.x + line.width));
+                let left = field.box_size.map_or(line.x, |_| 2.0_f64.min(line.x));
+                let right = field.box_size.map_or(line.x + line.width, |b| {
+                    (b.width - 2.0).max(line.x + line.width)
+                });
                 if y >= line.y && y < bottom && x >= left && x <= right {
                     return Ok(serde_json::json!(idx as i32));
                 }
@@ -1634,7 +1632,10 @@ mod query_tests {
     use super::*;
 
     fn fixed_measure(strings: &[String], _format: &TextFormat) -> Result<Vec<f64>, TextError> {
-        Ok(strings.iter().map(|s| s.chars().count() as f64 * 10.0).collect())
+        Ok(strings
+            .iter()
+            .map(|s| s.chars().count() as f64 * 10.0)
+            .collect())
     }
 
     #[test]
