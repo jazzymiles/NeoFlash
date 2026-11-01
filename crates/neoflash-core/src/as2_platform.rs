@@ -26,6 +26,13 @@ pub struct ScriptAS2Platform {
     sandbox_type: &'static str,
     caps_lock: bool,
     num_lock: bool,
+    has_ime: bool,
+    ime_enabled: bool,
+    ime_mode: String,
+    ime_composition: String,
+    allowed_domains: Vec<String>,
+    allowed_insecure_domains: Vec<String>,
+    policy_files: Vec<String>,
 }
 
 impl ScriptAS2Platform {
@@ -107,6 +114,13 @@ impl ScriptAS2Platform {
             },
             caps_lock: false,
             num_lock: false,
+            has_ime: facts.composition,
+            ime_enabled: facts.composition,
+            ime_mode: "ALPHANUMERIC_HALF".into(),
+            ime_composition: String::new(),
+            allowed_domains: Vec::new(),
+            allowed_insecure_domains: Vec::new(),
+            policy_files: Vec::new(),
         })
     }
 
@@ -136,6 +150,132 @@ impl ScriptAS2Platform {
     pub fn reset(&mut self) {
         self.caps_lock = false;
         self.num_lock = false;
+        self.ime_enabled = self.has_ime;
+        self.ime_mode = "ALPHANUMERIC_HALF".into();
+        self.ime_composition.clear();
+        self.allowed_domains.clear();
+        self.allowed_insecure_domains.clear();
+        self.policy_files.clear();
+    }
+    pub fn execute(&mut self, input: &str) -> Result<String, String> {
+        if input.len() > 1_056_768 {
+            return Err("AS2 platform command exceeds 1 MiB".into());
+        }
+        let q: Value = serde_json::from_str(input).map_err(|e| e.to_string())?;
+        let register_domains = |list: &mut Vec<String>, items: &Value| -> Result<usize, String> {
+            let values = items
+                .as_array()
+                .filter(|v| !v.is_empty() && v.len() <= 32)
+                .ok_or("allowDomain requires 1..=32 domain strings")?;
+            for item in values {
+                let d = item
+                    .as_str()
+                    .filter(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control))
+                    .ok_or("Domain entry requires 1..=256 printable characters")?;
+                if !list.iter().any(|existing| existing == d) {
+                    if list.len() >= 64 {
+                        return Err("At most 64 allowed domains per publication".into());
+                    }
+                    list.push(d.to_owned());
+                }
+            }
+            Ok(list.len())
+        };
+        let value = match q["op"].as_str().unwrap_or("") {
+            "ime_get_enabled" => json!(self.ime_enabled),
+            "ime_set_enabled" => {
+                let enabled = q["enabled"]
+                    .as_bool()
+                    .ok_or("System.IME.setEnabled requires a Boolean")?;
+                self.ime_enabled = enabled;
+                json!(true)
+            }
+            "ime_get_mode" => json!(self.ime_mode),
+            "ime_set_mode" => {
+                let mode = q["mode"]
+                    .as_str()
+                    .ok_or("System.IME.setConversionMode requires a mode String")?;
+                let valid = matches!(
+                    mode,
+                    "ALPHANUMERIC_FULL"
+                        | "ALPHANUMERIC_HALF"
+                        | "CHINESE"
+                        | "JAPANESE_HIRAGANA"
+                        | "JAPANESE_KATAKANA_FULL"
+                        | "JAPANESE_KATAKANA_HALF"
+                        | "KOREAN"
+                        | "UNKNOWN"
+                );
+                if valid && self.ime_enabled {
+                    self.ime_mode = mode.to_owned();
+                    json!(true)
+                } else {
+                    json!(false)
+                }
+            }
+            "ime_set_composition" => {
+                let text = q["composition"]
+                    .as_str()
+                    .filter(|s| s.len() <= 4096)
+                    .ok_or(
+                        "System.IME.setCompositionString requires a String of at most 4096 bytes",
+                    )?;
+                if self.ime_enabled {
+                    self.ime_composition = text.to_owned();
+                    json!(true)
+                } else {
+                    json!(false)
+                }
+            }
+            "ime_do_conversion" => {
+                if self.ime_enabled {
+                    json!({"ok": true, "text": self.ime_composition})
+                } else {
+                    json!({"ok": false, "text": ""})
+                }
+            }
+            "allow_domain" => json!(register_domains(&mut self.allowed_domains, &q["domains"])?),
+            "allow_insecure_domain" => json!(register_domains(
+                &mut self.allowed_insecure_domains,
+                &q["domains"]
+            )?),
+            "load_policy_file" => {
+                let url = q["url"]
+                    .as_str()
+                    .filter(|s| {
+                        !s.is_empty()
+                            && s.len() <= 4096
+                            && !s.chars().any(char::is_control)
+                            && (s.starts_with("http://")
+                                || s.starts_with("https://")
+                                || s.starts_with("xmlsocket://"))
+                    })
+                    .ok_or("System.security.loadPolicyFile requires an http://, https:// or xmlsocket:// URL")?;
+                if !self.policy_files.iter().any(|existing| existing == url) {
+                    if self.policy_files.len() >= 64 {
+                        return Err("At most 64 policy file URLs per publication".into());
+                    }
+                    self.policy_files.push(url.to_owned());
+                }
+                json!(true)
+            }
+            "set_clipboard" => {
+                q["text"]
+                    .as_str()
+                    .filter(|s| s.len() <= 1_048_576)
+                    .ok_or("System.setClipboard requires a String of at most 1 MiB")?;
+                json!(true)
+            }
+            "show_settings" => {
+                let tab = q["tab"]
+                    .as_i64()
+                    .filter(|t| (0..=3).contains(t))
+                    .ok_or("System.showSettings tabID requires an integer from 0 through 3")?;
+                json!(tab)
+            }
+            _ => return Err("Unknown AS2 platform operation".into()),
+        };
+        Ok(value.to_string())
     }
 }
 
@@ -292,8 +432,60 @@ mod tests {
         platform.key_toggle(144, true);
         assert!(platform.is_toggled(20) && platform.is_toggled(144));
         assert!(!platform.is_toggled(13));
+        assert_eq!(
+            platform.execute(r#"{"op":"ime_get_enabled"}"#).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"ime_set_mode","mode":"JAPANESE_HIRAGANA"}"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            platform.execute(r#"{"op":"ime_get_mode"}"#).unwrap(),
+            "\"JAPANESE_HIRAGANA\""
+        );
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"ime_set_composition","composition":"かな"}"#)
+                .unwrap(),
+            "true"
+        );
+        let conv: Value =
+            serde_json::from_str(&platform.execute(r#"{"op":"ime_do_conversion"}"#).unwrap())
+                .unwrap();
+        assert_eq!(conv, json!({"ok":true,"text":"かな"}));
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"allow_domain","domains":["example.com"]}"#)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"load_policy_file","url":"https://example.com/crossdomain.xml"}"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"set_clipboard","text":"copied"}"#)
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            platform
+                .execute(r#"{"op":"show_settings","tab":2}"#)
+                .unwrap(),
+            "2"
+        );
         platform.reset();
         assert!(!platform.is_toggled(20));
+        assert_eq!(
+            platform.execute(r#"{"op":"ime_get_mode"}"#).unwrap(),
+            "\"ALPHANUMERIC_HALF\""
+        );
         assert_eq!(language_code("en-US"), "en");
         assert_eq!(language_code("zh-CN"), "zh-CN");
         assert_eq!(language_code(""), "xu");

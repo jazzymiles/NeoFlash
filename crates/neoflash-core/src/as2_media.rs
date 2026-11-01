@@ -11,6 +11,7 @@ pub struct ScriptAS2Stream {
     video: bool,
     frames: VecDeque<(f64, f64)>,
     buffer_time: f64,
+    max_pause_buffer_time: f64,
     buffer_waiting: bool,
 }
 impl Default for ScriptAS2Stream {
@@ -20,6 +21,7 @@ impl Default for ScriptAS2Stream {
             video: true,
             frames: VecDeque::new(),
             buffer_time: 0.1,
+            max_pause_buffer_time: 30.0,
             buffer_waiting: true,
         }
     }
@@ -88,6 +90,12 @@ impl ScriptAS2Stream {
             "set_buffer_time" => {
                 self.buffer_time = finite(&q["seconds"], "Buffer time", 0., 60.)?;
                 json!(self.buffer_time)
+            }
+            "max_pause_buffer_time" => json!(self.max_pause_buffer_time),
+            "set_max_pause_buffer_time" => {
+                self.max_pause_buffer_time =
+                    finite(&q["seconds"], "Max pause buffer time", 0., 3600.)?;
+                json!(self.max_pause_buffer_time)
             }
             "buffer_wait" => {
                 self.buffer_waiting = true;

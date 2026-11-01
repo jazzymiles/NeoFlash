@@ -380,7 +380,8 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
-      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
+      let invokeAsfunction=()=>{};
+      if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
@@ -456,6 +457,54 @@
         }
         if(!inDispatch&&typeof context!=='undefined')render();
       }
+      invokeAsfunction=(caller,rawSpec)=>{
+        const spec=String(rawSpec??''),comma=spec.indexOf(','),path=(comma<0?spec:spec.slice(0,comma)).trim(),arg=comma<0?undefined:spec.slice(comma+1);
+        if(!path)return;
+        const parts=path.split('.');
+        if(parts.some(p=>!p||['__proto__','prototype','constructor'].includes(p)))throw new TypeError('Invalid asfunction target path.');
+        const resolveFrom=base=>{
+          let cur=base,parent=base;
+          for(let i=0;i<parts.length;i++){
+            if(cur===null||cur===undefined)return null;
+            parent=cur;
+            const part=parts[i];
+            if(part==='_root')cur=references.has(cur)?as2RootFor(cur):proxyFor([]);
+            else if(part==='_level0')cur=proxyFor([]);
+            else if(part==='_global')cur=legacyGlobals?._global;
+            else cur=as2ObjectHost?as2ObjectHost.get(cur,part):cur[part];
+          }
+          return typeof cur==='function'?{receiver:parent,fn:cur}:null;
+        };
+        const origin=references.has(caller)&&display?.alive(caller)?caller:proxyFor([]);
+        const found=resolveFrom(origin)||(origin!==proxyFor([])?resolveFrom(proxyFor([])):null)||resolveFrom(legacyGlobals?._global);
+        if(!found)return;
+        Reflect.apply(found.fn,found.receiver,comma<0?[]:[arg]);
+      };
+      const resolveLegacyMovieTarget=(caller,target)=>{
+        const base=references.has(caller)&&display.alive(caller)?caller:proxyFor([]);
+        let receiver;
+        if(typeof target==='string'){
+          const m=/^_level(\d+)$/i.exec(target);
+          if(m){if(Number(m[1])!==0)throw new RangeError('HTML5 loadMovie/unloadMovie supports level 0 only; multi-SWF levels are unavailable.');receiver=proxyFor([]);}
+          else receiver=display.resolveTarget(target,base);
+        }else receiver=target;
+        if(!references.has(receiver)||!display.alive(receiver)||display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 movie target must resolve to a live MovieClip.');
+        return receiver;
+      };
+      const legacyPrint=(caller,targetOrLevel,boundingBox='bmovie',byLevel=false)=>{
+        const mode=boundingBox===undefined?'bmovie':boundingBox;
+        if(!['bmovie','bmax','bframe'].includes(mode))throw new TypeError('AS2 print boundingBox requires "bmovie", "bmax" or "bframe".');
+        let receiver;
+        if(byLevel){
+          if(!Number.isInteger(targetOrLevel)||targetOrLevel<0)throw new RangeError('AS2 printNum requires a non-negative integer level.');
+          if(targetOrLevel!==0)throw new RangeError('HTML5 printNum supports level 0 only; multi-SWF levels are unavailable.');
+          receiver=proxyFor([]);
+        }else receiver=resolveLegacyMovieTarget(caller,targetOrLevel);
+        if(!as2PrintHost)throw new Error('AS2 printing requires the PrintJob service.');
+        const job=new as2PrintHost.PrintJob();
+        if(!job.start())return;
+        if(job.addPage(receiver,null,{printAsBitmap:true}))job.send();
+      };
       const legacyDisplayCall=(target,method,args)=>as2.method(display.resolveTarget(target,proxyFor([])),method)(...args);
       legacyGlobals=Object.freeze({...legacyGlobals,
         __nfCallStack:[],
@@ -524,7 +573,18 @@
         stopDrag:()=>legacyDisplayCall(proxyFor([]),'stopDrag',[]),
         targetPath:target=>display.targetPath(display.resolveTarget(target,proxyFor([]))),
         getProperty:(target,index)=>{const {receiver,name,native}=legacyProperty(target,index);return native?native.get():receiver[name];},
-        setProperty:(target,index,value)=>{const {receiver,name,native}=legacyProperty(target,index);if(native)native.set(value);else receiver[name]=value;}});
+        setProperty:(target,index,value)=>{const {receiver,name,native}=legacyProperty(target,index);if(native)native.set(value);else receiver[name]=value;},
+        asfunction(func,param){if(typeof func!=='string'||!func)throw new TypeError('AS2 asfunction requires a function path String.');return param===undefined?`asfunction:${func}`:`asfunction:${func},${String(param)}`;},
+        fscommand(command,parameters=''){externalHost?.fscommand(command,parameters);},
+        MMExecute(command){if(typeof command!=='string')throw new TypeError('AS2 MMExecute requires a JSFL command String.');return '';},
+        loadMovie(url,target,method){return as2.method(resolveLegacyMovieTarget(this,target),'loadMovie')(url,method);},
+        unloadMovie(target){return as2.method(resolveLegacyMovieTarget(this,target),'unloadMovie')();},
+        loadMovieNum(url,level,method){if(!Number.isInteger(level)||level<0)throw new RangeError('AS2 loadMovieNum requires a non-negative integer level.');if(level!==0)throw new RangeError('HTML5 loadMovieNum supports level 0 only; multi-SWF levels are unavailable.');return as2.method(proxyFor([]),'loadMovie')(url,method);},
+        unloadMovieNum(level){if(!Number.isInteger(level)||level<0)throw new RangeError('AS2 unloadMovieNum requires a non-negative integer level.');if(level!==0)throw new RangeError('HTML5 unloadMovieNum supports level 0 only; multi-SWF levels are unavailable.');return as2.method(proxyFor([]),'unloadMovie')();},
+        print(target,boundingBox){legacyPrint(this,target,boundingBox,false);},
+        printAsBitmap(target,boundingBox){legacyPrint(this,target,boundingBox,false);},
+        printNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);},
+        printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
@@ -551,7 +611,7 @@
       }
       if(global.NeoFlashNet&&binaryHost&&global.NeoFlashEvents){
         netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
-        legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){return netHost.getURL(this,url,target,method);}});
+        legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){if(typeof url==='string'&&/^asfunction:/i.test(url)){invokeAsfunction(this,url.slice(11));return;}const owner=this!==null&&typeof this==='object'?this:proxyFor([]);return netHost.getURL(owner,url,target,method);}});
       }
       if(global.NeoFlashAS2Network&&netHost){
         as2NetworkHost=global.NeoFlashAS2Network.create({wasm,getNet:()=>netHost,resolveTarget:(target,source)=>{const receiver=display.resolveTarget(target,references.has(source)?source:proxyFor([]));if(display.descriptor(receiver).owner!=='movie_clip')throw new TypeError('AS2 loadVariables target must be a live MovieClip.');return receiver;},fieldsOf:legacyNavigationVariables,alive:value=>display.alive(value),afterCallback:afterTimerEvent});
@@ -567,7 +627,7 @@
         audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:stopAllSounds});
       }
-      if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection});}
+      if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,getXML:()=>xmlHost?.LegacyXML,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection,XMLSocket:as2ConnectionsHost.XMLSocket});}
       if(global.NeoFlashAS2Print&&bitmapHost){as2PrintHost=global.NeoFlashAS2Print.create(wasm,{
         resolveTarget:value=>{const target=value===0?proxyFor([]):typeof value==='string'?display.resolveTarget(value,proxyFor([])):value;if(!references.has(target)||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('PrintJob requires level 0 or a live MovieClip.');return target;},
         bounds:target=>{if(target===proxyFor([])){const [width,height]=logicalSize();return {xMin:0,yMin:0,xMax:width,yMax:height};}const b=target.getBounds(target);return {xMin:b.x,yMin:b.y,xMax:b.x+b.width,yMax:b.y+b.height};},
@@ -670,7 +730,7 @@
       if(as2StageHost){builtins.ContextMenu=as2StageHost.ContextMenu;builtins.ContextMenuItem=as2StageHost.ContextMenuItem;}
       if(as2PrintHost)builtins.PrintJob=as2PrintHost.PrintJob;
       if(as2CaptureHost){builtins.Camera=as2CaptureHost.Camera;builtins.Microphone=as2CaptureHost.Microphone;}
-      if(as2ConnectionsHost)builtins.LocalConnection=as2ConnectionsHost.LocalConnection;
+      if(as2ConnectionsHost){builtins.LocalConnection=as2ConnectionsHost.LocalConnection;builtins.XMLSocket=as2ConnectionsHost.XMLSocket;}
       if(as2DataHost)Object.assign(builtins,as2DataHost.builtins);
       if(as2DepthManagerHost)builtins['mx.managers.DepthManager']=as2DepthManagerHost.DepthManager;
       if(as2TransitionsHost)Object.assign(builtins,as2TransitionsHost.builtins);

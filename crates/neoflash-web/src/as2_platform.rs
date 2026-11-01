@@ -33,6 +33,11 @@ impl ScriptAS2Platform {
     pub fn reset(&mut self) {
         self.inner.reset();
     }
+    pub fn execute(&mut self, request: &str) -> Result<String, JsValue> {
+        self.inner
+            .execute(request)
+            .map_err(|e| JsValue::from_str(&e))
+    }
 }
 
 /// PrintJob policy uses the same AS2 platform module and actual exported PNGs.

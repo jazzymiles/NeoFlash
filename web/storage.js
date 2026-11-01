@@ -23,7 +23,7 @@
   function create(options={}){
     const {amf}=options,events=options.events||global.NeoFlashEvents;
     if(!amf?.encode||!amf?.decode||!events?.EventDispatcher)throw new TypeError('SharedObject requires the shared AMF and event services.');
-    const records=new Map(),states=new WeakMap(),legacyStates=new WeakMap(),token=Symbol('SharedObject');
+    const records=new Map(),remoteRecords=new Map(),states=new WeakMap(),legacyStates=new WeakMap(),token=Symbol('SharedObject');
     let generation=1,disposed=false,defaultEncoding=3;
     const hub=events.create({weakTargets:true,alive:value=>!disposed&&states.get(value)?.generation===generation});
     function open(){if(disposed)throw new Error('SharedObject service has been disposed.');}
@@ -104,21 +104,72 @@
       close(){flushRecord(state(this));}
     }
     class LegacySharedObject {
-      constructor(secret,record){if(secret!==token)unsupported('AS2 SharedObject construction; use getLocal');legacyStates.set(this,record);}
+      constructor(secret,record){if(secret!==token)unsupported('AS2 SharedObject construction; use getLocal');legacyStates.set(this,record);this.onStatus=null;this.onSync=null;}
       static getLocal(name,localPath=null,secure=false){try{return getLocal(name,localPath,secure,true);}catch(error){warn(error);return null;}}
+      static getRemote(name,remotePath=null,persistence=false,secure=false){
+        try{
+          open();const check=location(name,null,Boolean(secure));if(check===null)return null;
+          if(remotePath!==null&&remotePath!==undefined&&(typeof remotePath!=='string'||remotePath.length>4096||/[\x00-\x1f\x7f]/.test(remotePath)))throw new TypeError('SharedObject.getRemote remotePath requires a valid URI/path String or null.');
+          const key=`remote:${remotePath??''}:${name}:${Boolean(secure)}`;
+          let record=remoteRecords.get(key);
+          if(!record){
+            if(remoteRecords.size>=MAX_OBJECTS)throw new RangeError('At most 256 remote SharedObjects may be opened in a publication session.');
+            record={key,data:{},encoding:0,generation,epoch:0,busy:false,remote:true,persistence,fps:0,peers:new Set()};
+            remoteRecords.set(key,record);
+          }
+          const instance=new LegacySharedObject(token,record);
+          return instance;
+        }catch(error){warn(error);return null;}
+      }
       get data(){return state(this,true).data;}
       getSize(){return bytes(state(this,true)).length;}
-      flush(minDiskSpace=0){const record=state(this,true);try{flushRecord(record,minDiskSpace);return true;}catch(error){warn(error);return false;}}
-      clear(){clearRecord(state(this,true),true);}
-      close(){this.flush();}
+      flush(minDiskSpace=0){
+        const record=state(this,true);
+        try{
+          if(record.remote){if(!Number.isInteger(minDiskSpace)||minDiskSpace<0||minDiskSpace>MAX_BYTES)throw new RangeError('Invalid minDiskSpace.');bytes(record);return true;}
+          flushRecord(record,minDiskSpace);return true;
+        }catch(error){warn(error);return false;}
+      }
+      clear(){
+        const record=state(this,true);
+        if(record.remote){for(const key of Reflect.ownKeys(record.data))delete record.data[key];record.epoch++;return;}
+        clearRecord(record,true);
+      }
+      connect(nc){
+        const record=state(this,true);
+        if(!record.remote)throw new TypeError('SharedObject.connect requires a remote SharedObject from SharedObject.getRemote.');
+        if(!nc||typeof nc!=='object'||!('isConnected'in nc||'uri'in nc))return false;
+        record.peers.add(this);const born=generation;
+        queueMicrotask(()=>{if(disposed||born!==generation||!record.peers.has(this))return;try{if(typeof this.onSync==='function')Reflect.apply(this.onSync,this,[[{code:'clear'}]]);}catch(error){warn(error);}});
+        return true;
+      }
+      setFps(updatesPerSecond){
+        const record=state(this,true);
+        if(!record.remote||typeof updatesPerSecond!=='number'||!Number.isFinite(updatesPerSecond)||updatesPerSecond<0)return false;
+        record.fps=updatesPerSecond;return true;
+      }
+      send(handlerName,...args){
+        const record=state(this,true);
+        if(!record.remote||!record.peers.has(this))throw new Error('SharedObject.send requires a connected remote SharedObject.');
+        if(typeof handlerName!=='string'||!handlerName||['__proto__','prototype','constructor'].includes(handlerName))throw new TypeError('SharedObject.send requires a valid handler name String.');
+        const born=generation,targets=[...record.peers];
+        queueMicrotask(()=>{if(disposed||born!==generation)return;for(const peer of targets){if(!record.peers.has(peer))continue;try{const fn=peer[handlerName];if(typeof fn==='function')Reflect.apply(fn,peer,args);}catch(error){warn(error);}}});
+      }
+      close(){
+        const record=state(this,true);
+        if(record.remote){record.peers.delete(this);return;}
+        this.flush();
+      }
     }
     for(const[Constructor,table]of [[SharedObject,states],[LegacySharedObject,legacyStates]]){
-      Object.defineProperties(Constructor,{__nfIs:{value:value=>table.has(value)},__nfInitialize:{value:()=>unsupported('SharedObject native subclassing')},getRemote:{value:()=>unsupported('SharedObject.getRemote')}});
-      for(const name of ['connect','send','setDirty','setFps'])Object.defineProperty(Constructor.prototype,name,{value:()=>unsupported(`SharedObject.${name}`)});
+      Object.defineProperties(Constructor,{__nfIs:{value:value=>table.has(value)},__nfInitialize:{value:()=>unsupported('SharedObject native subclassing')}});
     }
+    Object.defineProperty(SharedObject,'getRemote',{value:()=>unsupported('SharedObject.getRemote')});
+    for(const name of ['connect','send','setDirty','setFps'])Object.defineProperty(SharedObject.prototype,name,{value:()=>unsupported(`SharedObject.${name}`)});
+    Object.defineProperty(LegacySharedObject.prototype,'setDirty',{value:()=>unsupported('SharedObject.setDirty')});
     for(const name of ['client','fps'])Object.defineProperty(SharedObject.prototype,name,{get(){state(this);unsupported(`SharedObject.${name}`);},set(){state(this);unsupported(`SharedObject.${name}`);}});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
-    function reset(){open();generation++;records.clear();hub.clear();defaultEncoding=3;}
+    function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({SharedObject,LegacySharedObject,ObjectEncoding,SharedObjectFlushStatus,flushAll,reset,dispose});
   }

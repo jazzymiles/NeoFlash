@@ -1286,6 +1286,7 @@ impl<'a> Frontend<'a> {
                         | "ContextMenuItem"
                         | "PrintJob"
                         | "LocalConnection"
+                        | "XMLSocket"
                         | "NetConnection"
                         | "NetStream"
                         | "Video"
@@ -1723,6 +1724,7 @@ impl<'a> Frontend<'a> {
                 if !self.context.core_type(&name)
                     && !self.context.intrinsic_type(&name, false)
                     && !self.context.types.contains_key(&name)
+                    && !is_as2_legacy_instanceof_type(&name)
                 {
                     return Err(self.error("AS2 instanceof requires a resolved class or supported native constructor; dynamic constructor expressions are outside this profile."));
                 }
@@ -1819,6 +1821,7 @@ impl<'a> Frontend<'a> {
                             | "ContextMenuItem"
                             | "PrintJob"
                             | "LocalConnection"
+                            | "XMLSocket"
                             | "NetConnection"
                             | "NetStream"
                             | "Video"
@@ -2014,6 +2017,8 @@ impl<'a> Frontend<'a> {
                             | "startDrag"
                             | "stopDrag"
                             | "getURL"
+                            | "loadMovie"
+                            | "unloadMovie"
                             | "addCallback"
                             | "send"
                     )
@@ -2036,6 +2041,44 @@ fn is_as2_global_prop(name: &str) -> bool {
     matches!(
         name,
         "_quality" | "_highquality" | "_focusrect" | "_soundbuftime"
+    )
+}
+
+pub(super) fn is_as2_frame_global(name: &str) -> bool {
+    matches!(
+        name,
+        "getURL"
+            | "fscommand"
+            | "loadMovie"
+            | "loadMovieNum"
+            | "unloadMovie"
+            | "unloadMovieNum"
+            | "print"
+            | "printNum"
+            | "printAsBitmap"
+            | "printAsBitmapNum"
+            | "asfunction"
+            | "MMExecute"
+    )
+}
+
+fn is_as2_legacy_instanceof_type(name: &str) -> bool {
+    matches!(
+        name,
+        "LoadVars"
+            | "Color"
+            | "Sound"
+            | "MovieClipLoader"
+            | "SharedObject"
+            | "Camera"
+            | "Microphone"
+            | "ContextMenu"
+            | "ContextMenuItem"
+            | "PrintJob"
+            | "LocalConnection"
+            | "XMLSocket"
+            | "NetConnection"
+            | "NetStream"
     )
 }
 
@@ -2516,11 +2559,11 @@ impl Emitter<'_> {
             return format!("__nfLegacy.{name}");
         }
         if !self.as3
-            && name == "getURL"
+            && is_as2_frame_global(name)
             && self.analysis.resolve(self.scope, name).is_none()
             && !self.analysis.context.types.contains_key(name)
         {
-            return "__nfLegacy.getURL.bind(__nfFrame)".into();
+            return format!("__nfLegacy.{name}.bind(__nfFrame)");
         }
         if self.analysis.resolve(self.scope, name).is_none() && (!self.as3 && name == "getTimer") {
             return "__nfProgram.type(\"flash.utils.getTimer\")".into();
@@ -2585,6 +2628,7 @@ impl Emitter<'_> {
                     | "ContextMenuItem"
                     | "PrintJob"
                     | "LocalConnection"
+                    | "XMLSocket"
                     | "NetConnection"
                     | "NetStream"
             ) && !self.analysis.context.types.contains_key(name)))
@@ -3147,6 +3191,7 @@ impl Emitter<'_> {
                         | "ContextMenuItem"
                         | "PrintJob"
                         | "LocalConnection"
+                        | "XMLSocket"
                         | "NetConnection"
                         | "NetStream"
                 ) =>
@@ -3263,6 +3308,11 @@ impl Emitter<'_> {
                     format!("__nfXMLClass({ty:?}, {}).__nfIs(__nfValue)", self.as3)
                 } else if self.analysis.context.intrinsic_type(ty, self.as3) {
                     format!("__nf{ty}Is(__nfValue)")
+                } else if !self.as3
+                    && !self.analysis.context.types.contains_key(ty)
+                    && is_as2_legacy_instanceof_type(ty)
+                {
+                    format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
                 } else {
                     format!(
                         "__nfProgram.is(__nfValue, {:?})",
@@ -3520,10 +3570,13 @@ impl Emitter<'_> {
                 }
 
                 if !self.as3
-                    && matches!(callee.as_ref(),Expr::Name(name) if name=="getURL" && self.analysis.resolve(self.scope,name).is_none() && !self.analysis.context.types.contains_key(name))
+                    && let Expr::Name(name) = callee.as_ref()
+                    && is_as2_frame_global(name)
+                    && self.analysis.resolve(self.scope, name).is_none()
+                    && !self.analysis.context.types.contains_key(name)
                 {
                     return format!(
-                        "__nfLegacy.getURL.call(__nfFrame{})",
+                        "__nfLegacy.{name}.call(__nfFrame{})",
                         args.iter()
                             .map(|arg| format!(", {}", self.expression(arg)))
                             .collect::<String>()

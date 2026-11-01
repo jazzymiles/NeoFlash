@@ -116,8 +116,8 @@
       download(target,defaultFileName='download'){const r=state(this,files);if(!gesture())throw new Error('File download requires an actual user click.');if(r.operation)throw new Error('A file operation is already active.');if(typeof global.showSaveFilePicker!=='function')unsupported('File download: use a Chromium browser with the File System Access API');const destination=url(target),suggested=core({op:'name',name:defaultFileName}).name;r.operation={};void download(r,destination,suggested);return true;}
       get name(){return state(this,files).metadata?.name;}get size(){return state(this,files).metadata?.size;}get type(){return state(this,files).metadata?.type;}
       get modificationDate(){const value=state(this,files).metadata?.modified;return value===null||value===undefined?undefined:new Date(value);}
-      get creationDate(){state(this,files);unsupported('File creationDate: browsers do not expose file birth time');}
-      get creator(){state(this,files);unsupported('Macintosh file creator codes');}
+      get creationDate(){const meta=state(this,files).metadata,value=meta?.created??meta?.modified;return value===null||value===undefined?undefined:new Date(value);}
+      get creator(){return state(this,files).metadata?.creator;}
       get postData(){return state(this,files).postData;}set postData(value){const r=state(this,files);if(typeof value!=='string'||value.length>64*1024)throw new TypeError('postData requires a URL-encoded string of at most 64 KiB.');r.postData=value;}
     }
     class FileReferenceList {

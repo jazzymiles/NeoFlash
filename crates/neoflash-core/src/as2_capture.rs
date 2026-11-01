@@ -20,11 +20,18 @@ struct Device {
     requested_height: f64,
     requested_fps: f64,
     favor_area: bool,
+    bandwidth: i32,
+    quality: i32,
+    key_frame_interval: i32,
+    loopback: bool,
     gain: f64,
     requested_rate: f64,
     actual_rate: Option<f64>,
     echo: bool,
     actual_echo: Option<bool>,
+    codec: String,
+    encode_quality: i32,
+    frames_per_packet: i32,
     threshold: f64,
     timeout: f64,
     activity: f64,
@@ -50,11 +57,18 @@ impl Device {
             requested_height: 120.,
             requested_fps: 15.,
             favor_area: true,
+            bandwidth: 16384,
+            quality: 0,
+            key_frame_interval: 15,
+            loopback: false,
             gain: 50.,
             requested_rate: 8000.,
             actual_rate: None,
             echo: false,
             actual_echo: None,
+            codec: "NellyMoser".into(),
+            encode_quality: 6,
+            frames_per_packet: 2,
             threshold: if kind == "camera" { 50. } else { 10. },
             timeout: 2000.,
             activity: -1.,
@@ -83,7 +97,7 @@ impl Device {
         )
         .map_err(|e| e.to_string())?;
         Ok(
-            json!({"kind":self.kind,"name":self.label,"index":self.index,"present":self.present,"muted":!self.allowed,"running":self.running,"pending":self.pending,"width":self.width,"height":self.height,"fps":self.requested_fps,"currentFps":fps["value"],"activityLevel":self.activity,"motionLevel":self.threshold,"motionTimeOut":self.timeout,"gain":self.gain,"gainMultiplier":self.gain/50.,"rate":self.actual_rate.unwrap_or(self.requested_rate)/1000.,"silenceLevel":self.threshold,"silenceTimeOut":self.timeout,"useEchoSuppression":self.actual_echo.unwrap_or(self.echo)}),
+            json!({"kind":self.kind,"name":self.label,"index":self.index,"present":self.present,"muted":!self.allowed,"running":self.running,"pending":self.pending,"width":self.width,"height":self.height,"fps":self.requested_fps,"currentFps":fps["value"],"bandwidth":self.bandwidth,"quality":self.quality,"keyFrameInterval":self.key_frame_interval,"loopback":self.loopback,"activityLevel":self.activity,"motionLevel":self.threshold,"motionTimeOut":self.timeout,"gain":self.gain,"gainMultiplier":self.gain/50.,"rate":self.actual_rate.unwrap_or(self.requested_rate)/1000.,"silenceLevel":self.threshold,"silenceTimeOut":self.timeout,"useEchoSuppression":self.actual_echo.unwrap_or(self.echo),"codec":self.codec,"encodeQuality":self.encode_quality,"framesPerPacket":self.frames_per_packet}),
         )
     }
     fn level(&mut self, now: f64, value: f64) -> Vec<Value> {
@@ -298,6 +312,57 @@ impl ScriptAS2Capture {
                     .ok_or("Echo suppression requires Boolean")?;
                 effect = json!({"type":"constraints","constraints":d.constraints()});
             }
+            "quality" => {
+                if d.kind != "camera" {
+                    return Err("setQuality requires Camera".into());
+                }
+                let bw = num(&q["bandwidth"], "Camera bandwidth", 0., 100_000_000.)?;
+                let qual = num(&q["quality"], "Camera quality", 0., 100.)?;
+                d.bandwidth = bw.trunc() as i32;
+                d.quality = qual.trunc() as i32;
+            }
+            "keyframe" => {
+                if d.kind != "camera" {
+                    return Err("setKeyFrameInterval requires Camera".into());
+                }
+                let interval = num(&q["keyFrameInterval"], "Camera keyFrameInterval", 1., 48.)?;
+                d.key_frame_interval = interval.trunc() as i32;
+            }
+            "loopback" => {
+                if d.kind != "camera" {
+                    return Err("setLoopback requires Camera".into());
+                }
+                d.loopback = q["compress"]
+                    .as_bool()
+                    .ok_or("Camera loopback compress requires Boolean")?;
+            }
+            "codec" => {
+                if d.kind != "microphone" {
+                    return Err("setCodec requires Microphone".into());
+                }
+                let raw = text(&q["codec"], "Microphone codec", 32)?;
+                d.codec = if raw.eq_ignore_ascii_case("nellymoser") {
+                    "NellyMoser".into()
+                } else if raw.eq_ignore_ascii_case("speex") {
+                    "Speex".into()
+                } else {
+                    return Err("Microphone.setCodec supports NellyMoser or Speex".into());
+                };
+            }
+            "encode_quality" => {
+                if d.kind != "microphone" {
+                    return Err("setEncodeQuality requires Microphone".into());
+                }
+                let qual = num(&q["quality"], "Microphone encodeQuality", 0., 10.)?;
+                d.encode_quality = qual.trunc() as i32;
+            }
+            "frames_per_packet" => {
+                if d.kind != "microphone" {
+                    return Err("setFramesPerPacket requires Microphone".into());
+                }
+                let frames = num(&q["frames"], "Microphone framesPerPacket", 1., 10.)?;
+                d.frames_per_packet = frames.trunc() as i32;
+            }
             "settings" => {
                 let s = &q["settings"];
                 if d.kind == "camera" {
@@ -443,6 +508,55 @@ mod tests {
         assert_eq!(initial["state"]["activityLevel"], -1.);
         assert_eq!(initial["state"]["width"], 0.);
         assert_eq!(initial["state"]["muted"], true);
+        assert_eq!(initial["state"]["bandwidth"], 16384);
+        assert_eq!(initial["state"]["quality"], 0);
+        assert_eq!(initial["state"]["keyFrameInterval"], 15);
+        assert_eq!(initial["state"]["loopback"], false);
+        let q_cam = run(
+            &mut core,
+            json!({"op":"quality","id":camera,"bandwidth":32768,"quality":85}),
+        );
+        assert_eq!(q_cam["state"]["bandwidth"], 32768);
+        assert_eq!(q_cam["state"]["quality"], 85);
+        assert_eq!(
+            run(
+                &mut core,
+                json!({"op":"keyframe","id":camera,"keyFrameInterval":24})
+            )["state"]["keyFrameInterval"],
+            24
+        );
+        assert_eq!(
+            run(
+                &mut core,
+                json!({"op":"loopback","id":camera,"compress":true})
+            )["state"]["loopback"],
+            true
+        );
+        let mic_state = run(&mut core, json!({"op":"state","id":microphone}));
+        assert_eq!(mic_state["state"]["codec"], "NellyMoser");
+        assert_eq!(mic_state["state"]["encodeQuality"], 6);
+        assert_eq!(mic_state["state"]["framesPerPacket"], 2);
+        assert_eq!(
+            run(
+                &mut core,
+                json!({"op":"codec","id":microphone,"codec":"speex"})
+            )["state"]["codec"],
+            "Speex"
+        );
+        assert_eq!(
+            run(
+                &mut core,
+                json!({"op":"encode_quality","id":microphone,"quality":9})
+            )["state"]["encodeQuality"],
+            9
+        );
+        assert_eq!(
+            run(
+                &mut core,
+                json!({"op":"frames_per_packet","id":microphone,"frames":4})
+            )["state"]["framesPerPacket"],
+            4
+        );
         assert!(
             core.execute(&json!({"op":"request","id":camera,"gesture":false}).to_string())
                 .is_err()

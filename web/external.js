@@ -145,6 +145,21 @@
       // it connected through this task, and retire cleanup on Restart/dispose.
       const timer=global.setTimeout(()=>{forms.delete(form);remove();},0);forms.set(form,{timer,remove});
     }
+    function fscommand(command,args=''){
+      if(disposed)throw new Error('Browser fscommand belongs to a disposed publication.');
+      const cmd=command===undefined||command===null?'':String(command);
+      const param=args===undefined||args===null?'':String(args);
+      if(!cmd||['quit','fullscreen','allowscale','showmenu','exec','trapallkeys'].includes(cmd.toLowerCase()))return;
+      if(!hostGlobal)return;
+      const token=generation;
+      const prefix=host?.id&&identifier.test(String(host.id))&&!forbidden.has(String(host.id))?`${host.id}_DoFSCommand`:null;
+      const fn=(prefix&&typeof hostGlobal[prefix]==='function'?hostGlobal[prefix]:null)||(typeof hostGlobal.DoFSCommand==='function'?hostGlobal.DoFSCommand:null);
+      if(!fn)return;
+      boundary(true,()=>{
+        try{Reflect.apply(fn,hostGlobal,[cmd,param]);}catch(error){current(token);exception(error,false);return null;}
+        current(token);options.afterCallback?.();return null;
+      });
+    }
     function reset(){
       generation++;exceptions=false;
       for(const[name,record]of callbacks){if(Object.getOwnPropertyDescriptor(host,name)?.value===record.wrapper)delete host[name];}
@@ -152,7 +167,7 @@
       for(const{timer,remove}of forms.values()){global.clearTimeout(timer);remove();}forms.clear();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ExternalInterface:staticFacade(false),LegacyExternalInterface:staticFacade(true),navigate,reset,dispose});
+    return Object.freeze({ExternalInterface:staticFacade(false),LegacyExternalInterface:staticFacade(true),navigate,fscommand,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashExternal=api;
 })(globalThis);

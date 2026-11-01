@@ -1001,3 +1001,137 @@ fn as2_initclip_intrinsic_legacy_statements_and_video_types_compile_and_diagnose
         assert!(neoflash_script::compile(&script).is_err(), "{bad_frame}");
     }
 }
+
+#[test]
+fn as2_services_xmlsocket_globals_and_geometry_compile_and_diagnose() {
+    let mut proj = project(&[(
+        "app/ServicesCheck.as",
+        r#"import flash.geom.ColorTransform;
+import flash.geom.Matrix;
+import flash.geom.Point;
+import flash.geom.Rectangle;
+import flash.geom.Transform;
+import flash.net.FileReference;
+
+class app.ServicesCheck extends MovieClip {
+    public function verify():Void {
+        var sock:XMLSocket = new XMLSocket();
+        var isXml:Boolean = (sock instanceof XMLSocket);
+        if (!isXml) return;
+        sock.timeout = 5000;
+        sock.onConnect = function(ok:Boolean):Void {};
+        sock.onClose = function():Void {};
+        sock.onData = function(src:String):Void {};
+        sock.onXML = function(doc:XML):Void {};
+        sock.connect("localhost", 8080);
+        sock.send("<ping/>");
+        sock.close();
+
+        var link:String = asfunction("onLink", "ok");
+        var mm:String = MMExecute("fl.trace('noop')");
+        fscommand("ping", "1");
+        getURL(link);
+        loadMovie("card.png", this);
+        unloadMovie(this);
+        loadMovieNum("card.png", 0);
+        unloadMovieNum(0);
+        print(this, "bmovie");
+        printAsBitmap(this, "bmax");
+        printNum(0, "bframe");
+        printAsBitmapNum(0, "bmovie");
+        var fnRef:Function = asfunction;
+
+        var cam:Camera = Camera.get();
+        cam.setQuality(32768, 80);
+        cam.setKeyFrameInterval(12);
+        cam.setLoopback(true);
+        var mic:Microphone = Microphone.get();
+        mic.setCodec("Speex");
+        mic.setEncodeQuality(8);
+        mic.setFramesPerPacket(1);
+
+        System.onStatus = function(info:Object):Void {};
+        System.setClipboard("hello");
+        System.showSettings(2);
+        System.security.allowDomain("example.com");
+        System.security.allowInsecureDomain("legacy.example.com");
+        System.security.loadPolicyFile("https://example.com/crossdomain.xml");
+        System.IME.setEnabled(true);
+        System.IME.setConversionMode(System.IME.JAPANESE_HIRAGANA);
+        System.IME.setCompositionString("ka");
+        System.IME.doConversion();
+        var imeMode:String = System.IME.getConversionMode();
+        var imeOn:Boolean = System.IME.getEnabled();
+
+        var lc:LocalConnection = new LocalConnection();
+        lc.allowDomain = function(d:String):Boolean { return true; };
+        lc.allowInsecureDomain = function(d:String):Boolean { return false; };
+
+        var fr:FileReference = new FileReference();
+        var cd:Date = fr.creationDate;
+        var cr:String = fr.creator;
+
+        var nc:NetConnection = new NetConnection();
+        nc.connect(null);
+        var proto:String = nc.protocol;
+        var ns:NetStream = new NetStream(nc);
+        ns.maxPauseBufferTime = 45;
+        var delay:Number = ns.liveDelay;
+        var info:Object = ns.getInfo();
+        ns.play2({streamName: "clip.mp4"});
+        ns.attachAudio(mic);
+        ns.attachVideo(cam, 0);
+        ns.publish("feed", "live");
+        ns.send("onTextData", {text: "hi"});
+
+        var rso:SharedObject = SharedObject.getRemote("room", "https://example.com/fms", false);
+        rso.connect(nc);
+        rso.setFps(15);
+        rso.send("chat", "hi");
+        rso.close();
+
+        var p:Point = Point.polar(5, 0);
+        var r1:Rectangle = new Rectangle(0, 0, 20, 20);
+        var r2:Rectangle = new Rectangle(2, 2, 5, 5);
+        var inside:Boolean = r1.containsRectangle(r2);
+        var m:Matrix = new Matrix();
+        m.createGradientBox(100, 50, 0, 10, 20);
+        var ct:ColorTransform = new ColorTransform();
+        ct.rgb = 0x336699;
+        var tr:Transform = this.transform;
+        tr.matrix = m;
+        tr.colorTransform = ct;
+        trace(fnRef("cb") + mm + imeMode + imeOn + proto + delay + inside + p.x + String(cd) + String(cr) + String(info));
+    }
+}"#,
+    )]);
+    proj.sources[0].language = ScriptLanguage::ActionScript2;
+    let compiled = neoflash_script::compile_project(&proj);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    let program = compiled.unwrap();
+
+    let frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: r#"var s:XMLSocket = new XMLSocket();
+var fn1:Function = fscommand;
+var fn2:Function = loadMovie;
+var fn3:Function = printAsBitmapNum;
+fn1("ping", "ok");
+trace(asfunction("go", "1") + MMExecute("noop") + s.timeout + String(fn2) + String(fn3));"#
+            .into(),
+    };
+    let compiled_frame = neoflash_script::compile_with_program(&frame, &program);
+    assert!(compiled_frame.is_ok(), "{:?}", compiled_frame.err());
+
+    let bad_xml_ctor = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "var s:XMLSocket = new XMLSocket(\"localhost\");".into(),
+    };
+    assert!(neoflash_script::compile(&bad_xml_ctor).is_err());
+
+    let as3_xml_ctor = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript3,
+        source: "var s = new XMLSocket();".into(),
+    };
+    assert!(neoflash_script::compile(&as3_xml_ctor).is_err());
+}

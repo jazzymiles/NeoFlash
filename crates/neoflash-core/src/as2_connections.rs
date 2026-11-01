@@ -25,11 +25,29 @@ struct Remote {
     uri: Option<String>,
     pending: BTreeSet<u32>,
 }
+struct XmlSocket {
+    timeout: u32,
+    connected: bool,
+    buffer: Vec<u8>,
+}
+impl Default for XmlSocket {
+    fn default() -> Self {
+        Self {
+            timeout: 20_000,
+            connected: false,
+            buffer: Vec::new(),
+        }
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Wire {
     version: u8,
     sender: String,
+    #[serde(default)]
+    sender_domain: String,
+    #[serde(default)]
+    sender_protocol: String,
     id: u32,
     target: String,
     method: String,
@@ -51,6 +69,7 @@ pub struct ScriptAS2Connections {
     pending: BTreeMap<u32, Pending>,
     seen: BTreeMap<(String, u32), f64>,
     remotes: BTreeMap<u32, Remote>,
+    xml_sockets: BTreeMap<u32, XmlSocket>,
 }
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v[k].as_str()
@@ -124,6 +143,7 @@ impl ScriptAS2Connections {
             pending: BTreeMap::new(),
             seen: BTreeMap::new(),
             remotes: BTreeMap::new(),
+            xml_sockets: BTreeMap::new(),
         })
     }
     fn next(&mut self) -> Result<u32, String> {
@@ -241,6 +261,12 @@ impl ScriptAS2Connections {
                 let wire = serde_json::to_string(&Wire {
                     version: 1,
                     sender: self.nonce.clone(),
+                    sender_domain: self.domain.clone(),
+                    sender_protocol: if self.origin.starts_with("https://") {
+                        "https:".into()
+                    } else {
+                        "http:".into()
+                    },
                     id: n,
                     target,
                     method: method_name.into(),
@@ -306,8 +332,15 @@ impl ScriptAS2Connections {
                     }
                     self.seen.insert(key, now + 10_000.0);
                 }
+                let sender_domain = if wire.sender_domain.is_empty() {
+                    self.domain.clone()
+                } else {
+                    wire.sender_domain
+                };
+                let insecure =
+                    self.origin.starts_with("https://") && wire.sender_protocol == "http:";
                 Ok(
-                    json!({"owner":owner,"method":wire.method,"body":wire.body,"ack":ack,"duplicate":duplicate}),
+                    json!({"owner":owner,"method":wire.method,"body":wire.body,"ack":ack,"duplicate":duplicate,"domain":sender_domain,"insecure":insecure}),
                 )
             }
             "ack" => {
@@ -398,11 +431,127 @@ impl ScriptAS2Connections {
                     .pending
                     .remove(&id(&v, "id")?)
             )),
+            "xmlNew" => {
+                if self.xml_sockets.len() >= 64 {
+                    return Err("At most 64 XMLSocket instances per publication".into());
+                }
+                let n = self.next()?;
+                self.xml_sockets.insert(n, XmlSocket::default());
+                Ok(json!(n))
+            }
+            "xmlTimeout" => {
+                let s = self
+                    .xml_sockets
+                    .get_mut(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                if v["set"] == true {
+                    let ms = v["value"]
+                        .as_u64()
+                        .and_then(|n| u32::try_from(n).ok())
+                        .filter(|n| *n <= 3_600_000)
+                        .ok_or("XMLSocket.timeout requires an integer from 0 through 3600000")?;
+                    s.timeout = ms;
+                }
+                Ok(json!(s.timeout))
+            }
+            "xmlConnect" => {
+                let host_raw = text(&v, "host")?;
+                if host_raw.len() > 256
+                    || host_raw
+                        .chars()
+                        .any(|c| c.is_control() || c.is_whitespace())
+                {
+                    return Err(
+                        "XMLSocket host requires at most 256 printable non-whitespace characters"
+                            .into(),
+                    );
+                }
+                let port = v["port"]
+                    .as_i64()
+                    .filter(|p| (0..=65535).contains(p))
+                    .ok_or("XMLSocket port requires an integer from 0 through 65535")?;
+                let host = if host_raw.is_empty() {
+                    self.domain.clone()
+                } else {
+                    host_raw.to_owned()
+                };
+                let s = self
+                    .xml_sockets
+                    .get_mut(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                s.connected = false;
+                s.buffer.clear();
+                let accepted = port >= 1024;
+                Ok(json!({"accepted":accepted,"host":host,"port":port,"timeout":s.timeout}))
+            }
+            "xmlOpen" => {
+                let s = self
+                    .xml_sockets
+                    .get_mut(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                s.connected = v["ok"] == true;
+                s.buffer.clear();
+                Ok(json!(s.connected))
+            }
+            "xmlSend" => {
+                let s = self
+                    .xml_sockets
+                    .get(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                if !s.connected {
+                    return Err("XMLSocket.send requires an open connection".into());
+                }
+                if bytes.len() > 256 * 1024 || bytes.contains(&0) {
+                    return Err(
+                        "XMLSocket message must be at most 256 KiB without embedded NUL bytes"
+                            .into(),
+                    );
+                }
+                let mut framed = Vec::with_capacity(bytes.len() + 1);
+                framed.extend_from_slice(bytes);
+                framed.push(0);
+                Ok(json!({"wire":STANDARD.encode(&framed)}))
+            }
+            "xmlFeed" => {
+                let s = self
+                    .xml_sockets
+                    .get_mut(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                if !s.connected {
+                    return Ok(json!({"frames":[]}));
+                }
+                if s.buffer.len() + bytes.len() > 1024 * 1024 {
+                    s.buffer.clear();
+                    return Err(
+                        "XMLSocket receive buffer exceeded 1 MiB without a NUL frame terminator"
+                            .into(),
+                    );
+                }
+                s.buffer.extend_from_slice(bytes);
+                let mut frames = Vec::new();
+                while let Some(pos) = s.buffer.iter().position(|&b| b == 0) {
+                    let chunk: Vec<u8> = s.buffer.drain(..=pos).collect();
+                    let text = String::from_utf8(chunk[..pos].to_vec())
+                        .map_err(|_| "XMLSocket frame must be valid UTF-8".to_string())?;
+                    frames.push(text);
+                }
+                Ok(json!({"frames":frames}))
+            }
+            "xmlClose" => {
+                let s = self
+                    .xml_sockets
+                    .get_mut(&id(&v, "owner")?)
+                    .ok_or("Unknown XMLSocket")?;
+                s.connected = false;
+                s.buffer.clear();
+                Ok(Value::Null)
+            }
             "reset" => {
                 self.locals.clear();
                 self.pending.clear();
                 self.seen.clear();
                 self.remotes.clear();
+                self.xml_sockets.clear();
                 Ok(Value::Null)
             }
             _ => Err("Unknown AS2 connection operation".into()),
@@ -550,6 +699,8 @@ mod tests {
         assert_eq!(delivered["kind"], "delivery");
         assert_eq!(delivered["event"]["duplicate"], false);
         assert_eq!(delivered["event"]["owner"], rid);
+        assert_eq!(delivered["event"]["domain"], "example.test");
+        assert_eq!(delivered["event"]["insecure"], false);
         assert_eq!(
             execute(
                 &mut receiver,
@@ -646,5 +797,53 @@ mod tests {
             ),
             false
         );
+        let xs = execute(&mut sender, json!({"op":"xmlNew"}));
+        assert_eq!(
+            execute(&mut sender, json!({"op":"xmlTimeout","owner":xs})),
+            20000
+        );
+        assert_eq!(
+            execute(
+                &mut sender,
+                json!({"op":"xmlTimeout","owner":xs,"set":true,"value":5000})
+            ),
+            5000
+        );
+        assert_eq!(
+            execute(
+                &mut sender,
+                json!({"op":"xmlConnect","owner":xs,"host":"","port":80})
+            )["accepted"],
+            false
+        );
+        let plan = execute(
+            &mut sender,
+            json!({"op":"xmlConnect","owner":xs,"host":"","port":8080}),
+        );
+        assert_eq!(plan["accepted"], true);
+        assert_eq!(plan["host"], "example.test");
+        execute(&mut sender, json!({"op":"xmlOpen","owner":xs,"ok":true}));
+        let framed = sender
+            .execute(
+                &json!({"op":"xmlSend","owner":xs}).to_string(),
+                b"<ping id='1'/>",
+            )
+            .unwrap();
+        assert_eq!(
+            STANDARD.decode(framed["wire"].as_str().unwrap()).unwrap(),
+            b"<ping id='1'/>\0"
+        );
+        let partial = sender
+            .execute(&json!({"op":"xmlFeed","owner":xs}).to_string(), b"<msg>he")
+            .unwrap();
+        assert_eq!(partial["frames"], json!([]));
+        let complete = sender
+            .execute(
+                &json!({"op":"xmlFeed","owner":xs}).to_string(),
+                b"llo</msg>\0<ok/>\0",
+            )
+            .unwrap();
+        assert_eq!(complete["frames"], json!(["<msg>hello</msg>", "<ok/>"]));
+        execute(&mut sender, json!({"op":"xmlClose","owner":xs}));
     }
 }

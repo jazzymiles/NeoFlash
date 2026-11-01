@@ -133,7 +133,7 @@
       call(method,responder=null,...args){state(this,connections);const remote=options.getRemoting?.();if(!remote)unsupported('AS2 HTTP remoting service unavailable');return remote.call(this,method,responder,args);}
       get isConnected(){const r=state(this,connections);return options.getRemoting?.()?.isConnected(this,r.local)??r.local;}
       get uri(){state(this,connections);return options.getRemoting?.()?.uri(this);}
-      get protocol(){state(this,connections);unsupported('NetConnection.protocol identifies legacy RTMP transports; HTTP remoting has no equivalent value');}
+      get protocol(){const r=state(this,connections),uri=options.getRemoting?.()?.uri(this);if(typeof uri==='string'&&uri){try{return new URL(uri).protocol.replace(/:$/,'');}catch(_){}}return r.local?'':'';}
     }
     class NetStream extends events.EventDispatcher{
       constructor(connection){super();const nc=state(connection,connections);if(streamRecords.size>=4)throw new RangeError('Video is limited to four NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));if(new.target===NetStream)Object.seal(this);}
@@ -152,7 +152,7 @@
       let result;try{result=JSON.parse(r.receivePolicy.execute(JSON.stringify(request)));}catch(error){throw new TypeError(typeof error==='string'?error:String(error?.message||error));}r.receiveState=result;return result.value;
     }
     function bufferFacts(r){const media=r.media,ranges=[];if(media)for(let i=0;i<(media.buffered?.length||0);i++)ranges.push([media.buffered.start(i),media.buffered.end(i)]);return {time:media?.currentTime||0,duration:r.metadata?r.duration:null,ready:(media?.readyState||0)>=2,ranges};}
-    class LegacyNetStream extends NetStream{constructor(connection){super(connection);const r=streams.get(this);r.legacy=true;r.checkPolicyFile=false;r.receivePolicy=options.wasm?.ScriptAS2Stream?new options.wasm.ScriptAS2Stream():null;r.receiveState={audio:true,video:true};r.suppressedFrame=null;this.onStatus=null;this.onMetaData=null;this.onPlayStatus=null;}
+    class LegacyNetStream extends NetStream{constructor(connection){super(connection);const r=streams.get(this);r.legacy=true;r.checkPolicyFile=false;r.receivePolicy=options.wasm?.ScriptAS2Stream?new options.wasm.ScriptAS2Stream():null;r.receiveState={audio:true,video:true};r.suppressedFrame=null;r.attachedAudio=null;r.attachedCamera=null;r.publishedName=null;r.publishedType=null;this.onStatus=null;this.onMetaData=null;this.onPlayStatus=null;this.onCuePoint=null;this.onTextData=null;this.onXMPData=null;}
       get checkPolicyFile(){return state(this,streams).checkPolicyFile;}
       set checkPolicyFile(value){if(typeof value!=='boolean')throw new TypeError('AS2 NetStream.checkPolicyFile requires a Boolean.');state(this,streams).checkPolicyFile=value;}
       receiveAudio(enabled){const r=state(this,streams);streamPolicy(r,{op:'receive',kind:'audio',enabled});audio(r);}
@@ -160,8 +160,44 @@
       get bufferLength(){const r=state(this,streams);return streamPolicy(r,{op:'buffer',...bufferFacts(r)});}
       get bufferTime(){return streamPolicy(state(this,streams),{op:'buffer_time'});}
       setBufferTime(seconds){const r=state(this,streams);streamPolicy(r,{op:'set_buffer_time',seconds});playNative(r);}
+      get liveDelay(){state(this,streams);return 0;}
+      get maxPauseBufferTime(){return streamPolicy(state(this,streams),{op:'max_pause_buffer_time'});}
+      set maxPauseBufferTime(seconds){streamPolicy(state(this,streams),{op:'set_max_pause_buffer_time',seconds});}
+      getInfo(){
+        const r=state(this,streams),bufLen=this.bufferLength,loaded=r.encodedBytes||0,aud=r.receiveState?.audio!==false,vid=r.receiveState?.video!==false;
+        return {audioBufferByteLength:aud?loaded:0,videoBufferByteLength:vid?loaded:0,dataBufferByteLength:0,audioBufferLength:aud?bufLen:0,videoBufferLength:vid?bufLen:0,srtt:0,droppedFrames:0,currentBytesPerSecond:0,maxBytesPerSecond:0,playbackBytesPerSecond:0,isLive:false};
+      }
+      play2(param){
+        const r=state(this,streams);
+        if(!param||typeof param!=='object'||typeof param.streamName!=='string'||!param.streamName)throw new TypeError('AS2 NetStream.play2 requires an options Object with a non-empty streamName String.');
+        load(r,param.streamName);
+        if(typeof param.start==='number'&&Number.isFinite(param.start)&&param.start>0)seek(r,param.start);
+      }
+      attachAudio(source){
+        const r=state(this,streams),capture=options.getCapture?.();
+        if(source!==false&&source!==null&&!capture?.isMicrophone?.(source))throw new TypeError('AS2 NetStream.attachAudio requires a Microphone, false or null.');
+        r.attachedAudio=source||null;
+      }
+      attachVideo(source,snapshotMilliseconds=undefined){
+        const r=state(this,streams),capture=options.getCapture?.();
+        if(source!==false&&source!==null&&!capture?.isCamera?.(source))throw new TypeError('AS2 NetStream.attachVideo requires a Camera, false or null.');
+        if(snapshotMilliseconds!==undefined&&(!Number.isInteger(snapshotMilliseconds)||snapshotMilliseconds<-1))throw new RangeError('AS2 NetStream.attachVideo snapshotMilliseconds requires an integer >= -1.');
+        r.attachedCamera=source||null;
+      }
+      publish(name=false,type='live'){
+        const r=state(this,streams);
+        if(name===false||name===null||name===''){r.publishedName=null;r.publishedType=null;later(r,()=>emit(r,'NetStream.Unpublish.Success'));return;}
+        if(typeof name!=='string'||!['live','record','append'].includes(type))throw new TypeError('AS2 NetStream.publish requires a stream name String (or false) and live/record/append type.');
+        r.publishedName=name;r.publishedType=type;
+        later(r,()=>emit(r,'NetStream.Publish.BadName','error',{description:'HTML5 NetStream plays progressive media and has no RTMP media server for upstream publishing.'}));
+      }
+      send(handlerName,...args){
+        const r=state(this,streams);
+        if(typeof handlerName!=='string'||!handlerName||['__proto__','prototype','constructor'].includes(handlerName))throw new TypeError('AS2 NetStream.send requires a valid handler name String.');
+        later(r,()=>{const fn=r.receiver[handlerName];if(typeof fn==='function')Reflect.apply(fn,r.receiver,args);after(generation);});
+      }
       get currentFps(){const r=state(this,streams);if(r.media&&typeof r.media.requestVideoFrameCallback!=='function')unsupported('AS2 NetStream.currentFps requires browser presented-frame callbacks');return streamPolicy(r,{op:'fps',now:global.performance?.now?.()||0,playing:r.playing});}
-pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}get soundTransform(){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}set soundTransform(_){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}}
+      pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}get soundTransform(){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}set soundTransform(_){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}}
     for(const[Type,predicate]of [[NetConnection,v=>connections.has(v)],[LegacyNetConnection,v=>connections.has(v)&&connections.get(v).legacy],[NetStream,v=>streams.has(v)],[LegacyNetStream,v=>streams.has(v)&&streams.get(v).legacy],[NetStatusEvent,v=>statusTypes.has(v)]])noBase(Type,predicate);
     for(const name of ['publish','send','appendBytes','appendBytesAction','attachAudio','attachCamera','attachVideo','setBufferTime','receiveAudio','receiveVideo','dispose'])Object.defineProperty(NetStream.prototype,name,{value(){unsupported('NetStream.'+name);}});
     for(const name of ['bufferTime','bufferLength','checkPolicyFile','objectEncoding','videoStreamSettings','inBufferSeek','backBufferTime','currentFPS','info','farID','peerStreams'])Object.defineProperty(NetStream.prototype,name,{get(){unsupported('NetStream.'+name);},set(){unsupported('NetStream.'+name);}});
