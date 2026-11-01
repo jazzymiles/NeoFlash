@@ -108,6 +108,10 @@ const BUILTINS: &[&str] = &[
     "flash.display.InterpolationMethod",
     "flash.display.GraphicsPathCommand",
     "flash.display.GraphicsPathWinding",
+    "flash.display.BlendMode",
+    "flash.display.CapsStyle",
+    "flash.display.JointStyle",
+    "flash.display.LineScaleMode",
     "flash.display.Bitmap",
     "flash.display.BitmapData",
     "flash.display.BitmapDataChannel",
@@ -270,6 +274,10 @@ pub(super) fn is_graphics_constants(name: &str) -> bool {
             | "flash.display.InterpolationMethod"
             | "flash.display.GraphicsPathCommand"
             | "flash.display.GraphicsPathWinding"
+            | "flash.display.BlendMode"
+            | "flash.display.CapsStyle"
+            | "flash.display.JointStyle"
+            | "flash.display.LineScaleMode"
     )
 }
 fn is_display_method(name: &str) -> bool {
@@ -404,6 +412,21 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "encode"
                 | "scroll"
                 | "dispose"
+                | "copyChannel"
+                | "floodFill"
+                | "getColorBoundsRect"
+                | "threshold"
+                | "merge"
+                | "lock"
+                | "unlock"
+                | "getVector"
+                | "setVector"
+                | "compare"
+                | "noise"
+                | "perlinNoise"
+                | "paletteMap"
+                | "pixelDissolve"
+                | "hitTest"
                 | "appendText"
                 | "replaceText"
                 | "replaceSelectedText"
@@ -413,6 +436,11 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "getLineOffset"
                 | "getLineIndexOfChar"
                 | "getLineMetrics"
+                | "getCharBoundaries"
+                | "getCharIndexAtPoint"
+                | "getLineIndexAtPoint"
+                | "getFirstCharInParagraph"
+                | "getParagraphLength"
                 | "getTextFormat"
                 | "setTextFormat"
                 | "getNewTextFormat"
@@ -2113,7 +2141,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

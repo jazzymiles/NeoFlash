@@ -39,13 +39,14 @@ impl Player {
         if !self.graph.alive(target) {
             return Err(error("AS2 render target is stale or foreign"));
         }
+        let as3 = request["as3"].as_bool().unwrap_or(false);
         let scene = self.runtime_snapshot(project);
         let node = scene
             .objects
             .iter()
             .find(|node| &node.object_ref == target)
-            .ok_or_else(|| error("AS2 render target is absent"))?;
-        if !matches!(node.display.owner.as_str(), "movie_clip" | "button") {
+            .ok_or_else(|| error("Render target is absent"))?;
+        if !as3 && !matches!(node.display.owner.as_str(), "movie_clip" | "button") {
             return Err(error(
                 "AS2 blend/cache properties require MovieClip or Button",
             ));
@@ -62,6 +63,8 @@ impl Player {
                 "blendMode" => {
                     let name = if let Some(name) = value.as_str() {
                         name
+                    } else if as3 {
+                        return Err(error("DisplayObject.blendMode requires a BlendMode String"));
                     } else {
                         match value.as_u64() {
                             Some(0 | 1) => "normal",
@@ -95,7 +98,7 @@ impl Player {
                             | "hardlight"
                     ) {
                         return Err(error(
-                            "Unsupported blendMode; subtract/invert/alpha/erase need a separate compositing profile",
+                            "Unsupported blendMode; shader/subtract/invert/alpha/erase need a separate compositing profile",
                         ));
                     }
                     state.blend_mode = name.into();
@@ -105,7 +108,7 @@ impl Player {
                         .as_bool()
                         .ok_or_else(|| error("cacheAsBitmap requires Boolean"))?
                 }
-                "opaqueBackground" if node.display.owner == "movie_clip" => {
+                "opaqueBackground" if as3 || node.display.owner == "movie_clip" => {
                     state.opaque_background = if value.is_null() {
                         None
                     } else {

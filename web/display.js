@@ -21,7 +21,11 @@
   const InterpolationMethod=graphicsConstants('InterpolationMethod',{RGB:'rgb',LINEAR_RGB:'linearRGB'});
   const GraphicsPathCommand=graphicsConstants('GraphicsPathCommand',{NO_OP:0,MOVE_TO:1,LINE_TO:2,CURVE_TO:3,WIDE_MOVE_TO:4,WIDE_LINE_TO:5,CUBIC_CURVE_TO:6});
   const GraphicsPathWinding=graphicsConstants('GraphicsPathWinding',{EVEN_ODD:'evenOdd',NON_ZERO:'nonZero'});
-  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding};
+  const BlendMode=graphicsConstants('BlendMode',{ADD:'add',ALPHA:'alpha',DARKEN:'darken',DIFFERENCE:'difference',ERASE:'erase',HARDLIGHT:'hardlight',INVERT:'invert',LAYER:'layer',LIGHTEN:'lighten',MULTIPLY:'multiply',NORMAL:'normal',OVERLAY:'overlay',SCREEN:'screen',SHADER:'shader',SUBTRACT:'subtract'});
+  const CapsStyle=graphicsConstants('CapsStyle',{NONE:'none',ROUND:'round',SQUARE:'square'});
+  const JointStyle=graphicsConstants('JointStyle',{BEVEL:'bevel',MITER:'miter',ROUND:'round'});
+  const LineScaleMode=graphicsConstants('LineScaleMode',{HORIZONTAL:'horizontal',NONE:'none',NORMAL:'normal',VERTICAL:'vertical'});
+  const graphicsEnums={GradientType,SpreadMethod,InterpolationMethod,GraphicsPathCommand,GraphicsPathWinding,BlendMode,CapsStyle,JointStyle,LineScaleMode};
   const vectorBrand=Symbol.for('neoflash.as3.vector.instance.v1');
   function graphicsNumbers(value,name,limit,allowVector=false) {
     const tag=value!=null&&(typeof value==='object'||typeof value==='function')?Object.getOwnPropertyDescriptor(value,vectorBrand):null;
@@ -51,7 +55,7 @@
   function normalizedRotation(value) { const r=value%360;return r>180?r-360:r< -180?r+360:r; }
   function nonAxisAligned(node){const m=node.local_matrix||matrix(node.transform);return Math.abs(m[1])>1e-10||Math.abs(m[2])>1e-10;}
   const textProperties=new Set(['text','textColor','length','numLines','textWidth','textHeight']);
-  const unsupportedText=new Set(['htmlText','styleSheet','type','selectable','autoSize','embedFonts','displayAsPassword','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','scrollH','scrollV','maxScrollH','maxScrollV','bottomScrollV','background','backgroundColor','border','borderColor','antiAliasType','gridFitType','sharpness','thickness','condenseWhite','getCharBoundaries','getCharIndexAtPoint','getLineIndexAtPoint','getLineMetrics','getParagraphLength','getFirstCharInParagraph','setSelection','replaceSelectedText']);
+  const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
   function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
@@ -644,6 +648,11 @@
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         return host.fromSpecs(JSON.parse(player.object_filters(referenceOf(target).key)));
       }
+      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+        descriptor(target);
+        if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
+        return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
+      }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
       if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
@@ -697,6 +706,17 @@
         const specs=host.toSpecs(value);beforeFilters(target,specs);
         try{player.object_set_filters(referenceOf(target).key,JSON.stringify(specs));}
         catch(error){throw error instanceof Error?error:new RangeError(String(error));}
+        return true;
+      }
+      if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
+        descriptor(target);
+        if(typeof player.as2_render_command!=='function')throw new Error('Display compositing requires the shared Rust render state.');
+        const key=referenceOf(target).key;
+        let next;
+        try{next=JSON.parse(player.as2_render_command(key,JSON.stringify({op:'prepare',as3:true,name,value})));}
+        catch(error){throw error instanceof Error?error:new TypeError(String(error));}
+        if(next.isolated)beforeRaster(target);
+        player.as2_render_command(key,JSON.stringify({op:'set',as3:true,name,value}));
         return true;
       }
       if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);

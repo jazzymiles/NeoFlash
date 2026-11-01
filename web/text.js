@@ -10,8 +10,10 @@
   'use strict';
   const formats=new WeakMap(),legacyFormats=new WeakSet();
   const fields=['font','size','color','bold','italic','underline','url','target','align','leftMargin','rightMargin','indent','leading'];
-  const supported=new Set(['font','size','color','bold','italic','align','leading']);
-  const legacySupported=new Set([...supported,'underline','leftMargin','rightMargin','indent','blockIndent','letterSpacing','kerning','bullet','tabStops','url','target']);
+  const extraFields=['blockIndent','letterSpacing','kerning','bullet','tabStops'];
+  const allFields=[...fields,...extraFields];
+  const supported=new Set(allFields);
+  const legacySupported=supported;
   function formatValue(name,value,legacy=false){
     if(value===null||value===undefined)return null;
     if(!(legacy?legacySupported:supported).has(name))throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);
@@ -31,16 +33,17 @@
     constructor(...args){
       if(args.length>fields.length)throw new TypeError('TextFormat accepts at most thirteen format arguments.');
       const values={};fields.forEach((name,index)=>{values[name]=formatValue(name,args[index]);});
+      for(const name of extraFields)values[name]=null;
       formats.set(this,values);Object.seal(this);
     }
   }
-  for(const name of fields)Object.defineProperty(TextFormat.prototype,name,{enumerable:true,get(){const value=formats.get(this);if(!value)throw new TypeError('Expected TextFormat.');return value[name];},set(value){const current=formats.get(this);if(!current)throw new TypeError('Expected TextFormat.');current[name]=formatValue(name,value,legacyFormats.has(this));}});
-  for(const name of ['blockIndent','bullet','kerning','letterSpacing','tabStops','display'])Object.defineProperty(TextFormat.prototype,name,{get(){throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);},set(){throw new TypeError(`TextFormat.${name} is not supported by the uniform text profile.`);}});
+  for(const name of allFields)Object.defineProperty(TextFormat.prototype,name,{enumerable:true,get(){const value=formats.get(this);if(!value)throw new TypeError('Expected TextFormat.');const item=value[name];return Array.isArray(item)?item.slice():item;},set(value){const current=formats.get(this);if(!current)throw new TypeError('Expected TextFormat.');current[name]=formatValue(name,value,legacyFormats.has(this));}});
+  Object.defineProperty(TextFormat.prototype,'display',{get(){throw new TypeError('TextFormat.display is not supported by the uniform text profile.');},set(){throw new TypeError('TextFormat.display is not supported by the uniform text profile.');}});
   TextFormat.__nfIs=value=>formats.has(value);
   TextFormat.__nfInitialize=()=>{throw new TypeError('Native TextFormat subclassing is not supported.');};
   Object.defineProperty(TextFormat,Symbol.hasInstance,{value:TextFormat.__nfIs});
   class TextFormatAlign {constructor(){throw new TypeError('TextFormatAlign supplies alignment constants.');}}
-  Object.assign(TextFormatAlign,{LEFT:'left',CENTER:'center',RIGHT:'right',JUSTIFY:'justify'});Object.freeze(TextFormatAlign);
+  Object.assign(TextFormatAlign,{LEFT:'left',CENTER:'center',RIGHT:'right',JUSTIFY:'justify',START:'start',END:'end'});Object.freeze(TextFormatAlign);
   class TextFieldType {constructor(){throw new TypeError('TextFieldType supplies INPUT and DYNAMIC constants.');}}
   Object.assign(TextFieldType,{INPUT:'input',DYNAMIC:'dynamic'});Object.freeze(TextFieldType);
   class TextFieldAutoSize {constructor(){throw new TypeError('TextFieldAutoSize supplies CENTER, LEFT, NONE and RIGHT constants.');}}
@@ -83,7 +86,7 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,measureText,onUpdate=()=>{}}={}){
+  function create({player,geometry,measureText,onUpdate=()=>{}}={}){
     if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
     let as2Execute=null,as2Layout=null,as2Wheel=null;
     class As2TextFormat extends TextFormat {
@@ -103,7 +106,8 @@
     let disposed=false,cacheBytes=0;const cache=new Map(),maxCacheBytes=8*1024*1024;
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
     function info(ref){active();return JSON.parse(player.object_text_info(ref));}
-    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');as2Layout?.(ref);onUpdate(ref);}
+    function fit(ref){if(typeof player.as2_text_fit!=='function')return false;const field=info(ref);return field.as2_viewport?.auto_size&&field.as2_viewport.auto_size!=='none'?player.as2_text_fit(ref,JSON.stringify(layout(field))):false;}
+    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');fit(ref);as2Layout?.(ref);onUpdate(ref);}
     function layout(field){
       active();const key=JSON.stringify(field),existing=cache.get(key);
       if(existing){cache.delete(key);cache.set(key,existing);return existing.value;}
@@ -116,17 +120,34 @@
       if(bytes<=maxCacheBytes){while(cache.size>=256||cacheBytes+bytes>maxCacheBytes){const first=cache.keys().next().value;cacheBytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{value,bytes});cacheBytes+=bytes;}
       return value;
     }
+    function query(field,request){
+      active();
+      if(typeof player.text_query_json!=='function')throw new Error('TextField query kernel is missing; rebuild and re-export this project.');
+      return JSON.parse(player.text_query_json(JSON.stringify(field),JSON.stringify(request),(strings,format)=>{
+        const style=JSON.parse(format);return JSON.stringify(JSON.parse(strings).map(text=>measureText(text,style)));
+      }));
+    }
     function wholeRange(field,begin=-1,end=-1){
       if((begin===-1&&end===-1)||(begin===0&&(end===-1||end===field.text.length)))return;
       throw new RangeError('TextField currently supports whole-field formatting only; mixed character-format ranges are pending.');
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
     function get(ref,name){
-      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex'];
+      const known=['text','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
-      const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret'};
-      if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0}[name]);
+      const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret',antiAliasType:'anti_alias_type',gridFitType:'grid_fit_type',sharpness:'sharpness',thickness:'thickness',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'};
+      if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0,embedFonts:false,condenseWhite:false,alwaysShowSelection:false}[name]);
+      if(name==='autoSize')return field.as2_viewport?.auto_size??'none';
+      if(name==='background')return Boolean(field.as2_viewport?.background);
+      if(name==='backgroundColor')return field.as2_viewport?.backgroundColor??0xffffff;
+      if(name==='border')return Boolean(field.as2_viewport?.border);
+      if(name==='borderColor')return field.as2_viewport?.borderColor??0;
+      if(name==='mouseWheelEnabled')return field.as2_viewport?.mouse_wheel_enabled??true;
+      if(['scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV'].includes(name)){
+        const vp=layout(field).viewport;
+        return name==='scrollV'?vp.scroll:name==='scrollH'?vp.hscroll:name==='maxScrollV'?vp.maxscroll:name==='maxScrollH'?vp.maxhscroll:vp.bottom_scroll;
+      }
       if(name==='text')return publicText(field.text);
       if(name==='textColor')return field.format.color;
       if(name==='length')return field.text.length;
@@ -138,7 +159,24 @@
     }
     function set(ref,name,value){
       if(name==='type'){if(!['input','dynamic'].includes(value))throw new TypeError('TextField.type requires input or dynamic.');update(ref,{field_type:value});return true;}
-      if(['selectable','displayAsPassword','password'].includes(name)){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='selectable'?'selectable':'display_as_password']:value});return true;}
+      if(['selectable','displayAsPassword','password','embedFonts','condenseWhite','alwaysShowSelection'].includes(name)){
+        if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);
+        const patchKey={selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'}[name];
+        update(ref,{[patchKey]:value});return true;
+      }
+      if(name==='antiAliasType'){if(!['normal','advanced'].includes(value))throw new TypeError('TextField.antiAliasType requires normal or advanced.');update(ref,{anti_alias_type:value});return true;}
+      if(name==='gridFitType'){if(!['none','pixel','subpixel'].includes(value))throw new TypeError('TextField.gridFitType requires none, pixel or subpixel.');update(ref,{grid_fit_type:value});return true;}
+      if(name==='sharpness'||name==='thickness'){if(typeof value!=='number'||!Number.isFinite(value))throw new RangeError(`TextField.${name} requires a finite Number.`);update(ref,{[name]:value});return true;}
+      if(name==='autoSize'){if(!['none','left','center','right'].includes(value))throw new TypeError('TextField.autoSize requires none, left, center or right.');const field=info(ref);update(ref,{as2_viewport:{...field.as2_viewport,active:true,auto_size:value}});return true;}
+      if(['background','border','mouseWheelEnabled'].includes(name)){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);const field=info(ref),vpKey=name==='mouseWheelEnabled'?'mouse_wheel_enabled':name;update(ref,{as2_viewport:{...field.as2_viewport,active:true,[vpKey]:value}});return true;}
+      if(name==='backgroundColor'||name==='borderColor'){if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError(`TextField.${name} requires a 24-bit RGB integer.`);const field=info(ref);update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name]:value}});return true;}
+      if(name==='scrollV'||name==='scrollH'){
+        if(!Number.isInteger(value))throw new TypeError(`TextField.${name} requires an integer.`);
+        const field=info(ref),vp=layout(field).viewport;
+        if(name==='scrollV')update(ref,{as2_viewport:{...field.as2_viewport,active:true,scroll:Math.max(1,Math.min(vp.maxscroll,value))}});
+        else update(ref,{as2_viewport:{...field.as2_viewport,active:true,hscroll:Math.max(0,Math.min(vp.maxhscroll,value))}});
+        return true;
+      }
       if(name==='maxChars'){if(!Number.isInteger(value)||value<0||value>1048576)throw new RangeError('TextField.maxChars requires an integer from 0 through 1048576.');update(ref,{max_chars:value});return true;}
       if(name==='restrict'){if(value!==null&&typeof value!=='string')throw new TypeError('TextField.restrict requires String or null.');update(ref,{restrict:{value}});return true;}
       if(['selectionBeginIndex','selectionEndIndex','caretIndex'].includes(name))throw new TypeError(`TextField.${name} is read-only; use setSelection.`);
@@ -153,7 +191,7 @@
         if(!field.box){const result=layout(field);patch[axis==='width'?'height':'width']=axis==='width'?result.text_height:result.text_width;}
         update(ref,patch);return true;
       }
-      if(['length','numLines','textWidth','textHeight'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
+      if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       return false;
     }
     function methods(ref){return {
@@ -180,6 +218,11 @@
       getLineOffset:index=>line(info(ref),index).start,
       getLineIndexOfChar:index=>{const field=info(ref);if(!Number.isInteger(index)||index<0||index>=field.text.length)throw new RangeError('TextField character index is outside the current UTF-16 text.');return layout(field).lines.findIndex(item=>index>=item.start&&index<item.end);},
       getLineMetrics:index=>{const field=info(ref),item=line(field,index),ascent=field.format.size,descent=item.height-ascent,leading=field.format.leading;return new TextLineMetrics(item.x,item.width,item.height+leading,ascent,descent,leading);},
+      getFirstCharInParagraph:charIndex=>{if(!Number.isSafeInteger(charIndex))throw new TypeError('getFirstCharInParagraph requires an integer character index.');return query(info(ref),{op:'first_char_in_paragraph',char_index:charIndex});},
+      getParagraphLength:charIndex=>{if(!Number.isSafeInteger(charIndex))throw new TypeError('getParagraphLength requires an integer character index.');return query(info(ref),{op:'paragraph_length',char_index:charIndex});},
+      getLineIndexAtPoint:(x,y)=>{if(typeof x!=='number'||typeof y!=='number'||!Number.isFinite(x)||!Number.isFinite(y))throw new TypeError('getLineIndexAtPoint requires finite x and y Numbers.');return query(info(ref),{op:'line_index_at_point',x,y});},
+      getCharIndexAtPoint:(x,y)=>{if(typeof x!=='number'||typeof y!=='number'||!Number.isFinite(x)||!Number.isFinite(y))throw new TypeError('getCharIndexAtPoint requires finite x and y Numbers.');return query(info(ref),{op:'char_index_at_point',x,y});},
+      getCharBoundaries:charIndex=>{if(!Number.isSafeInteger(charIndex))throw new TypeError('getCharBoundaries requires an integer character index.');const box=query(info(ref),{op:'char_boundaries',char_index:charIndex});if(box===null)return null;const Rect=geometry?.Rectangle;return Rect?new Rect(box.x,box.y,box.width,box.height):box;},
     };}
     function bounds(field,ink=false){
       if(ink&&field.alpha>0&&(field.as2_viewport?.background||field.as2_viewport?.border)){const surface=layout(field).surface;return {left:0,top:0,right:surface.width,bottom:surface.height};}

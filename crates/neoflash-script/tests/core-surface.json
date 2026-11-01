@@ -38,9 +38,27 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:class:flash/display/BlendMode.html#",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = typeof BlendMode;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/CapsStyle.html#",
+   "owner": "flash.display.CapsStyle",
+   "code": "__r = typeof CapsStyle;",
+   "expect": "notundefined"
+  },
+  {
    "catalogId": "AS3:class:flash/display/DisplayObjectContainer.html#",
    "owner": "flash.display.DisplayObjectContainer",
    "code": "__r = typeof DisplayObjectContainer;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/GradientType.html#",
+   "owner": "flash.display.GradientType",
+   "code": "__r = typeof GradientType;",
    "expect": "notundefined"
   },
   {
@@ -50,9 +68,45 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:class:flash/display/GraphicsPathCommand.html#",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = typeof GraphicsPathCommand;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/GraphicsPathWinding.html#",
+   "owner": "flash.display.GraphicsPathWinding",
+   "code": "__r = typeof GraphicsPathWinding;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/InterpolationMethod.html#",
+   "owner": "flash.display.InterpolationMethod",
+   "code": "__r = typeof InterpolationMethod;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/JointStyle.html#",
+   "owner": "flash.display.JointStyle",
+   "code": "__r = typeof JointStyle;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/LineScaleMode.html#",
+   "owner": "flash.display.LineScaleMode",
+   "code": "__r = typeof LineScaleMode;",
+   "expect": "notundefined"
+  },
+  {
    "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
    "owner": "flash.display.LoaderInfo",
    "code": "__r = typeof LoaderInfo;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/PNGEncoderOptions.html#",
+   "owner": "flash.display.PNGEncoderOptions",
+   "code": "__r = typeof PNGEncoderOptions;",
    "expect": "notundefined"
   },
   {
@@ -71,6 +125,12 @@
    "catalogId": "AS3:class:flash/display/SimpleButton.html#",
    "owner": "flash.display.SimpleButton",
    "code": "__r = typeof SimpleButton;",
+   "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:class:flash/display/SpreadMethod.html#",
+   "owner": "flash.display.SpreadMethod",
+   "code": "__r = typeof SpreadMethod;",
    "expect": "notundefined"
   },
   {
@@ -200,6 +260,12 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:class:flash/text/TextField.html#",
+   "owner": "flash.text.TextField",
+   "code": "__r = typeof TextField;",
+   "expect": "notundefined"
+  },
+  {
    "catalogId": "AS3:class:flash/text/TextFieldAutoSize.html#",
    "owner": "flash.text.TextFieldAutoSize",
    "code": "__r = typeof TextFieldAutoSize;",
@@ -314,6 +380,234 @@
    "expect": "eq:1"
   },
   {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#ADD",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.ADD);",
+   "expect": "eq:add"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.ALPHA);",
+   "expect": "eq:alpha"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#DARKEN",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.DARKEN);",
+   "expect": "eq:darken"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#DIFFERENCE",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.DIFFERENCE);",
+   "expect": "eq:difference"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.ERASE);",
+   "expect": "eq:erase"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#HARDLIGHT",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.HARDLIGHT);",
+   "expect": "eq:hardlight"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.INVERT);",
+   "expect": "eq:invert"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.LAYER);",
+   "expect": "eq:layer"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#LIGHTEN",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.LIGHTEN);",
+   "expect": "eq:lighten"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#MULTIPLY",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.MULTIPLY);",
+   "expect": "eq:multiply"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#NORMAL",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.NORMAL);",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#OVERLAY",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.OVERLAY);",
+   "expect": "eq:overlay"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#SCREEN",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.SCREEN);",
+   "expect": "eq:screen"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.SHADER);",
+   "expect": "eq:shader"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+   "owner": "flash.display.BlendMode",
+   "code": "__r = String(BlendMode.SUBTRACT);",
+   "expect": "eq:subtract"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+   "owner": "flash.display.CapsStyle",
+   "code": "__r = String(CapsStyle.NONE);",
+   "expect": "eq:none"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/CapsStyle.html#ROUND",
+   "owner": "flash.display.CapsStyle",
+   "code": "__r = String(CapsStyle.ROUND);",
+   "expect": "eq:round"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+   "owner": "flash.display.CapsStyle",
+   "code": "__r = String(CapsStyle.SQUARE);",
+   "expect": "eq:square"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GradientType.html#LINEAR",
+   "owner": "flash.display.GradientType",
+   "code": "__r = String(GradientType.LINEAR);",
+   "expect": "eq:linear"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GradientType.html#RADIAL",
+   "owner": "flash.display.GradientType",
+   "code": "__r = String(GradientType.RADIAL);",
+   "expect": "eq:radial"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CUBIC_CURVE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.CUBIC_CURVE_TO);",
+   "expect": "eq:6"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#CURVE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.CURVE_TO);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#LINE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.LINE_TO);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#MOVE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.MOVE_TO);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#NO_OP",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.NO_OP);",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_LINE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.WIDE_LINE_TO);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathCommand.html#WIDE_MOVE_TO",
+   "owner": "flash.display.GraphicsPathCommand",
+   "code": "__r = String(GraphicsPathCommand.WIDE_MOVE_TO);",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#EVEN_ODD",
+   "owner": "flash.display.GraphicsPathWinding",
+   "code": "__r = String(GraphicsPathWinding.EVEN_ODD);",
+   "expect": "eq:evenOdd"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/GraphicsPathWinding.html#NON_ZERO",
+   "owner": "flash.display.GraphicsPathWinding",
+   "code": "__r = String(GraphicsPathWinding.NON_ZERO);",
+   "expect": "eq:nonZero"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+   "owner": "flash.display.InterpolationMethod",
+   "code": "__r = String(InterpolationMethod.LINEAR_RGB);",
+   "expect": "eq:linearRGB"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#RGB",
+   "owner": "flash.display.InterpolationMethod",
+   "code": "__r = String(InterpolationMethod.RGB);",
+   "expect": "eq:rgb"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+   "owner": "flash.display.JointStyle",
+   "code": "__r = String(JointStyle.BEVEL);",
+   "expect": "eq:bevel"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+   "owner": "flash.display.JointStyle",
+   "code": "__r = String(JointStyle.MITER);",
+   "expect": "eq:miter"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/JointStyle.html#ROUND",
+   "owner": "flash.display.JointStyle",
+   "code": "__r = String(JointStyle.ROUND);",
+   "expect": "eq:round"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+   "owner": "flash.display.LineScaleMode",
+   "code": "__r = String(LineScaleMode.HORIZONTAL);",
+   "expect": "eq:horizontal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+   "owner": "flash.display.LineScaleMode",
+   "code": "__r = String(LineScaleMode.NONE);",
+   "expect": "eq:none"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NORMAL",
+   "owner": "flash.display.LineScaleMode",
+   "code": "__r = String(LineScaleMode.NORMAL);",
+   "expect": "eq:normal"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+   "owner": "flash.display.LineScaleMode",
+   "code": "__r = String(LineScaleMode.VERTICAL);",
+   "expect": "eq:vertical"
+  },
+  {
    "catalogId": "AS3:constant:flash/display/PixelSnapping.html#ALWAYS",
    "owner": "flash.display.PixelSnapping",
    "code": "__r = String(PixelSnapping.ALWAYS);",
@@ -330,6 +624,24 @@
    "owner": "flash.display.PixelSnapping",
    "code": "__r = String(PixelSnapping.NEVER);",
    "expect": "eq:never"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/SpreadMethod.html#PAD",
+   "owner": "flash.display.SpreadMethod",
+   "code": "__r = String(SpreadMethod.PAD);",
+   "expect": "eq:pad"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+   "owner": "flash.display.SpreadMethod",
+   "code": "__r = String(SpreadMethod.REFLECT);",
+   "expect": "eq:reflect"
+  },
+  {
+   "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+   "owner": "flash.display.SpreadMethod",
+   "code": "__r = String(SpreadMethod.REPEAT);",
+   "expect": "eq:repeat"
   },
   {
    "catalogId": "AS3:constant:flash/display/StageAlign.html#BOTTOM",
@@ -692,10 +1004,46 @@
    "expect": "eq:dynamic"
   },
   {
+   "catalogId": "AS3:constant:flash/text/TextFieldType.html#INPUT",
+   "owner": "flash.text.TextFieldType",
+   "code": "__r = String(TextFieldType.INPUT);",
+   "expect": "eq:input"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#CENTER",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.CENTER);",
+   "expect": "eq:center"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#END",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.END);",
+   "expect": "eq:end"
+  },
+  {
    "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#JUSTIFY",
    "owner": "flash.text.TextFormatAlign",
    "code": "__r = String(TextFormatAlign.JUSTIFY);",
    "expect": "eq:justify"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#LEFT",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.LEFT);",
+   "expect": "eq:left"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#RIGHT",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.RIGHT);",
+   "expect": "eq:right"
+  },
+  {
+   "catalogId": "AS3:constant:flash/text/TextFormatAlign.html#START",
+   "owner": "flash.text.TextFormatAlign",
+   "code": "__r = String(TextFormatAlign.START);",
+   "expect": "eq:start"
   },
   {
    "catalogId": "AS3:constant:flash/ui/KeyLocation.html#D_PAD",
@@ -2450,6 +2798,18 @@
    "expect": "ok"
   },
   {
+   "catalogId": "AS3:constructor:flash/display/Bitmap.html#Bitmap()",
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(2, 2, true, 0xff112233), PixelSnapping.NEVER, true); __r = String(__o is Bitmap) + ':' + String(__o.width);",
+   "expect": "eq:true:2"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/BitmapData.html#BitmapData()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(3, 2, true, 0xff112233); __r = String(__o.width) + ':' + String(__o.height) + ':' + String(__o.transparent);",
+   "expect": "eq:3:2:true"
+  },
+  {
    "catalogId": "AS3:constructor:flash/display/DisplayObjectContainer.html#DisplayObjectContainer()",
    "owner": "flash.display.DisplayObjectContainer",
    "code": "__o = new Sprite(); __r = __o == null ? \"null\" : \"ok\";",
@@ -2460,6 +2820,12 @@
    "owner": "flash.display.MovieClip",
    "code": "__o = new MovieClip(); __r = __o == null ? \"null\" : \"ok\";",
    "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/display/PNGEncoderOptions.html#PNGEncoderOptions()",
+   "owner": "flash.display.PNGEncoderOptions",
+   "code": "__o = new PNGEncoderOptions(true); __r = String(__o is PNGEncoderOptions) + ':' + String(__o.fastCompression);",
+   "expect": "eq:true:true"
   },
   {
    "catalogId": "AS3:constructor:flash/events/EventDispatcher.html#EventDispatcher()",
@@ -2496,6 +2862,18 @@
    "owner": "flash.events.TimerEvent",
    "code": "__o = new TimerEvent(\"timer\"); __r = __o == null ? \"null\" : \"ok\";",
    "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/text/TextField.html#TextField()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __r = String(__o is TextField);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:constructor:flash/text/TextFormat.html#TextFormat()",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat('Arial', 14, 0x112233, true, false, true); __r = __o.font + ':' + String(__o.size) + ':' + String(__o.underline);",
+   "expect": "eq:Arial:14:true"
   },
   {
    "catalogId": "AS3:constructor:flash/text/TextLineMetrics.html#TextLineMetrics()",
@@ -2732,6 +3110,198 @@
    "expect": "ok"
   },
   {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#applyFilter()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 4, true, 0xff112233); __o.applyFilter(__o, __o.rect, new Point(0, 0), new BlurFilter(2, 2)); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#clone()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __v = __o.clone(); __r = String(__v.getPixel32(0, 0) == 0xff112233 && __v != __o);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#colorTransform()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff102030); __o.colorTransform(__o.rect, new ColorTransform(1, 1, 1, 1, 16, 0, 0, 0)); __r = String((__o.getPixel(0, 0) >> 16) & 0xff);",
+   "expect": "eq:32"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#compare()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __r = String(__o.compare(__o.clone()));",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#copyChannel()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff000000); __v = new BitmapData(2, 2, true, 0xffaa0000); __o.copyChannel(__v, __v.rect, new Point(0, 0), BitmapDataChannel.RED, BitmapDataChannel.BLUE); __r = String(__o.getPixel(0, 0) & 0xff);",
+   "expect": "eq:170"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixels()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff000000); __v = new BitmapData(2, 2, true, 0xff445566); __o.copyPixels(__v, __v.rect, new Point(0, 0), __v, new Point(0, 0), true); __r = String(__o.getPixel(0, 0));",
+   "expect": "eq:4478310"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#copyPixelsToByteArray()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __v = new ByteArray(); __o.copyPixelsToByteArray(__o.rect, __v); __r = String(__v.length);",
+   "expect": "eq:16"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#dispose()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2); __o.dispose(); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#draw()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 4, true, 0); __r = typeof __o.draw;",
+   "expect": "eq:function"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __v = __o.encode(__o.rect, new PNGEncoderOptions()); __r = String(__v is ByteArray && __v.length > 8);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#fillRect()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0); __o.fillRect(new Rectangle(0, 0, 1, 1), 0xffabcdef); __r = String(__o.getPixel(0, 0));",
+   "expect": "eq:11259375"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#floodFill()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(3, 3, true, 0); __o.floodFill(1, 1, 0xff123456); __r = String(__o.getPixel(2, 2));",
+   "expect": "eq:1193046"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#generateFilterRect()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 4); __v = __o.generateFilterRect(__o.rect, new BlurFilter(4, 4)); __r = String(__v.width >= 4);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#getColorBoundsRect()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 4, true, 0); __o.setPixel32(2, 1, 0xff112233); __v = __o.getColorBoundsRect(0xff000000, 0xff000000, true); __r = String(__v.x) + ':' + String(__v.y) + ':' + String(__v.width);",
+   "expect": "eq:2:1:1"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __r = String(__o.getPixel(0, 0));",
+   "expect": "eq:1122867"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#getPixel32()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __r = String(__o.getPixel32(0, 0) == 0xff112233);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#getPixels()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __v = __o.getPixels(__o.rect); __r = String(__v.length);",
+   "expect": "eq:16"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#getVector()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __v = __o.getVector(__o.rect); __r = String(__v is Vector.<uint>) + ':' + String(__v.length) + ':' + String(__v[0] == 0xff112233);",
+   "expect": "eq:true:4:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#hitTest()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __r = String(__o.hitTest(new Point(0, 0), 1, new Point(1, 1)));",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2); __o.lock(); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#merge()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff000000); __v = new BitmapData(2, 2, true, 0xffffffff); __o.merge(__v, __v.rect, new Point(0, 0), 256, 0, 0, 256); __r = String((__o.getPixel(0, 0) >> 16) & 0xff);",
+   "expect": "eq:255"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#noise()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2); __o.noise(5, 10, 200, 7, false); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#paletteMap()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, false, 0x010203); __o.paletteMap(__o, __o.rect, new Point(0, 0), null, null, null, null); __r = String(__o.getPixel(0, 0));",
+   "expect": "eq:66051"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#perlinNoise()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 4); __o.perlinNoise(4, 4, 2, 9, false, true, 7, false); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#pixelDissolve()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0); __v = __o.pixelDissolve(__o, __o.rect, new Point(0, 0), 1, 2, 0xff112233); __r = typeof __v;",
+   "expect": "eq:number"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#scroll()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, false, 0); __o.setPixel(0, 0, 0x112233); __o.scroll(1, 0); __r = String(__o.getPixel(1, 0));",
+   "expect": "eq:1122867"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, false, 0); __o.setPixel(1, 1, 0x334455); __r = String(__o.getPixel(1, 1));",
+   "expect": "eq:3359829"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#setPixel32()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0); __o.setPixel32(1, 1, 0xff334455); __r = String(__o.getPixel32(1, 1) == 0xff334455);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#setPixels()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 1, true, 0); __v = __o.getPixels(__o.rect); __v.position = 0; __o.setPixels(__o.rect, __v); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#setVector()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0); __v = __o.getVector(__o.rect); __v[0] = 0xff224466; __o.setVector(__o.rect, __v); __r = String(__o.getPixel32(0, 0) == 0xff224466);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#threshold()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, true, 0xff112233); __r = String(__o.threshold(__o, __o.rect, new Point(0, 0), '==', 0xff112233, 0xffff0000, 0xffffffff, false));",
+   "expect": "eq:4"
+  },
+  {
+   "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2); __o.lock(); __o.unlock(__o.rect); __r = 'ok';",
+   "expect": "ok"
+  },
+  {
    "catalogId": "AS3:method:flash/display/DisplayObject.html#getRect()",
    "owner": "flash.display.DisplayObject",
    "code": "__o = new Sprite(); __v = __o.getRect(new Sprite()); __r = \"ok\";",
@@ -2924,10 +3494,100 @@
    "expect": "ok"
   },
   {
+   "catalogId": "AS3:method:flash/text/TextField.html#appendText()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __o.appendText('!'); __r = __o.text;",
+   "expect": "eq:Hi!"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getCharBoundaries()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __v = __o.getCharBoundaries(0); __r = String(__v is Rectangle && __v.width > 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getCharIndexAtPoint()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __r = String(__o.getCharIndexAtPoint(3, 4));",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getFirstCharInParagraph()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = String(__o.getFirstCharInParagraph(4));",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexAtPoint()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __r = String(__o.getLineIndexAtPoint(3, 4));",
+   "expect": "eq:0"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineIndexOfChar()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = String(__o.getLineIndexOfChar(4));",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineLength()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = String(__o.getLineLength(1));",
+   "expect": "eq:5"
+  },
+  {
    "catalogId": "AS3:method:flash/text/TextField.html#getLineMetrics()",
    "owner": "flash.text.TextField",
    "code": "__o = new TextField(); __o.text = \"Hello\"; __v = __o.getLineMetrics(0); __r = String(__v is TextLineMetrics) + \":\" + String(__v.width > 0) + \":\" + String(__v.height == __v.ascent + __v.descent + __v.leading);",
    "expect": "eq:true:true:true"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineOffset()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = String(__o.getLineOffset(1));",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getLineText()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = __o.getLineText(1);",
+   "expect": "eq:There"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getParagraphLength()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'Hi\\nThere'; __r = String(__o.getParagraphLength(0));",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getTextFormat()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.textColor = 0x224466; __r = String(__o.getTextFormat().color);",
+   "expect": "eq:2245734"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#replaceSelectedText()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abcd'; __o.setSelection(1, 3); __o.replaceSelectedText('XY'); __r = __o.text;",
+   "expect": "eq:aXYd"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#replaceText()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abcd'; __o.replaceText(1, 3, 'Z'); __r = __o.text;",
+   "expect": "eq:aZd"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#setSelection()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abcd'; __o.setSelection(0, 2); __r = String(__o.selectionEndIndex);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#setTextFormat()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __o.setTextFormat(new TextFormat('Arial', 15, 0x654321)); __r = String(__o.getTextFormat().size);",
+   "expect": "eq:15"
   },
   {
    "catalogId": "AS3:method:flash/ui/Keyboard.html#isAccessible()",
@@ -3044,16 +3704,58 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:property:flash/display/Bitmap.html#bitmapData",
+   "owner": "flash.display.Bitmap",
+   "code": "__o = new Bitmap(new BitmapData(3, 2)); __r = String(__o.bitmapData.width);",
+   "expect": "eq:3"
+  },
+  {
    "catalogId": "AS3:property:flash/display/Bitmap.html#pixelSnapping",
    "owner": "flash.display.Bitmap",
-   "code": "__o = new Bitmap(new BitmapData(2,2)); __r = typeof __o.pixelSnapping;",
-   "expect": "notundefined"
+   "code": "__o = new Bitmap(new BitmapData(2, 2)); __o.pixelSnapping = PixelSnapping.ALWAYS; __r = __o.pixelSnapping;",
+   "expect": "eq:always"
   },
   {
    "catalogId": "AS3:property:flash/display/Bitmap.html#smoothing",
    "owner": "flash.display.Bitmap",
-   "code": "__o = new Bitmap(new BitmapData(2,2)); __r = typeof __o.smoothing;",
-   "expect": "notundefined"
+   "code": "__o = new Bitmap(new BitmapData(2, 2)); __o.smoothing = true; __r = String(__o.smoothing);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/BitmapData.html#height",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(5, 3); __r = String(__o.height);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/BitmapData.html#rect",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(4, 3); __r = String(__o.rect.width) + ':' + String(__o.rect.height);",
+   "expect": "eq:4:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/BitmapData.html#transparent",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(2, 2, false, 0x112233); __r = String(__o.transparent);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/BitmapData.html#width",
+   "owner": "flash.display.BitmapData",
+   "code": "__o = new BitmapData(5, 3); __r = String(__o.width);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#blendMode",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __o.blendMode = BlendMode.MULTIPLY; __r = __o.blendMode;",
+   "expect": "eq:multiply"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#cacheAsBitmap",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __o.cacheAsBitmap = true; __r = String(__o.cacheAsBitmap);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/display/DisplayObject.html#mouseX",
@@ -3068,10 +3770,22 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#opaqueBackground",
+   "owner": "flash.display.DisplayObject",
+   "code": "__o = new Sprite(); __o.opaqueBackground = 0x112233; __r = String(__o.opaqueBackground);",
+   "expect": "eq:1122867"
+  },
+  {
    "catalogId": "AS3:property:flash/display/DisplayObjectContainer.html#mouseChildren",
    "owner": "flash.display.DisplayObjectContainer",
    "code": "__o = new Sprite(); __r = typeof __o.mouseChildren;",
    "expect": "notundefined"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/PNGEncoderOptions.html#fastCompression",
+   "owner": "flash.display.PNGEncoderOptions",
+   "code": "__o = new PNGEncoderOptions(); __o.fastCompression = true; __r = String(__o.fastCompression);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/display/Sprite.html#dropTarget",
@@ -3446,58 +4160,322 @@
    "expect": "notundefined"
   },
   {
+   "catalogId": "AS3:property:flash/text/TextField.html#alwaysShowSelection",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.alwaysShowSelection = true; __r = String(__o.alwaysShowSelection);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#antiAliasType",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.antiAliasType = AntiAliasType.ADVANCED; __r = __o.antiAliasType;",
+   "expect": "eq:advanced"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#autoSize",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hello'; __o.autoSize = TextFieldAutoSize.LEFT; __r = __o.autoSize + ':' + String(__o.width > 0);",
+   "expect": "eq:left:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#background",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.background = true; __r = String(__o.background);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#backgroundColor",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.backgroundColor = 0x223344; __r = String(__o.backgroundColor);",
+   "expect": "eq:2241348"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#border",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.border = true; __r = String(__o.border);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#borderColor",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.borderColor = 0x556677; __r = String(__o.borderColor);",
+   "expect": "eq:5596791"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#bottomScrollV",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'A\\nB'; __r = String(__o.bottomScrollV >= 1);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#caretIndex",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abc'; __o.setSelection(1, 2); __r = String(__o.caretIndex);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#condenseWhite",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.condenseWhite = true; __r = String(__o.condenseWhite);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#defaultTextFormat",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __v = new TextFormat('Arial', 16, 0x334455); __o.defaultTextFormat = __v; __r = String(__o.defaultTextFormat.size);",
+   "expect": "eq:16"
+  },
+  {
    "catalogId": "AS3:property:flash/text/TextField.html#displayAsPassword",
    "owner": "flash.text.TextField",
-   "code": "__o = new TextField(); __r = typeof __o.displayAsPassword;",
-   "expect": "notundefined"
+   "code": "__o = new TextField(); __o.displayAsPassword = true; __r = String(__o.displayAsPassword);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#embedFonts",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.embedFonts = true; __r = String(__o.embedFonts);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#gridFitType",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.gridFitType = GridFitType.SUBPIXEL; __r = __o.gridFitType;",
+   "expect": "eq:subpixel"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#length",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hello'; __r = String(__o.length);",
+   "expect": "eq:5"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#maxChars",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.maxChars = 12; __r = String(__o.maxChars);",
+   "expect": "eq:12"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#maxScrollH",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.width = 20; __o.text = 'WideUnwrappedLine'; __r = String(__o.maxScrollH >= 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#maxScrollV",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.height = 16; __o.text = 'A\\nB\\nC'; __r = String(__o.maxScrollV >= 2);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#mouseWheelEnabled",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.mouseWheelEnabled = false; __r = String(__o.mouseWheelEnabled);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#multiline",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __r = String(__o.multiline);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#numLines",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.text = 'A\\nB'; __r = String(__o.numLines);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#restrict",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.restrict = 'A-Z0-9'; __r = __o.restrict;",
+   "expect": "eq:A-Z0-9"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#scrollH",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.width = 20; __o.text = 'WideUnwrappedLine'; __o.scrollH = 6; __r = String(__o.scrollH);",
+   "expect": "eq:6"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#scrollV",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.multiline = true; __o.height = 16; __o.text = 'A\\nB\\nC'; __o.scrollV = 2; __r = String(__o.scrollV);",
+   "expect": "eq:2"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#selectable",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.selectable = false; __r = String(__o.selectable);",
+   "expect": "eq:false"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#selectionBeginIndex",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abcd'; __o.setSelection(1, 3); __r = String(__o.selectionBeginIndex);",
+   "expect": "eq:1"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#selectionEndIndex",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'abcd'; __o.setSelection(1, 3); __r = String(__o.selectionEndIndex);",
+   "expect": "eq:3"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#sharpness",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.sharpness = 500; __r = String(__o.sharpness);",
+   "expect": "eq:400"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#text",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __r = __o.text;",
+   "expect": "eq:Hi"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#textColor",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.textColor = 0x112233; __r = String(__o.textColor);",
+   "expect": "eq:1122867"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#textHeight",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __r = String(__o.textHeight > 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#textWidth",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.text = 'Hi'; __r = String(__o.textWidth > 0);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#thickness",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.thickness = -300; __r = String(__o.thickness);",
+   "expect": "eq:-200"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#type",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.type = TextFieldType.INPUT; __r = __o.type;",
+   "expect": "eq:input"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextField.html#wordWrap",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.wordWrap = true; __r = String(__o.wordWrap);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#align",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.align = TextFormatAlign.CENTER; __r = __o.align;",
+   "expect": "eq:center"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#blockIndent",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.blockIndent = 12; __r = String(__o.blockIndent);",
+   "expect": "eq:12"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#bold",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.bold = true; __r = String(__o.bold);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#bullet",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.bullet = true; __r = String(__o.bullet);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#color",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.color = 0x123456; __r = String(__o.color);",
+   "expect": "eq:1193046"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#font",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.font;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.font = 'Verdana'; __r = __o.font;",
+   "expect": "eq:Verdana"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#indent",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.indent;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.indent = 8; __r = String(__o.indent);",
+   "expect": "eq:8"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#italic",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.italic = true; __r = String(__o.italic);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#kerning",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.kerning = true; __r = String(__o.kerning);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#leading",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.leading = 4; __r = String(__o.leading);",
+   "expect": "eq:4"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#leftMargin",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.leftMargin;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.leftMargin = 6; __r = String(__o.leftMargin);",
+   "expect": "eq:6"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#letterSpacing",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.letterSpacing = 2; __r = String(__o.letterSpacing);",
+   "expect": "eq:2"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#rightMargin",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.rightMargin;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.rightMargin = 5; __r = String(__o.rightMargin);",
+   "expect": "eq:5"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#size",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.size;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.size = 18; __r = String(__o.size);",
+   "expect": "eq:18"
+  },
+  {
+   "catalogId": "AS3:property:flash/text/TextFormat.html#tabStops",
+   "owner": "flash.text.TextFormat",
+   "code": "__o = new TextFormat(); __o.tabStops = [24, 48]; __r = String(__o.tabStops.length) + ':' + String(__o.tabStops[1]);",
+   "expect": "eq:2:48"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#target",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.target;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.target = '_blank'; __r = __o.target;",
+   "expect": "eq:_blank"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#underline",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.underline;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.underline = true; __r = String(__o.underline);",
+   "expect": "eq:true"
   },
   {
    "catalogId": "AS3:property:flash/text/TextFormat.html#url",
    "owner": "flash.text.TextFormat",
-   "code": "__o = new TextFormat(); __r = typeof __o.url;",
-   "expect": "notundefined"
+   "code": "__o = new TextFormat(); __o.url = 'https://example.test'; __r = __o.url;",
+   "expect": "eq:https://example.test"
   },
   {
    "catalogId": "AS3:property:flash/text/TextLineMetrics.html#ascent",

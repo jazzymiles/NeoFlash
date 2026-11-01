@@ -583,7 +583,39 @@ impl<'a> Analysis<'a> {
                 let as3_scene_step = self.script.language == ScriptLanguage::ActionScript3
                     && binding.is_none()
                     && (matches!(callee.as_ref(), Expr::Name(name) | Expr::Member(_, name) if matches!(name.as_str(), "nextScene" | "prevScene"))
-                        || matches!(callee.as_ref(), Expr::Member(_, name) if matches!(name.as_str(), "invalidate" | "getLineMetrics" | "hide" | "show" | "registerCursor" | "unregisterCursor" | "isAccessible")));
+                        || matches!(
+                            callee.as_ref(),
+                            Expr::Member(_, name)
+                                if matches!(
+                                    name.as_str(),
+                                    "invalidate"
+                                        | "getLineMetrics"
+                                        | "getCharBoundaries"
+                                        | "getCharIndexAtPoint"
+                                        | "getLineIndexAtPoint"
+                                        | "getFirstCharInParagraph"
+                                        | "getParagraphLength"
+                                        | "copyChannel"
+                                        | "floodFill"
+                                        | "getColorBoundsRect"
+                                        | "threshold"
+                                        | "merge"
+                                        | "lock"
+                                        | "unlock"
+                                        | "getVector"
+                                        | "setVector"
+                                        | "compare"
+                                        | "noise"
+                                        | "perlinNoise"
+                                        | "paletteMap"
+                                        | "pixelDissolve"
+                                        | "hide"
+                                        | "show"
+                                        | "registerCursor"
+                                        | "unregisterCursor"
+                                        | "isAccessible"
+                                )
+                        ));
                 if !builtin && !project_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }

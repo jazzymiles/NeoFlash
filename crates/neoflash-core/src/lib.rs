@@ -107,9 +107,9 @@ pub use scenes::{
 };
 pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{
-    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextError, TextFieldState, TextFieldType, TextFormat,
-    TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextReplacement,
-    TextRestrictPatch, TextSelection, layout_text,
+    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
+    TextFormat, TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery,
+    TextReplacement, TextRestrictPatch, TextSelection, layout_text, query_text,
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
