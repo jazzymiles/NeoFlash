@@ -176,14 +176,35 @@
     for(const[Constructor,table]of [[SharedObject,states],[LegacySharedObject,legacyStates]]){
       Object.defineProperties(Constructor,{__nfIs:{value:value=>table.has(value)},__nfInitialize:{value:()=>unsupported('SharedObject native subclassing')}});
     }
-    Object.defineProperty(SharedObject,'getRemote',{value:()=>unsupported('SharedObject.getRemote')});
-    for(const name of ['connect','send','setDirty','setFps'])Object.defineProperty(SharedObject.prototype,name,{value:()=>unsupported(`SharedObject.${name}`)});
+    Object.defineProperty(SharedObject,'getRemote',{configurable:true,writable:true,value:()=>unsupported('SharedObject.getRemote')});
+    for(const name of ['connect','send','setDirty','setFps'])Object.defineProperty(SharedObject.prototype,name,{configurable:true,writable:true,value:()=>unsupported(`SharedObject.${name}`)});
     Object.defineProperty(LegacySharedObject.prototype,'setDirty',{value:()=>unsupported('SharedObject.setDirty')});
-    for(const name of ['client','fps'])Object.defineProperty(SharedObject.prototype,name,{get(){state(this);unsupported(`SharedObject.${name}`);},set(){state(this);unsupported(`SharedObject.${name}`);}});
+    for(const name of ['client','fps'])Object.defineProperty(SharedObject.prototype,name,{configurable:true,get(){state(this);unsupported(`SharedObject.${name}`);},set(){state(this);unsupported(`SharedObject.${name}`);}});
+    function createRemoteModern(name,remotePath=null,persistence=false,secure=false){
+      open();
+      if(typeof name!=='string'||!name||name.length>1024||/[\s\x00-\x1f\x7f~%&\\;:"',<>?#]/.test(name))throw new TypeError('SharedObject.getRemote requires a valid name String.');
+      if(typeof secure!=='boolean')throw new TypeError('SharedObject secure requires a Boolean.');
+      if(remotePath!==null&&remotePath!==undefined&&(typeof remotePath!=='string'||remotePath.length>4096||/[\x00-\x1f\x7f]/.test(remotePath)))throw new TypeError('SharedObject.getRemote remotePath requires a valid URI/path String or null.');
+      if(secure){
+        let url;try{url=new URL(options.url||global.location?.href);}catch(_){url=null;}
+        if(url&&url.protocol==='http:')return null;
+      }
+      const key=`as3remote:${remotePath??''}:${name}:${secure}`;
+      let record=remoteRecords.get(key);
+      if(!record){
+        if(remoteRecords.size>=MAX_OBJECTS)throw new RangeError('At most 256 remote SharedObjects may be opened in a publication session.');
+        record={key,name,remotePath,data:{},encoding:defaultEncoding,generation,epoch:0,busy:false,remote:true,persistence,secure,fps:0,peers:new Set(),dirty:new Set(),clients:new WeakMap()};
+        remoteRecords.set(key,record);
+      }
+      const instance=new SharedObject(token,record);
+      record.clients.set(instance,instance);
+      return instance;
+    }
+    const _as3Hook=Object.freeze({createRemoteModern,state:v=>state(v,false),bytes,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
     function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({SharedObject,LegacySharedObject,ObjectEncoding,SharedObjectFlushStatus,flushAll,reset,dispose});
+    return Object.freeze({SharedObject,LegacySharedObject,ObjectEncoding,SharedObjectFlushStatus,flushAll,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashStorage=api;
 })(globalThis);
