@@ -122,9 +122,9 @@ fn blank(frame: u32) -> Keyframe {
         ..Default::default()
     }
 }
-fn sampled_key(layer: &Layer, frame: u32) -> Keyframe {
+fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32) -> Keyframe {
     let mut key = blank(frame);
-    key.elements = sample_layer(layer, frame);
+    key.elements = sample_layer_in(timeline, layer, frame);
     if let Some(original) = layer.keyframes.iter().find(|key| key.frame == frame) {
         key.label = original.label.clone();
     }
@@ -216,6 +216,7 @@ fn subdivide_cubic_bezier([x1, y1, x2, y2]: [f64; 4], t0: f64, t1: f64) -> Optio
 /// Subdivide a classic tween `[first, last]` onto `[sub_start, sub_end]`, returning
 /// the tweened start key(s) in `sub_start..sub_end` (excluding the endpoint key at `sub_end`).
 fn subdivide_classic_subrange(
+    timeline: &Timeline,
     original: &Layer,
     first_key: &Keyframe,
     first: u32,
@@ -244,7 +245,7 @@ fn subdivide_classic_subrange(
             k.tween = Some(tween);
             k
         } else {
-            let mut k = sampled_key(original, frame);
+            let mut k = sampled_key(timeline, original, frame);
             k.tween = Some(tween);
             k.tween_kind = TweenKind::Classic;
             k.orient_to_path = first_key.orient_to_path;
@@ -353,6 +354,7 @@ fn charge_bake_budget(
 /// subdivided curves outside `[cut_start, cut_end)` (and baking `[cut_start, cut_end)`
 /// only when `bake_interior` is requested or a non-subdividable span must fall back).
 fn isolate_range_impl(
+    timeline: &Timeline,
     layer: &mut Layer,
     cut_start: u32,
     cut_end: u32,
@@ -421,9 +423,9 @@ fn isolate_range_impl(
                             replacement.push(k);
                         } else {
                             replacement.extend(subdivide_classic_subrange(
-                                &original, first_key, first, last, first, left_end,
+                                timeline, &original, first_key, first, last, first, left_end,
                             )?);
-                            let mut end_k = sampled_key(&original, left_end);
+                            let mut end_k = sampled_key(timeline, &original, left_end);
                             end_k.tween = None;
                             replacement.push(end_k);
                         }
@@ -432,12 +434,12 @@ fn isolate_range_impl(
                         let b0 = first.max(cut_start);
                         let b1 = last.min(cut_end);
                         for f in b0..b1 {
-                            replacement.push(sampled_key(&original, f));
+                            replacement.push(sampled_key(timeline, &original, f));
                         }
                     }
                     if cut_end < last {
                         replacement.extend(subdivide_classic_subrange(
-                            &original, first_key, first, last, cut_end, last,
+                            timeline, &original, first_key, first, last, cut_end, last,
                         )?);
                     }
                     Some(replacement)
@@ -462,7 +464,7 @@ fn isolate_range_impl(
                         .retain(|key| key.frame < first || key.frame >= last);
                     layer
                         .keyframes
-                        .extend((first..last).map(|frame| sampled_key(&original, frame)));
+                        .extend((first..last).map(|frame| sampled_key(timeline, &original, frame)));
                 }
             }
             SpanKind::Motion {
@@ -507,8 +509,8 @@ fn isolate_range_impl(
                                 .iter()
                                 .find(|k| k.frame == left_last)
                                 .cloned()
-                                .unwrap_or_else(|| sampled_key(&original, left_last));
-                            end_prop.elements = sample_layer(&original, left_last);
+                                .unwrap_or_else(|| sampled_key(timeline, &original, left_last));
+                            end_prop.elements = sample_layer_in(timeline, &original, left_last);
                             end_prop.tween = first_key.tween;
                             end_prop.tween_kind = TweenKind::Motion;
                             end_prop.keyed_properties = Some(TweenProperty::ALL.to_vec());
@@ -523,12 +525,12 @@ fn isolate_range_impl(
                         let b1 = end_frame.min(cut_end);
                         charge_bake_budget(&original, b0, b1, budget)?;
                         for f in b0..b1 {
-                            replacement.push(sampled_key(&original, f));
+                            replacement.push(sampled_key(timeline, &original, f));
                         }
                     }
                     if cut_end < end_frame {
                         if cut_end + 1 == end_frame {
-                            let mut k = sampled_key(&original, cut_end);
+                            let mut k = sampled_key(timeline, &original, cut_end);
                             if let Some(old) =
                                 original.keyframes.iter().find(|old| old.frame == cut_end)
                             {
@@ -536,7 +538,7 @@ fn isolate_range_impl(
                             }
                             replacement.push(k);
                         } else {
-                            let mut right_start = sampled_key(&original, cut_end);
+                            let mut right_start = sampled_key(timeline, &original, cut_end);
                             if let Some(old) =
                                 original.keyframes.iter().find(|old| old.frame == cut_end)
                             {
@@ -569,9 +571,9 @@ fn isolate_range_impl(
                     layer
                         .keyframes
                         .retain(|key| key.frame < first || key.frame >= end_frame);
-                    layer
-                        .keyframes
-                        .extend((first..end_frame).map(|frame| sampled_key(&original, frame)));
+                    layer.keyframes.extend(
+                        (first..end_frame).map(|frame| sampled_key(timeline, &original, frame)),
+                    );
                 }
             }
         }
@@ -581,26 +583,33 @@ fn isolate_range_impl(
 }
 
 fn isolate_range(
+    timeline: &Timeline,
     layer: &mut Layer,
     cut_start: u32,
     cut_end: u32,
     budget: &mut usize,
 ) -> Result<(), String> {
-    isolate_range_impl(layer, cut_start, cut_end, false, budget)
+    isolate_range_impl(timeline, layer, cut_start, cut_end, false, budget)
 }
 
 /// Used by `copy_frames`, which strips `key.tween = None` on copied keyframes and
 /// therefore needs integer-frame poses inside `[start, end)`.
-fn bake_touched(layer: &mut Layer, start: u32, end: u32, budget: &mut usize) -> Result<(), String> {
-    isolate_range_impl(layer, start, end, true, budget)
+fn bake_touched(
+    timeline: &Timeline,
+    layer: &mut Layer,
+    start: u32,
+    end: u32,
+    budget: &mut usize,
+) -> Result<(), String> {
+    isolate_range_impl(timeline, layer, start, end, true, budget)
 }
-fn split(layer: &mut Layer, frame: u32) {
+fn split(timeline: &Timeline, layer: &mut Layer, frame: u32) {
     if frame >= layer.properties.end_frame.unwrap_or(MAX_FRAME)
         || layer.keyframes.iter().any(|key| key.frame == frame)
     {
         return;
     }
-    let key = sampled_key(layer, frame);
+    let key = sampled_key(timeline, layer, frame);
     layer.keyframes.push(key);
     layer.keyframes.sort_by_key(|key| key.frame);
 }
@@ -622,8 +631,8 @@ pub fn copy_frames(
         let mut layer = timeline.layers[index].clone();
         let effective_end = exposure(&layer, timeline.frame_count);
         layer.properties.end_frame = Some(effective_end);
-        bake_touched(&mut layer, range.start, end, &mut budget)?;
-        split(&mut layer, range.start);
+        bake_touched(timeline, &mut layer, range.start, end, &mut budget)?;
+        split(timeline, &mut layer, range.start);
         let keyframes = layer
             .keyframes
             .into_iter()
@@ -668,9 +677,9 @@ fn clear_rows(
 ) -> Result<(), String> {
     let end = range_end(timeline, range)?;
     for index in layer_indices(timeline, &range.layers)? {
-        let layer = &mut timeline.layers[index];
-        isolate_range(layer, range.start, end, budget)?;
-        split(layer, end);
+        let mut layer = timeline.layers[index].clone();
+        isolate_range(timeline, &mut layer, range.start, end, budget)?;
+        split(timeline, &mut layer, end);
         layer
             .keyframes
             .retain(|key| key.frame < range.start || key.frame >= end);
@@ -678,6 +687,7 @@ fn clear_rows(
             layer.keyframes.push(blank(range.start));
         }
         layer.keyframes.sort_by_key(|key| key.frame);
+        timeline.layers[index] = layer;
     }
     Ok(())
 }
@@ -767,10 +777,10 @@ fn paste_rows(
                 "Frame clipboard has invalid exposure bounds or duplicate/unordered keys.".into(),
             );
         }
-        let layer = &mut timeline.layers[index];
+        let mut layer = timeline.layers[index].clone();
         let old_end = layer.properties.end_frame.unwrap_or(0);
-        isolate_range(layer, at, end, budget)?;
-        split(layer, end);
+        isolate_range(timeline, &mut layer, at, end, budget)?;
+        split(timeline, &mut layer, end);
         layer
             .keyframes
             .retain(|key| key.frame < at || key.frame >= end);
@@ -821,6 +831,7 @@ fn paste_rows(
         layer.keyframes.retain(|key| key.frame < new_end);
         layer.keyframes.sort_by_key(|key| key.frame);
         layer.keyframes.dedup_by_key(|key| key.frame);
+        timeline.layers[index] = layer;
     }
     if include_scripts {
         timeline
@@ -993,9 +1004,9 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             let end = range_end(timeline, &range)?;
             let count = end - range.start;
             for index in layer_indices(timeline, &range.layers)? {
-                let layer = &mut timeline.layers[index];
-                isolate_range(layer, range.start, end, &mut budget)?;
-                split(layer, end);
+                let mut layer = timeline.layers[index].clone();
+                isolate_range(timeline, &mut layer, range.start, end, &mut budget)?;
+                split(timeline, &mut layer, end);
                 layer
                     .keyframes
                     .retain(|key| key.frame < range.start || key.frame >= end);
@@ -1007,6 +1018,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 let old_end = layer.properties.end_frame.unwrap_or(0);
                 layer.properties.end_frame =
                     Some(old_end.saturating_sub(old_end.min(end).saturating_sub(range.start)));
+                timeline.layers[index] = layer;
             }
             if include_scripts {
                 remove_scripts(timeline, &range);
@@ -1032,12 +1044,12 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 return Err("Inserted time is outside the supported timeline range.".into());
             }
             for index in layer_indices(timeline, &layers)? {
-                let layer = &mut timeline.layers[index];
+                let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
-                isolate_range(layer, at, at, &mut budget)?;
-                split(layer, at);
+                isolate_range(timeline, &mut layer, at, at, &mut budget)?;
+                split(timeline, &mut layer, at);
                 let hold = if at > 0 && at <= old_end {
-                    sampled_key(layer, at - 1).elements
+                    sampled_key(timeline, &layer, at - 1).elements
                 } else {
                     vec![]
                 };
@@ -1054,6 +1066,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 layer.keyframes.push(key);
                 layer.properties.end_frame = Some(old_end.max(at) + count);
                 layer.keyframes.sort_by_key(|key| key.frame);
+                timeline.layers[index] = layer;
             }
             if include_scripts {
                 for script in &mut timeline.scripts {
@@ -1108,17 +1121,17 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         TimelineEdit::Reverse { range } => {
             let end = range_end(timeline, &range)?;
             for index in layer_indices(timeline, &range.layers)? {
-                let layer = &mut timeline.layers[index];
+                let mut layer = timeline.layers[index].clone();
                 let last = end.min(layer.properties.end_frame.unwrap_or(0));
                 if last <= range.start + 1 {
                     continue;
                 }
                 // Tweens crossing either boundary are baked; tweens inside are kept.
-                bake_touched(layer, range.start, range.start, &mut budget)?;
-                bake_touched(layer, last, last, &mut budget)?;
+                bake_touched(timeline, &mut layer, range.start, range.start, &mut budget)?;
+                bake_touched(timeline, &mut layer, last, last, &mut budget)?;
                 let original = layer.clone();
                 for frame in [range.start, last - 1, last] {
-                    split(layer, frame);
+                    split(timeline, &mut layer, frame);
                 }
                 let (first, final_frame) = (range.start, last - 1);
                 let mut inside: Vec<Keyframe> = layer
@@ -1137,7 +1150,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     // tracks do not survive reversal; their poses become classic keys.
                     if key.keyed_properties.take().is_some() || key.tween_kind == TweenKind::Motion
                     {
-                        key.elements = sample_layer(&original, key.frame);
+                        key.elements = sample_layer_in(timeline, &original, key.frame);
                         key.tween_kind = TweenKind::Classic;
                     }
                     key.tween = tweens[if i == 0 { count - 1 } else { i - 1 }];
@@ -1145,6 +1158,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 }
                 layer.keyframes.extend(inside);
                 layer.keyframes.sort_by_key(|key| key.frame);
+                timeline.layers[index] = layer;
             }
         }
         TimelineEdit::ConvertToKeyframes {
@@ -1153,24 +1167,24 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         } => {
             let end = range_end(timeline, &range)?;
             for index in layer_indices(timeline, &range.layers)? {
-                let layer = &mut timeline.layers[index];
+                let mut layer = timeline.layers[index].clone();
                 let last = end.min(layer.properties.end_frame.unwrap_or(0));
                 if last <= range.start {
                     continue;
                 }
                 let original = layer.clone();
-                let records = (last - range.start) as usize
-                    * original
-                        .key_at(range.start)
-                        .map_or(1, |key| key.elements.len().max(1));
-                budget = budget
-                    .checked_add(records)
+                let before_isolate = budget;
+                isolate_range(timeline, &mut layer, range.start, last, &mut budget)?;
+                let isolate_charged = budget - before_isolate;
+                let mut range_budget = 0;
+                charge_bake_budget(&original, range.start, last, &mut range_budget)?;
+                budget = before_isolate
+                    .checked_add(isolate_charged.max(range_budget))
                     .ok_or("Frame edit is too large.")?;
                 if budget > MAX_BAKED_RECORDS {
                     return Err("This edit would create more than 100000 frame/object records. Select a shorter range.".into());
                 }
-                isolate_range(layer, range.start, last, &mut budget)?;
-                split(layer, last);
+                split(timeline, &mut layer, last);
                 layer
                     .keyframes
                     .retain(|key| key.frame < range.start || key.frame >= last);
@@ -1182,10 +1196,11 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         }
                         key
                     } else {
-                        sampled_key(&original, frame)
+                        sampled_key(timeline, &original, frame)
                     }
                 }));
                 layer.keyframes.sort_by_key(|key| key.frame);
+                timeline.layers[index] = layer;
             }
         }
         TimelineEdit::SyncSymbols { range } => {
@@ -1208,13 +1223,14 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 return Err("Layer exposure exceeds 1000000 frames.".into());
             }
             for index in layer_indices(timeline, &layers)? {
-                let layer = &mut timeline.layers[index];
+                let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
                 if end_frame < old_end {
-                    isolate_range(layer, end_frame, old_end, &mut budget)?;
+                    isolate_range(timeline, &mut layer, end_frame, old_end, &mut budget)?;
                 }
                 layer.keyframes.retain(|key| key.frame < end_frame);
                 layer.properties.end_frame = Some(end_frame);
+                timeline.layers[index] = layer;
             }
         }
     }

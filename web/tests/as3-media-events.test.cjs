@@ -1359,6 +1359,77 @@ test('runtime host wires DisplayObject.accessibilityProperties, Stage.accessibil
   }
 });
 
+test('runtime host built-in ContextMenu rewind and forwardAndBack actions seek via WebPlayer without player.seek', async () => {
+  await ready;
+  const root = path.resolve(__dirname, '../..');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+  const multiFrameProject = {
+    format_version: 3,
+    name: 'BuiltIn Menu Seek Check',
+    width: 640,
+    height: 480,
+    fps: 24,
+    background: [0, 0, 0, 255],
+    root: 'root',
+    symbols: [
+      {
+        id: 'root',
+        name: 'Main',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 3,
+          layers: [
+            {
+              id: 'l1',
+              name: 'Layer 1',
+              visible: true,
+              locked: false,
+              keyframes: [
+                { frame: 0, elements: [], label: '', tween: null },
+                { frame: 1, elements: [], label: '', tween: null },
+                { frame: 2, elements: [], label: '', tween: null },
+              ],
+            },
+          ],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  const player = new wasm.WebPlayer(JSON.stringify(multiFrameProject));
+  assert.equal(typeof player.seek, 'undefined');
+  assert.equal(typeof player.control, 'function');
+  const { host } = createRuntimeHost(root, player, [], { project: multiFrameProject });
+  try {
+    const prog = host.program();
+    const ContextMenu = prog.type('flash.ui.ContextMenu');
+    const rootClip = host.proxyFor([]);
+    rootClip.contextMenu = new ContextMenu();
+
+    assert.equal(player.current_frame(), 0);
+    const menu1 = host.mediaEvents().openContextMenu({ clientX: 10, clientY: 10 }, rootClip);
+    const forwardBtn = menu1
+      .querySelectorAll('[role="menuitem"]')
+      .find(item => item.getAttribute('data-builtin') === 'forwardAndBack');
+    assert.ok(forwardBtn, 'forwardAndBack built-in menu item should exist');
+    forwardBtn.click();
+    assert.equal(player.current_frame(), 1);
+
+    const menu2 = host.mediaEvents().openContextMenu({ clientX: 10, clientY: 10 }, rootClip);
+    const rewindBtn = menu2
+      .querySelectorAll('[role="menuitem"]')
+      .find(item => item.getAttribute('data-builtin') === 'rewind');
+    assert.ok(rewindBtn, 'rewind built-in menu item should exist');
+    rewindBtn.click();
+    assert.equal(player.current_frame(), 0);
+    assert.equal(player.is_playing(), false);
+  } finally {
+    host.disposeFamily();
+    player.free();
+  }
+});
+
 test('Wave 6: interactive HTML5 DOM ContextMenu renders custom, clipboard, and built-in items and dispatches MENU_SELECT + MENU_ITEM_SELECT', async () => {
   await ready;
   const h = createMediaEventsHarness();

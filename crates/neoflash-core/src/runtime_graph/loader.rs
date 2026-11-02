@@ -150,6 +150,45 @@ impl Player {
         pixels: Option<PixelRef>,
         as2_replace: bool,
     ) -> Result<LoaderMutation, DisplayError> {
+        self.loader_replace_with_payload(
+            project,
+            target,
+            pixels.map(LoaderPayload::Bitmap),
+            as2_replace,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn loader_replace_swf(
+        &mut self,
+        project: &Project,
+        target: &ObjectRef,
+        as_version: u32,
+        width: u32,
+        height: u32,
+        bg_color: Option<u32>,
+        as2_replace: bool,
+    ) -> Result<LoaderMutation, DisplayError> {
+        self.loader_replace_with_payload(
+            project,
+            target,
+            Some(LoaderPayload::Swf {
+                as_version,
+                width,
+                height,
+                bg_color,
+            }),
+            as2_replace,
+        )
+    }
+
+    fn loader_replace_with_payload(
+        &mut self,
+        project: &Project,
+        target: &ObjectRef,
+        payload: Option<LoaderPayload>,
+        as2_replace: bool,
+    ) -> Result<LoaderMutation, DisplayError> {
         if !self.graph.loaders.contains_key(target) && self.graph.loaders.len() >= 256 {
             return Err(error(
                 "Loader exceeds 256 tracked targets; Restart releases the session",
@@ -197,7 +236,7 @@ impl Player {
                 "Loaded image content cannot replace a vector-mask source",
             ));
         }
-        if let Some(reference) = &pixels {
+        if let Some(LoaderPayload::Bitmap(reference)) = &payload {
             let info = self
                 .graph
                 .pixels
@@ -227,23 +266,71 @@ impl Player {
             .iter()
             .filter(|id| self.graph.dynamic.contains_key(*id))
             .count();
-        if pixels.is_some() && self.graph.dynamic.len() - released >= MAX_DYNAMIC_OBJECTS {
+        if payload.is_some()
+            && self.graph.dynamic.len().saturating_sub(released) >= MAX_DYNAMIC_OBJECTS
+        {
             return Err(error("Loader exceeds dynamic display object budget"));
         }
-        if pixels.is_some() && self.graph.route(target).len() >= MAX_GRAPH_DEPTH {
+        if payload.is_some() && self.graph.route(target).len() >= MAX_GRAPH_DEPTH {
             return Err(error("Loader content exceeds display depth budget"));
         }
         let attached = node.on_stage;
         let event_count = old.len()
             + if attached { descendants.len() } else { 0 }
-            + if pixels.is_some() {
+            + if payload.is_some() {
                 1 + usize::from(attached)
             } else {
                 0
             };
-        if event_count > MAX_DISPLAY_EVENTS {
+        if event_count > MAX_DISPLAY_EVENTS
+            || self.graph.events.len().saturating_add(event_count) > MAX_DISPLAY_EVENTS
+        {
             return Err(error("Loader replacement exceeds lifecycle event budget"));
         }
+        let swf_graphics = if let Some(LoaderPayload::Swf {
+            width,
+            height,
+            bg_color,
+            ..
+        }) = &payload
+        {
+            let mut graphics = GraphicsState::default();
+            let color = bg_color.unwrap_or(0x336699) & 0x00ff_ffff;
+            graphics.apply(&crate::GraphicsOp::BeginFill { color, alpha: 1.0 });
+            graphics.apply(&crate::GraphicsOp::DrawRect {
+                x: 0.0,
+                y: 0.0,
+                width: ((*width).max(1)) as f64,
+                height: ((*height).max(1)) as f64,
+            });
+            graphics.apply(&crate::GraphicsOp::EndFill);
+            let released_graphics = retired
+                .iter()
+                .filter_map(|id| self.graph.dynamic.get(id).map(|n| n.graphics.cost()))
+                .sum::<usize>()
+                + if as2_replace {
+                    self.graph
+                        .dynamic
+                        .get(target)
+                        .map_or(0, |n| n.graphics.cost())
+                } else {
+                    0
+                };
+            let next_graphics_cost = self
+                .graph
+                .graphics_cost
+                .saturating_sub(released_graphics)
+                .checked_add(graphics.cost())
+                .ok_or_else(|| error("Runtime Graphics storage exceeds 100000 commands/runs"))?;
+            if graphics.cost() > MAX_GRAPHICS_OPS || next_graphics_cost > MAX_GRAPHICS_COMMANDS {
+                return Err(error(
+                    "Runtime Graphics storage exceeds 100000 commands/runs",
+                ));
+            }
+            Some(graphics)
+        } else {
+            None
+        };
         let mut events = vec![];
         for child in &old {
             events.push(DisplayEvent {
@@ -296,43 +383,82 @@ impl Player {
             self.graph.suffix.remove(target);
             self.graph.child_order.remove(target);
         }
-        let content = pixels.map(|pixel_ref| {
-            let id = self.graph.allocate();
-            self.graph.dynamic.insert(
-                id.clone(),
-                DynamicObject {
-                    kind: DynamicKind::Bitmap,
-                    parent: Some(target.clone()),
-                    transform: Transform::default(),
-                    visible: true,
-                    name: "content".into(),
-                    playing: false,
-                    graphics: GraphicsState::default(),
-                },
-            );
-            self.graph.bitmap_states.insert(
-                id.clone(),
-                bitmap::BitmapState {
-                    pixel_ref: Some(pixel_ref),
-                    smoothing: false,
-                    pixel_snapping: PixelSnapping::Auto,
-                },
-            );
-            self.graph.suffix.insert(target.clone(), vec![id.clone()]);
-            events.push(DisplayEvent {
-                kind: "added".into(),
-                target_ref: id.clone(),
-                route: self.graph.route(&id),
-            });
-            if attached {
+        let content = match payload {
+            Some(LoaderPayload::Bitmap(pixel_ref)) => {
+                let id = self.graph.allocate();
+                self.graph.dynamic.insert(
+                    id.clone(),
+                    DynamicObject {
+                        kind: DynamicKind::Bitmap,
+                        parent: Some(target.clone()),
+                        transform: Transform::default(),
+                        visible: true,
+                        name: "content".into(),
+                        playing: false,
+                        graphics: GraphicsState::default(),
+                    },
+                );
+                self.graph.bitmap_states.insert(
+                    id.clone(),
+                    bitmap::BitmapState {
+                        pixel_ref: Some(pixel_ref),
+                        smoothing: false,
+                        pixel_snapping: PixelSnapping::Auto,
+                    },
+                );
+                self.graph.suffix.insert(target.clone(), vec![id.clone()]);
                 events.push(DisplayEvent {
-                    kind: "added_to_stage".into(),
+                    kind: "added".into(),
                     target_ref: id.clone(),
                     route: self.graph.route(&id),
                 });
+                if attached {
+                    events.push(DisplayEvent {
+                        kind: "added_to_stage".into(),
+                        target_ref: id.clone(),
+                        route: self.graph.route(&id),
+                    });
+                }
+                Some(id)
             }
-            id
-        });
+            Some(LoaderPayload::Swf { as_version, .. }) => {
+                let id = self.graph.allocate();
+                let kind = if as_version < 3 {
+                    DynamicKind::Avm1Movie
+                } else {
+                    DynamicKind::MovieClip
+                };
+                let graphics = swf_graphics.expect("validated SWF graphics");
+                self.graph.graphics_cost += graphics.cost();
+                self.graph.dynamic.insert(
+                    id.clone(),
+                    DynamicObject {
+                        kind,
+                        parent: Some(target.clone()),
+                        transform: Transform::default(),
+                        visible: true,
+                        name: "content".into(),
+                        playing: as_version >= 3,
+                        graphics,
+                    },
+                );
+                self.graph.suffix.insert(target.clone(), vec![id.clone()]);
+                events.push(DisplayEvent {
+                    kind: "added".into(),
+                    target_ref: id.clone(),
+                    route: self.graph.route(&id),
+                });
+                if attached {
+                    events.push(DisplayEvent {
+                        kind: "added_to_stage".into(),
+                        target_ref: id.clone(),
+                        route: self.graph.route(&id),
+                    });
+                }
+                Some(id)
+            }
+            None => None,
+        };
         self.graph.loaders.insert(
             target.clone(),
             LoaderState {
@@ -349,75 +475,59 @@ impl Player {
             retired_refs: retired.into_iter().collect(),
         })
     }
+}
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn loader_replace_swf(
-        &mut self,
-        project: &Project,
-        target: &ObjectRef,
+enum LoaderPayload {
+    Bitmap(PixelRef),
+    Swf {
         as_version: u32,
         width: u32,
         height: u32,
         bg_color: Option<u32>,
-        as2_replace: bool,
-    ) -> Result<LoaderMutation, DisplayError> {
-        let mut mutation = self.loader_replace(project, target, None, as2_replace)?;
-        let snapshot = self.runtime_snapshot(project);
-        let attached = snapshot
-            .objects
-            .iter()
-            .find(|o| &o.object_ref == target)
-            .is_some_and(|o| o.on_stage);
-        let id = self.graph.allocate();
-        let kind = if as_version < 3 {
-            DynamicKind::Avm1Movie
-        } else {
-            DynamicKind::MovieClip
-        };
-        let mut graphics = GraphicsState::default();
-        let color = bg_color.unwrap_or(0x336699) & 0x00ff_ffff;
-        graphics.apply(&crate::GraphicsOp::BeginFill { color, alpha: 1.0 });
-        graphics.apply(&crate::GraphicsOp::DrawRect {
-            x: 0.0,
-            y: 0.0,
-            width: (width.max(1)) as f64,
-            height: (height.max(1)) as f64,
-        });
-        graphics.apply(&crate::GraphicsOp::EndFill);
-        self.graph.graphics_cost += graphics.cost();
-        self.graph.dynamic.insert(
-            id.clone(),
-            DynamicObject {
-                kind,
-                parent: Some(target.clone()),
-                transform: Transform::default(),
-                visible: true,
-                name: "content".into(),
-                playing: as_version >= 3,
-                graphics,
-            },
-        );
-        self.graph.suffix.insert(target.clone(), vec![id.clone()]);
-        mutation.events.push(DisplayEvent {
-            kind: "added".into(),
-            target_ref: id.clone(),
-            route: self.graph.route(&id),
-        });
-        if attached {
-            mutation.events.push(DisplayEvent {
-                kind: "added_to_stage".into(),
-                target_ref: id.clone(),
-                route: self.graph.route(&id),
-            });
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loader_replace_swf_enforces_dynamic_depth_graphics_and_event_budgets() {
+        let project = Project::blank();
+        let mut player = Player::new(&project);
+        let loader = player.create_display(DynamicKind::Loader).unwrap();
+
+        // 1. Graphics budget check
+        player.graph.graphics_cost = MAX_GRAPHICS_COMMANDS;
+        let err = player
+            .loader_replace_swf(&project, &loader, 3, 100, 100, None, false)
+            .unwrap_err();
+        assert!(err.0.contains("100000"));
+        assert!(player.loader_content(&loader).unwrap().is_none());
+        player.graph.graphics_cost = 0;
+
+        // 2. Pending display events budget check
+        player.graph.events = vec![
+            DisplayEvent {
+                kind: "added".into(),
+                target_ref: loader.clone(),
+                route: vec![loader.clone()],
+            };
+            MAX_DISPLAY_EVENTS
+        ];
+        let err = player
+            .loader_replace_swf(&project, &loader, 3, 100, 100, None, false)
+            .unwrap_err();
+        assert!(err.0.contains("lifecycle event budget"));
+        player.graph.events.clear();
+
+        // 3. Dynamic display object budget check
+        while player.graph.dynamic.len() < MAX_DYNAMIC_OBJECTS {
+            player.create_display(DynamicKind::Sprite).unwrap();
         }
-        self.graph.loaders.insert(
-            target.clone(),
-            LoaderState {
-                content: Some(id.clone()),
-                as2: as2_replace,
-            },
-        );
-        mutation.content_ref = Some(id);
-        Ok(mutation)
+        let err = player
+            .loader_replace_swf(&project, &loader, 3, 100, 100, None, false)
+            .unwrap_err();
+        assert!(err.0.contains("dynamic display object budget"));
     }
 }

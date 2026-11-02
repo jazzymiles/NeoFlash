@@ -366,8 +366,10 @@ fn sample_frames_into_peaks(
         Vec::new()
     };
     for b in 0..count {
-        let start = b * frames / count;
-        let end = ((b + 1) * frames / count).max(start + 1).min(frames);
+        let start = ((b as u64) * (frames as u64) / (count as u64)) as usize;
+        let end = ((((b + 1) as u64) * (frames as u64) / (count as u64)) as usize)
+            .max(start + 1)
+            .min(frames);
         let (mut min_l, mut max_l) = (1.0_f32, -1.0_f32);
         let (mut min_r, mut max_r) = (1.0_f32, -1.0_f32);
         for frame in start..end {

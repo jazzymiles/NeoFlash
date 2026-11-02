@@ -1153,3 +1153,174 @@ fn format_7_display_features_and_cross_session_motion_guide_and_sound_paste_roun
         imported_res_id
     );
 }
+
+#[test]
+fn paste_into_intermediate_frame_preserves_motion_shape_and_guided_tween_invariants() {
+    let mut src = Project::blank();
+    let badge = shape("badge", 15.0);
+    src.symbols[0].timeline.layers[0].keyframes[0].elements = vec![badge.clone()];
+    let clip = ClipboardPayload::capture(&src, vec![badge], "clip-src", [0.0, 0.0]).unwrap();
+
+    // 1. Intermediate paste inside a Motion tween span with ◆ property keyframes must not leave
+    // orphaned ◆ keys or invalid tween_kind on the newly split keyframe.
+    let mut motion_doc = Project::blank();
+    motion_doc.format_version = 7;
+    let root_id = motion_doc.root.clone();
+    let layer_id = motion_doc.symbol(&root_id).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    {
+        let timeline = &mut motion_doc.symbol_mut(&root_id).unwrap().timeline;
+        timeline.frame_count = 11;
+        let mut k0 = key(0, vec![shape("mover", 0.0)], Some(Easing::Linear), "");
+        k0.tween_kind = TweenKind::Motion;
+        let mut k6 = key(6, vec![shape("mover", 60.0)], Some(Easing::Linear), "");
+        k6.tween_kind = TweenKind::Motion;
+        k6.keyed_properties = Some(vec![TweenProperty::X]);
+        timeline.layers[0].keyframes = vec![k0, k6];
+    }
+    motion_doc.validate().unwrap();
+    let pasted_motion = clip
+        .paste_into(&motion_doc, "clip-src", &root_id, &layer_id, 3, [0.0, 0.0])
+        .expect("paste at intermediate frame of motion tween with ◆ property key must validate");
+    pasted_motion.project.validate().unwrap();
+    let split_key = pasted_motion
+        .project
+        .symbol(&root_id)
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 3)
+        .unwrap();
+    assert_eq!(split_key.tween, None);
+    assert_eq!(split_key.tween_kind, TweenKind::Classic);
+
+    // 2. Intermediate paste inside a Shape tween span preserves TweenKind::Shape on the split keyframe.
+    let mut shape_doc = Project::blank();
+    shape_doc.format_version = 6;
+    let shape_root = shape_doc.root.clone();
+    let shape_layer = shape_doc.symbol(&shape_root).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    {
+        let timeline = &mut shape_doc.symbol_mut(&shape_root).unwrap().timeline;
+        timeline.frame_count = 11;
+        let mut s0 = key(0, vec![shape("morph", 0.0)], Some(Easing::Linear), "");
+        s0.tween_kind = TweenKind::Shape;
+        let s10 = key(10, vec![shape("morph", 100.0)], None, "");
+        timeline.layers[0].keyframes = vec![s0, s10];
+    }
+    shape_doc.validate().unwrap();
+    let pasted_shape = clip
+        .paste_into(
+            &shape_doc,
+            "clip-src",
+            &shape_root,
+            &shape_layer,
+            5,
+            [0.0, 0.0],
+        )
+        .expect("paste at intermediate frame of shape tween must validate");
+    pasted_shape.project.validate().unwrap();
+    let shape_split = pasted_shape
+        .project
+        .symbol(&shape_root)
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 5)
+        .unwrap();
+    assert_eq!(shape_split.tween, Some(Easing::Linear));
+    assert_eq!(shape_split.tween_kind, TweenKind::Shape);
+
+    // 3. Intermediate paste inside a guided Classic tween samples along the motion guide and
+    // preserves orient_to_path.
+    let mut guided_doc = Project::blank();
+    guided_doc.format_version = 6;
+    let guided_root = guided_doc.root.clone();
+    let guided_layer = guided_doc.symbol(&guided_root).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    {
+        let timeline = &mut guided_doc.symbol_mut(&guided_root).unwrap().timeline;
+        timeline.frame_count = 11;
+        let mut c0 = key(0, vec![shape("runner", 0.0)], Some(Easing::Linear), "");
+        c0.elements[0].transform.y = 0.0;
+        c0.orient_to_path = true;
+        let mut c10 = key(10, vec![shape("runner", 100.0)], None, "");
+        c10.elements[0].transform.y = 100.0;
+        timeline.layers[0].properties.motion_guide = Some("guide-row".into());
+        timeline.layers[0].keyframes = vec![c0, c10];
+        timeline.layers.push(Layer {
+            id: "guide-row".into(),
+            name: "Guide".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Guide,
+                ..Default::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "guide-line".into(),
+                    name: "guide-line".into(),
+                    transform: Transform::default(),
+                    kind: ElementKind::Path {
+                        commands: vec![
+                            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                            PathCommand::LineTo { x: 100.0, y: 0.0 },
+                            PathCommand::LineTo { x: 100.0, y: 100.0 },
+                        ],
+                        fill_rule: Default::default(),
+                        fill: [0, 0, 0, 0],
+                        stroke: [0, 0, 0, 255],
+                        stroke_width: 1.0,
+                    },
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        });
+    }
+    guided_doc.validate().unwrap();
+    let pasted_guided = clip
+        .paste_into(
+            &guided_doc,
+            "clip-src",
+            &guided_root,
+            &guided_layer,
+            5,
+            [0.0, 0.0],
+        )
+        .expect("paste at intermediate frame of guided classic tween must validate");
+    pasted_guided.project.validate().unwrap();
+    let guided_split = pasted_guided
+        .project
+        .symbol(&guided_root)
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 5)
+        .unwrap();
+    assert_eq!(guided_split.tween, Some(Easing::Linear));
+    assert_eq!(guided_split.tween_kind, TweenKind::Classic);
+    assert!(guided_split.orient_to_path);
+    let runner = guided_split
+        .elements
+        .iter()
+        .find(|e| e.id == "runner")
+        .unwrap();
+    assert!(
+        (runner.transform.x - 100.0).abs() < 1e-6 && runner.transform.y.abs() < 1e-6,
+        "guided runner at frame 5 must be sampled at guide corner (100, 0), got ({}, {})",
+        runner.transform.x,
+        runner.transform.y
+    );
+}

@@ -863,7 +863,14 @@ fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(Strin
         let rel_path =
             dedup_case_insensitive(&mut used_lower, &format!("{dir_prefix}{file_stem}"), ext);
         if source::safe_name(&rel_path).is_ok() {
-            out.push((rel_path, src.source.clone()));
+            let body = if src.language == ScriptLanguage::ActionScript1
+                && !src.source.starts_with("/* neoflash:language=")
+            {
+                format!("/* neoflash:language=actionscript1 */\n{}", src.source)
+            } else {
+                src.source.clone()
+            };
+            out.push((rel_path, body));
         }
     }
     out
@@ -1128,7 +1135,7 @@ fn compute_timeline_frames(timeline: &Timeline) -> u32 {
         }
     }
     for fs in &timeline.scripts {
-        if is_actionscript(fs.script.language) && !fs.script.source.trim().is_empty() {
+        if !fs.script.source.trim().is_empty() {
             frames = frames.max(fs.frame.saturating_add(1));
         }
     }
@@ -2121,9 +2128,7 @@ fn render_dom_frame(xml: &mut String, indent: &str, frame: &PreparedFrame, ctx: 
                     writeln!(xml, "{indent}    {line}").unwrap();
                 }
                 if let Some(open_pos) = line.rfind("<![CDATA[") {
-                    if !line[open_pos + 9..].contains("]]>") {
-                        in_cdata = true;
-                    }
+                    in_cdata = !line[open_pos + 9..].contains("]]>");
                 } else if in_cdata && line.contains("]]>") {
                     in_cdata = false;
                 }
@@ -3847,6 +3852,12 @@ mod tests {
             language: ScriptLanguage::TypeScript,
             source: "export function double(n: number): number { return n * 2; }".into(),
         });
+        project.sources.push(SourceUnit {
+            id: "src-as1".into(),
+            path: "scripts/legacy.as".into(),
+            language: ScriptLanguage::ActionScript1,
+            source: "tellTarget (\"/hero\") { play(); }".into(),
+        });
 
         let wav_bytes = [
             b'R', b'I', b'F', b'F', 44, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ',
@@ -3936,11 +3947,36 @@ mod tests {
                     tab_order: 3,
                     disabled: true,
                 }),
-                filters: vec![FilterSpec::Blur {
-                    blur_x: 6.0,
-                    blur_y: 4.0,
-                    quality: 2,
-                }],
+                filters: vec![
+                    FilterSpec::Blur {
+                        blur_x: 6.0,
+                        blur_y: 4.0,
+                        quality: 2,
+                    },
+                    FilterSpec::Glow {
+                        color: 0x336699,
+                        alpha: 0.75,
+                        blur_x: 8.0,
+                        blur_y: 8.0,
+                        strength: 1.5,
+                        quality: 2,
+                        inner: true,
+                        knockout: false,
+                    },
+                    FilterSpec::DropShadow {
+                        distance: 5.0,
+                        angle: 45.0,
+                        color: 0x112233,
+                        alpha: 0.5,
+                        blur_x: 4.0,
+                        blur_y: 4.0,
+                        strength: 1.0,
+                        quality: 1,
+                        inner: false,
+                        knockout: false,
+                        hide_object: false,
+                    },
+                ],
                 scripts: vec![ObjectScript {
                     event: ObjectEvent::Click,
                     script: Script {
@@ -4008,6 +4044,13 @@ mod tests {
                 .any(|s| s.language == ScriptLanguage::TypeScript
                     && s.source.contains("double(n: number)"))
         );
+        assert!(
+            imported
+                .sources
+                .iter()
+                .any(|s| s.language == ScriptLanguage::ActionScript1
+                    && s.source == "tellTarget (\"/hero\") { play(); }")
+        );
         let imp_root = imported.symbol(&imported.root).unwrap();
         assert_eq!(imp_root.timeline.scripts.len(), 1);
         assert_eq!(
@@ -4037,6 +4080,26 @@ mod tests {
             .flat_map(|k| &k.elements)
             .find(|e| e.name == "box1")
             .expect("instance preserved");
+        assert!(!imp_inst.visible);
+        assert!(imp_inst.cache_as_bitmap);
+        assert_eq!(imp_inst.blend_mode, BlendMode::Multiply);
+        let acc = imp_inst
+            .accessibility
+            .as_ref()
+            .expect("accessibility preserved");
+        assert_eq!(acc.name, "Hero Box");
+        assert_eq!(acc.description, "Clickable box");
+        assert_eq!(acc.tab_order, 3);
+        assert!(acc.disabled);
+        assert_eq!(imp_inst.filters.len(), 3);
+        assert_eq!(
+            imp_inst.filters[0],
+            FilterSpec::Blur {
+                blur_x: 6.0,
+                blur_y: 4.0,
+                quality: 2,
+            }
+        );
         assert_eq!(imp_inst.scripts.len(), 1);
         assert_eq!(imp_inst.scripts[0].event, ObjectEvent::Click);
         assert_eq!(

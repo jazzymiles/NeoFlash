@@ -729,7 +729,7 @@ fn lerp_gradient(a: &GradientPaint, b: &GradientPaint, t: f64) -> GradientPaint 
                 color: color_lerp(x.color, y.color, t),
             })
             .collect(),
-        focal_point_ratio: lerp(a.focal_point_ratio, b.focal_point_ratio, t),
+        focal_point_ratio: lerp(a.focal_point_ratio, b.focal_point_ratio, t).clamp(-1.0, 1.0),
     }
 }
 
@@ -777,7 +777,7 @@ fn lerp_paint(a: &Paint, b: &Paint, t: f64) -> Paint {
 /// Geometrically identity placement that keeps the non-geometric channels.
 fn placement(a: &Transform, b: &Transform, t: f64) -> Transform {
     Transform {
-        alpha: lerp(a.alpha, b.alpha, t),
+        alpha: lerp(a.alpha, b.alpha, t).clamp(0.0, 1.0),
         color_transform: ColorTransform {
             multipliers: std::array::from_fn(|i| {
                 lerp(

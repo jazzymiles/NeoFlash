@@ -1,4 +1,4 @@
-//! Bounded PNG/JPEG decoding, shared between immutable authoring and playback.
+//! Bounded PNG/JPEG/GIF decoding, shared between immutable authoring and playback.
 use crate::{MAX_BITMAP_DIMENSION, ResourceError, ResourceUnit};
 use image::{ImageFormat, ImageReader, Limits};
 use std::{
@@ -25,20 +25,7 @@ fn cache() -> &'static Mutex<VecDeque<Cached>> {
 impl ResourceUnit {
     pub(crate) fn image_dimensions(&self) -> Result<(u32, u32), ResourceError> {
         let bytes = self.decoded_bytes()?;
-        let format =
-            image::guess_format(&bytes).map_err(|e| ResourceError(format!("image format: {e}")))?;
-        if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg) {
-            return Err(ResourceError(
-                "only PNG and JPEG images are supported".into(),
-            ));
-        }
-        let (w, h) = ImageReader::with_format(Cursor::new(bytes), format)
-            .into_dimensions()
-            .map_err(|e| ResourceError(format!("image dimensions: {e}")))?;
-        if w == 0 || h == 0 || w > MAX_BITMAP_DIMENSION || h > MAX_BITMAP_DIMENSION {
-            return Err(ResourceError("image dimensions must be in 1..=4096".into()));
-        }
-        Ok((w, h))
+        encoded_image_dimensions(&bytes)
     }
 
     pub fn decode_image(&self) -> Result<Arc<DecodedImage>, ResourceError> {
@@ -211,6 +198,15 @@ fn decode_gif(bytes: &[u8]) -> Result<DecodedImage, ResourceError> {
                 let img_h = u16::from_le_bytes([bytes[pos + 6], bytes[pos + 7]]) as u32;
                 let img_packed = bytes[pos + 8];
                 pos += 9;
+                if img_w == 0
+                    || img_h == 0
+                    || img_w > MAX_BITMAP_DIMENSION
+                    || img_h > MAX_BITMAP_DIMENSION
+                {
+                    return Err(ResourceError(
+                        "GIF image descriptor dimensions must be in 1..=4096".into(),
+                    ));
+                }
                 let has_lct = (img_packed & 0x80) != 0;
                 let interlaced = (img_packed & 0x40) != 0;
                 let mut palette = gct.clone();
@@ -318,7 +314,7 @@ fn decode_gif_lzw(
     let mut bit_buf: u32 = 0;
     let mut bit_count: u32 = 0;
     let mut byte_pos = 0usize;
-    let mut out = Vec::with_capacity(expected_pixels);
+    let mut out = Vec::with_capacity(expected_pixels.min(65_536));
     let mut prev_code: Option<u16> = None;
     let mut first_byte: u8 = 0;
 
@@ -403,4 +399,75 @@ fn decode_gif_lzw(
 
     out.truncate(expected_pixels);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Element, ElementKind, Project};
+
+    fn minimal_gif_1x1() -> Vec<u8> {
+        vec![
+            b'G', b'I', b'F', b'8', b'9', b'a', // Header
+            0x01, 0x00, 0x01, 0x00, // Logical screen 1x1
+            0x80, 0x00, 0x00, // GCT flag (2 entries), bg=0, aspect=0
+            0x11, 0x22, 0x33, // GCT[0]
+            0x44, 0x55, 0x66, // GCT[1]
+            0x2C, // Image descriptor introducer
+            0x00, 0x00, 0x00, 0x00, // left=0, top=0
+            0x01, 0x00, 0x01, 0x00, // width=1, height=1
+            0x00, // no LCT, not interlaced
+            0x02, // LZW min code size = 2
+            0x02, 0x44, 0x01, // 2-byte sub-block: clear(4), idx(0), end(5)
+            0x00, // sub-block terminator
+            0x3B, // trailer
+        ]
+    }
+
+    #[test]
+    fn gif_sub_image_descriptor_oversized_or_zero_dimensions_rejected() {
+        let mut bomb = minimal_gif_1x1();
+        // Keep logical screen 1x1, set Image Descriptor (offset 19 + 5..9) to 65535x65535
+        bomb[24] = 0xFF;
+        bomb[25] = 0xFF;
+        bomb[26] = 0xFF;
+        bomb[27] = 0xFF;
+        let err = decode_encoded_image(&bomb).unwrap_err();
+        assert!(err.0.contains("1..=4096"));
+
+        let mut zero_dim = minimal_gif_1x1();
+        zero_dim[24] = 0x00;
+        zero_dim[25] = 0x00;
+        assert!(decode_encoded_image(&zero_dim).is_err());
+    }
+
+    #[test]
+    fn resource_unit_gif_passes_dimensions_decode_and_project_validate() {
+        let gif_bytes = minimal_gif_1x1();
+        let unit = ResourceUnit::from_bytes("res_gif", "assets/pixel.gif", "image/gif", &gif_bytes)
+            .expect("valid GIF ResourceUnit");
+        assert_eq!(unit.image_dimensions().unwrap(), (1, 1));
+        let decoded = unit.decode_image().expect("decode GIF");
+        assert_eq!((decoded.width, decoded.height), (1, 1));
+        assert_eq!(&decoded.rgba[..], &[0x11, 0x22, 0x33, 0xFF]);
+
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.resources.push(unit);
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "el_gif".into(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "res_gif".into(),
+                    width: 1,
+                    height: 1,
+                    smoothing: false,
+                },
+                ..Element::default()
+            });
+        project
+            .validate()
+            .expect("Project::validate accepts image/gif bitmap resource");
+    }
 }

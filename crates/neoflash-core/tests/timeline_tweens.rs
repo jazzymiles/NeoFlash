@@ -848,3 +848,306 @@ fn range_edits_preserve_editable_curves_and_motion_spans() {
         );
     }
 }
+
+#[test]
+fn overshooting_tweens_clamp_alpha_dimensions_and_filters_when_converted_to_keyframes() {
+    use neoflash_core::{
+        FilterSpec, FrameRange, GradientKind, GradientPaint, GradientStop, OvalOptions,
+        PrimitiveOptions, RectangleOptions, TimelineEdit, edit_frames,
+    };
+
+    let overshoot = Easing::CubicBezier {
+        x1: 0.2,
+        y1: -50.0,
+        x2: 0.8,
+        y2: 50.0,
+    };
+
+    // 1. Classic tween with overshooting easing on alpha, Rectangle/Ellipse dimensions,
+    // parametric primitive options, and filter blur/alpha/strength.
+    let mut start_box = rect("box", 0.0, 0.0);
+    start_box.transform.alpha = 0.0;
+    start_box.transform.primitive = Some(PrimitiveOptions::Rectangle(RectangleOptions {
+        corner_radii: [0.0, 0.0, 0.0, 0.0],
+        corners_locked: true,
+    }));
+    start_box.filters = vec![FilterSpec::Glow {
+        color: 0xff0000,
+        alpha: 0.0,
+        blur_x: 0.0,
+        blur_y: 0.0,
+        strength: 0.0,
+        quality: 1,
+        inner: false,
+        knockout: false,
+    }];
+    let mut end_box = rect("box", 100.0, 50.0);
+    end_box.transform.alpha = 1.0;
+    end_box.transform.primitive = Some(PrimitiveOptions::Rectangle(RectangleOptions {
+        corner_radii: [12.0, 12.0, 12.0, 12.0],
+        corners_locked: true,
+    }));
+    if let ElementKind::Rectangle {
+        width,
+        height,
+        stroke_width,
+        ..
+    } = &mut end_box.kind
+    {
+        *width = 1.0;
+        *height = 1.0;
+        *stroke_width = 0.0;
+    }
+    end_box.filters = vec![FilterSpec::Glow {
+        color: 0x00ff00,
+        alpha: 1.0,
+        blur_x: 200.0,
+        blur_y: 200.0,
+        strength: 200.0,
+        quality: 1,
+        inner: false,
+        knockout: false,
+    }];
+
+    let mut start_oval = Element {
+        id: "oval".into(),
+        name: "oval".into(),
+        transform: Transform {
+            alpha: 0.0,
+            primitive: Some(PrimitiveOptions::Oval(OvalOptions {
+                start_angle: 0.0,
+                end_angle: 90.0,
+                inner_radius: 0.0,
+                close_path: true,
+            })),
+            ..Default::default()
+        },
+        kind: ElementKind::Ellipse {
+            width: 50.0,
+            height: 50.0,
+            fill: [10, 20, 30, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        },
+        ..Default::default()
+    };
+    let mut end_oval = start_oval.clone();
+    end_oval.transform.alpha = 1.0;
+    end_oval.transform.primitive = Some(PrimitiveOptions::Oval(OvalOptions {
+        start_angle: 360.0,
+        end_angle: 360.0,
+        inner_radius: 99.0,
+        close_path: true,
+    }));
+    start_oval.filters = vec![FilterSpec::Blur {
+        blur_x: 0.0,
+        blur_y: 0.0,
+        quality: 1,
+    }];
+    end_oval.filters = vec![FilterSpec::Blur {
+        blur_x: 255.0,
+        blur_y: 255.0,
+        quality: 1,
+    }];
+
+    let mut c0 = key(0, vec![start_box, start_oval]);
+    c0.tween = Some(overshoot);
+    let c10 = key(10, vec![end_box, end_oval]);
+
+    // 2. Motion tween with overshooting Alpha property track.
+    let mut m_start_el = rect("m-box", 0.0, 0.0);
+    m_start_el.transform.alpha = 0.0;
+    let mut m_end_el = rect("m-box", 80.0, 40.0);
+    m_end_el.transform.alpha = 1.0;
+    let mut m0 = key(0, vec![m_start_el]);
+    m0.tween = Some(overshoot);
+    m0.tween_kind = TweenKind::Motion;
+    let mut m10 = key(10, vec![m_end_el]);
+    m10.tween = Some(overshoot);
+    m10.tween_kind = TweenKind::Motion;
+    m10.keyed_properties = Some(vec![
+        TweenProperty::X,
+        TweenProperty::Y,
+        TweenProperty::Alpha,
+    ]);
+
+    // 3. Shape tween with overshooting alpha and radial focal_point_ratio.
+    let grad = |focal: f64| GradientPaint {
+        kind: GradientKind::Radial,
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: [255, 0, 0, 255],
+            },
+            GradientStop {
+                ratio: 255,
+                color: [0, 0, 255, 255],
+            },
+        ],
+        focal_point_ratio: focal,
+    };
+    let painted_box = |id: &str, alpha: f64, focal: f64| Element {
+        id: id.into(),
+        name: id.into(),
+        transform: Transform {
+            alpha,
+            ..Default::default()
+        },
+        kind: ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 40.0, y: 0.0 },
+                PathCommand::LineTo { x: 40.0, y: 20.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: Default::default(),
+            fill: [255, 0, 0, 255],
+            stroke: [0, 0, 0, 255],
+            fill_gradient: Some(grad(focal)),
+            stroke_gradient: None,
+            stroke_width: 1.0,
+        },
+        ..Default::default()
+    };
+    let s_start = painted_box("s-box", 0.0, -1.0);
+    let s_end = painted_box("s-box", 1.0, 1.0);
+    let mut s0 = key(0, vec![s_start]);
+    s0.tween = Some(overshoot);
+    s0.tween_kind = TweenKind::Shape;
+    let s10 = key(10, vec![s_end]);
+
+    let mut proj = project(
+        11,
+        vec![
+            layer("classic", vec![c0, c10]),
+            layer("motion", vec![m0, m10]),
+            layer("shape", vec![s0, s10]),
+        ],
+    );
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+
+    let root = proj.root.clone();
+    edit_frames(
+        &mut proj,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range: FrameRange {
+                layers: vec!["classic".into(), "motion".into(), "shape".into()],
+                start: 0,
+                end: 10,
+            },
+            blank: false,
+        },
+    )
+    .expect("converting overshooting tweens to keyframes must produce valid clamped frames");
+    proj.validate().unwrap();
+}
+
+#[test]
+fn timeline_edits_sample_guided_classic_tween_along_motion_guide_and_charge_budget_once() {
+    use neoflash_core::{FrameRange, TimelineEdit, copy_frames, edit_frames};
+
+    let make_guided_project = |frame_count: u32| {
+        let mut guide = layer(
+            "guide",
+            vec![key(
+                0,
+                vec![Element {
+                    id: "guide-path".into(),
+                    name: "guide-path".into(),
+                    transform: Transform::default(),
+                    kind: ElementKind::Path {
+                        commands: vec![
+                            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                            PathCommand::LineTo { x: 100.0, y: 0.0 },
+                            PathCommand::LineTo { x: 100.0, y: 100.0 },
+                        ],
+                        fill_rule: Default::default(),
+                        fill: [0, 0, 0, 0],
+                        stroke: [0, 0, 0, 255],
+                        stroke_width: 1.0,
+                    },
+                    ..Default::default()
+                }],
+            )],
+        );
+        guide.properties.role = LayerRole::Guide;
+
+        let mut start = key(0, vec![rect("car", 0.0, 0.0)]);
+        start.tween = Some(Easing::Linear);
+        start.orient_to_path = true;
+        let end = key(frame_count - 1, vec![rect("car", 100.0, 100.0)]);
+        let mut guided = layer("guided", vec![start, end]);
+        guided.properties.motion_guide = Some("guide".into());
+        let mut p = project(frame_count, vec![guided, guide]);
+        p.upgrade_format_for_features();
+        p.validate().unwrap();
+        p
+    };
+
+    // 1. ConvertToKeyframes and copy_frames on a guided classic tween sample along the guide path
+    // (corner at (100, 0) on frame 5, not the unguided chord midpoint (50, 50)).
+    let mut guided_proj = make_guided_project(11);
+    let root = guided_proj.root.clone();
+    let clip = copy_frames(
+        &guided_proj,
+        &root,
+        &FrameRange {
+            layers: vec!["guided".into()],
+            start: 5,
+            end: 5,
+        },
+        false,
+    )
+    .unwrap();
+    let copied_pos = &clip.layers[0].keyframes[0].elements[0].transform;
+    assert!(
+        (copied_pos.x - 100.0).abs() < 1e-6 && copied_pos.y.abs() < 1e-6,
+        "copy_frames must sample along motion guide at frame 5: ({}, {})",
+        copied_pos.x,
+        copied_pos.y
+    );
+
+    edit_frames(
+        &mut guided_proj,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range: FrameRange {
+                layers: vec!["guided".into()],
+                start: 0,
+                end: 10,
+            },
+            blank: false,
+        },
+    )
+    .unwrap();
+    let baked_pos = &guided_proj.symbols[0].timeline.layers[0].keyframes[5].elements[0].transform;
+    assert!(
+        (baked_pos.x - 100.0).abs() < 1e-6 && baked_pos.y.abs() < 1e-6,
+        "ConvertToKeyframes must sample along motion guide at frame 5: ({}, {})",
+        baked_pos.x,
+        baked_pos.y
+    );
+
+    // 2. A 60,000-frame guided classic tween converted to keyframes charges the bake budget once
+    // (60,000 <= 100,000 MAX_BAKED_RECORDS) instead of double-charging (120,000 > 100,000).
+    let mut large_guided = make_guided_project(60_000);
+    let root = large_guided.root.clone();
+    edit_frames(
+        &mut large_guided,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range: FrameRange {
+                layers: vec!["guided".into()],
+                start: 0,
+                end: 59_999,
+            },
+            blank: false,
+        },
+    )
+    .expect(
+        "60,000-frame guided tween ConvertToKeyframes must not double-charge MAX_BAKED_RECORDS",
+    );
+}

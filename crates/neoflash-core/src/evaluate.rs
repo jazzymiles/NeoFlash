@@ -218,8 +218,8 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
                 ..
             },
         ) => Some(FilterSpec::Blur {
-            blur_x: lerp(*ax, *bx, t),
-            blur_y: lerp(*ay, *by, t),
+            blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+            blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
             quality: *quality,
         }),
         (
@@ -243,10 +243,10 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             },
         ) => Some(FilterSpec::Glow {
             color: lerp_rgb(*ac, *bc),
-            alpha: lerp(*aa, *ba, t),
-            blur_x: lerp(*ax, *bx, t),
-            blur_y: lerp(*ay, *by, t),
-            strength: lerp(*ast, *bst, t),
+            alpha: lerp(*aa, *ba, t).clamp(0.0, 1.0),
+            blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+            blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
+            strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
             quality: *quality,
             inner: *inner,
             knockout: *knockout,
@@ -279,10 +279,10 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             distance: lerp(*ad, *bd, t),
             angle: lerp(*aang, *bang, t),
             color: lerp_rgb(*ac, *bc),
-            alpha: lerp(*aa, *ba, t),
-            blur_x: lerp(*ax, *bx, t),
-            blur_y: lerp(*ay, *by, t),
-            strength: lerp(*ast, *bst, t),
+            alpha: lerp(*aa, *ba, t).clamp(0.0, 1.0),
+            blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+            blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
+            strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
             quality: *quality,
             inner: *inner,
             knockout: *knockout,
@@ -324,12 +324,12 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             distance: lerp(*ad, *bd, t),
             angle: lerp(*aang, *bang, t),
             highlight_color: lerp_rgb(*ahc, *bhc),
-            highlight_alpha: lerp(*aha, *bha, t),
+            highlight_alpha: lerp(*aha, *bha, t).clamp(0.0, 1.0),
             shadow_color: lerp_rgb(*asc, *bsc),
-            shadow_alpha: lerp(*asa, *bsa, t),
-            blur_x: lerp(*ax, *bx, t),
-            blur_y: lerp(*ay, *by, t),
-            strength: lerp(*ast, *bst, t),
+            shadow_alpha: lerp(*asa, *bsa, t).clamp(0.0, 1.0),
+            blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+            blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
+            strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
             quality: *quality,
             placement: placement.clone(),
             knockout: *knockout,
@@ -349,7 +349,7 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         (Some(PrimitiveOptions::Rectangle(ra)), Some(PrimitiveOptions::Rectangle(rb))) => {
             let r = RectangleOptions {
                 corner_radii: std::array::from_fn(|i| {
-                    lerp(ra.corner_radii[i], rb.corner_radii[i], t)
+                    lerp(ra.corner_radii[i], rb.corner_radii[i], t).clamp(0.0, 1e9)
                 }),
                 corners_locked: ra.corners_locked,
             };
@@ -357,9 +357,9 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         }
         (Some(PrimitiveOptions::Oval(oa)), Some(PrimitiveOptions::Oval(ob))) => {
             let o = OvalOptions {
-                start_angle: lerp(oa.start_angle, ob.start_angle, t),
-                end_angle: lerp(oa.end_angle, ob.end_angle, t),
-                inner_radius: lerp(oa.inner_radius, ob.inner_radius, t),
+                start_angle: lerp(oa.start_angle, ob.start_angle, t).clamp(0.0, 360.0),
+                end_angle: lerp(oa.end_angle, ob.end_angle, t).clamp(0.0, 360.0),
+                inner_radius: lerp(oa.inner_radius, ob.inner_radius, t).clamp(0.0, 99.0),
                 close_path: oa.close_path,
             };
             (!o.is_default()).then_some(PrimitiveOptions::Oval(o))
@@ -372,7 +372,7 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         scale_x: lerp(x.scale_x, y.scale_x, t),
         scale_y: lerp(x.scale_y, y.scale_y, t),
         rotation: lerp(x.rotation, y.rotation, t),
-        alpha: lerp(x.alpha, y.alpha, t),
+        alpha: lerp(x.alpha, y.alpha, t).clamp(0.0, 1.0),
         skew: lerp(x.skew, y.skew, t),
         color_transform: crate::ColorTransform {
             multipliers: std::array::from_fn(|i| {
@@ -415,8 +415,8 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
             },
             ElementKind::Video { width, height },
         ) => {
-            *width = lerp(*aw, *bw, t);
-            *height = lerp(*ah, *bh, t);
+            *width = lerp(*aw, *bw, t).max(1e-6);
+            *height = lerp(*ah, *bh, t).max(1e-6);
         }
         (
             ElementKind::Rectangle {
@@ -464,11 +464,11 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
                 stroke_width,
             },
         ) => {
-            *width = lerp(*aw, *bw, t);
-            *height = lerp(*ah, *bh, t);
+            *width = lerp(*aw, *bw, t).max(1e-6);
+            *height = lerp(*ah, *bh, t).max(1e-6);
             *fill = color_lerp(*af, *bf, t);
             *stroke = color_lerp(*as_, *bs, t);
-            *stroke_width = lerp(*az, *bz, t);
+            *stroke_width = lerp(*az, *bz, t).max(0.);
         }
         (
             ElementKind::Text {
@@ -485,7 +485,7 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
                 font_size, color, ..
             },
         ) => {
-            *font_size = lerp(*a, *b, t);
+            *font_size = lerp(*a, *b, t).max(1.0);
             *color = color_lerp(*ac, *bc, t);
         }
         (
@@ -614,7 +614,7 @@ fn set_property(
         TweenProperty::ScaleY => transform.scale_y = value(property),
         TweenProperty::Rotation => transform.rotation = value(property),
         TweenProperty::Skew => transform.skew = value(property),
-        TweenProperty::Alpha => transform.alpha = value(property),
+        TweenProperty::Alpha => transform.alpha = value(property).clamp(0.0, 1.0),
         TweenProperty::Color => {
             let (x, y) = (a.color_transform, b.color_transform);
             transform.color_transform = crate::ColorTransform {

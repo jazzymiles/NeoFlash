@@ -6384,6 +6384,8 @@ pub struct AirXmlSigEngine {
 struct ParsedCertMeta {
     cn: String,
     dn: String,
+    issuer_cn: String,
+    issuer_dn: String,
     ekus: Vec<String>,
     trust_settings: Vec<String>,
     system_trusted: bool,
@@ -6511,6 +6513,8 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
                         .or_else(|| Some(vec![0x01, 0x00, 0x01])),
                 );
             return ParsedCertMeta {
+                issuer_cn: val["issuerCn"].as_str().unwrap_or(&cn).to_owned(),
+                issuer_dn: val["issuerDn"].as_str().unwrap_or(&dn).to_owned(),
                 cn,
                 dn,
                 ekus,
@@ -6559,6 +6563,8 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
         let rsa_public_key =
             mod_hex.map(|m| (m, exp_hex.unwrap_or_else(|| vec![0x01, 0x00, 0x01])));
         return ParsedCertMeta {
+            issuer_cn: cn.clone(),
+            issuer_dn: dn.clone(),
             cn,
             dn,
             ekus,
@@ -6568,10 +6574,18 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
         };
     }
 
-    // Scan ASN.1 DER X.509 OID 2.5.4.3 (55 04 03) CommonName & 2.5.4.10 (55 04 0A) Organization
-    let cn = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x03])
+    // Scan ASN.1 DER X.509 OID 2.5.4.3 (55 04 03) CommonName & 2.5.4.10 (55 04 0A) Organization.
+    // X.509 TBSCertificate encodes issuer RDNSequence first and subject RDNSequence second.
+    let issuer_cn = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x03])
         .unwrap_or_else(|| "X509 Signer".to_owned());
-    let org = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x0a]);
+    let issuer_org = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x0a]);
+    let issuer_dn = match issuer_org {
+        Some(o) => format!("CN={issuer_cn}, O={o}"),
+        None => format!("CN={issuer_cn}"),
+    };
+    let cn = extract_der_oid_string_last(cert_bytes, &[0x55, 0x04, 0x03])
+        .unwrap_or_else(|| "X509 Signer".to_owned());
+    let org = extract_der_oid_string_last(cert_bytes, &[0x55, 0x04, 0x0a]);
     let dn = match org {
         Some(o) => format!("CN={cn}, O={o}"),
         None => format!("CN={cn}"),
@@ -6579,6 +6593,8 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
     ParsedCertMeta {
         cn,
         dn,
+        issuer_cn,
+        issuer_dn,
         ekus: vec!["1.3.6.1.5.5.7.3.3".to_owned()],
         trust_settings: vec!["signing".to_owned(), "codeSigning".to_owned()],
         system_trusted: false,
@@ -6769,20 +6785,38 @@ fn verify_rsa_pkcs1_v15(sig_bytes: &[u8], modulus: &[u8], exponent: &[u8], messa
         || payload == sha1_digest.as_slice()
 }
 
-fn extract_der_oid_string(der: &[u8], oid_bytes: &[u8]) -> Option<String> {
-    for idx in 0..der.len().saturating_sub(oid_bytes.len() + 3) {
-        if &der[idx..idx + oid_bytes.len()] == oid_bytes {
+fn extract_der_oid_strings(der: &[u8], oid_bytes: &[u8]) -> Vec<String> {
+    let mut matches_out = Vec::new();
+    if oid_bytes.is_empty() || der.len() < oid_bytes.len() + 4 {
+        return matches_out;
+    }
+    for idx in 2..=der.len() - oid_bytes.len() - 2 {
+        if der[idx - 2] == 0x06
+            && der[idx - 1] as usize == oid_bytes.len()
+            && &der[idx..idx + oid_bytes.len()] == oid_bytes
+        {
             let after = idx + oid_bytes.len();
             let str_tag = der[after];
-            let str_len = der[after + 1] as usize;
-            if matches!(str_tag, 0x0c | 0x13 | 0x16) && after + 2 + str_len <= der.len() {
-                return Some(
-                    String::from_utf8_lossy(&der[after + 2..after + 2 + str_len]).into_owned(),
-                );
+            if matches!(str_tag, 0x0c | 0x13 | 0x16)
+                && let Some((str_len, val_start)) = parse_der_length(der, after + 1)
+                && let Some(val_end) = val_start.checked_add(str_len)
+                && val_end <= der.len()
+            {
+                matches_out.push(String::from_utf8_lossy(&der[val_start..val_end]).into_owned());
             }
         }
     }
-    None
+    matches_out
+}
+
+fn extract_der_oid_string(der: &[u8], oid_bytes: &[u8]) -> Option<String> {
+    extract_der_oid_strings(der, oid_bytes).into_iter().next()
+}
+
+fn extract_der_oid_string_last(der: &[u8], oid_bytes: &[u8]) -> Option<String> {
+    extract_der_oid_strings(der, oid_bytes)
+        .into_iter()
+        .next_back()
 }
 
 fn extract_xml_tag_body(xml: &str, local_name: &str) -> Option<String> {
@@ -6824,11 +6858,52 @@ fn extract_all_xml_tag_blocks(xml: &str, local_name: &str) -> Vec<(String, Strin
                 pos = gt + 1;
                 continue;
             }
-            let close_exact = format!("</{full_tag}>");
-            if let Some(end_rel) = xml[gt + 1..].find(&close_exact) {
-                let inner = xml[gt + 1..gt + 1 + end_rel].to_owned();
+            let mut scan = gt + 1;
+            let mut depth = 1usize;
+            let mut matched_end: Option<(usize, usize)> = None;
+            while let Some(inner_lt_rel) = xml[scan..].find('<') {
+                let inner_lt = scan + inner_lt_rel;
+                if xml[inner_lt..].starts_with("<!--") {
+                    scan = xml[inner_lt + 4..]
+                        .find("-->")
+                        .map_or(bytes.len(), |r| inner_lt + 4 + r + 3);
+                    continue;
+                }
+                let Some(inner_gt_rel) = xml[inner_lt + 1..].find('>') else {
+                    break;
+                };
+                let inner_gt = inner_lt + 1 + inner_gt_rel;
+                let inner_head = xml[inner_lt + 1..inner_gt].trim();
+                if let Some(close_rest) = inner_head.strip_prefix('/') {
+                    let close_name = close_rest.trim();
+                    let close_local = close_name.rsplit(':').next().unwrap_or(close_name);
+                    if close_name == full_tag || close_local == local_name {
+                        depth -= 1;
+                        if depth == 0 {
+                            matched_end = Some((inner_lt, inner_gt + 1));
+                            break;
+                        }
+                    }
+                } else if !inner_head.starts_with('?')
+                    && !inner_head.starts_with('!')
+                    && !inner_head.ends_with('/')
+                {
+                    let inner_clean = inner_head.trim();
+                    let inner_tag = inner_clean
+                        .split(char::is_whitespace)
+                        .next()
+                        .unwrap_or(inner_clean);
+                    let inner_local = inner_tag.rsplit(':').next().unwrap_or(inner_tag);
+                    if inner_tag == full_tag || inner_local == local_name {
+                        depth += 1;
+                    }
+                }
+                scan = inner_gt + 1;
+            }
+            if let Some((close_lt, after_close)) = matched_end {
+                let inner = xml[gt + 1..close_lt].to_owned();
                 results.push((attrs.to_owned(), inner));
-                pos = gt + 1 + end_rel + close_exact.len();
+                pos = after_close;
                 continue;
             }
         }
@@ -7198,6 +7273,8 @@ impl AirXmlSigEngine {
             "validityStatus": validity_status,
             "signerCN": meta.cn,
             "signerDN": meta.dn,
+            "issuerCN": meta.issuer_cn,
+            "issuerDN": meta.issuer_dn,
             "signerExtendedKeyUsages": meta.ekus,
             "signerTrustSettings": trust_out,
         })
@@ -8051,5 +8128,51 @@ mod tests {
         assert_eq!(rgba.len(), 64 * 24 * 4);
         assert!(rgba.as_chunks::<4>().0.contains(&[0x11, 0x22, 0x33, 0xff]));
         assert!(rgba.as_chunks::<4>().0.contains(&[0x33, 0x90, 0xff, 0xff]));
+    }
+
+    #[test]
+    fn x509_der_oid_parsing_handles_long_lengths_issuer_vs_subject_and_nested_xml_blocks() {
+        // 1. False-positive OID bytes without preceding 0x06, 0x03 tag/length are ignored,
+        //    and long-form DER string length (0x81, 130) is decoded properly.
+        let long_cn = "A".repeat(130);
+        let mut der_long = vec![
+            0x04, 0x05, 0x55, 0x04, 0x03, 0x0c, 0x03, b'B', b'A',
+            b'D', // Not an OID tag (0x04)
+            0x06, 0x03, 0x55, 0x04, 0x03, // OID 2.5.4.3 (CommonName)
+            0x0c, 0x81, 130, // UTF8String with 1-byte long-form length = 130
+        ];
+        der_long.extend_from_slice(long_cn.as_bytes());
+        assert_eq!(
+            extract_der_oid_string(&der_long, &[0x55, 0x04, 0x03]).as_deref(),
+            Some(long_cn.as_str())
+        );
+
+        // 2. X.509 certificate with distinct Issuer RDNSequence (first) and Subject RDNSequence (second)
+        let mut cert_der = Vec::new();
+        // Issuer CN = "NeoFlash Root CA", O = "NeoFlash Trust"
+        cert_der.extend_from_slice(&[0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 16]);
+        cert_der.extend_from_slice(b"NeoFlash Root CA");
+        cert_der.extend_from_slice(&[0x06, 0x03, 0x55, 0x04, 0x0a, 0x0c, 14]);
+        cert_der.extend_from_slice(b"NeoFlash Trust");
+        // Subject CN = "NeoFlash App Signer", O = "NeoFlash Labs"
+        cert_der.extend_from_slice(&[0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 19]);
+        cert_der.extend_from_slice(b"NeoFlash App Signer");
+        cert_der.extend_from_slice(&[0x06, 0x03, 0x55, 0x04, 0x0a, 0x0c, 13]);
+        cert_der.extend_from_slice(b"NeoFlash Labs");
+
+        let meta = parse_cert_metadata(&cert_der);
+        assert_eq!(meta.issuer_cn, "NeoFlash Root CA");
+        assert_eq!(meta.issuer_dn, "CN=NeoFlash Root CA, O=NeoFlash Trust");
+        assert_eq!(meta.cn, "NeoFlash App Signer");
+        assert_eq!(meta.dn, "CN=NeoFlash App Signer, O=NeoFlash Labs");
+
+        // 3. Nested same-named <Object> tags in extract_all_xml_tag_blocks
+        let nested_xml = "<Signature><Object Id=\"outer\"><Object Id=\"inner\">payload</Object><Extra/></Object><Object Id=\"second\">two</Object></Signature>";
+        let blocks = extract_all_xml_tag_blocks(nested_xml, "Object");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].0.trim(), "Id=\"outer\"");
+        assert_eq!(blocks[0].1, "<Object Id=\"inner\">payload</Object><Extra/>");
+        assert_eq!(blocks[1].0.trim(), "Id=\"second\"");
+        assert_eq!(blocks[1].1, "two");
     }
 }

@@ -1705,6 +1705,332 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_instance_filters(
+        &mut self,
+        filters_node: Node<'_, '_>,
+        file: &str,
+        location: &str,
+    ) -> Vec<FilterSpec> {
+        self.audit(
+            filters_node,
+            file,
+            &[],
+            &[
+                "DropShadowFilter",
+                "GlowFilter",
+                "BevelFilter",
+                "BlurFilter",
+                "GradientGlowFilter",
+                "GradientBevelFilter",
+                "AdjustColorFilter",
+            ],
+        );
+        let mut parsed = Vec::new();
+        let mut omitted = false;
+        for f in elements(filters_node) {
+            let f_loc = self.location(f, file);
+            let spec = match f.tag_name().name() {
+                "DropShadowFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "color",
+                            "alpha",
+                            "distance",
+                            "strength",
+                            "quality",
+                            "inner",
+                            "knockout",
+                            "hideObject",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let distance = self.number(f, "distance", 4.0, file).clamp(-255.0, 255.0);
+                    let angle = self.number(f, "angle", 45.0, file).clamp(-360.0, 360.0);
+                    let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
+                    let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
+                    let alpha = self.number(f, "alpha", 1.0, file).clamp(0.0, 1.0);
+                    let rgba = self.color(f.attribute("color").unwrap_or("#000000"), alpha, &f_loc);
+                    let color =
+                        (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+                    let raw_strength = self.number(f, "strength", 100.0, file);
+                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
+                    let inner = self.boolean(f, "inner", false, file);
+                    let knockout = self.boolean(f, "knockout", false, file);
+                    let hide_object = self.boolean(f, "hideObject", false, file);
+                    enabled.then_some(FilterSpec::DropShadow {
+                        distance,
+                        angle,
+                        color,
+                        alpha,
+                        blur_x,
+                        blur_y,
+                        strength,
+                        quality,
+                        inner,
+                        knockout,
+                        hide_object,
+                    })
+                }
+                "GlowFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "blurX",
+                            "blurY",
+                            "color",
+                            "alpha",
+                            "strength",
+                            "quality",
+                            "inner",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
+                    let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
+                    let alpha = self.number(f, "alpha", 1.0, file).clamp(0.0, 1.0);
+                    let rgba = self.color(f.attribute("color").unwrap_or("#FF0000"), alpha, &f_loc);
+                    let color =
+                        (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+                    let raw_strength = self.number(f, "strength", 100.0, file);
+                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
+                    let inner = self.boolean(f, "inner", false, file);
+                    let knockout = self.boolean(f, "knockout", false, file);
+                    enabled.then_some(FilterSpec::Glow {
+                        color,
+                        alpha,
+                        blur_x,
+                        blur_y,
+                        strength,
+                        quality,
+                        inner,
+                        knockout,
+                    })
+                }
+                "BevelFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "distance",
+                            "highlightColor",
+                            "highlightAlpha",
+                            "shadowColor",
+                            "shadowAlpha",
+                            "strength",
+                            "quality",
+                            "type",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let distance = self.number(f, "distance", 4.0, file).clamp(-255.0, 255.0);
+                    let angle = self.number(f, "angle", 45.0, file).clamp(-360.0, 360.0);
+                    let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
+                    let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
+                    let highlight_alpha =
+                        self.number(f, "highlightAlpha", 1.0, file).clamp(0.0, 1.0);
+                    let h_rgba = self.color(
+                        f.attribute("highlightColor").unwrap_or("#FFFFFF"),
+                        highlight_alpha,
+                        &f_loc,
+                    );
+                    let highlight_color = (u32::from(h_rgba[0]) << 16)
+                        | (u32::from(h_rgba[1]) << 8)
+                        | u32::from(h_rgba[2]);
+                    let shadow_alpha = self.number(f, "shadowAlpha", 1.0, file).clamp(0.0, 1.0);
+                    let s_rgba = self.color(
+                        f.attribute("shadowColor").unwrap_or("#000000"),
+                        shadow_alpha,
+                        &f_loc,
+                    );
+                    let shadow_color = (u32::from(s_rgba[0]) << 16)
+                        | (u32::from(s_rgba[1]) << 8)
+                        | u32::from(s_rgba[2]);
+                    let raw_strength = self.number(f, "strength", 100.0, file);
+                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
+                    let placement = match f.attribute("type").unwrap_or("inner") {
+                        "outer" => "outer".to_owned(),
+                        "full" => "full".to_owned(),
+                        _ => "inner".to_owned(),
+                    };
+                    let knockout = self.boolean(f, "knockout", false, file);
+                    enabled.then_some(FilterSpec::Bevel {
+                        distance,
+                        angle,
+                        highlight_color,
+                        highlight_alpha,
+                        shadow_color,
+                        shadow_alpha,
+                        blur_x,
+                        blur_y,
+                        strength,
+                        quality,
+                        placement,
+                        knockout,
+                    })
+                }
+                "BlurFilter" => {
+                    self.audit(f, file, &["blurX", "blurY", "quality", "isEnabled"], &[]);
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
+                    let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
+                    let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
+                    enabled.then_some(FilterSpec::Blur {
+                        blur_x,
+                        blur_y,
+                        quality,
+                    })
+                }
+                "GradientGlowFilter" | "GradientBevelFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "distance",
+                            "strength",
+                            "quality",
+                            "type",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &["GradientEntry"],
+                    );
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let distance = self.number(f, "distance", 4.0, file).clamp(-255.0, 255.0);
+                    let angle = self.number(f, "angle", 45.0, file).clamp(-360.0, 360.0);
+                    let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
+                    let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
+                    let raw_strength = self.number(f, "strength", 100.0, file);
+                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
+                    let placement = match f.attribute("type").unwrap_or("inner") {
+                        "outer" => "outer".to_owned(),
+                        "full" => "full".to_owned(),
+                        _ => "inner".to_owned(),
+                    };
+                    let knockout = self.boolean(f, "knockout", false, file);
+                    let mut stops: Vec<(u32, f64, u8)> = Vec::new();
+                    for entry in elements(f).filter(|n| n.has_tag_name("GradientEntry")) {
+                        self.audit(entry, file, &["color", "alpha", "ratio"], &[]);
+                        let e_loc = self.location(entry, file);
+                        let alpha = self.number(entry, "alpha", 1.0, file).clamp(0.0, 1.0);
+                        let rgba = self.color(
+                            entry.attribute("color").unwrap_or("#000000"),
+                            alpha,
+                            &e_loc,
+                        );
+                        let color = (u32::from(rgba[0]) << 16)
+                            | (u32::from(rgba[1]) << 8)
+                            | u32::from(rgba[2]);
+                        let raw_ratio = self.number(entry, "ratio", 0.0, file);
+                        let ratio = if raw_ratio <= 1.0 {
+                            (raw_ratio.clamp(0.0, 1.0) * 255.0).round() as u8
+                        } else {
+                            raw_ratio.clamp(0.0, 255.0).round() as u8
+                        };
+                        stops.push((color, alpha, ratio));
+                    }
+                    stops.sort_by_key(|s| s.2);
+                    stops.truncate(16);
+                    if stops.is_empty() {
+                        stops.push((0x000000, 0.0, 0));
+                        stops.push((0xFFFFFF, 1.0, 255));
+                    }
+                    let colors: Vec<u32> = stops.iter().map(|s| s.0).collect();
+                    let alphas: Vec<f64> = stops.iter().map(|s| s.1).collect();
+                    let ratios: Vec<u8> = stops.iter().map(|s| s.2).collect();
+                    enabled.then(|| {
+                        if f.tag_name().name() == "GradientGlowFilter" {
+                            FilterSpec::GradientGlow {
+                                distance,
+                                angle,
+                                colors,
+                                alphas,
+                                ratios,
+                                blur_x,
+                                blur_y,
+                                strength,
+                                quality,
+                                placement,
+                                knockout,
+                            }
+                        } else {
+                            FilterSpec::GradientBevel {
+                                distance,
+                                angle,
+                                colors,
+                                alphas,
+                                ratios,
+                                blur_x,
+                                blur_y,
+                                strength,
+                                quality,
+                                placement,
+                                knockout,
+                            }
+                        }
+                    })
+                }
+                "AdjustColorFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &["brightness", "contrast", "saturation", "hue", "isEnabled"],
+                        &[],
+                    );
+                    let enabled = self.boolean(f, "isEnabled", true, file);
+                    let brightness = self.number(f, "brightness", 0.0, file).clamp(-100.0, 100.0);
+                    let contrast = self.number(f, "contrast", 0.0, file).clamp(-100.0, 100.0);
+                    let saturation = self.number(f, "saturation", 0.0, file).clamp(-100.0, 100.0);
+                    let hue = self.number(f, "hue", 0.0, file).clamp(-180.0, 180.0);
+                    enabled.then(|| FilterSpec::ColorMatrix {
+                        matrix: adjust_color_matrix(brightness, contrast, saturation, hue),
+                    })
+                }
+                _ => None,
+            };
+            if let Some(filter) = spec {
+                if parsed.len() < MAX_OBJECT_FILTERS {
+                    parsed.push(filter);
+                } else {
+                    omitted = true;
+                }
+            } else {
+                omitted = true;
+            }
+        }
+        if omitted {
+            self.report.warning(
+                "xfl_filters_approximated",
+                location,
+                "Disabled or excess (>8) XFL display filters were omitted.",
+            );
+        }
+        parsed
+    }
+
     fn symbol(&mut self, node: Node<'_, '_>, id: Id, kind: SymbolKind, file: &str) -> Symbol {
         self.audit(
             node,
@@ -2057,9 +2383,14 @@ impl Parser<'_> {
                                 continue;
                             }
                             let identity = format!("xfl-{id}-{li}-{ei}");
-                            for element in
-                                self.element_with_depth(element_node, identity, frame, 0, file)
-                            {
+                            for element in self.element_with_depth(
+                                element_node,
+                                identity,
+                                frame,
+                                0,
+                                kind,
+                                file,
+                            ) {
                                 elem_locs
                                     .push((element.id.clone(), self.location(element_node, file)));
                                 key.elements.push(element);
@@ -2326,6 +2657,7 @@ impl Parser<'_> {
         base_id: Id,
         frame: u32,
         depth: usize,
+        enclosing_kind: SymbolKind,
         file: &str,
     ) -> Vec<Element> {
         let tag = node.tag_name().name();
@@ -2378,6 +2710,7 @@ impl Parser<'_> {
                         member_id,
                         frame,
                         depth + 1,
+                        enclosing_kind,
                         file,
                     ));
                 }
@@ -2397,6 +2730,11 @@ impl Parser<'_> {
         let mut transform = self.transform(node, file);
         let mut name: String = node.attribute("name").unwrap_or(tag).into();
         let mut scripts = Vec::new();
+        let mut visible = true;
+        let mut cache_as_bitmap = false;
+        let mut blend_mode = BlendMode::Normal;
+        let mut accessibility = None;
+        let mut filters = Vec::new();
         let kind = match tag {
             "DOMSymbolInstance" => {
                 self.audit(
@@ -2449,23 +2787,62 @@ impl Parser<'_> {
                     self.number(node, "centerPoint3DY", 0., file);
                     self.report.warning("transform_pivot", &location, "Placement matrix retained; Flash's 2D authoring centerPoint3DX/Y pivot is not retained. Actual 3D transforms remain unsupported.");
                 }
-                let _ = self.boolean(node, "cacheAsBitmap", false, file);
+                cache_as_bitmap = self.boolean(node, "cacheAsBitmap", false, file);
                 let _ = self.boolean(node, "exportAsBitmap", false, file);
-                let _ = self.boolean(node, "isVisible", true, file);
-                let _ = self.boolean(node, "hasAccessibleData", false, file);
-                let _ = self.boolean(node, "silent", false, file);
+                visible = self.boolean(node, "isVisible", true, file);
+                let has_accessible_data = self.boolean(node, "hasAccessibleData", false, file);
+                let silent = self.boolean(node, "silent", false, file);
                 let _ = self.boolean(node, "forceSimple", false, file);
+                let tab_index = self.integer(node, "tabIndex", 0, file).clamp(0, 10_000);
                 if let Some(bm) = node.attribute("blendMode")
                     && !bm.is_empty()
-                    && bm != "normal"
                 {
-                    self.report.warning(
-                        "xfl_blend_mode_approximated",
-                        &location,
-                        format!(
-                            "XFL instance blendMode={bm:?} is rendered with normal alpha compositing."
-                        ),
-                    );
+                    if let Some(parsed_bm) = BlendMode::from_name(bm) {
+                        blend_mode = parsed_bm;
+                    } else {
+                        self.report.warning(
+                            "xfl_blend_mode_approximated",
+                            &location,
+                            format!(
+                                "XFL instance blendMode={bm:?} is rendered with normal alpha compositing."
+                            ),
+                        );
+                    }
+                }
+                if has_accessible_data
+                    || node
+                        .attribute("accName")
+                        .is_some_and(|s| !s.trim().is_empty())
+                {
+                    let raw_acc_name = node
+                        .attribute("accName")
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| {
+                            node.attribute("name")
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                        })
+                        .or_else(|| {
+                            node.attribute("libraryItemName")
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                        })
+                        .unwrap_or("Instance");
+                    let acc_name: String = raw_acc_name.chars().take(256).collect();
+                    let acc_desc: String = node
+                        .attribute("description")
+                        .unwrap_or("")
+                        .chars()
+                        .take(4096)
+                        .collect();
+                    accessibility = Some(Accessibility {
+                        name: acc_name,
+                        description: acc_desc,
+                        role: AccessibleRole::Button,
+                        tab_order: tab_index,
+                        disabled: silent,
+                    });
                 }
                 if node.attribute("matrix3D").is_some()
                     || node.attribute("rotationX").is_some()
@@ -2479,7 +2856,11 @@ impl Parser<'_> {
                     );
                 }
                 if let Some(filters_node) = child(node, "filters") {
-                    self.audit_filters(filters_node, file, &location);
+                    if enclosing_kind == SymbolKind::Button {
+                        self.audit_filters(filters_node, file, &location);
+                    } else {
+                        filters = self.parse_instance_filters(filters_node, file, &location);
+                    }
                 }
                 if let Some(matte) = child(node, "MatteColor") {
                     self.audit(matte, file, &["color", "alpha"], &[]);
@@ -3544,12 +3925,15 @@ impl Parser<'_> {
         };
         vec![Element {
             id,
-            accessibility: None,
+            accessibility,
             name,
             transform,
             kind,
             scripts,
-            ..Element::default()
+            visible,
+            cache_as_bitmap,
+            blend_mode,
+            filters,
         }]
     }
 
@@ -4794,19 +5178,6 @@ impl Parser<'_> {
             }
         };
 
-        if in_point > 0
-            || (out_point > 0
-                && out_point < 0x3fff_ffff
-                && asset.duration_44 > 0
-                && out_point + 8 < asset.duration_44)
-        {
-            self.report.warning(
-                "xfl_frame_sound",
-                &loc,
-                "Frame-sound in/out trim points are not applied yet; the full sound resource plays.",
-            );
-        }
-
         let (effect, envelope) = match frame_node.attribute("soundEffect") {
             Some("none") => (SoundEffect::None, None),
             Some("left channel") => (SoundEffect::LeftChannel, None),
@@ -5235,22 +5606,28 @@ fn import_bundled_as_sources(
             );
             break;
         }
-        let lang = explicit_lang.or(default_lang).unwrap_or_else(|| {
-            if source.contains("package ")
-                || source.contains("import flash.")
-                || source.contains("public class ")
-            {
-                ScriptLanguage::ActionScript3
+        let (lang, clean_source) =
+            if let Some((marked_lang, stripped)) = strip_neoflash_language_marker(source) {
+                (marked_lang, stripped)
             } else {
-                ScriptLanguage::ActionScript2
-            }
-        });
+                let resolved = explicit_lang.or(default_lang).unwrap_or_else(|| {
+                    if source.contains("package ")
+                        || source.contains("import flash.")
+                        || source.contains("public class ")
+                    {
+                        ScriptLanguage::ActionScript3
+                    } else {
+                        ScriptLanguage::ActionScript2
+                    }
+                });
+                (resolved, source.clone())
+            };
         source_idx += 1;
         project.sources.push(SourceUnit {
             id: format!("xfl-source-{source_idx}"),
             path: path.clone(),
             language: lang,
-            source: source.clone(),
+            source: clean_source,
         });
     }
 }

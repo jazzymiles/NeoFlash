@@ -332,9 +332,6 @@ impl Project {
                     || !k.property_eases.is_empty()
                     || k.sync_symbols
                     || k.snap_to_guide
-                    || k.property_eases
-                        .iter()
-                        .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
                     || k.sound.as_ref().is_some_and(|s| {
                         s.effect == SoundEffect::Custom
                             || s.envelope.is_some()

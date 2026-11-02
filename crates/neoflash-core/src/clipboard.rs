@@ -485,26 +485,44 @@ impl ClipboardPayload {
             element.transform.x += offset[0];
             element.transform.y += offset[1];
         }
-        let layer = candidate
-            .symbol_mut(symbol_id)
-            .unwrap()
-            .timeline
+        let timeline = &mut candidate.symbol_mut(symbol_id).unwrap().timeline;
+        let layer_idx = timeline
             .layers
-            .iter_mut()
-            .find(|l| l.id == layer_id)
+            .iter()
+            .position(|l| l.id == layer_id)
             .unwrap();
-        if !layer.keyframes.iter().any(|k| k.frame == frame) {
-            let elements = sample_layer(layer, frame);
-            let tween = layer.key_at(frame).and_then(|k| k.tween);
+        if !timeline.layers[layer_idx]
+            .keyframes
+            .iter()
+            .any(|k| k.frame == frame)
+        {
+            let elements = sample_layer_in(timeline, &timeline.layers[layer_idx], frame);
+            let layer = &mut timeline.layers[layer_idx];
+            let active = layer
+                .keyframes
+                .iter()
+                .filter(|k| k.frame < frame)
+                .max_by_key(|k| k.frame);
+            let (tween, tween_kind, orient_to_path) = active
+                .filter(|k| {
+                    k.tween.is_some()
+                        && matches!(k.tween_kind, TweenKind::Classic | TweenKind::Shape)
+                })
+                .map_or((None, TweenKind::Classic, false), |k| {
+                    (k.tween, k.tween_kind, k.orient_to_path)
+                });
             layer.keyframes.push(Keyframe {
                 frame,
                 elements,
                 tween,
+                tween_kind,
+                orient_to_path,
                 label: String::new(),
                 ..Default::default()
             });
             layer.keyframes.sort_by_key(|k| k.frame);
         }
+        let layer = &mut timeline.layers[layer_idx];
         layer
             .keyframes
             .iter_mut()
@@ -512,6 +530,7 @@ impl ClipboardPayload {
             .unwrap()
             .elements
             .extend(pasted);
+        layer.normalize_motion_keys();
         for original in &self.groups {
             let mut group = original.clone();
             group.id = new_id("group");

@@ -5018,11 +5018,18 @@ pub fn inspect_swf_bytes(bytes: &[u8]) -> Result<SwfHeaderInfo, Fte3dError> {
         bytes[8..].to_vec()
     } else if sig == b"CWS" {
         use std::io::Read;
-        let mut decoder = flate2::read::ZlibDecoder::new(&bytes[8..]);
+        const MAX_CWS_DECOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+        let decoder = flate2::read::ZlibDecoder::new(&bytes[8..]);
         let mut out = Vec::new();
         decoder
+            .take((MAX_CWS_DECOMPRESSED_BYTES as u64) + 1)
             .read_to_end(&mut out)
             .map_err(|e| Fte3dError::Argument(format!("Invalid CWS zlib stream: {e}")))?;
+        if out.len() > MAX_CWS_DECOMPRESSED_BYTES {
+            return Err(Fte3dError::Argument(
+                "Decompressed CWS SWF payload exceeds 16 MiB limit.".into(),
+            ));
+        }
         out
     } else {
         return Err(Fte3dError::Argument(
@@ -5041,30 +5048,30 @@ pub fn inspect_swf_bytes(bytes: &[u8]) -> Result<SwfHeaderInfo, Fte3dError> {
             "Truncated SWF frame rate / count header.".into(),
         ));
     }
-    let read_sbits = |start_bit: usize, count: usize| -> i32 {
+    let read_sbits = |start_bit: usize, count: usize| -> i64 {
         if count == 0 {
             return 0;
         }
-        let mut val = 0u32;
+        let mut val = 0u64;
         for i in 0..count {
             let bit_idx = start_bit + i;
             let b = body[bit_idx / 8];
             let bit = (b >> (7 - (bit_idx % 8))) & 1;
-            val = (val << 1) | (bit as u32);
+            val = (val << 1) | (bit as u64);
         }
-        let sign_bit = 1u32 << (count - 1);
+        let sign_bit = 1u64 << (count - 1);
         if (val & sign_bit) != 0 {
-            (val | (!0u32 << count)) as i32
+            (val | (!0u64 << count)) as i64
         } else {
-            val as i32
+            val as i64
         }
     };
     let xmin = read_sbits(5, nbits);
     let xmax = read_sbits(5 + nbits, nbits);
     let ymin = read_sbits(5 + nbits * 2, nbits);
     let ymax = read_sbits(5 + nbits * 3, nbits);
-    let width = ((xmax - xmin).max(20) / 20) as u32;
-    let height = ((ymax - ymin).max(20) / 20) as u32;
+    let width = (((xmax - xmin).max(20) / 20) as u64).min(u32::MAX as u64) as u32;
+    let height = (((ymax - ymin).max(20) / 20) as u64).min(u32::MAX as u64) as u32;
 
     let fr_raw = u16::from_le_bytes([body[rect_bytes], body[rect_bytes + 1]]);
     let frame_rate = ((fr_raw as f64) / 256.0).max(1.0);
@@ -5618,5 +5625,53 @@ mod tests {
         assert!((local[0] - 25.0).abs() < 1e-3);
         assert!((local[1] - (-10.0)).abs() < 1e-3);
         assert!(local[2].abs() < 1e-6);
+    }
+
+    #[test]
+    fn inspect_swf_bytes_handles_nbits_31_and_rejects_cws_decompression_bomb() {
+        use std::io::Write;
+
+        // 1. nbits == 31 with extreme signed values (xmin = -(1<<30), xmax = (1<<30)-1)
+        let mut fws = vec![b'F', b'W', b'S', 10, 0, 0, 0, 0];
+        let nbits = 31usize;
+        let total_rect_bits = 5 + nbits * 4;
+        let rect_bytes = total_rect_bits.div_ceil(8);
+        let mut body = vec![0u8; rect_bytes + 6];
+        let mut write_bits = |start_bit: usize, count: usize, val: u64| {
+            for i in 0..count {
+                let bit_idx = start_bit + i;
+                let bit = ((val >> (count - 1 - i)) & 1) as u8;
+                if bit != 0 {
+                    body[bit_idx / 8] |= 1 << (7 - (bit_idx % 8));
+                }
+            }
+        };
+        write_bits(0, 5, 31);
+        write_bits(5, 31, 1u64 << 30); // xmin = -1073741824
+        write_bits(5 + 31, 31, (1u64 << 30) - 1); // xmax = 1073741823
+        write_bits(5 + 62, 31, 1u64 << 30); // ymin = -1073741824
+        write_bits(5 + 93, 31, (1u64 << 30) - 1); // ymax = 1073741823
+        body[rect_bytes..rect_bytes + 2].copy_from_slice(&(24u16 << 8).to_le_bytes());
+        body[rect_bytes + 2..rect_bytes + 4].copy_from_slice(&1u16.to_le_bytes());
+        fws.extend_from_slice(&body);
+        let len = fws.len() as u32;
+        fws[4..8].copy_from_slice(&len.to_le_bytes());
+
+        let info = inspect_swf_bytes(&fws).expect("nbits=31 should not overflow");
+        assert_eq!(info.width, ((2_147_483_647i64) / 20) as u32);
+        assert_eq!(info.height, ((2_147_483_647i64) / 20) as u32);
+
+        // 2. CWS decompression bomb (> 16 MiB decompressed zeros) is rejected
+        let mut cws = vec![b'C', b'W', b'S', 10, 0, 0, 0, 0x02];
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        let chunk = vec![0u8; 64 * 1024];
+        for _ in 0..(16 * 16 + 1) {
+            enc.write_all(&chunk).unwrap();
+        }
+        let compressed = enc.finish().unwrap();
+        assert!(compressed.len() < 64 * 1024);
+        cws.extend_from_slice(&compressed);
+        let err = inspect_swf_bytes(&cws).unwrap_err();
+        assert!(err.to_string().contains("16 MiB"));
     }
 }
