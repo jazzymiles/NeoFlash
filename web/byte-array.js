@@ -306,8 +306,9 @@
     const IDataOutput=binaryInterface('IDataOutput','flash.utils.IDataOutput');
     Object.defineProperties(ByteArray,{__nfIs:{value:value=>states.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native ByteArray subclass initialization requires indexed proxy construction and is not implemented.');}}});
     Object.defineProperty(ByteArray.prototype,'shareable',{
-      get(){state(this);return false;},
-      set(value){state(this);if(typeof value!=='boolean')throw new TypeError('ByteArray.shareable requires a Boolean.');if(value)unsupported('shareable Worker memory');},
+      configurable:true,
+      get(){return Boolean(state(this).shareable);},
+      set(value){const record=state(this);if(typeof value!=='boolean')throw new TypeError('ByteArray.shareable requires a Boolean.');if(!record.shareable)record.shareable=value;},
     });
     Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){open();return defaultEncoding;},set(value){open();defaultEncoding=encoding(value);}});
     for(const name of ['writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});

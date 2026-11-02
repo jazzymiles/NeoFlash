@@ -410,6 +410,75 @@ const BUILTINS: &[&str] = &[
     "flash.notifications.RemoteNotifier",
     "flash.sensors.DeviceRotation",
     "flash.sensors.Geolocation",
+    "flash.sensors.Accelerometer",
+    // Area 8 concurrent, globalization, net, drm, printing, profiler, sampler, security, system
+    "flash.concurrent.Mutex",
+    "flash.concurrent.Condition",
+    "flash.globalization.LastOperationStatus",
+    "flash.globalization.NationalDigitsType",
+    "flash.globalization.CollatorMode",
+    "flash.globalization.LocaleID",
+    "flash.globalization.CurrencyParseResult",
+    "flash.globalization.CurrencyFormatter",
+    "flash.globalization.Collator",
+    "flash.globalization.StringTools",
+    "flash.net.Responder",
+    "flash.net.FileFilter",
+    "flash.net.GroupSpecifier",
+    "flash.net.NetGroupReceiveMode",
+    "flash.net.NetGroupReplicationStrategy",
+    "flash.net.NetGroupSendMode",
+    "flash.net.NetGroupSendResult",
+    "flash.net.NetGroupInfo",
+    "flash.net.NetGroup",
+    "flash.net.LocalConnection",
+    "flash.net.NetStreamAppendBytesAction",
+    "flash.net.NetStreamPlayTransitions",
+    "flash.net.NetStreamPlayOptions",
+    "flash.net.NetStreamInfo",
+    "flash.net.NetStreamMulticastInfo",
+    "flash.net.NetMonitor",
+    "flash.net.Socket",
+    "flash.net.SecureSocket",
+    "flash.net.URLStream",
+    "flash.net.XMLSocket",
+    "flash.net.drm.AuthenticationMethod",
+    "flash.net.drm.LoadVoucherSetting",
+    "flash.net.drm.VoucherAccessInfo",
+    "flash.net.drm.DRMPlaybackTimeWindow",
+    "flash.net.drm.DRMVoucher",
+    "flash.net.drm.DRMContentData",
+    "flash.net.drm.DRMDeviceGroup",
+    "flash.net.drm.DRMManager",
+    "flash.printing.PrintJob",
+    "flash.printing.PrintJobOptions",
+    "flash.printing.PrintJobOrientation",
+    "flash.profiler.Telemetry",
+    "flash.sampler.StackFrame",
+    "flash.sampler.Sample",
+    "flash.sampler.NewObjectSample",
+    "flash.sampler.DeleteObjectSample",
+    "flash.security.CertificateStatus",
+    "flash.security.X500DistinguishedName",
+    "flash.security.X509Certificate",
+    "flash.system.ApplicationDomain",
+    "flash.system.Capabilities",
+    "flash.system.IME",
+    "flash.system.IMEConversionMode",
+    "flash.system.LoaderContext",
+    "flash.system.JPEGLoaderContext",
+    "flash.system.MessageChannel",
+    "flash.system.MessageChannelState",
+    "flash.system.Security",
+    "flash.system.SecurityDomain",
+    "flash.system.SecurityPanel",
+    "flash.system.System",
+    "flash.system.SystemUpdater",
+    "flash.system.SystemUpdaterType",
+    "flash.system.TouchscreenType",
+    "flash.system.Worker",
+    "flash.system.WorkerDomain",
+    "flash.system.WorkerState",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -427,6 +496,22 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.net.sendToURL",
     "flash.net.registerClassAlias",
     "flash.net.getClassByAlias",
+    "flash.crypto.generateRandomBytes",
+    "flash.media.scanHardware",
+    "flash.profiler.showRedrawRegions",
+    "flash.sampler.clearSamples",
+    "flash.sampler.getGetterInvocationCount",
+    "flash.sampler.getInvocationCount",
+    "flash.sampler.getMemberNames",
+    "flash.sampler.getSampleCount",
+    "flash.sampler.getSamples",
+    "flash.sampler.getSetterInvocationCount",
+    "flash.sampler.getSize",
+    "flash.sampler.isGetterSetter",
+    "flash.sampler.pauseSampling",
+    "flash.sampler.startSampling",
+    "flash.sampler.stopSampling",
+    "flash.system.fscommand",
 ];
 const BUILTIN_NAMESPACES: &[(&str, &str)] = &[
     ("AS3", "http://adobe.com/AS3/2006/builtin"),
@@ -875,6 +960,101 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "subscribe"
                 | "unsubscribe"
                 | "setRequestedUpdateInterval"
+                | "wait"
+                | "notify"
+                | "notifyAll"
+                | "tryLock"
+                | "determinePreferredLocales"
+                | "getAvailableLocaleIDNames"
+                | "getLanguage"
+                | "getRegion"
+                | "getScript"
+                | "getVariant"
+                | "getKeysAndValues"
+                | "isRightToLeft"
+                | "format"
+                | "formattingWithCurrencySymbolIsSafe"
+                | "setCurrency"
+                | "parse"
+                | "useRedirectedURL"
+                | "download"
+                | "upload"
+                | "addBootstrapPeer"
+                | "addIPMulticastAddress"
+                | "authorizations"
+                | "encodeBootstrapPeerIDSpec"
+                | "encodeIPMulticastAddressSpec"
+                | "encodePostingAuthorization"
+                | "encodePublishAuthorization"
+                | "groupspecWithAuthorizations"
+                | "groupspecWithoutAuthorizations"
+                | "makeUnique"
+                | "setPostingPassword"
+                | "setPublishPassword"
+                | "addHaveObjects"
+                | "addMemberHint"
+                | "addNeighbor"
+                | "addWantObjects"
+                | "convertPeerIDToGroupAddress"
+                | "createGroupAddress"
+                | "denyRequestedObject"
+                | "post"
+                | "removeHaveObjects"
+                | "removeWantObjects"
+                | "satisfyRequestedObject"
+                | "sendToAllNeighbors"
+                | "sendToNearest"
+                | "sendToNeighbor"
+                | "allowDomain"
+                | "allowInsecureDomain"
+                | "addHeader"
+                | "call"
+                | "appendBytes"
+                | "appendBytesAction"
+                | "attachAudio"
+                | "attachCamera"
+                | "onPeerConnect"
+                | "play2"
+                | "publish"
+                | "receiveAudio"
+                | "receiveVideo"
+                | "receiveVideoFPS"
+                | "step"
+                | "listStreams"
+                | "resetDRMVouchers"
+                | "addToDeviceGroup"
+                | "authenticate"
+                | "loadPreviewVoucher"
+                | "loadVoucher"
+                | "removeFromDeviceGroup"
+                | "setAuthenticationToken"
+                | "addPage"
+                | "registerCommandHandler"
+                | "sendMetric"
+                | "sendSpanMetric"
+                | "sendSpanValue"
+                | "unregisterCommandHandler"
+                | "getDefinition"
+                | "hasDefinition"
+                | "hasMultiChannelAudio"
+                | "supports32BitProcesses"
+                | "supports64BitProcesses"
+                | "doConversion"
+                | "setCompositionString"
+                | "checkPolicyFile"
+                | "receive"
+                | "loadPolicyFile"
+                | "loadPolicyFileFromBytes"
+                | "showSettings"
+                | "disposeXML"
+                | "gc"
+                | "setClipboard"
+                | "createMessageChannel"
+                | "getSharedProperty"
+                | "setSharedProperty"
+                | "terminate"
+                | "createWorker"
+                | "listWorkers"
         )
 }
 
@@ -996,7 +1176,11 @@ fn visible_names(
                 || {
                     (language == ScriptLanguage::ActionScript3
                         && !name.starts_with("mx.transitions.")
-                        && !AS2_BUILTINS.contains(&name.as_str()))
+                        && (!AS2_BUILTINS.contains(&name.as_str())
+                            || matches!(
+                                name.as_str(),
+                                "flash.net.FileReference" | "flash.net.FileReferenceList"
+                            )))
                         || matches!(name.as_str(), "Object" | "Array")
                         || (language == ScriptLanguage::ActionScript2
                             && (name.starts_with("mx.transitions.")
@@ -1886,6 +2070,12 @@ fn parse_class(
             || base.starts_with("flash.permissions.")
             || base.starts_with("flash.notifications.")
             || base.starts_with("flash.sensors.")
+            || base.starts_with("flash.concurrent.")
+            || base.starts_with("flash.printing.")
+            || base.starts_with("flash.profiler.")
+            || base.starts_with("flash.sampler.")
+            || base.starts_with("flash.security.")
+            || base.starts_with("flash.system.")
             || matches!(
                 base.as_str(),
                 "flash.display.FocusDirection"
@@ -2918,7 +3108,14 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .collect();
     let mut reflection_types = BUILTINS
         .iter()
-        .filter(|name| !name.starts_with("mx.transitions.") && !AS2_BUILTINS.contains(name))
+        .filter(|name| {
+            !name.starts_with("mx.transitions.")
+                && (!AS2_BUILTINS.contains(name)
+                    || matches!(
+                        **name,
+                        "flash.net.FileReference" | "flash.net.FileReferenceList"
+                    ))
+        })
         .copied()
         .collect::<Vec<_>>();
     reflection_types.extend([
@@ -3475,7 +3672,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfAs3NetSysVectorFactory==='function')__nfBuiltins.__nfAs3NetSysVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

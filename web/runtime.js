@@ -294,7 +294,7 @@
     const clipFrameLabels = new Map();
     let callFrameDepth = 0, inDispatch = false;
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
-    let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null;
+    let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, currentBuiltins = null;
     let frameLabelType = null, sceneValueFactory = null;
     const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
@@ -334,7 +334,7 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
@@ -686,6 +686,9 @@
       if(global.NeoFlashAIR&&typeof wasm?.AirKernel==='function'){
         airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
       }
+      if(global.NeoFlashAS3NetSys&&typeof wasm?.As3NetSysKernel==='function'){
+        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
+      }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
         const LegacyTextField=function(){throw new TypeError('Create an AS2 TextField with MovieClip.createTextField.');};
@@ -732,7 +735,7 @@
     }
     function initializeProgram() {
       if(!display)return;
-      const builtins={...display.builtins};
+      const builtins=currentBuiltins={...display.builtins};
       // FrameLabel stores a Rust value and uses the existing event dispatcher.
       if(global.NeoFlashEvents){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
@@ -800,6 +803,7 @@
       if(global.NeoFlashNumberFormat){
         const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
         const numberFormat=global.NeoFlashNumberFormat.create(wasm);
+        as3NetSysHost?.hookNumberFormatter?.(numberFormat.NumberFormatter);
         for(const name of ['NumberFormatter','NumberParseResult'])builtins['flash.globalization.'+name]=numberFormat[name];
       }
       if(legacyGlobals?.date){
@@ -873,8 +877,8 @@
         builtins['flash.utils.ByteArray']=binaryHost.ByteArray;
         builtins['flash.utils.Endian']=binaryHost.Endian;
         if(binaryHost.CompressionAlgorithm)builtins['flash.utils.CompressionAlgorithm']=binaryHost.CompressionAlgorithm;
-        if(binaryHost.IDataInput)builtins['flash.utils.IDataInput']=nativeInterface('flash.utils.IDataInput',{__nfIs:value=>binaryHost.IDataInput.__nfIs(value)||Boolean(airHost?.isDataInput(value)),__nfInitialize:binaryHost.IDataInput.__nfInitialize});
-        if(binaryHost.IDataOutput)builtins['flash.utils.IDataOutput']=nativeInterface('flash.utils.IDataOutput',{__nfIs:value=>binaryHost.IDataOutput.__nfIs(value)||Boolean(airHost?.isDataOutput(value)),__nfInitialize:binaryHost.IDataOutput.__nfInitialize});
+        if(binaryHost.IDataInput)builtins['flash.utils.IDataInput']=nativeInterface('flash.utils.IDataInput',{__nfIs:value=>binaryHost.IDataInput.__nfIs(value)||Boolean(airHost?.isDataInput(value))||Boolean(as3NetSysHost?.isDataInput(value)),__nfInitialize:binaryHost.IDataInput.__nfInitialize});
+        if(binaryHost.IDataOutput)builtins['flash.utils.IDataOutput']=nativeInterface('flash.utils.IDataOutput',{__nfIs:value=>binaryHost.IDataOutput.__nfIs(value)||Boolean(airHost?.isDataOutput(value))||Boolean(as3NetSysHost?.isDataOutput(value)),__nfInitialize:binaryHost.IDataOutput.__nfInitialize});
       }
       if(externalHost)builtins['flash.external.ExternalInterface']=externalHost.ExternalInterface;
       if(netHost){
@@ -889,6 +893,22 @@
         }
         builtins.__nfAirVectorFactory=airHost.setVectorFactory;
       }
+      if(as3NetSysHost){
+        const isAs2Publication=Boolean(
+          (typeof project!=='undefined'&&project&&(
+            project.sources?.some(s=>s?.language==='action_script2'||s?.language==='action_script1'||s?.script?.language==='action_script2'||s?.script?.language==='action_script1')||
+            project.symbols?.some(sym=>sym?.timeline?.scripts?.some(e=>e?.script?.language==='action_script2'||e?.script?.language==='action_script1'))
+          ))||
+          (typeof functions!=='undefined'&&typeof functions?.keys==='function'&&[...functions.keys()].some(k=>/^(?:action_script[12]|ActionScript[12])\u0000/.test(k)))||
+          (typeof bundle!=='undefined'&&typeof bundle?.program?.code==='string'&&bundle.program.code.includes('"as2"'))
+        );
+        for(const [qname,type] of Object.entries(as3NetSysHost.builtins)){
+          if((qname==='flash.net.FileReference'||qname==='flash.net.FileReferenceList')&&isAs2Publication)continue;
+          if(qname.startsWith('flash.desktop.Clipboard')&&(qname in builtins))continue;
+          builtins[qname]=type;
+        }
+        builtins.__nfAs3NetSysVectorFactory=as3NetSysHost.setVectorFactory;
+      }
       program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
@@ -899,7 +919,7 @@
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
-      airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
       soundsPreloaded=false;
       player.reset();
@@ -911,7 +931,7 @@
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
-      airHost?.dispose();externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
@@ -1486,7 +1506,7 @@
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
-    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();
