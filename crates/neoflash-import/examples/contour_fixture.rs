@@ -79,6 +79,7 @@ fn element(name: &str, kind: ElementKind, x: f64, y: f64) -> Element {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {

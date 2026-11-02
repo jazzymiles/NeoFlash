@@ -50,7 +50,7 @@ impl Default for ActionsUi {
 }
 
 /// Where a navigator entry leads.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ScriptLocation {
     Frame {
         symbol: String,
@@ -460,9 +460,13 @@ impl Editor {
         self.finish_edits();
         let enter = |editor: &mut Editor, symbol: &str, frame: u32| {
             if editor.symbol_id() != symbol {
-                editor.leave_to_level(0);
-                if symbol != editor.project.root {
-                    editor.enter_symbol(symbol.to_owned());
+                if editor.project.is_scene(symbol) {
+                    editor.switch_scene(symbol);
+                } else {
+                    editor.leave_to_level(0);
+                    if symbol != editor.project.root {
+                        editor.enter_symbol(symbol.to_owned());
+                    }
                 }
             }
             editor.set_playing(false);

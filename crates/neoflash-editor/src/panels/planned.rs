@@ -24,9 +24,6 @@ use neoflash_ui::typography::rich;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PlannedPanel {
     Debugger,
-    CodeSnippets,
-    CompilerErrors,
-    PropertiesFilters,
     PublishSettings,
     ExportImage,
     ExportVideo,
@@ -42,8 +39,6 @@ pub(crate) enum PlannedPanel {
     StrokeStyle,
     FontEmbedding,
     TestMovie,
-    FindReplace,
-    MovieExplorer,
 }
 
 /// How the preview is framed.
@@ -61,11 +56,8 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 21] = [
+    pub(crate) const ALL: [Self; 16] = [
         Self::Debugger,
-        Self::CodeSnippets,
-        Self::CompilerErrors,
-        Self::PropertiesFilters,
         Self::PublishSettings,
         Self::ExportImage,
         Self::ExportVideo,
@@ -81,17 +73,12 @@ impl PlannedPanel {
         Self::StrokeStyle,
         Self::FontEmbedding,
         Self::TestMovie,
-        Self::FindReplace,
-        Self::MovieExplorer,
     ];
 
     /// Menu label (Window ▸ Planned panels ▸ …).
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Debugger => "Debugger",
-            Self::CodeSnippets => "Code snippets",
-            Self::CompilerErrors => "Compiler errors",
-            Self::PropertiesFilters => "Properties — Display & filters",
             Self::PublishSettings => "Publish settings",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
@@ -107,17 +94,13 @@ impl PlannedPanel {
             Self::StrokeStyle => "Stroke style",
             Self::FontEmbedding => "Font embedding",
             Self::TestMovie => "Test Movie",
-            Self::FindReplace => "Find and replace",
-            Self::MovieExplorer => "Movie Explorer",
         }
     }
 
     /// Reference PNG under `interface/design-system/exports/panels/{dark,light}/png/`.
     pub(crate) const fn reference(self) -> &'static str {
         match self {
-            Self::Debugger | Self::CodeSnippets => "scripting-panels.png",
-            Self::CompilerErrors => "panels-more-2.png",
-            Self::PropertiesFilters => "panel-properties-movie-clip.png",
+            Self::Debugger => "scripting-panels.png",
             Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
@@ -129,16 +112,12 @@ impl PlannedPanel {
             }
             Self::GraphicProperties => "symbols-panels.png",
             Self::BitmapFill | Self::FontEmbedding | Self::TestMovie => "publish-misc-dialogs.png",
-            Self::FindReplace | Self::MovieExplorer => "document-dialogs.png",
         }
     }
 
     pub(crate) const fn chrome(self) -> Chrome {
         match self {
-            Self::PropertiesFilters => Chrome::Panel(&["Properties", "Filters"]),
             Self::Debugger => Chrome::Panel(&["Debugger"]),
-            Self::CodeSnippets => Chrome::Panel(&["Code snippets"]),
-            Self::CompilerErrors => Chrome::Panel(&["Compiler errors"]),
             Self::BitmapFill => Chrome::Panel(&["Color", "Swatches"]),
             Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => {
                 Chrome::Panel(&["Properties", "Filters"])
@@ -146,14 +125,13 @@ impl PlannedPanel {
             Self::DecoTool | Self::SprayBrush | Self::BoneProperties | Self::GraphicProperties => {
                 Chrome::Panel(&["Properties"])
             }
-            Self::MovieExplorer => Chrome::Panel(&["Movie Explorer"]),
             Self::TestMovie => Chrome::Window,
             _ => Chrome::Dialog,
         }
     }
 
     /// Active header tab: the first tab for the NF2 v2 previews whose reference shows the first tab
-    /// active (Color, primitives); the last tab for the earlier previews (Properties ▸ Filters).
+    /// active (Color, primitives); the last tab otherwise.
     pub(crate) const fn active_tab(self, tabs: usize) -> usize {
         match self {
             Self::BitmapFill | Self::PropertiesOvalPrimitive | Self::PropertiesRectPrimitive => 0,
@@ -170,14 +148,9 @@ impl PlannedPanel {
             Self::ExportImage => 760.,
             Self::ImportVideo => 720.,
             Self::ExportAudio => 640.,
-            Self::CompilerErrors => 560.,
-            Self::CodeSnippets => 340.,
-            Self::PropertiesFilters => 324.,
             Self::TestMovie => 1000.,
-            Self::FindReplace => 640.,
             Self::FontEmbedding => 760.,
             Self::StrokeStyle => 480.,
-            Self::MovieExplorer => 340.,
             Self::PropertiesOvalPrimitive
             | Self::PropertiesRectPrimitive
             | Self::DecoTool
@@ -511,9 +484,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
         ui.disable();
         match panel {
             P::Debugger => super::planned_panels::debugger(ui),
-            P::CodeSnippets => super::planned_panels::code_snippets(ui),
-            P::CompilerErrors => super::planned_panels::compiler_errors(ui),
-            P::PropertiesFilters => super::planned_panels::properties_filters(ui),
             P::PublishSettings => super::planned_dialogs::publish_settings(ui),
             P::ExportVideo => super::planned_dialogs::export_video(ui),
             P::ExportAudio => super::planned_dialogs::export_audio(ui),
@@ -528,8 +498,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
             P::StrokeStyle => super::planned_documents::stroke_style(ui),
             P::FontEmbedding => super::planned_documents::font_embedding(ui),
             P::TestMovie => super::planned_documents::test_movie(ui),
-            P::FindReplace => super::planned_documents::find_replace(ui),
-            P::MovieExplorer => super::planned_documents::movie_explorer(ui),
             P::ExportImage => {}
         }
     });

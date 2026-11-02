@@ -22,6 +22,11 @@
 //! | `swatches.rs` | Swatches (recent, document, palette and gradient swatches) |
 //! | `info.rs` | Info (selection bounds and live stage cursor / RGBA readout) |
 //! | `project.rs` | Project (source/asset file tree, search, create/delete/publish) |
+//! | `filters.rs` | Filters (display visibility, blend mode, bitmap caching and display filters) |
+//! | `compiler_errors.rs` | Compiler errors (`Window ▸ Compiler errors`, `⌥F2`) |
+//! | `code_snippets.rs` | Code snippets (`Window ▸ Code snippets`) |
+//! | `movie_explorer.rs` | Movie Explorer (`Window ▸ Movie Explorer`) |
+//! | `find_replace.rs` | Find and replace modal dialog (`Edit ▸ Find and replace`, `⌘F`) |
 //! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
 //! | `edit_envelope.rs` | Edit envelope modal dialog (`Properties ▸ Sound ▸ Envelope…`, `Library menu ▸ Edit envelope…`) |
 //! | `layer_properties.rs` | Layer properties modal dialog (`Modify ▸ Timeline ▸ Layer properties…`) |
@@ -31,9 +36,13 @@
 pub(crate) mod accessibility;
 mod actions;
 pub(crate) mod actions_sidebar;
+pub(crate) mod code_snippets;
+pub(crate) mod compiler_errors;
 pub(crate) mod document_settings;
 pub(crate) mod ease;
 pub(crate) mod edit_envelope;
+pub(crate) mod filters;
+pub(crate) mod find_replace;
 mod history;
 mod info;
 pub(crate) mod layer_properties;
@@ -41,6 +50,7 @@ pub(crate) mod library;
 mod menu;
 mod motion_editor;
 mod motion_tween;
+pub(crate) mod movie_explorer;
 pub(crate) mod planned;
 mod planned_color;
 mod planned_dialogs;

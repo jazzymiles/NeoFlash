@@ -165,6 +165,15 @@
       if(url.href.length>8192)throw new RangeError('Resolved request URL exceeds 8192 characters.');
       return url.href;
     }
+    function navigationURL(source){
+      let url;try{url=new URL(source,baseURL||undefined);}catch(_){throw new TypeError('Navigation requires an absolute HTTP(S)/mailto: URL or an HTTP(S) publication base URL.');}
+      if(url.protocol==='mailto:'){
+        if(/[\r\n\0]/.test(url.href))throw new TypeError('Invalid mailto: URL.');
+        if(url.href.length>8192)throw new RangeError('Resolved navigation URL exceeds 8192 characters.');
+        return url.href;
+      }
+      return httpURL(source);
+    }
     function navigationTarget(value){
       if(value===null||value===undefined||value==='')return '_blank';
       const target=text(value,'Browser window target');
@@ -175,7 +184,8 @@
       return target;
     }
     function prepareNavigation(request,target=null){
-      open();const prepared=snapshot(request),url=httpURL(prepared.url),window=navigationTarget(target);
+      open();const prepared=snapshot(request),url=navigationURL(prepared.url),window=navigationTarget(target);
+      if(/^mailto:/i.test(url)&&prepared.method!=='GET')throw new TypeError('mailto: navigation supports GET only.');
       const formType=/^application\/x-www-form-urlencoded(?:\s*;\s*charset\s*=\s*(?:UTF-8|"UTF-8"))?\s*$/i;
       // HTML navigation cannot attach custom HTTP headers. A form's own
       // Content-Type is the sole allowed transport-generated header.

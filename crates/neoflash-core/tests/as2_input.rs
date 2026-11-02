@@ -354,6 +354,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         },
         Element {
             id: "child_inst".into(),
@@ -365,6 +366,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         },
     ];
     let frame0_elements = project.symbols[0].timeline.layers[0].keyframes[0]
@@ -430,6 +432,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
                             },
                             scripts: vec![],
                             accessibility: None,
+                            ..Element::default()
                         }],
                         tween: None,
                         tween_kind: TweenKind::default(),

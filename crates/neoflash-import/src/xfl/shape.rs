@@ -150,6 +150,7 @@ impl Parser<'_> {
                 transform,
                 kind,
                 scripts: vec![],
+                ..Element::default()
             }]);
         }
         self.report.diagnostics.truncate(saved_diagnostics);
@@ -184,6 +185,7 @@ impl Parser<'_> {
                     transform,
                     kind,
                     scripts: vec![],
+                    ..Element::default()
                 })
                 .collect(),
         )

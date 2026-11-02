@@ -646,8 +646,17 @@ fn class_syntax_outside_profile_is_never_erased() {
     )]);
     let web_result = neoflash_script::compile_project(&web_project);
     assert!(web_result.is_ok(), "{:?}", web_result.err());
+    let web_program = web_result.unwrap();
+    let as3_timeline_nav = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript3,
+        source: "navigateToURL(new URLRequest(\"mailto:hello@example.org\"), \"_blank\");".into(),
+    };
+    let as3_nav_code = neoflash_script::compile_with_program(&as3_timeline_nav, &web_program)
+        .expect("AS3 timeline navigateToURL auto-imports flash.net");
+    assert!(as3_nav_code.contains("\"flash.net.navigateToURL\""));
+    assert!(as3_nav_code.contains("\"flash.net.URLRequest\""));
     let legacy_web=neoflash_core::Script{language:ScriptLanguage::ActionScript2,source:"import flash.external.ExternalInterface;function echo(value:Object):Object{return value;}var ok:Boolean=ExternalInterface.addCallback(\"legacy\",this,echo);var reply:Object=ExternalInterface.call(\"Host.reply\",7);getURL(\"/receipt\",\"preview\");this.getURL(\"/receipt\",\"preview\",\"GET\");var form:LoadVars=new LoadVars();form.send(\"/receipt\",\"preview\");".into()};
-    let web_code = neoflash_script::compile_with_program(&legacy_web, &web_result.unwrap())
+    let web_code = neoflash_script::compile_with_program(&legacy_web, &web_program)
         .expect("AS2 web interface compiles");
     assert!(web_code.contains("__nfLegacy.ExternalInterface"));
     assert!(web_code.contains("__nfLegacy.getURL.call(__nfFrame"));

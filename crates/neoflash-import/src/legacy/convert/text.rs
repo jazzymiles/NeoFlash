@@ -123,9 +123,6 @@ pub(super) fn convert_text(
     if text.scrollable.unwrap_or(0) != 0 {
         lossy.push("scrollable viewport state is not imported");
     }
-    if !text.filters.is_empty() {
-        lossy.push("text filters are not rendered");
-    }
     let style = text
         .runs
         .first()
@@ -199,6 +196,7 @@ pub(super) fn convert_text(
         report.warning("fla_text_font_flags", location,
             "Additional archived font flags remain in the embedded source; named font, size, bold and italic are imported.");
     }
+    let filters = super::convert_filters(&text.filters, location, report);
     let multiline = characters.contains(['\r', '\n']);
     Ok(Element {
         id: id.into(),
@@ -214,6 +212,8 @@ pub(super) fn convert_text(
         },
         scripts: vec![],
         accessibility: None,
+        filters,
+        ..Element::default()
     })
 }
 

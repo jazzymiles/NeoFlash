@@ -82,6 +82,263 @@ fn optional_text(bytes: &[u8], span: Option<&ContentsString>) -> Result<String, 
         .map(Option::unwrap_or_default)
 }
 
+pub(super) fn convert_blend_mode(
+    raw: Option<u8>,
+    location: &str,
+    report: &mut ImportReport,
+) -> BlendMode {
+    let Some(code) = raw else {
+        return BlendMode::Normal;
+    };
+    let Some(decoded) = TimelineBlendMode::from_archive(code) else {
+        report.warning(
+            "fla_blend_mode",
+            location,
+            format!(
+                "Unknown blend mode code {code} is drawn normally; the raw value remains in the embedded source."
+            ),
+        );
+        return BlendMode::Normal;
+    };
+    let blend = match decoded {
+        TimelineBlendMode::Normal => BlendMode::Normal,
+        TimelineBlendMode::Layer => BlendMode::Layer,
+        TimelineBlendMode::Multiply => BlendMode::Multiply,
+        TimelineBlendMode::Screen => BlendMode::Screen,
+        TimelineBlendMode::Lighten => BlendMode::Lighten,
+        TimelineBlendMode::Darken => BlendMode::Darken,
+        TimelineBlendMode::Difference => BlendMode::Difference,
+        TimelineBlendMode::Add => BlendMode::Add,
+        TimelineBlendMode::Subtract => BlendMode::Subtract,
+        TimelineBlendMode::Invert => BlendMode::Invert,
+        TimelineBlendMode::Alpha => BlendMode::Alpha,
+        TimelineBlendMode::Erase => BlendMode::Erase,
+        TimelineBlendMode::Overlay => BlendMode::Overlay,
+        TimelineBlendMode::Hardlight => BlendMode::Hardlight,
+    };
+    if !blend.has_canvas_compositing() {
+        report.warning(
+            "fla_blend_mode",
+            location,
+            format!(
+                "Blend mode '{}' is stored on the instance, while HTML5 Canvas 2D approximates it as normal compositing.",
+                blend.label()
+            ),
+        );
+    }
+    blend
+}
+
+pub(super) fn convert_filters(
+    filters: &[TimelineFilter],
+    location: &str,
+    report: &mut ImportReport,
+) -> Vec<FilterSpec> {
+    if filters.is_empty() {
+        return Vec::new();
+    }
+    let unpack_rgba = |word: u32| -> (u32, f64) {
+        let [r, g, b, a] = word.to_le_bytes();
+        let rgb = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+        (rgb, f64::from(a) / 255.0)
+    };
+    let finite_clamp = |v: Option<f32>, default: f64, lo: f64, hi: f64| -> f64 {
+        v.map(f64::from)
+            .filter(|x| x.is_finite())
+            .unwrap_or(default)
+            .clamp(lo, hi)
+    };
+    let angle_deg = |rad: Option<f32>| -> f64 {
+        rad.map(|r| f64::from(r).to_degrees())
+            .filter(|d| d.is_finite())
+            .unwrap_or(45.0)
+            .clamp(-1e9, 1e9)
+    };
+    let placement_str = |p: &TimelineFilterParams| -> String {
+        if p.full.unwrap_or(0) != 0 {
+            "full".into()
+        } else if p.inner.unwrap_or(0) != 0 {
+            "inner".into()
+        } else {
+            "outer".into()
+        }
+    };
+    let gradient_stops = |stops: &[TimelineFilterGradientStop]| -> (Vec<u32>, Vec<f64>, Vec<u8>) {
+        let mut entries: Vec<(u8, u32, f64)> = stops
+            .iter()
+            .take(16)
+            .map(|s| {
+                let (rgb, alpha) = unpack_rgba(s.color_rgba);
+                (s.ratio.min(255) as u8, rgb, alpha)
+            })
+            .collect();
+        entries.sort_by_key(|e| e.0);
+        (
+            entries.iter().map(|e| e.1).collect(),
+            entries.iter().map(|e| e.2).collect(),
+            entries.iter().map(|e| e.0).collect(),
+        )
+    };
+
+    let mut out = Vec::new();
+    let mut disabled_count = 0usize;
+    let mut empty_revision_count = 0usize;
+    let mut truncated_count = 0usize;
+
+    for f in filters {
+        if f.enabled == Some(false) {
+            disabled_count += 1;
+            continue;
+        }
+        if f.revision == 0
+            || (matches!(
+                f.kind,
+                TimelineFilterKind::GradientGlow | TimelineFilterKind::GradientBevel
+            ) && f.params.gradient_revision == Some(0))
+        {
+            empty_revision_count += 1;
+            continue;
+        }
+        if out.len() >= MAX_OBJECT_FILTERS {
+            truncated_count += 1;
+            continue;
+        }
+        let p = &f.params;
+        let blur_x = finite_clamp(p.blur_x, 4.0, 0.0, 255.0);
+        let blur_y = finite_clamp(p.blur_y.or(p.blur_x), blur_x, 0.0, 255.0);
+        let quality = p.quality.unwrap_or(1).min(15) as u8;
+        let strength = (f64::from(p.strength_percent.unwrap_or(100)) / 100.0).clamp(0.0, 255.0);
+        let inner = p.inner.unwrap_or(0) != 0;
+        let knockout = p.knockout.unwrap_or(0) != 0;
+
+        let spec = match f.kind {
+            TimelineFilterKind::Blur => FilterSpec::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            },
+            TimelineFilterKind::Glow => {
+                let (color, alpha) = unpack_rgba(p.color_rgba.unwrap_or(0xff00_00ff));
+                FilterSpec::Glow {
+                    color,
+                    alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                }
+            }
+            TimelineFilterKind::DropShadow => {
+                let (color, alpha) = unpack_rgba(p.color_rgba.unwrap_or(0xff00_0000));
+                FilterSpec::DropShadow {
+                    distance: finite_clamp(p.distance, 4.0, -8192.0, 8192.0),
+                    angle: angle_deg(p.angle_radians),
+                    color,
+                    alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                    hide_object: p.hide_object.unwrap_or(0) != 0,
+                }
+            }
+            TimelineFilterKind::Bevel => {
+                let (shadow_color, shadow_alpha) = unpack_rgba(p.color_rgba.unwrap_or(0xff00_0000));
+                let (highlight_color, highlight_alpha) =
+                    unpack_rgba(p.highlight_color_rgba.unwrap_or(0xffff_ffff));
+                FilterSpec::Bevel {
+                    distance: finite_clamp(p.distance, 4.0, -8192.0, 8192.0),
+                    angle: angle_deg(p.angle_radians),
+                    highlight_color,
+                    highlight_alpha,
+                    shadow_color,
+                    shadow_alpha,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    placement: placement_str(p),
+                    knockout,
+                }
+            }
+            TimelineFilterKind::GradientGlow => {
+                let (colors, alphas, ratios) = gradient_stops(&p.gradient_stops);
+                FilterSpec::GradientGlow {
+                    distance: finite_clamp(p.distance, 4.0, -8192.0, 8192.0),
+                    angle: angle_deg(p.angle_radians),
+                    colors,
+                    alphas,
+                    ratios,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    placement: placement_str(p),
+                    knockout,
+                }
+            }
+            TimelineFilterKind::GradientBevel => {
+                let (colors, alphas, ratios) = gradient_stops(&p.gradient_stops);
+                FilterSpec::GradientBevel {
+                    distance: finite_clamp(p.distance, 4.0, -8192.0, 8192.0),
+                    angle: angle_deg(p.angle_radians),
+                    colors,
+                    alphas,
+                    ratios,
+                    blur_x,
+                    blur_y,
+                    strength,
+                    quality,
+                    placement: placement_str(p),
+                    knockout,
+                }
+            }
+            TimelineFilterKind::AdjustColor => FilterSpec::ColorMatrix {
+                matrix: adjust_color_matrix(
+                    finite_clamp(p.brightness, 0.0, -100.0, 100.0),
+                    finite_clamp(p.contrast, 0.0, -100.0, 100.0),
+                    finite_clamp(p.saturation, 0.0, -100.0, 100.0),
+                    finite_clamp(p.hue, 0.0, -180.0, 180.0),
+                ),
+            },
+        };
+        if spec.validate().is_ok() {
+            out.push(spec);
+        }
+    }
+
+    if disabled_count > 0 || empty_revision_count > 0 || truncated_count > 0 {
+        let mut notes = Vec::new();
+        if disabled_count > 0 {
+            notes.push(format!("{disabled_count} disabled filter(s) omitted"));
+        }
+        if empty_revision_count > 0 {
+            notes.push(format!(
+                "{empty_revision_count} empty revision-0 filter(s) skipped"
+            ));
+        }
+        if truncated_count > 0 {
+            notes.push(format!(
+                "{truncated_count} filter(s) beyond the {MAX_OBJECT_FILTERS}-filter limit omitted"
+            ));
+        }
+        report.warning(
+            "fla_filter_approximated",
+            location,
+            format!(
+                "Display filters imported with approximations ({}); original records remain in the embedded source.",
+                notes.join(", ")
+            ),
+        );
+    }
+
+    out
+}
+
 pub(crate) fn convert(
     document: &BinaryTimelineDocument,
     report: &mut ImportReport,
@@ -708,6 +965,8 @@ impl Context<'_> {
             loop_forever,
             effect,
             envelope,
+            in_point: None,
+            out_point: None,
         })
     }
     fn actions(
@@ -1058,6 +1317,7 @@ impl Context<'_> {
                     },
                     scripts: vec![],
                     accessibility: None,
+                    ..Element::default()
                 }
             }
         }
@@ -1090,16 +1350,12 @@ impl Context<'_> {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         };
         match &o.payload {
             Some(TimelinePayload::Instance(i)) => {
-                if !i.filters.is_empty() {
-                    let kinds: Vec<_> = i.filters.iter().map(|f| format!("{:?}", f.kind)).collect();
-                    self.report.warning("fla_filters_unsupported",&location,format!("Filters ({}) are not rendered yet; the instance is drawn without them and the decoded filters remain in the embedded source.",kinds.join(", ")));
-                }
-                if i.blend_mode.is_some_and(|v| v > 1) {
-                    self.report.warning("fla_blend_mode",&location,"Blend modes are not rendered yet; the instance is drawn normally and its blend mode remains in the embedded source.");
-                }
+                element.filters = convert_filters(&i.filters, &location, self.report);
+                element.blend_mode = convert_blend_mode(i.blend_mode, &location, self.report);
                 if i.is_extensible.is_some_and(|v| v != 0)
                     || !i.animation_frame_settings.is_empty()
                     || i.property_count.is_some_and(|v| v != 0)
@@ -1924,6 +2180,7 @@ fn degrade_excess_vector_shapes(
                             },
                             scripts: vec![],
                             accessibility: None,
+                            ..Element::default()
                         };
                         let repl_bytes = pretty_element_bytes(&replacement);
                         if path_bytes <= repl_bytes {

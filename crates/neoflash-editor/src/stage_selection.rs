@@ -106,6 +106,8 @@ pub(crate) struct SelectionGesture {
     other_keyframes: Vec<(Id, u32, Id, Transform)>,
     hit: Option<SelectionTarget>,
     shift: bool,
+    duplicate: bool,
+    duplicated: bool,
     moved: bool,
     began: bool,
     changed: bool,
@@ -747,58 +749,148 @@ impl Editor {
                 let other_changed = other_transforms
                     .as_ref()
                     .is_some_and(|ot| *ot != other_originals);
-                gesture.changed = originals != transforms || other_changed;
+                let want_duplicate = matches!(gesture.kind, GestureKind::Move)
+                    && (gesture.duplicate || modifiers.alt);
+                gesture.changed = gesture.duplicated || originals != transforms || other_changed;
                 if gesture.changed && !gesture.began {
                     self.history.begin(&self.project);
-                    let multiple = self.timeline_edit.edit_multiple;
-                    let (start, end) = if multiple {
-                        self.onion_range()
+                    if want_duplicate {
+                        let sampled_map: HashMap<SelectionTarget, Element> =
+                            self.sampled_targets().into_iter().collect();
+                        let source_targets: Vec<(SelectionTarget, Element)> = gesture
+                            .targets
+                            .iter()
+                            .filter_map(|(target, orig_t)| {
+                                let mut el = sampled_map.get(target)?.clone();
+                                el.transform = *orig_t;
+                                Some((target.clone(), el))
+                            })
+                            .collect();
+                        if !source_targets.is_empty() {
+                            gesture.targets =
+                                self.duplicate_targets_with_offset(source_targets, 0.0, 0.0);
+                            gesture.other_keyframes.clear();
+                            gesture.duplicated = true;
+                            gesture.changed = true;
+                            if let Some((_, gp)) = &mut self.authoring_modify.group_pivot {
+                                let pos = *gp;
+                                self.authoring_modify.group_pivot =
+                                    Some((self.selection.targets.clone(), pos));
+                            }
+                        }
                     } else {
-                        (self.frame, self.frame)
-                    };
-                    let mut layers_to_split = Vec::new();
-                    for (target, _) in &gesture.targets {
-                        if layers_to_split.contains(&target.layer) {
-                            continue;
-                        }
-                        let should_split = if !multiple {
-                            true
+                        let multiple = self.timeline_edit.edit_multiple;
+                        let (start, end) = if multiple {
+                            self.onion_range()
                         } else {
-                            self.symbol()
-                                .timeline
-                                .layers
-                                .iter()
-                                .find(|l| l.id == target.layer)
-                                .and_then(|l| l.key_at(self.frame))
-                                .is_some_and(|k| {
-                                    !(start..=end).contains(&k.frame)
-                                        && k.elements.iter().any(|e| e.id == target.element)
-                                })
+                            (self.frame, self.frame)
                         };
-                        if should_split {
-                            layers_to_split.push(target.layer.clone());
+                        let mut layers_to_split = Vec::new();
+                        for (target, _) in &gesture.targets {
+                            if layers_to_split.contains(&target.layer) {
+                                continue;
+                            }
+                            let should_split = if !multiple {
+                                true
+                            } else {
+                                self.symbol()
+                                    .timeline
+                                    .layers
+                                    .iter()
+                                    .find(|l| l.id == target.layer)
+                                    .and_then(|l| l.key_at(self.frame))
+                                    .is_some_and(|k| {
+                                        !(start..=end).contains(&k.frame)
+                                            && k.elements.iter().any(|e| e.id == target.element)
+                                    })
+                            };
+                            if should_split {
+                                layers_to_split.push(target.layer.clone());
+                            }
                         }
-                    }
-                    let apply_tween = !matches!(gesture.kind, GestureKind::Pivot { .. });
-                    for layer_id in &layers_to_split {
-                        if apply_tween {
-                            self.split_layer_for_stage_transform(layer_id);
-                        } else {
-                            self.ensure_key_for(layer_id, false);
+                        let apply_tween = !matches!(gesture.kind, GestureKind::Pivot { .. });
+                        for layer_id in &layers_to_split {
+                            if apply_tween {
+                                self.split_layer_for_stage_transform(layer_id);
+                            } else {
+                                self.ensure_key_for(layer_id, false);
+                            }
                         }
                     }
                     gesture.began = true;
+                } else if gesture.began && !gesture.duplicated && want_duplicate {
+                    // Pressing Option/Alt mid-drag restores originals and switches to moving copies.
+                    let frame = self.frame;
+                    let orig_map: HashMap<_, _> = gesture
+                        .targets
+                        .iter()
+                        .map(|(target, orig_t)| (target.element.as_str(), *orig_t))
+                        .collect();
+                    let multiple = self.timeline_edit.edit_multiple;
+                    for layer in &mut self.symbol_mut().timeline.layers {
+                        let key_opt = if multiple {
+                            layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                        } else {
+                            layer.key_at_mut(frame)
+                        };
+                        if let Some(key) = key_opt {
+                            for element in &mut key.elements {
+                                if let Some(orig_t) = orig_map.get(element.id.as_str()) {
+                                    element.transform = *orig_t;
+                                }
+                            }
+                        }
+                    }
+                    for (layer_id, key_frame, elem_id, orig_t) in &gesture.other_keyframes {
+                        if let Some(layer) = self
+                            .symbol_mut()
+                            .timeline
+                            .layers
+                            .iter_mut()
+                            .find(|l| &l.id == layer_id)
+                            && let Some(key) =
+                                layer.keyframes.iter_mut().find(|k| k.frame == *key_frame)
+                            && let Some(elem) = key.elements.iter_mut().find(|e| &e.id == elem_id)
+                        {
+                            elem.transform = *orig_t;
+                        }
+                    }
+                    let sampled_map: HashMap<SelectionTarget, Element> =
+                        self.sampled_targets().into_iter().collect();
+                    let source_targets: Vec<(SelectionTarget, Element)> = gesture
+                        .targets
+                        .iter()
+                        .filter_map(|(target, orig_t)| {
+                            let mut el = sampled_map.get(target)?.clone();
+                            el.transform = *orig_t;
+                            Some((target.clone(), el))
+                        })
+                        .collect();
+                    if !source_targets.is_empty() {
+                        gesture.targets =
+                            self.duplicate_targets_with_offset(source_targets, 0.0, 0.0);
+                        gesture.other_keyframes.clear();
+                        gesture.duplicated = true;
+                        gesture.changed = true;
+                        if let Some((_, gp)) = &mut self.authoring_modify.group_pivot {
+                            let pos = *gp;
+                            self.authoring_modify.group_pivot =
+                                Some((self.selection.targets.clone(), pos));
+                        }
+                    }
                 }
                 if gesture.began {
                     let frame = self.frame;
                     let all_skew = transforms.iter().any(|t| t.skew != 0.)
-                        || other_transforms
-                            .as_ref()
-                            .is_some_and(|ot| ot.iter().any(|t| t.skew != 0.));
+                        || (!gesture.duplicated
+                            && other_transforms
+                                .as_ref()
+                                .is_some_and(|ot| ot.iter().any(|t| t.skew != 0.)));
                     let all_pivot = transforms.iter().any(|t| t.pivot.is_some())
-                        || other_transforms
-                            .as_ref()
-                            .is_some_and(|ot| ot.iter().any(|t| t.pivot.is_some()));
+                        || (!gesture.duplicated
+                            && other_transforms
+                                .as_ref()
+                                .is_some_and(|ot| ot.iter().any(|t| t.pivot.is_some())));
                     // Affine axes (skew) need document format 5; custom pivots need format 7.
                     if all_skew {
                         self.project.format_version = self.project.format_version.max(5);
@@ -812,7 +904,7 @@ impl Editor {
                         .zip(transforms)
                         .map(|((target, _), transform)| (target.element.as_str(), transform))
                         .collect();
-                    let multiple = self.timeline_edit.edit_multiple;
+                    let multiple = self.timeline_edit.edit_multiple && !gesture.duplicated;
                     let (edit_start, edit_end) = if multiple {
                         self.onion_range()
                     } else {
@@ -841,7 +933,9 @@ impl Editor {
                             }
                         }
                     }
-                    if let Some(other_transforms) = other_transforms {
+                    if !gesture.duplicated
+                        && let Some(other_transforms) = other_transforms
+                    {
                         for ((layer_id, key_frame, elem_id, _), new_transform) in
                             gesture.other_keyframes.iter().zip(other_transforms)
                         {
@@ -1167,6 +1261,8 @@ impl Editor {
                         other_keyframes,
                         hit,
                         shift: additive,
+                        duplicate: modifiers.alt && matches!(kind, GestureKind::Move),
+                        duplicated: false,
                         moved: false,
                         began: false,
                         changed: false,

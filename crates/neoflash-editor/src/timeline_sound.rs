@@ -63,9 +63,11 @@ fn decode(resource: &ResourceUnit) -> Result<DecodedSound, String> {
     })
 }
 
-/// One playing sound: stereo output with the command's loop count and volume envelope.
-struct VoiceSource {
+/// One playing sound: stereo output with the command's trim window, loop count and volume envelope.
+pub(crate) struct VoiceSource {
     sound: Arc<DecodedSound>,
+    in_frame: usize,
+    seg_frames: usize,
     frame: usize,
     end: Option<usize>,
     envelope: Vec<[f64; 3]>,
@@ -74,24 +76,40 @@ struct VoiceSource {
 }
 
 impl VoiceSource {
-    fn new(
+    pub(crate) fn new(
         sound: Arc<DecodedSound>,
         offset: f64,
         loops: u32,
         loop_forever: bool,
+        (in_point, out_point): (Option<f64>, Option<f64>),
         envelope: Vec<[f64; 3]>,
     ) -> Option<Self> {
-        let frames = sound.frames();
-        let end = (!loop_forever).then(|| frames.saturating_mul(loops.max(1) as usize));
-        let frame = (offset.max(0.) * f64::from(sound.rate)) as usize;
-        if frames == 0 || end.is_some_and(|end| frame >= end) {
+        let total_frames = sound.frames();
+        if total_frames == 0 {
+            return None;
+        }
+        let rate = f64::from(sound.rate);
+        let in_frame = in_point
+            .map(|t| (t.max(0.0) * rate).round() as usize)
+            .unwrap_or(0)
+            .min(total_frames);
+        let out_frame = out_point
+            .map(|t| (t.max(0.0) * rate).round() as usize)
+            .unwrap_or(total_frames)
+            .min(total_frames);
+        let seg_frames = out_frame.saturating_sub(in_frame);
+        let end = (!loop_forever).then(|| seg_frames.saturating_mul(loops.max(1) as usize));
+        let frame = (offset.max(0.) * rate) as usize;
+        if seg_frames == 0 || end.is_some_and(|end| frame >= end) {
             return None;
         }
         let flat = envelope.iter().all(|p| p[1] == 1.0 && p[2] == 1.0);
         Some(Self {
-            envelope_frames: end.unwrap_or(frames) as f64,
+            envelope_frames: end.unwrap_or(seg_frames) as f64,
             envelope: if flat { vec![] } else { envelope },
             sound,
+            in_frame,
+            seg_frames,
             frame,
             end,
             right: None,
@@ -109,7 +127,7 @@ impl Iterator for VoiceSource {
             return None;
         }
         let channels = usize::from(self.sound.channels);
-        let index = (self.frame % self.sound.frames()) * channels;
+        let index = (self.in_frame + (self.frame % self.seg_frames)) * channels;
         let left = self.sound.samples[index];
         let right = if channels > 1 {
             self.sound.samples[index + 1]
@@ -155,6 +173,8 @@ impl Drop for Voice {
     }
 }
 
+type WaveformCache = HashMap<(Id, usize), (usize, Result<Arc<WaveformPeaks>, String>)>;
+
 /// Editor audio: the output device (opened on first use), decoded resources and voices.
 pub(crate) struct TimelineAudio {
     /// Control ▸ Mute sounds.
@@ -163,6 +183,8 @@ pub(crate) struct TimelineAudio {
     output: Option<rodio::OutputStream>,
     failure: Option<String>,
     decoded: HashMap<Id, (usize, Result<Arc<DecodedSound>, String>)>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    waveforms: WaveformCache,
     voices: Vec<Voice>,
     preview: Option<u64>,
     auditioning_headless: bool,
@@ -181,6 +203,7 @@ impl Default for TimelineAudio {
             output: None,
             failure: None,
             decoded: HashMap::new(),
+            waveforms: HashMap::new(),
             voices: vec![],
             preview: None,
             auditioning_headless: false,
@@ -214,6 +237,36 @@ impl TimelineAudio {
         result
     }
 
+    /// Amplitude envelope peaks of `resource` across `buckets` columns (MP3 or WAV), cached until
+    /// the resource bytes change.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn waveform_peaks(
+        &mut self,
+        project: &Project,
+        resource: &str,
+        buckets: usize,
+    ) -> Result<Arc<WaveformPeaks>, String> {
+        let buckets = buckets.clamp(1, MAX_WAVEFORM_BUCKETS);
+        let unit = project
+            .resources
+            .iter()
+            .find(|unit| unit.id == resource)
+            .ok_or_else(|| format!("sound resource {resource} is missing"))?;
+        let identity = Arc::as_ptr(&unit.data_base64).cast::<u8>() as usize;
+        let key = (resource.to_owned(), buckets);
+        if let Some((cached, result)) = self.waveforms.get(&key)
+            && *cached == identity
+        {
+            return result.clone();
+        }
+        let sound = self.decoded(project, resource)?;
+        let result = sample_waveform_peaks(&sound.samples, sound.channels, sound.rate, buckets)
+            .map(Arc::new)
+            .ok_or_else(|| format!("{}: no waveform samples", unit.path));
+        self.waveforms.insert(key, (identity, result.clone()));
+        result
+    }
+
     fn mixer(&mut self) -> Option<&rodio::mixer::Mixer> {
         if !self.native || self.failure.is_some() {
             return None;
@@ -233,6 +286,7 @@ impl TimelineAudio {
         self.output.as_ref().map(|stream| stream.mixer())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start(
         &mut self,
         project: &Project,
@@ -240,6 +294,7 @@ impl TimelineAudio {
         channel: Option<String>,
         offset: f64,
         (loops, loop_forever): (u32, bool),
+        trim: (Option<f64>, Option<f64>),
         envelope: Vec<[f64; 3]>,
     ) {
         if self.muted || !self.native {
@@ -252,7 +307,8 @@ impl TimelineAudio {
                 return;
             }
         };
-        let Some(source) = VoiceSource::new(sound, offset, loops, loop_forever, envelope) else {
+        let Some(source) = VoiceSource::new(sound, offset, loops, loop_forever, trim, envelope)
+        else {
             return;
         };
         let Some(mixer) = self.mixer() else { return };
@@ -289,13 +345,23 @@ impl TimelineAudio {
                     loops,
                     loop_forever,
                     envelope,
+                    in_point,
+                    out_point,
                 } => {
                     if sync == SoundSync::Start
                         && self.voices.iter().any(|v| v.resource == resource)
                     {
                         continue;
                     }
-                    self.start(project, resource, None, 0., (loops, loop_forever), envelope);
+                    self.start(
+                        project,
+                        resource,
+                        None,
+                        0.,
+                        (loops, loop_forever),
+                        (in_point, out_point),
+                        envelope,
+                    );
                 }
                 SoundCommand::StreamStart {
                     channel,
@@ -304,6 +370,8 @@ impl TimelineAudio {
                     loops,
                     loop_forever,
                     envelope,
+                    in_point,
+                    out_point,
                 } => {
                     self.voices.retain(|v| v.channel.as_ref() != Some(&channel));
                     let channel = Some(channel);
@@ -313,6 +381,7 @@ impl TimelineAudio {
                         channel,
                         offset,
                         (loops, loop_forever),
+                        (in_point, out_point),
                         envelope,
                     );
                 }
@@ -340,6 +409,7 @@ impl TimelineAudio {
             Some(AUDITION.into()),
             0.,
             (1, false),
+            (sound.in_point, sound.out_point),
             envelope,
         );
     }
@@ -355,7 +425,7 @@ impl TimelineAudio {
             self.auditioning_headless = true;
             return Ok(());
         }
-        let Some(source) = VoiceSource::new(sound, 0., 1, false, vec![]) else {
+        let Some(source) = VoiceSource::new(sound, 0., 1, false, (None, None), vec![]) else {
             return Ok(());
         };
         let Some(mixer) = self.mixer() else {
@@ -473,6 +543,41 @@ impl Editor {
             {
                 edit(sound);
                 sound.loops = sound.loops.clamp(1, FrameSound::MAX_LOOPS);
+            }
+        });
+    }
+
+    /// Set or clear Time In / Time Out playback trim points (seconds) on the current keyframe's
+    /// sound in a single Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_frame_sound_trim(&mut self, in_point: Option<f64>, out_point: Option<f64>) {
+        self.finish_edits();
+        if !self.layer_editable() || self.frame_sound().is_none() {
+            return;
+        }
+        let clamp_time = |value: Option<f64>| {
+            value
+                .filter(|v| v.is_finite())
+                .map(|v| v.clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS))
+        };
+        let in_point = clamp_time(in_point).filter(|&v| v > 0.0);
+        let out_point = clamp_time(out_point);
+        if let (Some(inp), Some(outp)) = (in_point, out_point)
+            && outp <= inp
+        {
+            return;
+        }
+        if let Some(0.0) = out_point {
+            return;
+        }
+        let (layer, frame) = (self.layer, self.frame);
+        self.transact_named("Trim sound", |editor| {
+            if let Some(sound) = editor.symbol_mut().timeline.layers[layer]
+                .key_at_mut(frame)
+                .and_then(|key| key.sound.as_mut())
+            {
+                sound.in_point = in_point;
+                sound.out_point = out_point;
             }
         });
     }

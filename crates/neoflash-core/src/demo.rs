@@ -86,6 +86,7 @@ impl Project {
                 stroke_width: 2.,
             },
             scripts: vec![],
+            ..Element::default()
         };
         let ring_inner = Element {
             accessibility: None,
@@ -104,6 +105,7 @@ impl Project {
                 stroke_width: 1.,
             },
             scripts: vec![],
+            ..Element::default()
         };
         let center = ellipse("Core", 78., 78., 60., 60., blue);
         let mut spark = instance(
@@ -299,6 +301,7 @@ fn rect(name: &str, x: f64, y: f64, width: f64, height: f64, fill: Color) -> Ele
             stroke_width: 0.,
         },
         scripts: vec![],
+        ..Element::default()
     }
 }
 fn ellipse(name: &str, x: f64, y: f64, width: f64, height: f64, fill: Color) -> Element {
@@ -330,6 +333,7 @@ fn text(name: &str, value: &str, x: f64, y: f64, font_size: f64, color: Color) -
             color,
         },
         scripts: vec![],
+        ..Element::default()
     }
 }
 fn instance(name: &str, symbol_id: &str, x: f64, y: f64, playback: InstancePlayback) -> Element {
@@ -347,5 +351,6 @@ fn instance(name: &str, symbol_id: &str, x: f64, y: f64, playback: InstancePlayb
             playback,
         },
         scripts: vec![],
+        ..Element::default()
     }
 }

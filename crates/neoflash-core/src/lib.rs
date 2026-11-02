@@ -57,8 +57,9 @@ mod validation;
 mod xml;
 
 pub use authored_layers::{
-    AuthoredDraw, AuthoredScene, evaluate_scene, layer_effective_outline_color,
-    layer_effectively_locked, layer_effectively_visible, layer_outline_color,
+    AuthoredDraw, AuthoredScene, evaluate_scene, evaluate_scene_with_buttons,
+    layer_effective_outline_color, layer_effectively_locked, layer_effectively_visible,
+    layer_outline_color,
 };
 pub use authored_playback::AuthoredPlayback;
 pub use clipboard::{
@@ -69,8 +70,8 @@ pub use evaluate::{
     guide_polyline, motion_span, property_value, sample_layer, sample_layer_in, transform_matrix,
 };
 pub use filters::{
-    FilterError, FilterPadding, FilterSpec, MAX_FILTER_PIXELS, MAX_OBJECT_FILTERS, filter_padding,
-    filter_rgba, validate_filters,
+    FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,
+    MAX_OBJECT_FILTERS, adjust_color_matrix, filter_padding, filter_rgba, validate_filters,
 };
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds, flatten_path,
@@ -112,13 +113,16 @@ pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{
     MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
     TextFormat, TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery,
-    TextReplacement, TextRestrictPatch, TextSelection, layout_text, query_text,
+    TextReplacement, TextRestrictPatch, TextSelection, layout_char_boxes, layout_text, query_text,
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
     sync_layer_symbols,
 };
-pub use timeline_sound::{SoundCommand, envelope_gains, sound_span_end, timeline_sound_resources};
+pub use timeline_sound::{
+    MAX_WAVEFORM_BUCKETS, SoundCommand, WaveformPeaks, envelope_gains, sample_waveform_peaks,
+    sound_span_end, timeline_sound_resources, wav_waveform_peaks,
+};
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{
     MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,

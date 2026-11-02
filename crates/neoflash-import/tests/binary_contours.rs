@@ -420,6 +420,7 @@ fn core_project_roundtrip_and_hit_testing_accept_the_original_converted_fixture(
             kind: path.path,
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         });
     assert!(validate(&project).is_empty());
     let json = serde_json::to_string(&project).unwrap();

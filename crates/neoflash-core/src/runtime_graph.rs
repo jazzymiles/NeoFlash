@@ -229,6 +229,15 @@ fn error(message: &str) -> DisplayError {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct AuthoredPlacement {
+    pub path: Vec<Id>,
+    pub lifetime: u64,
+    pub blend_mode: BlendMode,
+    pub cache_as_bitmap: bool,
+    pub filters: Vec<FilterSpec>,
+}
+
+#[derive(Clone, Debug)]
 struct Authored {
     reference: ObjectRef,
     lifetime: u64,
@@ -271,6 +280,9 @@ pub(crate) struct RuntimeGraph {
     affines: HashMap<ObjectRef, transform::AffineState>,
     color_transforms: HashMap<ObjectRef, ColorTransform>,
     filters: BTreeMap<ObjectRef, Vec<FilterSpec>>,
+    filters_overridden: BTreeSet<ObjectRef>,
+    blend_overridden: BTreeSet<ObjectRef>,
+    cache_overridden: BTreeSet<ObjectRef>,
     loaders: BTreeMap<ObjectRef, loader::LoaderState>,
     masks: BTreeMap<ObjectRef, ObjectRef>,
     scroll_rects: BTreeMap<ObjectRef, ScrollRect>,
@@ -318,6 +330,9 @@ impl RuntimeGraph {
         self.affines.clear();
         self.color_transforms.clear();
         self.filters.clear();
+        self.filters_overridden.clear();
+        self.blend_overridden.clear();
+        self.cache_overridden.clear();
         self.loaders.clear();
         self.masks.clear();
         self.scroll_rects.clear();
@@ -353,8 +368,11 @@ impl RuntimeGraph {
             generation: self.generation.to_string(),
         }
     }
-    pub(crate) fn reconcile(&mut self, placements: &[(Vec<Id>, u64)]) {
-        let active: HashMap<_, _> = placements.iter().map(|(p, l)| (p.as_slice(), *l)).collect();
+    pub(crate) fn reconcile(&mut self, placements: &[AuthoredPlacement]) {
+        let active: HashMap<_, _> = placements
+            .iter()
+            .map(|p| (p.path.as_slice(), p.lifetime))
+            .collect();
         let retired: BTreeSet<_> = self
             .authored
             .iter()
@@ -378,28 +396,30 @@ impl RuntimeGraph {
             .retain(|reference, _| !retired.contains(reference));
         self.color_transforms
             .retain(|reference, _| !retired.contains(reference));
-        for (path, lifetime) in placements {
-            if !self.authored.contains_key(path) {
+        for p in placements {
+            if !self.authored.contains_key(&p.path) {
                 let reference = self.allocate();
-                self.paths.insert(reference.clone(), path.clone());
+                self.paths.insert(reference.clone(), p.path.clone());
                 self.authored.insert(
-                    path.clone(),
+                    p.path.clone(),
                     Authored {
                         reference,
-                        lifetime: *lifetime,
+                        lifetime: p.lifetime,
                     },
                 );
             }
+            let reference = self.authored[&p.path].reference.clone();
+            self.sync_authored_render(&reference, p.blend_mode, p.cache_as_bitmap, &p.filters);
         }
         self.prefix
             .retain(|reference, _| !self.paths.contains_key(reference));
-        for (path, _) in placements {
-            if !path.is_empty() {
-                let parent = &self.authored[&path[..path.len() - 1]].reference;
+        for p in placements {
+            if !p.path.is_empty() {
+                let parent = &self.authored[&p.path[..p.path.len() - 1]].reference;
                 self.prefix
                     .entry(parent.clone())
                     .or_default()
-                    .push(self.authored[path].reference.clone());
+                    .push(self.authored[&p.path].reference.clone());
             }
         }
     }
@@ -782,6 +802,9 @@ impl Player {
                                 .map_or(if movie { 1 } else { 0 }, |source| source.total_frames),
                             independent: linked
                                 .map_or(movie, |source| source.owner == "movie_clip"),
+                            blend_mode: linked.map_or(BlendMode::Normal, |s| s.blend_mode),
+                            cache_as_bitmap: linked.is_some_and(|s| s.cache_as_bitmap),
+                            filters: linked.map_or_else(Vec::new, |s| s.filters.clone()),
                             kind: None,
                         },
                         None,

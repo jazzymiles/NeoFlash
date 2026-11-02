@@ -65,13 +65,75 @@ impl Player {
                 .filters
                 .insert(reference.clone(), filters.to_vec());
         }
+        self.graph.filters_overridden.insert(reference.clone());
         Ok(())
     }
 }
 impl RuntimeGraph {
     pub(super) fn retire_filters(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.filters.retain(|id, _| !retired.contains(id));
+        self.filters_overridden.retain(|id| !retired.contains(id));
         self.as2_render_states.retain(|id, _| !retired.contains(id));
+        self.blend_overridden.retain(|id| !retired.contains(id));
+        self.cache_overridden.retain(|id| !retired.contains(id));
+    }
+
+    pub(super) fn sync_authored_render(
+        &mut self,
+        reference: &ObjectRef,
+        blend_mode: BlendMode,
+        cache_as_bitmap: bool,
+        filters: &[FilterSpec],
+    ) {
+        if !self.filters_overridden.contains(reference) {
+            if filters.is_empty() {
+                self.filters.remove(reference);
+            } else if validate_filters(filters).is_ok() {
+                let old = self.filters.get(reference).map_or(0, Vec::len);
+                let existing = self
+                    .filters
+                    .keys()
+                    .chain(self.as2_render_states.keys())
+                    .filter(|id| *id != reference)
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                let total =
+                    self.filters.values().map(Vec::len).sum::<usize>() - old + filters.len();
+                if existing < 128 && total <= 512 {
+                    self.filters.insert(reference.clone(), filters.to_vec());
+                }
+            }
+        }
+        let mut state = self
+            .as2_render_states
+            .get(reference)
+            .cloned()
+            .unwrap_or_default();
+        if !self.blend_overridden.contains(reference) {
+            state.blend_mode = if blend_mode.is_normal() {
+                String::new()
+            } else {
+                blend_mode.as_str().into()
+            };
+        }
+        if !self.cache_overridden.contains(reference) {
+            state.cache_as_bitmap = cache_as_bitmap;
+        }
+        if state.isolated() || state.scale9_grid.is_some() {
+            let existing = self
+                .filters
+                .keys()
+                .chain(self.as2_render_states.keys())
+                .filter(|id| *id != reference)
+                .collect::<BTreeSet<_>>()
+                .len();
+            let has_filters = self.filters.contains_key(reference);
+            if has_filters || existing < 128 {
+                self.as2_render_states.insert(reference.clone(), state);
+            }
+        } else {
+            self.as2_render_states.remove(reference);
+        }
     }
     pub(super) fn apply_filters(&self, snapshot: &mut RuntimeSnapshot) {
         // Objects are emitted parent-first. A single optional ID per object/draw

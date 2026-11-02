@@ -157,6 +157,9 @@ impl Player {
                                 path: node.path,
                             },
                             node.lifetime_id.parse::<u64>().expect("core lifetime"),
+                            node.blend_mode,
+                            node.cache_as_bitmap,
+                            node.filters,
                         )
                     })
                     .collect::<Vec<_>>()
@@ -164,7 +167,7 @@ impl Player {
             .collect();
         let active: HashMap<_, _> = placements
             .iter()
-            .map(|(address, lifetime)| (address, *lifetime))
+            .map(|(address, lifetime, _, _, _)| (address, *lifetime))
             .collect();
         let retired: BTreeSet<_> = self
             .graph
@@ -195,7 +198,7 @@ impl Player {
         self.graph
             .color_transforms
             .retain(|reference, _| !retired.contains(reference));
-        for (address, lifetime) in &placements {
+        for (address, lifetime, blend_mode, cache_as_bitmap, filters) in &placements {
             if !self.graph.linked_authored.contains_key(address) {
                 let reference = self.graph.allocate();
                 self.graph
@@ -209,12 +212,15 @@ impl Player {
                     },
                 );
             }
+            let reference = self.graph.linked_authored[address].reference.clone();
+            self.graph
+                .sync_authored_render(&reference, *blend_mode, *cache_as_bitmap, filters);
         }
         self.graph.prefix.retain(|reference, _| {
             !self.graph.linked_paths.contains_key(reference)
                 && !self.graph.namespaces.contains_key(reference)
         });
-        for (address, _) in placements {
+        for (address, _, _, _, _) in placements {
             let parent = self
                 .graph
                 .linked_ref(&address.namespace, &address.path[..address.path.len() - 1])

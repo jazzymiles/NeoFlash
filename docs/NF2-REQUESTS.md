@@ -226,6 +226,116 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `panels-dialog-preferences-shortcuts.txt`, `dialog-preferences-shortcuts.png`.
 - **Answer:**
 
+### R-021 · Object Drawing (`J`) toggle on the Tools rail and Modify ▸ Combine objects / Shape submenus
+- **Status:** open
+- **Requested by / for:** Antigravity · TO-06, MN-05 (Classic Flash CS4 drawing modes & vector boolean operations)
+- **Where:** `crates/neoflash-editor/src/panels/tools.rs` (Options section at bottom of Tools rail) and `crates/neoflash-editor/src/authoring_modify.rs` (`modify_menu`)
+- **Need:** (1) an NF2 `Object Drawing` (`J`) toggle icon/button state in the Tools panel `Options` area when shape/stroke drawing tools (`Pen`, `Line`, `Rectangle`, `Oval`, `PolyStar`, `Pencil`, `Brush`) are active, distinguishing Object Drawing from planar Merge Drawing. (2) Menu row composition and dialogs for `Modify ▸ Combine objects` (`Union`, `Intersect`, `Punch`, `Crop`) and `Modify ▸ Shape` (`Convert lines to fills`, `Expand fill…`, `Soften fill edges…`, `Smooth`, `Straighten`, `Optimize…`).
+- **Why:** classic Flash vector authoring relies on toggling Merge vs Object Drawing (`J`) and boolean/contour shape operations; neither the Tools rail icon slot nor the `Expand fill…` / `Soften fill edges…` / `Optimize…` parameter dialogs exist in NF2 yet.
+- **Checked:** `panels/tools.rs`, `authoring_modify.rs`, `panels/planned_drawing.rs`, `panels-menus.txt`.
+- **Proposal (optional):** a 1-icon toggle button in the Tools `Options` footer using `NF2/Tool Button` selected state, plus compact `NF2/Dialog` sheets with `Field` steppers and `Preview` checkbox for `Expand fill…`, `Soften fill edges…` and `Optimize…`.
+- **Answer:**
+
+### R-022 · Bitmap properties and Modify ▸ Bitmap ▸ Trace bitmap… modal dialogs
+- **Status:** open
+- **Requested by / for:** Antigravity · LB-04, MN-05 (Classic Flash CS4 bitmap asset inspection & vectorization)
+- **Where:** `crates/neoflash-editor/src/panels/library.rs` (bitmap item `Properties…` context menu) and `crates/neoflash-editor/src/authoring_modify.rs` (`Modify ▸ Bitmap ▸ Trace bitmap…`)
+- **Need:** (1) `Dialog / Bitmap properties` mirroring `Sound properties` (`panels/sound_properties.rs`): thumbnail preview, dimensions/format summary, `Allow smoothing` checkbox, `Compression` select (`Photo (JPEG)` with quality slider vs `Lossless (PNG/GIF)`), ActionScript linkage (`Export for ActionScript`, `Class`), and `Update` / `Import…` / `Test` / `OK` / `Cancel` buttons. (2) `Dialog / Trace bitmap` with `Color threshold`, `Minimum area` (px), `Curve fit` select (`Pixels` / `Very tight` / `Tight` / `Normal` / `Smooth` / `Very smooth`), `Corner threshold` select (`Many corners` / `Normal` / `Few corners`), and `Preview` / `OK` / `Cancel`.
+- **Why:** `Swap bitmap` and `Break apart` (bitmap fill) exist in `bitmaps.rs`, while `Sound properties` already has a locked NF2 dialog, but bitmap library items have no `Bitmap properties` dialog and vectorization (`Trace bitmap…`) has no parameter modal.
+- **Checked:** `panels/library.rs`, `bitmaps.rs`, `panels/sound_properties.rs` (`dialogs-sound-stroke.png`), `panels/planned_dialogs.rs`.
+- **Proposal (optional):** match the two-column header + `NF2/Dialog` layout of `Sound properties` (`dialogs-sound-stroke.png`) for `Bitmap properties`, and a 4-row `NF2/Dialog` form for `Trace bitmap`.
+- **Answer:**
+
+### R-023 · 9-slice scaling checkbox in Symbol properties and stage 9-slice guide overlay
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-04, ST-02 (Classic Flash CS4 `scale9Grid` authoring)
+- **Where:** `crates/neoflash-editor/src/symbol_dialog.rs` (`Convert to symbol` / `New symbol` / `Symbol properties`) and `crates/neoflash-editor/src/stage_view.rs` (in-place symbol editing overlay)
+- **Need:** (1) placement of the `Enable guides for 9-slice scaling` checkbox (enabled for `MovieClip` and `Button` symbols) inside `symbol_dialog.rs`. (2) Visual token and stroke pattern (e.g. dashed line colour, hover/drag state, bounds clamping indicator) for the 4 `scale9Grid` slice guides when editing a 9-slice symbol, distinct from ordinary `Timeline::guides` solid ruler guides (`docs/NF2-RULERS-GUIDES-GRID.md`).
+- **Why:** AS3 `DisplayObject.scale9Grid` exists in runtime/API, and `docs/NF2-RULERS-GUIDES-GRID.md` locks ruler-guide rendering; authoring 9-slice symbols requires a checkbox in `Symbol properties` and a visually distinct dashed guide style.
+- **Checked:** `symbol_dialog.rs`, `stage_view.rs`, `docs/NF2-RULERS-GUIDES-GRID.md`, `symbols-panels.png`, `canvas-editing-chrome.png`.
+- **Proposal (optional):** place `Enable guides for 9-slice scaling` under the `Advanced` / `Linkage` section of `symbol_dialog.rs`, and draw 9-slice guides as 1 pt dashed `color/guide` lines inside symbol edit mode.
+- **Answer:**
+
+### R-024 · Decoded waveform backdrop and Time In / Time Out trim handles in Edit envelope
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-09, TL-13 (Classic Flash CS4 sound envelope & trim editing; complements `R-010`)
+- **Where:** `crates/neoflash-editor/src/panels/edit_envelope.rs` (`edit_envelope_dialog`) and `neoflash_ui::components::EnvelopeLane`
+- **Need:** (1) extend `neoflash_ui::components::EnvelopeLane` to accept optional decoded per-bucket `[min, max]` waveform peak data (`&[[f32; 2]]`) for the `L` and `R` channel strips (`R-010` covers `SpanType::Sound` on the main timeline). (2) Draggable `Time In` and `Time Out` vertical trim handles on the `Edit envelope` time ruler with dimmed out-of-range regions outside `[in_point, out_point]`.
+- **Why:** the engine and playback foundation is now ready — `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks`), cached `TimelineAudio::waveform_peaks` (MP3/WAV), and `FrameSound::{in_point, out_point}` playback trimming in `neoflash-core`, `neoflash-editor`, and `web/audio.js` all work — so only the locked `EnvelopeLane` waveform slot and ruler trim-handle chrome are needed to expose visual trimming in `Edit envelope`.
+- **Checked:** `panels/edit_envelope.rs`, `dialogs-sound-stroke.png`, `R-010`, `crates/neoflash-core/src/timeline_sound.rs`.
+- **Proposal (optional):** pass `peaks: Option<&[[f32; 2]]>` and `trim: Option<(f32, f32)>` into `EnvelopeLane` + a paired handle bar on the 18 pt ruler between the `L` and `R` lanes.
+- **Answer:**
+
+### R-025 · Pinnable multi-script tabs (`Pin script`, `⌘=`) in the Actions panel bar
+- **Status:** open
+- **Requested by / for:** Antigravity · AC-01, AC-03 (Classic Flash CS4 multi-script workflow)
+- **Where:** `crates/neoflash-editor/src/panels/actions.rs` (`actions_contents` top toolbar / target bar)
+- **Need:** (1) a `Pin script` icon button and horizontal pinned-tab strip in the Actions panel header (`Current selection` tab + pinned frame/instance/file tabs with close `×` affordance). (2) Shortcut assignment clarification, since classic Flash uses `⌘=` for `Pin script` while NF2 assigns `⌘=` to `View ▸ Zoom in`.
+- **Why:** clicking another object or timeline frame immediately switches the Actions editor away from the active script; pinning tabs lets authors cross-reference and edit multiple frame and object scripts side-by-side without losing selection context.
+- **Checked:** `panels/actions.rs`, `panels/actions_sidebar.rs`, `panel-actions-floating.png`, `editor-actions-tab.png`, `scripting-panels.png`.
+- **Proposal (optional):** reuse NF2 compact tab pills above the code gutter alongside a pin toggle `IconButton` in `CODE_TOOLS`.
+- **Answer:**
+
+### R-026 · Bandwidth profiler & Simulate download in Test movie and the Motion presets panel
+- **Status:** open
+- **Requested by / for:** Antigravity · TM-02, PN-12 (Classic Flash CS4 publishing diagnostics & reusable motion templates)
+- **Where:** `crates/neoflash-editor/src/panels/planned_documents.rs` (`test_movie`) and `crates/neoflash-editor/src/panels/menu.rs` (`window_menu`)
+- **Need:** (1) in the `Test Movie` surface (`publish-misc-dialogs.png`), a collapsible `Bandwidth profiler` drawer (per-frame byte bar graph, red frame-budget threshold line, document size/preload summary) and `Simulate download` speed profile controls (`DSL`, `Cable`, `Mobile 3G/4G`, custom `KB/s`). (2) `Panel / Motion presets` (`Window ▸ Motion presets`): folder tree of default & custom presets, live animated preview square, and `Apply` / `Save selection as preset…` footer actions.
+- **Why:** `neoflash_export::format_size_report(&Project)` (`--size-report`) now computes exact per-scene, per-frame, symbol, font, resource, and script byte breakdowns ready to feed a `Bandwidth profiler` and `Publish settings ▸ Generate size report` checkbox, and the motion-tween engine (`timeline_motion.rs` Copy/Paste motion) can already serialize/apply motion tracks once a `Motion presets` panel design exists.
+- **Checked:** `panels/planned_documents.rs › test_movie`, `panels/planned_dialogs.rs › publish_settings`, `publish-misc-dialogs.png`, `panels/menu.rs › window_menu`, `panels/planned_panels.rs`.
+- **Proposal (optional):** add a toggleable profiler strip above the `Test Movie` transport bar and follow the `Code snippets` tree + preview split (`scripting-panels.png`) for `Motion presets`.
+- **Answer:**
+
+### R-027 · Instance Colour effect parameter rows and Motion editor Colour effect tracks
+- **Status:** open
+- **Requested by / for:** Antigravity · PR-04, PP-02 (Group A core-to-editor wiring)
+- **Where:** `crates/neoflash-editor/src/panels/properties.rs` (instance Colour effect section) and `crates/neoflash-editor/src/panels/motion_editor.rs` (`Colour effect` section `+` menu)
+- **Need:** exact NF2 row layout and field ranges for each `ColorTransform` style (`Brightness` `-100..=100 %`, `Tint` RGB colour swatch + `0..=100 %` tint weight, `Advanced` 2-column `R/G/B/A × %` + `R/G/B/A + offset` `-255..=255` grid), plus the corresponding `MotionRow` sub-tracks under `Colour effect` in `Motion editor` (`TweenProperty::Color`).
+- **Why:** `Transform.color_transform`, classic/motion `ColorTransform` interpolation (`evaluate.rs`), and `.fla` colour-effect import are complete in `neoflash-core`, while `properties.rs` exposes only the `Opacity` slider (building on `R-011`).
+- **Checked:** `panel-properties-movie-clip.png`, `motion-panels.png`, `panels/properties.rs`, `panels/motion_editor.rs`.
+- **Proposal (optional):** `c::Select` style picker above a conditional 1-row (`Brightness` / `Alpha`), 2-control (`Tint`), or 4×2 `c::Field` (`Advanced`) sub-form matching `SectionHeader("Color effect")`.
+- **Answer:**
+
+### R-028 · Authoring Strings localization panel (XLIFF) and Text String ID binding
+- **Status:** open
+- **Requested by / for:** Antigravity · Group A (`mx.lang.Locale` authoring UI)
+- **Where:** `Window ▸ Strings` (new utility panel) and `crates/neoflash-editor/src/panels/properties.rs` (`TextBox` inspector)
+- **Need:** (1) NF2 layout for a `Strings` panel (`Active language` and `Default language` selects, Add/Remove language dialog, `ID | Language…` table, and Import/Export XLIFF 1.0 actions). (2) A `String ID` field row in `Properties` for `Dynamic` / `Static` `TextBox` elements.
+- **Why:** the AS2/AS3 `mx.lang.Locale` runtime parser and XLIFF 1.0 loader already work in `neoflash-script`, and `Project.resources` can bundle `.xml`/`.xliff` assets, but there is no NF2 panel or `TextBox` inspector slot to author string tables visually.
+- **Checked:** `panels-menus.txt` (§8 `Window`), `panels/planned_*.rs`, `panel-properties-text` outlines — no `Strings` panel preview exists yet.
+- **Proposal (optional):** utility panel using `c::Select`, `c::Search`, `c::TableRow`, and an `IconButton` footer (`+`, `Trash`, `Import`, `Export`).
+- **Answer:**
+
+### R-029 · Complete TextBox Properties inspector (text kind, line mode, character & paragraph metrics)
+- **Status:** open
+- **Requested by / for:** Antigravity · PR-07 (Group A `TextBox` model-to-UI parity)
+- **Where:** `crates/neoflash-editor/src/panels/properties.rs` (`TextBox` selection inspector)
+- **Need:** NF2 section/row composition for the remaining `TextBox` / `TextFormat` properties: text kind (`Static` / `Dynamic` / `Input`), line mode (`Single line` / `Multiline` / `Multiline no wrap` / `Password`), toggles (`Selectable`, `Show border`, `Auto-size`, `Auto kern`), fields (`Max chars`, `Variable`, `Letter spacing`, `Line spacing`, `Left margin`, `Right margin`, `Indent`, `URL`, `Target`).
+- **Why:** runtime `TextField` / `TextFormat` and legacy `.fla` text import already decode and execute these attributes, whereas `properties.rs` currently exposes only `Content`, `Font`, `Size`, `Style` (B/I), `Color`, and `Align`.
+- **Checked:** `panels/properties.rs`, `panels/planned_*.rs`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-07.
+- **Proposal (optional):** `Type` + `Behavior` rows at the top of `Character`, `Letter spacing` + `Auto kern` under `Character`, `Margins` / `Indent` / `Line spacing` 2×2 `c::Field` grid under `Paragraph`, and collapsible `Options` (`URL`, `Target`, `Max chars`).
+- **Answer:**
+
+### R-030 · Extended per-filter parameter sub-forms and presets in Panel / Filters
+- **Status:** open
+- **Requested by / for:** Antigravity · PR-05 (`panels/filters.rs`)
+- **Where:** `crates/neoflash-editor/src/panels/filters.rs` (`Filters` section parameter area)
+- **Need:** locked NF2 sub-form compositions for non-Blur filter parameters: colour swatch wells (`Drop shadow`, `Glow`, `Bevel` highlight/shadow), `Angle` (`°`) & `Distance` (`px`) row, boolean checkboxes (`Inner`, `Knockout`, `Hide object`), 4-field `Adjust color` (`Brightness`, `Contrast`, `Saturation`, `Hue`), 15-stop gradient bar for `Gradient glow` / `Gradient bevel`, and a `Presets` menu button.
+- **Why:** `PanelId::Filters` (`Window ▸ Filters`) is now live with all 7 Flash filter types (`Drop shadow`, `Blur`, `Glow`, `Bevel`, `Gradient glow`, `Gradient bevel`, `Adjust color`) mapped into the locked 2×2 parameter grid from `panel-properties-movie-clip.png`; exposing the remaining per-filter controls requires approved NF2 rows beyond those 4 slots.
+- **Checked:** `panel-properties-movie-clip.png`, `panels/planned_panels.rs` (`properties_filters`), `panels/filters.rs`.
+- **Proposal (optional):** adaptive 2-column `c::Field` / `c::ColorSwatch` / `c::Checkbox` rows per selected `FilterSpec` variant inside `SectionHeader("Filters")`.
+- **Answer:**
+
+### R-031 · Dynamic focal-point handle and anisotropic radii on Gradient Transform canvas overlay
+- **Status:** open
+- **Requested by / for:** Antigravity · TO-04 (`GradientTransform` tool)
+- **Where:** `neoflash_ui::components::canvas::paint_gradient_transform` (`crates/neoflash-ui/src/components/canvas.rs`) and `crates/neoflash-editor/src/stage.rs`
+- **Need:** extend `paint_gradient_transform` (or add `paint_radial_gradient_transform`) to accept `focal_point_ratio: Option<f32>` (`-1.0..=1.0`, omitted for linear gradients) and separate `(radius_x, radius_y)` ellipse parameters instead of the hardcoded decorative focal marker at `Vec2::new(radius * 0.35, 0.0)`.
+- **Why:** `GradientFill.focal_point` (`-1.0..=1.0`), `GradientMatrix` (`scale_x`, `scale_y`, `rotation`), and HTML5 two-circle `createRadialGradient(fx, fy, 0, 0, 0, r)` already work end-to-end, but `crates/neoflash-ui/` is design-locked so the stage overlay cannot move the focal triangle handle dynamically until `neoflash-ui` exposes the parameter.
+- **Checked:** `crates/neoflash-ui/src/components/canvas.rs`, `canvas-editing-chrome.png`, `crates/neoflash-editor/src/stage.rs`.
+- **Proposal (optional):** `paint_gradient_transform_with_focal(painter, p, center, rx, ry, angle_rad, focal_point: Option<f32>)`.
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

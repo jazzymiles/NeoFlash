@@ -415,18 +415,21 @@ impl Editor {
             self.detached.monitors = monitors;
             self.detached.checked_monitors = Some(Instant::now());
         }
-        let visible: Vec<_> = self
-            .workspace
-            .floating
-            .iter()
-            .filter(|window| {
-                window
-                    .panels()
-                    .iter()
-                    .any(|panel| self.workspace.is_panel_visible(*panel))
-            })
-            .map(|window| window.id)
-            .collect();
+        let visible: Vec<_> = if self.panels_hidden {
+            Vec::new()
+        } else {
+            self.workspace
+                .floating
+                .iter()
+                .filter(|window| {
+                    window
+                        .panels()
+                        .iter()
+                        .any(|panel| self.workspace.is_panel_visible(*panel))
+                })
+                .map(|window| window.id)
+                .collect()
+        };
         self.detached.active.retain(|id| visible.contains(id));
         self.detached.dock_viewports.retain(|v| match v.surface {
             DockSurface::Main => true,

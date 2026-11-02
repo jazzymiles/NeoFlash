@@ -444,6 +444,7 @@ fn object_and_pixel_snapping_respect_priority_visibility_and_command_suspend() {
             stroke_width: 0.,
         },
         scripts: vec![],
+        ..Element::default()
     }];
     editor.symbol_mut().timeline.layers.push(locked_layer);
     editor.clear_selection();

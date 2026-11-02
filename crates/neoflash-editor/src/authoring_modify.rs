@@ -93,6 +93,113 @@ pub(crate) enum Arrange {
     Back,
 }
 
+#[derive(Clone)]
+struct DistributeUnit {
+    members: Vec<Element>,
+    group_name: Option<String>,
+    before_first_unselected: bool,
+}
+
+#[derive(Clone)]
+struct SourceLayerDistribution {
+    layer_id: Id,
+    units: Vec<DistributeUnit>,
+    unselected_count: usize,
+}
+
+fn is_default_element_name(name: &str, id: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed == id {
+        return true;
+    }
+    let Some((prefix, suffix)) = trimmed.rsplit_once('_') else {
+        return false;
+    };
+    matches!(
+        prefix,
+        "rectangle"
+            | "oval"
+            | "ellipse"
+            | "text"
+            | "clip"
+            | "instance"
+            | "path"
+            | "shape"
+            | "bitmap"
+            | "video"
+            | "object"
+    ) && !suffix.is_empty()
+        && suffix.chars().all(|c| c.is_ascii_digit())
+}
+
+fn sanitize_layer_name_snippet(raw: &str) -> Option<String> {
+    let first_line = raw.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let collapsed: String = first_line
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(24)
+        .collect();
+    let trimmed = collapsed.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+fn distribute_unit_base_name(project: &Project, unit: &DistributeUnit) -> String {
+    if unit.members.len() > 1
+        && let Some(group_name) = unit
+            .group_name
+            .as_deref()
+            .and_then(sanitize_layer_name_snippet)
+    {
+        return group_name;
+    }
+    let Some(el) = unit.members.first() else {
+        return "Layer".to_owned();
+    };
+    if !is_default_element_name(&el.name, &el.id)
+        && let Some(explicit) = sanitize_layer_name_snippet(&el.name)
+    {
+        return explicit;
+    }
+    match &el.kind {
+        ElementKind::Instance { symbol_id, .. } => project
+            .symbol(symbol_id)
+            .and_then(|sym| sanitize_layer_name_snippet(&sym.name))
+            .unwrap_or_else(|| "Instance".to_owned()),
+        ElementKind::Text { text, .. } | ElementKind::TextBox { text, .. } => {
+            sanitize_layer_name_snippet(text).unwrap_or_else(|| "Text".to_owned())
+        }
+        ElementKind::Bitmap { resource_id, .. } => project
+            .resources
+            .iter()
+            .find(|r| r.id == *resource_id)
+            .and_then(|r| std::path::Path::new(&r.path).file_stem())
+            .and_then(|s| s.to_str())
+            .and_then(sanitize_layer_name_snippet)
+            .unwrap_or_else(|| "Bitmap".to_owned()),
+        ElementKind::Video { .. } => "Video".to_owned(),
+        ElementKind::Rectangle { .. } => "Rectangle".to_owned(),
+        ElementKind::Ellipse { .. } => "Oval".to_owned(),
+        ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => "Shape".to_owned(),
+    }
+}
+
+fn unique_distributed_layer_name(base: &str, used_names: &mut HashSet<String>) -> String {
+    if used_names.insert(base.to_owned()) {
+        return base.to_owned();
+    }
+    let mut n = 2usize;
+    loop {
+        let candidate = format!("{base} {n}");
+        if used_names.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 impl Editor {
     fn modify_placements(&self, ctx: &egui::Context) -> Vec<Placement> {
         let painter = ctx.layer_painter(egui::LayerId::background());
@@ -532,9 +639,42 @@ impl Editor {
         if selected.is_empty() {
             return;
         }
+        let grouped_members: HashSet<SelectionTarget> = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|layer| {
+                let layer_id = layer.id.clone();
+                layer
+                    .properties
+                    .groups
+                    .iter()
+                    .filter(|group| group.members.len() >= 2)
+                    .flat_map(move |group| {
+                        let lid = layer_id.clone();
+                        group.members.iter().map(move |elem_id| SelectionTarget {
+                            layer: lid.clone(),
+                            element: elem_id.clone(),
+                        })
+                    })
+            })
+            .collect();
+        let mut unpack_group_targets = HashSet::new();
         let mut replacements = Vec::new();
         let mut expanded_instance = false;
+        let mut uses_skew = false;
+        let mut single_char_skipped = false;
         for (target, instance) in selected {
+            if !self.target_editable(&target) {
+                self.message("This layer is locked or hidden.");
+                return;
+            }
+            if grouped_members.contains(&target) {
+                unpack_group_targets.insert(target.clone());
+                replacements.push((target, vec![instance]));
+                continue;
+            }
             match &instance.kind {
                 ElementKind::Rectangle {
                     fill,
@@ -548,10 +688,6 @@ impl Editor {
                     stroke_width,
                     ..
                 } => {
-                    if !self.target_editable(&target) {
-                        self.message("This layer is locked or hidden.");
-                        return;
-                    }
                     let (commands, fill_rule) = instance.to_path_commands().unwrap_or_else(|| {
                         (
                             rectangle_path_commands(0.0, 0.0, RectangleOptions::default()),
@@ -577,10 +713,7 @@ impl Editor {
                     replacements.push((target, vec![broken]));
                 }
                 ElementKind::Instance { symbol_id, .. } => {
-                    if !self.target_editable(&target)
-                        || !instance.scripts.is_empty()
-                        || instance.accessibility.is_some()
-                    {
+                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
                         self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
                         return;
                     }
@@ -625,16 +758,208 @@ impl Editor {
                     expanded_instance = true;
                     replacements.push((target, children));
                 }
+                ElementKind::TextBox { text, .. } => {
+                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
+                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
+                        return;
+                    }
+                    let total_chars = text.chars().count();
+                    let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
+                    if total_chars <= 1 || visible_chars == 0 {
+                        single_char_skipped = true;
+                        continue;
+                    }
+                    let Some(field) = TextFieldState::from_kind(&instance.kind) else {
+                        self.message("Break Apart could not read text box parameters.");
+                        return;
+                    };
+                    let char_boxes = match layout_char_boxes(&field, |strings, fmt| {
+                        Ok(strings
+                            .iter()
+                            .map(|s| {
+                                self.fonts
+                                    .measure_width(&fmt.font, fmt.bold, fmt.italic, fmt.size, s)
+                            })
+                            .collect())
+                    }) {
+                        Ok(boxes) => boxes,
+                        Err(err) => {
+                            self.message(format!("Break Apart text layout failed: {err}"));
+                            return;
+                        }
+                    };
+                    let mut char_format = field.format.clone();
+                    char_format.align = TextAlign::Left;
+                    char_format.left_margin = 0.0;
+                    char_format.right_margin = 0.0;
+                    char_format.indent = 0.0;
+                    char_format.block_indent = 0.0;
+                    char_format.letter_spacing = 0.0;
+                    char_format.bullet = false;
+                    char_format.tab_stops.clear();
+                    let parent = instance.transform;
+                    let parent_matrix = transform_matrix(parent);
+                    let mut children = Vec::with_capacity(visible_chars);
+                    for (idx, (ch, cbox)) in char_boxes
+                        .into_iter()
+                        .filter(|(ch, _)| !ch.is_whitespace())
+                        .enumerate()
+                    {
+                        let local = Transform {
+                            x: cbox.x - 2.0,
+                            y: cbox.y - 2.0,
+                            ..Transform::default()
+                        };
+                        let Some(mut transform) = affine_transform(local, parent_matrix) else {
+                            self.message("Break Apart would exceed transform limits.");
+                            return;
+                        };
+                        transform.alpha = parent.alpha;
+                        transform.color_transform = parent.color_transform;
+                        transform.pivot = None;
+                        transform.primitive = None;
+                        if transform.skew != 0.0 {
+                            uses_skew = true;
+                        }
+                        let width = (cbox.width + 4.0)
+                            .max(char_format.size * 0.4 + 4.0)
+                            .clamp(4.0, 1_000_000.0);
+                        let height = (cbox.height + 4.0)
+                            .max(char_format.size * 1.2 + 4.0)
+                            .clamp(4.0, 1_000_000.0);
+                        let name = if instance.name.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{}_{}", instance.name, idx + 1)
+                        };
+                        children.push(Element {
+                            id: new_id("object"),
+                            name,
+                            transform,
+                            kind: ElementKind::TextBox {
+                                text: ch.to_string(),
+                                width,
+                                height,
+                                format: char_format.clone(),
+                                word_wrap: false,
+                                multiline: false,
+                            },
+                            scripts: vec![],
+                            accessibility: None,
+                            visible: instance.visible,
+                            cache_as_bitmap: instance.cache_as_bitmap,
+                            blend_mode: instance.blend_mode,
+                            filters: instance.filters.clone(),
+                        });
+                    }
+                    replacements.push((target, children));
+                }
+                ElementKind::Text {
+                    text,
+                    font_family,
+                    font_size,
+                    color,
+                } => {
+                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
+                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
+                        return;
+                    }
+                    let total_chars = text.chars().count();
+                    let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
+                    if total_chars <= 1 || visible_chars == 0 {
+                        single_char_skipped = true;
+                        continue;
+                    }
+                    let parent = instance.transform;
+                    let parent_matrix = transform_matrix(parent);
+                    let line_advance = (*font_size * 1.2).max(1.0);
+                    let mut children = Vec::with_capacity(visible_chars);
+                    let mut letter_idx = 0usize;
+                    for (line_idx, line) in text.split('\n').enumerate() {
+                        let line_y = line_idx as f64 * line_advance;
+                        for (ch, char_x, _) in
+                            self.fonts
+                                .char_x_offsets(font_family, false, false, *font_size, line)
+                        {
+                            if ch.is_whitespace() {
+                                continue;
+                            }
+                            letter_idx += 1;
+                            let local = Transform {
+                                x: char_x,
+                                y: line_y,
+                                ..Transform::default()
+                            };
+                            let Some(mut transform) = affine_transform(local, parent_matrix) else {
+                                self.message("Break Apart would exceed transform limits.");
+                                return;
+                            };
+                            transform.alpha = parent.alpha;
+                            transform.color_transform = parent.color_transform;
+                            transform.pivot = None;
+                            transform.primitive = None;
+                            if transform.skew != 0.0 {
+                                uses_skew = true;
+                            }
+                            let name = if instance.name.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{}_{letter_idx}", instance.name)
+                            };
+                            children.push(Element {
+                                id: new_id("object"),
+                                name,
+                                transform,
+                                kind: ElementKind::Text {
+                                    text: ch.to_string(),
+                                    font_family: font_family.clone(),
+                                    font_size: *font_size,
+                                    color: *color,
+                                },
+                                scripts: vec![],
+                                accessibility: None,
+                                visible: instance.visible,
+                                cache_as_bitmap: instance.cache_as_bitmap,
+                                blend_mode: instance.blend_mode,
+                                filters: instance.filters.clone(),
+                            });
+                        }
+                    }
+                    replacements.push((target, children));
+                }
                 _ => {
-                    self.message("Break Apart currently supports static symbol instances and Rectangle/Oval shapes. Text and bitmap conversion are separate operations.");
+                    self.message("Break Apart currently supports groups, multi-character text, static symbol instances, and Rectangle/Oval shapes.");
                     return;
                 }
             }
         }
+        if replacements.is_empty() {
+            if single_char_skipped {
+                self.message("Single-character text blocks are already split into characters; glyph-to-path outline conversion is not available yet.");
+            }
+            return;
+        }
         self.playing = false;
         self.transact(|editor| {
+            if !unpack_group_targets.is_empty() {
+                for layer in &mut editor.symbol_mut().timeline.layers {
+                    let lid = layer.id.clone();
+                    layer.properties.groups.retain(|group| {
+                        !group.members.iter().any(|elem_id| {
+                            unpack_group_targets.contains(&SelectionTarget {
+                                layer: lid.clone(),
+                                element: elem_id.clone(),
+                            })
+                        })
+                    });
+                }
+            }
             let mut selection = Vec::new();
             for (target, children) in replacements {
+                if unpack_group_targets.contains(&target) {
+                    selection.push(target);
+                    continue;
+                }
                 editor.ensure_key_for(&target.layer, false);
                 let index = editor.target_layer_index(&target).unwrap();
                 let frame = editor.frame;
@@ -651,11 +976,252 @@ impl Editor {
                 }
             }
             editor.prune_authoring_groups();
-            if expanded_instance {
+            if expanded_instance || uses_skew {
                 editor.project.format_version = editor.project.format_version.max(5);
             }
             editor.set_selection(selection);
         });
+    }
+
+    fn collect_distribute_plan(&self) -> Vec<SourceLayerDistribution> {
+        if self.selection.symbol != self.symbol_id() || self.selection.is_empty() {
+            return vec![];
+        }
+        let selected: HashSet<SelectionTarget> = self
+            .selection
+            .targets
+            .iter()
+            .flat_map(|target| self.grouped_targets(target))
+            .collect();
+        let timeline = &self.symbol().timeline;
+        let mut plan = Vec::new();
+        for layer in &timeline.layers {
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                continue;
+            }
+            let sampled = sample_layer_in(timeline, layer, self.frame);
+            let mut seen_unselected = false;
+            let mut unselected_count = 0usize;
+            let mut group_unit_index: HashMap<String, usize> = HashMap::new();
+            let mut units: Vec<DistributeUnit> = Vec::new();
+            for element in sampled {
+                let target = SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: element.id.clone(),
+                };
+                if !selected.contains(&target) {
+                    seen_unselected = true;
+                    unselected_count += 1;
+                    continue;
+                }
+                if let Some(group) = layer
+                    .properties
+                    .groups
+                    .iter()
+                    .find(|g| g.members.contains(&element.id))
+                {
+                    if let Some(&idx) = group_unit_index.get(&group.id) {
+                        units[idx].members.push(element);
+                    } else {
+                        group_unit_index.insert(group.id.clone(), units.len());
+                        units.push(DistributeUnit {
+                            members: vec![element],
+                            group_name: Some(group.name.clone()),
+                            before_first_unselected: !seen_unselected,
+                        });
+                    }
+                } else {
+                    units.push(DistributeUnit {
+                        members: vec![element],
+                        group_name: None,
+                        before_first_unselected: !seen_unselected,
+                    });
+                }
+            }
+            if !units.is_empty() {
+                plan.push(SourceLayerDistribution {
+                    layer_id: layer.id.clone(),
+                    units,
+                    unselected_count,
+                });
+            }
+        }
+        plan
+    }
+
+    pub(crate) fn can_distribute_to_layers(&self) -> bool {
+        let plan = self.collect_distribute_plan();
+        let total_units: usize = plan.iter().map(|entry| entry.units.len()).sum();
+        total_units >= 2 || (total_units == 1 && plan[0].unselected_count > 0)
+    }
+
+    /// `Modify ▸ Timeline ▸ Distribute to layers` (`⇧⌘D`): move each selected object/group on the
+    /// current frame onto its own new layer named after the instance/symbol/text/group while
+    /// preserving visual back-to-front painter order in one Undo step.
+    pub fn distribute_to_layers(&mut self) -> bool {
+        self.finish_edits();
+        let plan = self.collect_distribute_plan();
+        let total_units: usize = plan.iter().map(|entry| entry.units.len()).sum();
+        if !(total_units >= 2 || (total_units == 1 && plan[0].unselected_count > 0)) {
+            return false;
+        }
+        self.playing = false;
+        self.transact_named("Distribute to layers", |s| {
+            let frame = s.frame;
+            let mut used_names: HashSet<String> = s
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .map(|l| l.name.clone())
+                .collect();
+            let mut new_selection: Vec<SelectionTarget> = Vec::new();
+            let mut last_created_layer_id: Option<Id> = None;
+
+            for entry in plan {
+                s.ensure_key_for(&entry.layer_id, false);
+                let Some(src_index) = s
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|l| l.id == entry.layer_id)
+                else {
+                    continue;
+                };
+                let moved_ids: HashSet<Id> = entry
+                    .units
+                    .iter()
+                    .flat_map(|u| u.members.iter().map(|e| e.id.clone()))
+                    .collect();
+                if let Some(key) = s.symbol_mut().timeline.layers[src_index].key_at_mut(frame) {
+                    key.elements.retain(|e| !moved_ids.contains(&e.id));
+                }
+                s.symbol_mut().timeline.layers[src_index].normalize_motion_keys();
+
+                let still_on_source: HashSet<Id> = s.symbol().timeline.layers[src_index]
+                    .keyframes
+                    .iter()
+                    .flat_map(|k| &k.elements)
+                    .map(|e| e.id.clone())
+                    .filter(|id| moved_ids.contains(id))
+                    .collect();
+
+                let src_props = &s.symbol().timeline.layers[src_index].properties;
+                let inherited_parent = src_props.parent.clone();
+                let inherited_mask = (src_props.role == LayerRole::Normal)
+                    .then(|| src_props.mask.clone())
+                    .flatten();
+                let inherited_motion_guide = (src_props.role == LayerRole::Normal)
+                    .then(|| src_props.motion_guide.clone())
+                    .flatten();
+                let inherited_end_frame = src_props.end_frame.map(|end| end.max(frame + 1));
+                if inherited_end_frame.is_some() {
+                    s.project.format_version = s.project.format_version.max(5);
+                }
+
+                let mut before_layers: Vec<Layer> = Vec::new();
+                let mut after_layers: Vec<Layer> = Vec::new();
+
+                for unit in entry.units {
+                    let base_name = distribute_unit_base_name(&s.project, &unit);
+                    let layer_name = unique_distributed_layer_name(&base_name, &mut used_names);
+                    let new_layer_id = new_id("layer");
+                    let mut members = Vec::with_capacity(unit.members.len());
+                    for mut el in unit.members {
+                        if still_on_source.contains(&el.id) {
+                            el.id = new_id("object");
+                        }
+                        if el.transform.skew != 0.
+                            || !el.transform.color_transform.is_identity()
+                            || matches!(el.kind, ElementKind::PaintedPath { .. })
+                        {
+                            s.project.format_version = s.project.format_version.max(5);
+                        }
+                        new_selection.push(SelectionTarget {
+                            layer: new_layer_id.clone(),
+                            element: el.id.clone(),
+                        });
+                        members.push(el);
+                    }
+                    let groups = if members.len() >= 2 {
+                        s.project.format_version = s.project.format_version.max(4);
+                        vec![AuthoringGroup {
+                            id: new_id("group"),
+                            name: unit.group_name.unwrap_or_else(|| "Group 1".to_owned()),
+                            members: members.iter().map(|e| e.id.clone()).collect(),
+                        }]
+                    } else {
+                        vec![]
+                    };
+                    let keyframes = if frame == 0 {
+                        vec![Keyframe {
+                            frame: 0,
+                            elements: members,
+                            ..Default::default()
+                        }]
+                    } else {
+                        vec![
+                            Keyframe {
+                                frame: 0,
+                                elements: vec![],
+                                ..Default::default()
+                            },
+                            Keyframe {
+                                frame,
+                                elements: members,
+                                ..Default::default()
+                            },
+                        ]
+                    };
+                    let new_layer = Layer {
+                        id: new_layer_id.clone(),
+                        name: layer_name,
+                        visible: true,
+                        locked: false,
+                        properties: LayerProperties {
+                            role: LayerRole::Normal,
+                            parent: inherited_parent.clone(),
+                            mask: inherited_mask.clone(),
+                            motion_guide: inherited_motion_guide.clone(),
+                            end_frame: inherited_end_frame,
+                            groups,
+                            ..Default::default()
+                        },
+                        keyframes,
+                    };
+                    last_created_layer_id = Some(new_layer_id);
+                    if entry.unselected_count > 0 && unit.before_first_unselected {
+                        before_layers.push(new_layer);
+                    } else {
+                        after_layers.push(new_layer);
+                    }
+                }
+
+                let before_count = before_layers.len();
+                let layers = &mut s.symbol_mut().timeline.layers;
+                layers.splice(src_index..src_index, before_layers);
+                let after_at = src_index + before_count + 1;
+                layers.splice(after_at..after_at, after_layers);
+            }
+
+            s.prune_authoring_groups();
+            s.set_selection(new_selection);
+            if let Some(top_id) = last_created_layer_id
+                && let Some(idx) = s
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|l| l.id == top_id)
+            {
+                s.layer = idx;
+            }
+        });
+        true
     }
 
     /// Modify (§8).
@@ -693,7 +1259,17 @@ impl Editor {
                 "Convert to blank keyframes",
                 "⇧⌘D",
                 |ui| {
-                    Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
+                    if menu_item_enabled(
+                        ui,
+                        self.can_distribute_to_layers(),
+                        "Distribute to layers",
+                        &self.sc(C::ModifyDistributeToLayers),
+                    )
+                    .clicked()
+                    {
+                        self.distribute_to_layers();
+                        ui.close();
+                    }
                     if crate::ui_icons::menu_item(
                         ui,
                         "Layer properties…",

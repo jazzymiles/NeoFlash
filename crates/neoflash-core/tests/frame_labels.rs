@@ -128,6 +128,7 @@ fn as2_resolves_only_the_target_timeline() {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         });
     project.validate().unwrap();
     let player = Player::new(&project);
@@ -172,6 +173,7 @@ fn scene_fixture() -> Project {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     });
     project.symbols.push(Symbol {
         folder: String::new(),

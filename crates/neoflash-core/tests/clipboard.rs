@@ -34,6 +34,7 @@ fn shape(id: &str, x: f64) -> Element {
             tab_order: 4,
             disabled: false,
         }),
+        ..Element::default()
     }
 }
 fn instance(id: &str, symbol: &str) -> Element {

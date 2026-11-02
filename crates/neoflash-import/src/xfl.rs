@@ -1797,6 +1797,7 @@ impl Parser<'_> {
             transform,
             kind,
             scripts: vec![],
+            ..Element::default()
         }]
     }
 
@@ -2760,6 +2761,8 @@ impl Parser<'_> {
             loop_forever,
             effect,
             envelope,
+            in_point: None,
+            out_point: None,
         })
     }
 }

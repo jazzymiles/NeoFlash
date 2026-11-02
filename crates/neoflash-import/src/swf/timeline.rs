@@ -867,8 +867,7 @@ impl SwfBuilder<'_> {
                             width: vw,
                             height: vh,
                         },
-                        scripts: Vec::new(),
-                        accessibility: None,
+                        ..Element::default()
                     };
                     let tl = single_frame_timeline(&format!("swf-sym-{vid}"), vec![el]);
                     let sym_id = self.register_character_symbol(
@@ -950,8 +949,7 @@ impl SwfBuilder<'_> {
                 height: bref.height,
                 smoothing: true,
             },
-            scripts: Vec::new(),
-            accessibility: None,
+            ..Element::default()
         };
         let tl = single_frame_timeline(&format!("swf-sym-{bitmap_id}"), vec![el]);
         let sym_id = self.register_character_symbol(
@@ -1741,7 +1739,7 @@ impl SwfBuilder<'_> {
                             transform: tf,
                             kind: element.kind.clone(),
                             scripts,
-                            accessibility: None,
+                            ..Element::default()
                         },
                         false,
                     ))
@@ -1757,7 +1755,7 @@ impl SwfBuilder<'_> {
                                     playback: InstancePlayback::SingleFrame(0),
                                 },
                                 scripts,
-                                accessibility: None,
+                                ..Element::default()
                             },
                             false,
                         )
@@ -1786,7 +1784,7 @@ impl SwfBuilder<'_> {
                             playback,
                         },
                         scripts,
-                        accessibility: None,
+                        ..Element::default()
                     },
                     *is_pure_vector,
                 ))
@@ -1817,7 +1815,7 @@ impl SwfBuilder<'_> {
                             playback: InstancePlayback::Independent,
                         },
                         scripts,
-                        accessibility: None,
+                        ..Element::default()
                     },
                     *is_pure_vector,
                 ))
@@ -1835,7 +1833,7 @@ impl SwfBuilder<'_> {
                         playback: InstancePlayback::Independent,
                     },
                     scripts,
-                    accessibility: None,
+                    ..Element::default()
                 },
                 *is_pure_vector,
             )),

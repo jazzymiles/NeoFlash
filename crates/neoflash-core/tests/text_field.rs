@@ -22,6 +22,7 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
             font_size: 20.,
             color: [12, 34, 56, 128],
         },
+        ..Element::default()
     };
     let mut boxed = legacy.clone();
     boxed.id = "box".into();

@@ -26,6 +26,7 @@ fn button(id: &str, order: u32) -> Element {
                 source: format!("trace('{id}');"),
             },
         }],
+        ..Element::default()
     }
 }
 fn project(elements: Vec<Element>) -> Project {

@@ -471,55 +471,177 @@ impl Editor {
         }
         self.playing = false;
         self.transact(|editor| {
-            let mut copies = Vec::new();
-            let mut remap = std::collections::HashMap::new();
-            for (target, mut element) in targets {
-                editor.ensure_key_for(&target.layer, false);
-                element.id = new_id("object");
-                remap.insert(
-                    (target.layer.clone(), target.element.clone()),
-                    element.id.clone(),
-                );
-                element.name = format!(
-                    "{}_copy_{}",
-                    element.name,
-                    element.id.rsplit('-').next().unwrap_or("1")
-                );
-                element.transform.x += 16.;
-                element.transform.y += 16.;
-                copies.push(SelectionTarget {
-                    layer: target.layer.clone(),
-                    element: element.id.clone(),
-                });
-                let index = editor.target_layer_index(&target).unwrap();
-                let frame = editor.frame;
-                editor.symbol_mut().timeline.layers[index]
-                    .key_at_mut(frame)
-                    .unwrap()
-                    .elements
-                    .push(element);
-            }
-            for layer in &mut editor.symbol_mut().timeline.layers {
-                let copies = layer
-                    .properties
-                    .groups
-                    .iter()
-                    .filter_map(|group| {
-                        let members = group
-                            .members
-                            .iter()
-                            .filter_map(|id| remap.get(&(layer.id.clone(), id.clone())).cloned())
-                            .collect::<Vec<_>>();
-                        (members.len() >= 2).then(|| AuthoringGroup {
-                            id: new_id("group"),
-                            name: group.name.clone(),
-                            members,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                layer.properties.groups.extend(copies);
-            }
-            editor.set_selection(copies);
+            editor.duplicate_targets_with_offset(targets, 16., 16.);
         });
+    }
+
+    pub(crate) fn duplicate_targets_with_offset(
+        &mut self,
+        targets: Vec<(SelectionTarget, Element)>,
+        dx: f64,
+        dy: f64,
+    ) -> Vec<(SelectionTarget, Transform)> {
+        let mut copies = Vec::with_capacity(targets.len());
+        let mut copy_transforms = Vec::with_capacity(targets.len());
+        let mut remap = std::collections::HashMap::new();
+        for (target, mut element) in targets {
+            self.ensure_key_for(&target.layer, false);
+            element.id = new_id("object");
+            remap.insert(
+                (target.layer.clone(), target.element.clone()),
+                element.id.clone(),
+            );
+            element.name = format!(
+                "{}_copy_{}",
+                element.name,
+                element.id.rsplit('-').next().unwrap_or("1")
+            );
+            element.transform.x += dx;
+            element.transform.y += dy;
+            let copy_target = SelectionTarget {
+                layer: target.layer.clone(),
+                element: element.id.clone(),
+            };
+            copy_transforms.push((copy_target.clone(), element.transform));
+            copies.push(copy_target);
+            let index = self.target_layer_index(&target).unwrap();
+            let frame = self.frame;
+            self.symbol_mut().timeline.layers[index]
+                .key_at_mut(frame)
+                .unwrap()
+                .elements
+                .push(element);
+        }
+        for layer in &mut self.symbol_mut().timeline.layers {
+            let group_copies = layer
+                .properties
+                .groups
+                .iter()
+                .filter_map(|group| {
+                    let members = group
+                        .members
+                        .iter()
+                        .filter_map(|id| remap.get(&(layer.id.clone(), id.clone())).cloned())
+                        .collect::<Vec<_>>();
+                    (members.len() >= 2).then(|| AuthoringGroup {
+                        id: new_id("group"),
+                        name: group.name.clone(),
+                        members,
+                    })
+                })
+                .collect::<Vec<_>>();
+            layer.properties.groups.extend(group_copies);
+        }
+        self.set_selection(copies);
+        copy_transforms
+    }
+
+    /// Nudge all editable selected placements by `(dx, dy)` in stage coordinates as one Undo step.
+    pub(crate) fn nudge_selection(&mut self, dx: f64, dy: f64) -> bool {
+        if (dx == 0.0 && dy == 0.0) || !dx.is_finite() || !dy.is_finite() {
+            return false;
+        }
+        self.finish_edits();
+        let targets = self.sampled_targets();
+        if targets.is_empty() {
+            return false;
+        }
+        if targets.iter().any(|(_, el)| {
+            let nx = el.transform.x + dx;
+            let ny = el.transform.y + dy;
+            !nx.is_finite() || !ny.is_finite() || nx.abs() > 1e12 || ny.abs() > 1e12
+        }) {
+            return false;
+        }
+        self.playing = false;
+        let selected_set: std::collections::HashSet<SelectionTarget> =
+            targets.iter().map(|(t, _)| t.clone()).collect();
+        self.transact(|editor| {
+            let multiple = editor.timeline_edit.edit_multiple;
+            let (start, end) = if multiple {
+                editor.onion_range()
+            } else {
+                (editor.frame, editor.frame)
+            };
+            let mut split_layers = Vec::new();
+            for (target, _) in &targets {
+                if split_layers.contains(&target.layer) {
+                    continue;
+                }
+                let should_split = if !multiple {
+                    true
+                } else {
+                    editor
+                        .symbol()
+                        .timeline
+                        .layers
+                        .iter()
+                        .find(|l| l.id == target.layer)
+                        .and_then(|l| l.key_at(editor.frame))
+                        .is_some_and(|k| {
+                            !(start..=end).contains(&k.frame)
+                                && k.elements.iter().any(|e| e.id == target.element)
+                        })
+                };
+                if should_split {
+                    split_layers.push(target.layer.clone());
+                }
+            }
+            for layer_id in &split_layers {
+                editor.ensure_key_for(layer_id, false);
+            }
+            let frame = editor.frame;
+            let sym = editor.symbol().clone();
+            for layer in &mut editor.symbol_mut().timeline.layers {
+                if layer.properties.role == LayerRole::Folder
+                    || !layer_effectively_visible(&sym.timeline, layer)
+                    || layer_effectively_locked(&sym.timeline, layer)
+                {
+                    continue;
+                }
+                let layer_id = layer.id.clone();
+                if multiple {
+                    for key in &mut layer.keyframes {
+                        if !(start..=end).contains(&key.frame) {
+                            continue;
+                        }
+                        for elem in &mut key.elements {
+                            if selected_set.contains(&SelectionTarget {
+                                layer: layer_id.clone(),
+                                element: elem.id.clone(),
+                            }) {
+                                let nx = elem.transform.x + dx;
+                                let ny = elem.transform.y + dy;
+                                if nx.is_finite()
+                                    && ny.is_finite()
+                                    && nx.abs() <= 1e12
+                                    && ny.abs() <= 1e12
+                                {
+                                    elem.transform.x = nx;
+                                    elem.transform.y = ny;
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(key) = layer.key_at_mut(frame) {
+                    for elem in &mut key.elements {
+                        if selected_set.contains(&SelectionTarget {
+                            layer: layer_id.clone(),
+                            element: elem.id.clone(),
+                        }) {
+                            elem.transform.x += dx;
+                            elem.transform.y += dy;
+                        }
+                    }
+                }
+            }
+            if let Some((pivot_targets, gp)) = &mut editor.authoring_modify.group_pivot
+                && *pivot_targets == editor.selection.targets
+            {
+                gp[0] += dx;
+                gp[1] += dy;
+            }
+        });
+        true
     }
 }

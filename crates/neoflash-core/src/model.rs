@@ -320,7 +320,8 @@ impl Project {
 
     /// Document features introduced with format 7 (parametric Rectangle/Oval options, custom
     /// authoring transformation points, Bounce/Elastic and per-property eases, motion sync/snap
-    /// options, and custom stereo sound envelopes).
+    /// options, custom stereo sound envelopes or trim points, and authored display
+    /// filters/blending/visibility).
     pub fn uses_format_7(&self) -> bool {
         self.symbols
             .iter()
@@ -334,12 +335,20 @@ impl Project {
                     || k.property_eases
                         .iter()
                         .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
-                    || k.sound
-                        .as_ref()
-                        .is_some_and(|s| s.effect == SoundEffect::Custom || s.envelope.is_some())
-                    || k.elements
-                        .iter()
-                        .any(|e| e.transform.pivot.is_some() || e.transform.primitive.is_some())
+                    || k.sound.as_ref().is_some_and(|s| {
+                        s.effect == SoundEffect::Custom
+                            || s.envelope.is_some()
+                            || s.in_point.is_some()
+                            || s.out_point.is_some()
+                    })
+                    || k.elements.iter().any(|e| {
+                        e.transform.pivot.is_some()
+                            || e.transform.primitive.is_some()
+                            || !e.visible
+                            || e.cache_as_bitmap
+                            || !e.blend_mode.is_normal()
+                            || !e.filters.is_empty()
+                    })
             })
     }
 
@@ -417,6 +426,12 @@ pub struct FrameSound {
     /// Custom stereo volume envelope points `[position, left, right]` (`0.0..=1.0`, format 7).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<Vec<[f64; 3]>>,
+    /// Playback trim start in seconds within the audio resource (format 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_point: Option<f64>,
+    /// Playback trim end in seconds within the audio resource (format 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out_point: Option<f64>,
 }
 
 impl FrameSound {
@@ -424,6 +439,8 @@ impl FrameSound {
     pub const MAX_LOOPS: u32 = 10_000;
     /// Largest number of custom stereo envelope control points.
     pub const MAX_ENVELOPE_POINTS: usize = 32;
+    /// Largest frame-sound trim timestamp in seconds (24 hours).
+    pub const MAX_SOUND_TRIM_SECONDS: f64 = 86_400.0;
 
     pub fn new(resource: impl Into<Id>) -> Self {
         Self {
@@ -433,6 +450,8 @@ impl FrameSound {
             loop_forever: false,
             effect: SoundEffect::None,
             envelope: None,
+            in_point: None,
+            out_point: None,
         }
     }
     /// Effective stereo volume envelope as `[position, left, right]` points (`0.0..=1.0`).
@@ -623,6 +642,115 @@ pub enum Easing {
     },
 }
 
+/// Display-object compositing blend mode (Flash 8+ authoring set).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    Layer,
+    Multiply,
+    Screen,
+    Lighten,
+    Darken,
+    Difference,
+    Add,
+    Subtract,
+    Invert,
+    Alpha,
+    Erase,
+    Overlay,
+    Hardlight,
+}
+
+impl BlendMode {
+    pub const ALL: [Self; 14] = [
+        Self::Normal,
+        Self::Layer,
+        Self::Multiply,
+        Self::Screen,
+        Self::Lighten,
+        Self::Darken,
+        Self::Difference,
+        Self::Add,
+        Self::Subtract,
+        Self::Invert,
+        Self::Alpha,
+        Self::Erase,
+        Self::Overlay,
+        Self::Hardlight,
+    ];
+
+    pub fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Layer => "layer",
+            Self::Multiply => "multiply",
+            Self::Screen => "screen",
+            Self::Lighten => "lighten",
+            Self::Darken => "darken",
+            Self::Difference => "difference",
+            Self::Add => "add",
+            Self::Subtract => "subtract",
+            Self::Invert => "invert",
+            Self::Alpha => "alpha",
+            Self::Erase => "erase",
+            Self::Overlay => "overlay",
+            Self::Hardlight => "hardlight",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.as_str() == name)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::Layer => "Layer",
+            Self::Multiply => "Multiply",
+            Self::Screen => "Screen",
+            Self::Lighten => "Lighten",
+            Self::Darken => "Darken",
+            Self::Difference => "Difference",
+            Self::Add => "Add",
+            Self::Subtract => "Subtract",
+            Self::Invert => "Invert",
+            Self::Alpha => "Alpha",
+            Self::Erase => "Erase",
+            Self::Overlay => "Overlay",
+            Self::Hardlight => "Hard Light",
+        }
+    }
+
+    /// True when the HTML5 Canvas 2D compositing profile supports this mode natively.
+    pub fn has_canvas_compositing(self) -> bool {
+        !matches!(
+            self,
+            Self::Subtract | Self::Invert | Self::Alpha | Self::Erase
+        )
+    }
+
+    /// Standardized Canvas 2D `globalCompositeOperation` string for this blend mode.
+    pub fn canvas_operation(self) -> &'static str {
+        match self {
+            Self::Normal
+            | Self::Layer
+            | Self::Subtract
+            | Self::Invert
+            | Self::Alpha
+            | Self::Erase => "source-over",
+            Self::Add => "lighter",
+            Self::Hardlight => "hard-light",
+            other => other.as_str(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Element {
     pub id: Id,
@@ -633,6 +761,37 @@ pub struct Element {
     pub scripts: Vec<ObjectScript>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Accessibility>,
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub visible: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cache_as_bitmap: bool,
+    #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+    pub blend_mode: BlendMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<crate::FilterSpec>,
+}
+
+impl Default for Element {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Path {
+                commands: Vec::new(),
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            scripts: Vec::new(),
+            accessibility: None,
+            visible: true,
+            cache_as_bitmap: false,
+            blend_mode: BlendMode::Normal,
+            filters: Vec::new(),
+        }
+    }
 }
 
 impl Element {

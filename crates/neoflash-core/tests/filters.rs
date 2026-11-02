@@ -32,6 +32,7 @@ fn subtree_filters_copy_state_and_process_rgba_with_bounded_lifetimes() {
             stroke: [0; 4],
             stroke_width: 0.,
         },
+        ..Element::default()
     }];
     project.symbols[0].timeline.layers[0]
         .keyframes
@@ -251,5 +252,163 @@ fn subtree_filters_copy_state_and_process_rgba_with_bounded_lifetimes() {
             MAX_OBJECT_FILTERS + 1
         ])
         .is_err()
+    );
+}
+
+#[test]
+fn authored_filters_blend_modes_visibility_and_format_7_roundtrip() {
+    let mut project = Project::blank();
+    project.format_version = 6;
+    let mut clip = Project::blank().symbols.remove(0);
+    clip.id = "badge-sym".into();
+    clip.name = "Badge".into();
+    clip.linkage_id = Some("ExportedBadge".into());
+    clip.timeline.layers[0].id = "badge-layer".into();
+    clip.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "badge-fill".into(),
+        name: "fill".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: 32.,
+            height: 24.,
+            fill: [220, 80, 40, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        blend_mode: BlendMode::Hardlight,
+        filters: vec![FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(10.0, 20.0, -30.0, 45.0),
+        }],
+        ..Element::default()
+    }];
+    project.symbols.push(clip);
+
+    let root = &mut project.symbols[0].timeline;
+    root.frame_count = 5;
+    let f0 = Element {
+        id: "hero".into(),
+        name: "hero".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Instance {
+            symbol_id: "badge-sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        visible: false,
+        cache_as_bitmap: true,
+        blend_mode: BlendMode::Multiply,
+        filters: vec![FilterSpec::Blur {
+            blur_x: 2.0,
+            blur_y: 4.0,
+            quality: 2,
+        }],
+        ..Element::default()
+    };
+    let mut f4 = f0.clone();
+    f4.visible = true;
+    f4.filters = vec![FilterSpec::Blur {
+        blur_x: 10.0,
+        blur_y: 12.0,
+        quality: 2,
+    }];
+    root.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![f0],
+            tween: Some(Easing::Linear),
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 4,
+            elements: vec![f4],
+            ..Keyframe::default()
+        },
+    ];
+
+    // Format 6 rejects format-7 authored display properties until upgraded.
+    assert!(project.validate().is_err());
+    project.upgrade_format_for_features();
+    assert_eq!(project.format_version, 7);
+    let json = project.to_json().unwrap();
+    let loaded = Project::from_json(&json).unwrap();
+    assert_eq!(loaded, project);
+
+    // Pure evaluation hides `visible: false` placements on frame 0 and interpolates blur at frame 2.
+    assert!(evaluate(&loaded, &loaded.root, 0).is_empty());
+    let sampled = sample_layer(&loaded.symbols[0].timeline.layers[0], 2);
+    assert_eq!(
+        sampled[0].filters,
+        vec![FilterSpec::Blur {
+            blur_x: 6.0,
+            blur_y: 8.0,
+            quality: 2,
+        }]
+    );
+
+    // Runtime seeds authored filters, blendMode, cacheAsBitmap, and local visibility.
+    let mut player = Player::new(&loaded);
+    let hero_path = vec!["hero".to_string()];
+    assert_eq!(player.visible(&loaded, &hero_path), Some(false));
+    assert!(player.evaluate(&loaded).is_empty());
+    assert!(player.set_visible(&hero_path, true));
+    assert_eq!(player.evaluate(&loaded).len(), 1);
+
+    let hero_ref = player.object_ref(&hero_path).unwrap();
+    assert_eq!(
+        player.object_filters(&hero_ref).unwrap(),
+        vec![FilterSpec::Blur {
+            blur_x: 2.0,
+            blur_y: 4.0,
+            quality: 2,
+        }]
+    );
+    let state = player
+        .as2_render_command(&loaded, &hero_ref, serde_json::json!({"op": "get"}))
+        .unwrap();
+    assert_eq!(state["blendMode"], "multiply");
+    assert_eq!(state["cacheAsBitmap"], true);
+
+    let snap = player.runtime_snapshot(&loaded);
+    let hero_group = snap
+        .filter_groups
+        .iter()
+        .find(|g| g.owner_ref == hero_ref)
+        .expect("authored filter group");
+    assert_eq!(hero_group.composite_operation, "multiply");
+    assert!(hero_group.cache_as_bitmap);
+    assert_eq!(hero_group.filters.len(), 1);
+
+    // Linked clips created at runtime also inherit their symbol's authored filters/blends.
+    let linked_ref = player.create_linked(&loaded, "ExportedBadge").unwrap();
+    let linked_snap = player.runtime_snapshot(&loaded);
+    assert!(
+        linked_snap
+            .filter_groups
+            .iter()
+            .any(|g| g.composite_operation == "hard-light" && g.owner_ref != linked_ref)
+    );
+
+    // Script overrides (`filters = []`, `blendMode = "normal"`, `cacheAsBitmap = false`) clear authored defaults.
+    player.object_set_filters(&hero_ref, &[]).unwrap();
+    player
+        .as2_render_command(
+            &loaded,
+            &hero_ref,
+            serde_json::json!({"op": "set", "name": "blendMode", "value": "normal"}),
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &loaded,
+            &hero_ref,
+            serde_json::json!({"op": "set", "name": "cacheAsBitmap", "value": false}),
+        )
+        .unwrap();
+    assert!(player.object_filters(&hero_ref).unwrap().is_empty());
+    assert!(
+        !player
+            .runtime_snapshot(&loaded)
+            .filter_groups
+            .iter()
+            .any(|g| g.owner_ref == hero_ref)
     );
 }

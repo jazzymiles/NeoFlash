@@ -137,6 +137,365 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
     warnings
 }
 
+fn decoded_base64_len(encoded: &str) -> usize {
+    STANDARD.decode(encoded).map_or_else(
+        |_| {
+            let trimmed = encoded.trim();
+            let pad = trimmed
+                .bytes()
+                .rev()
+                .take_while(|b| *b == b'=')
+                .count()
+                .min(2);
+            (trimmed.len() / 4) * 3 - pad.min((trimmed.len() / 4) * 3)
+        },
+        |bytes| bytes.len(),
+    )
+}
+
+/// Generate a human-readable classic Flash `Size Report` text breakdown by scenes/frames,
+/// library symbols, referenced fonts, embedded audio/bitmap/data resources, and scripts.
+pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
+    use std::collections::BTreeMap;
+    use std::fmt::Write as _;
+
+    let issues = neoflash_core::validate(project);
+    if !issues.is_empty() {
+        return Err(ExportError::InvalidProject(format!("{issues:?}")));
+    }
+    let program = neoflash_script::compile_project(project).map_err(|errors| {
+        ExportError::Scripts(
+            errors
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
+    let compiled_scripts = compile_scripts(project, &program)?;
+    let (published, flattened_ranges) = neoflash_core::flatten_scenes_with_ranges(project);
+    let published = publishable(&published).unwrap_or(published);
+    let published_project_bytes = serde_json::to_string(&published)?.len();
+
+    let scene_ids: Vec<&str> = if project.scenes.is_empty() {
+        vec![project.root.as_str()]
+    } else {
+        project.scenes.iter().map(String::as_str).collect()
+    };
+    let scene_id_set: BTreeSet<&str> = scene_ids.iter().copied().collect();
+
+    let mut out = String::new();
+    let _ = writeln!(out, "NeoFlash Size Report — {}", project.name);
+    let _ = writeln!(
+        out,
+        "================================================================"
+    );
+    let _ = writeln!(
+        out,
+        "Dimensions:      {} x {} px @ {} fps (format v{})",
+        project.width, project.height, project.fps, project.format_version
+    );
+    let total_frames: u32 = if flattened_ranges.is_empty() {
+        project
+            .symbol(&project.root)
+            .map_or(0, |s| s.timeline.frame_count)
+    } else {
+        flattened_ranges.iter().map(|r| r.frames).sum()
+    };
+    let library_symbols: Vec<_> = project
+        .symbols
+        .iter()
+        .filter(|s| !scene_id_set.contains(s.id.as_str()))
+        .collect();
+    let _ = writeln!(
+        out,
+        "Scenes / Frames: {} scene(s), {} total main-timeline frame(s)",
+        scene_ids.len(),
+        total_frames
+    );
+    let _ = writeln!(
+        out,
+        "Library / Assets: {} library symbol(s), {} resource(s), {} source file(s), {} handler script(s)",
+        library_symbols.len(),
+        project.resources.len(),
+        project.sources.len(),
+        compiled_scripts.len()
+    );
+    let _ = writeln!(out);
+
+    // 1. Scenes & Frames breakdown.
+    let _ = writeln!(out, "Scenes & Frames");
+    let _ = writeln!(
+        out,
+        "----------------------------------------------------------------"
+    );
+    let _ = writeln!(
+        out,
+        "{:<22} {:>7} {:>8} {:>7} {:>12} {:>12}",
+        "Scene / Frame", "Elements", "Scripts", "Sounds", "Frame Bytes", "Cumulative"
+    );
+    let mut cumulative_frame_bytes = 0usize;
+    for scene_id in &scene_ids {
+        let Some(scene) = project.symbol(scene_id) else {
+            continue;
+        };
+        let scene_bytes = serde_json::to_string(scene)?.len();
+        let _ = writeln!(
+            out,
+            "[{}] ({} frames, {} layers, {} B total)",
+            scene.name,
+            scene.timeline.frame_count,
+            scene.timeline.layers.len(),
+            scene_bytes
+        );
+        let mut frame_indices = BTreeSet::from([0u32]);
+        for layer in &scene.timeline.layers {
+            for key in &layer.keyframes {
+                frame_indices.insert(key.frame);
+            }
+        }
+        for fs in &scene.timeline.scripts {
+            frame_indices.insert(fs.frame);
+        }
+        for frame_idx in frame_indices {
+            let mut elem_count = 0usize;
+            let mut sound_count = 0usize;
+            let mut frame_bytes = 0usize;
+            for layer in &scene.timeline.layers {
+                if let Some(key) = layer.keyframes.iter().find(|k| k.frame == frame_idx) {
+                    elem_count += key.elements.len();
+                    if key.sound.is_some() {
+                        sound_count += 1;
+                    }
+                    frame_bytes += serde_json::to_string(key)?.len();
+                }
+            }
+            let mut script_count = 0usize;
+            for fs in scene
+                .timeline
+                .scripts
+                .iter()
+                .filter(|fs| fs.frame == frame_idx)
+            {
+                script_count += 1;
+                frame_bytes += serde_json::to_string(fs)?.len();
+            }
+            cumulative_frame_bytes += frame_bytes;
+            let label = format!("  Frame {}", frame_idx + 1);
+            let _ = writeln!(
+                out,
+                "{:<22} {:>7} {:>8} {:>7} {:>12} {:>12}",
+                label, elem_count, script_count, sound_count, frame_bytes, cumulative_frame_bytes
+            );
+        }
+    }
+    let _ = writeln!(out);
+
+    // 2. Symbols breakdown.
+    let _ = writeln!(out, "Symbols");
+    let _ = writeln!(
+        out,
+        "----------------------------------------------------------------"
+    );
+    if library_symbols.is_empty() {
+        let _ = writeln!(out, "(no library symbols)");
+    } else {
+        let _ = writeln!(
+            out,
+            "{:<24} {:<12} {:>7} {:>7} {:>9} {:>12}",
+            "Symbol", "Kind", "Frames", "Layers", "Elements", "Bytes"
+        );
+        let mut symbol_total = 0usize;
+        for sym in &library_symbols {
+            let elems: usize = sym
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|l| &l.keyframes)
+                .map(|k| k.elements.len())
+                .sum();
+            let bytes = serde_json::to_string(sym)?.len();
+            symbol_total += bytes;
+            let kind = match sym.kind {
+                neoflash_core::SymbolKind::MovieClip => "MovieClip",
+                neoflash_core::SymbolKind::Graphic => "Graphic",
+                neoflash_core::SymbolKind::Button => "Button",
+            };
+            let _ = writeln!(
+                out,
+                "{:<24} {:<12} {:>7} {:>7} {:>9} {:>12}",
+                sym.name,
+                kind,
+                sym.timeline.frame_count,
+                sym.timeline.layers.len(),
+                elems,
+                bytes
+            );
+        }
+        let _ = writeln!(out, "Library Symbols Subtotal: {} B", symbol_total);
+    }
+    let _ = writeln!(out);
+
+    // 3. Fonts breakdown.
+    let _ = writeln!(out, "Fonts");
+    let _ = writeln!(
+        out,
+        "----------------------------------------------------------------"
+    );
+    let mut font_stats: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    match &element.kind {
+                        ElementKind::Text {
+                            font_family, text, ..
+                        } => {
+                            let entry = font_stats.entry(font_family.clone()).or_default();
+                            entry.0 += 1;
+                            entry.1 += text.chars().count();
+                        }
+                        ElementKind::TextBox { format, text, .. } => {
+                            let entry = font_stats.entry(format.font.clone()).or_default();
+                            entry.0 += 1;
+                            entry.1 += text.chars().count();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    if font_stats.is_empty() {
+        let _ = writeln!(out, "(no text fonts referenced)");
+    } else {
+        let _ = writeln!(
+            out,
+            "{:<28} {:>12} {:>12} {:<16}",
+            "Font Family", "Placements", "Characters", "Delivery"
+        );
+        for (font, (placements, chars)) in &font_stats {
+            let _ = writeln!(
+                out,
+                "{:<28} {:>12} {:>12} {:<16}",
+                font, placements, chars, "system reference"
+            );
+        }
+    }
+    let _ = writeln!(out);
+
+    // 4. Embedded Resources (Audio / Bitmaps / Other).
+    let _ = writeln!(out, "Embedded Resources (Audio / Bitmaps / Data)");
+    let _ = writeln!(
+        out,
+        "----------------------------------------------------------------"
+    );
+    if project.resources.is_empty() {
+        let _ = writeln!(out, "(no embedded resources)");
+    } else {
+        let _ = writeln!(
+            out,
+            "{:<24} {:<10} {:<20} {:>10} {:>12}",
+            "Path", "Category", "Media Type", "Raw Bytes", "Bundle B64"
+        );
+        let (mut audio_raw, mut bitmap_raw, mut other_raw, mut total_b64) =
+            (0usize, 0usize, 0usize, 0usize);
+        for res in &project.resources {
+            let raw = decoded_base64_len(&res.data_base64);
+            let b64 = res.data_base64.len();
+            total_b64 += b64;
+            let category = if res.is_audio() {
+                audio_raw += raw;
+                "Audio"
+            } else if res.media_type.starts_with("image/") {
+                bitmap_raw += raw;
+                "Bitmap"
+            } else {
+                other_raw += raw;
+                "Data"
+            };
+            let _ = writeln!(
+                out,
+                "{:<24} {:<10} {:<20} {:>10} {:>12}",
+                res.path, category, res.media_type, raw, b64
+            );
+        }
+        let _ = writeln!(
+            out,
+            "Resources Subtotal: Audio {} B, Bitmap {} B, Data {} B (Raw {} B / Base64 {} B)",
+            audio_raw,
+            bitmap_raw,
+            other_raw,
+            audio_raw + bitmap_raw + other_raw,
+            total_b64
+        );
+    }
+    let _ = writeln!(out);
+
+    // 5. Scripts breakdown.
+    let _ = writeln!(out, "Scripts");
+    let _ = writeln!(
+        out,
+        "----------------------------------------------------------------"
+    );
+    let source_unit_bytes: usize = project.sources.iter().map(|u| u.source.len()).sum();
+    let handler_source_bytes: usize = compiled_scripts.iter().map(|s| s.source.len()).sum();
+    let handler_compiled_bytes: usize = compiled_scripts.iter().map(|s| s.code.len()).sum();
+    let program_compiled_bytes = program.code.len();
+    if project.sources.is_empty() && compiled_scripts.is_empty() {
+        let _ = writeln!(out, "(no authored scripts)");
+    } else {
+        let _ = writeln!(
+            out,
+            "{:<34} {:<16} {:>12} {:>12}",
+            "Location", "Language", "Source Bytes", "Compiled JS"
+        );
+        for unit in &project.sources {
+            let _ = writeln!(
+                out,
+                "{:<34} {:<16} {:>12} {:>12}",
+                unit.path,
+                format!("{:?}", unit.language),
+                unit.source.len(),
+                "-"
+            );
+        }
+        if !project.sources.is_empty() || program_compiled_bytes > 0 {
+            let _ = writeln!(
+                out,
+                "{:<34} {:<16} {:>12} {:>12}",
+                "[Compiled Project Program]",
+                format!("{} class(es)", program.class_names.len()),
+                source_unit_bytes,
+                program_compiled_bytes
+            );
+        }
+        for script in &compiled_scripts {
+            let _ = writeln!(
+                out,
+                "{:<34} {:<16} {:>12} {:>12}",
+                script.location,
+                format!("{:?}", script.language),
+                script.source.len(),
+                script.code.len()
+            );
+        }
+        let _ = writeln!(
+            out,
+            "Scripts Subtotal: Source {} B, Compiled JS {} B",
+            source_unit_bytes + handler_source_bytes,
+            program_compiled_bytes + handler_compiled_bytes
+        );
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "Published Bundle Payload (excluding WASM engine): {} B",
+        published_project_bytes + program_compiled_bytes + handler_compiled_bytes
+    );
+    Ok(out)
+}
+
 fn compile_scripts(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
@@ -712,5 +1071,59 @@ mod tests {
         ));
         assert!(!out.exists());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn size_report_breaks_down_scenes_frames_symbols_fonts_resources_and_scripts() {
+        let mut project = Project::demo();
+        project.format_version = 7;
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "sfx-beep",
+                "audio/beep.wav",
+                "audio/wav",
+                &[0u8; 44],
+            )
+            .unwrap(),
+        );
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "img-dot",
+                "images/dot.png",
+                "image/png",
+                b"\x89PNG\r\n\x1a\n",
+            )
+            .unwrap(),
+        );
+        project.sources.push(neoflash_core::SourceUnit {
+            id: "src-util".into(),
+            path: "AppHelper.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package { public class AppHelper { public static function tag():String { return \"ok\"; } } }".into(),
+        });
+        project.symbols[0]
+            .timeline
+            .scripts
+            .push(neoflash_core::FrameScript {
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript3,
+                    source: "trace(AppHelper.tag());".into(),
+                },
+            });
+        let report = format_size_report(&project).expect("size report succeeds");
+        assert!(report.contains("NeoFlash Size Report —"));
+        assert!(report.contains("Scenes & Frames"));
+        assert!(report.contains("Frame 1"));
+        assert!(report.contains("Symbols"));
+        assert!(report.contains("Fonts"));
+        assert!(report.contains("Embedded Resources (Audio / Bitmaps / Data)"));
+        assert!(report.contains("audio/beep.wav"));
+        assert!(report.contains("Audio"));
+        assert!(report.contains("images/dot.png"));
+        assert!(report.contains("Bitmap"));
+        assert!(report.contains("Scripts"));
+        assert!(report.contains("AppHelper.as"));
+        assert!(report.contains("Scripts Subtotal:"));
     }
 }

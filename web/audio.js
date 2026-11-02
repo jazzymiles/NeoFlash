@@ -321,13 +321,18 @@
       const buffer=entry.buffer,duration=buffer.duration;
       if(voice.stream)voice.offset+=Math.max(0,now()-voice.requestedAt);
       else if(now()-voice.requestedAt>1){stopVoice(voice);return;}
-      const total=voice.loopForever?Infinity:duration*voice.loops;
+      const segStart=Math.min(duration,Math.max(0,voice.inPoint||0));
+      const segEnd=voice.outPoint!==null?Math.min(duration,voice.outPoint):duration;
+      const segDuration=segEnd-segStart;
+      if(!(segDuration>0)){stopVoice(voice);return;}
+      const total=voice.loopForever?Infinity:segDuration*voice.loops;
       if(voice.offset>=total){stopVoice(voice);return;}
       const source=context.createBufferSource(),start=context.currentTime;
       source.buffer=buffer;source.loop=voice.loopForever||voice.loops>1;
-      voice.nodes=connectEnvelope(voice,source,start,Number.isFinite(total)?total:duration);
+      if(source.loop&&(segStart>0||segEnd<duration)){source.loopStart=segStart;source.loopEnd=segEnd;}
+      voice.nodes=connectEnvelope(voice,source,start,Number.isFinite(total)?total:segDuration);
       voice.source=source;source.onended=()=>{if(voice.source===source)stopVoice(voice);};
-      source.start(start,voice.offset%duration);
+      source.start(start,segStart+(voice.offset%segDuration));
       if(Number.isFinite(total))source.stop(start+total-voice.offset);
       changed();
     }
@@ -347,8 +352,10 @@
         if(stream)for(const voice of [...voices])if(voice.channel===command.channel)stopVoice(voice);
         if(!stream&&command.sync==='start'&&[...voices].some(voice=>voice.resource===command.resource))continue;
         if(!stream&&(!unlocked||context?.state!=='running')){blockedEvents=1;timelineBuffer(command.resource);changed();continue;}
+        const inPoint=typeof command.in_point==='number'&&Number.isFinite(command.in_point)?Math.max(0,command.in_point):0;
+        const outPoint=typeof command.out_point==='number'&&Number.isFinite(command.out_point)?Math.max(0,command.out_point):null;
         const voice={resource:command.resource,channel:stream?command.channel:null,stream,offset:stream?Number(command.offset)||0:0,
-          loops:Math.max(1,command.loops|0),loopForever:command.loop_forever===true,envelope:Array.isArray(command.envelope)?command.envelope:[],requestedAt:now(),source:null,nodes:[]};
+          loops:Math.max(1,command.loops|0),loopForever:command.loop_forever===true,inPoint,outPoint,envelope:Array.isArray(command.envelope)?command.envelope:[],requestedAt:now(),source:null,nodes:[]};
         voices.add(voice);
         try{startVoice(voice);}catch(error){stopVoice(voice);report(error);}
       }

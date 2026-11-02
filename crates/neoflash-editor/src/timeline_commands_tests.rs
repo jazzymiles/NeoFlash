@@ -14,6 +14,7 @@ fn element(id: &str, kind: ElementKind, x: f64) -> Element {
         kind,
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 
@@ -793,6 +794,7 @@ fn edit_multiple_frames_selects_other_keyframe_only_objects_and_transforms_range
         kind: rect_40x20(),
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     };
 
     let (mut editor, ctx, page) = rectangle_stage();

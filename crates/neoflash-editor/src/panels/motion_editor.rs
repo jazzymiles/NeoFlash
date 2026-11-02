@@ -18,6 +18,7 @@ use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 
+#[derive(Clone, Copy)]
 enum MotionRow {
     Section(&'static str),
     Property {
@@ -27,6 +28,13 @@ enum MotionRow {
         decimals: usize,
     },
 }
+
+const SKEW_ROW: MotionRow = MotionRow::Property {
+    name: "Skew",
+    property: TweenProperty::Skew,
+    unit: "°",
+    decimals: 1,
+};
 
 const MOTION_ROWS: &[MotionRow] = &[
     MotionRow::Section("Basic motion"),
@@ -86,6 +94,7 @@ struct MotionEditorState {
     graph_size: f64,
     expanded: f64,
     drag: Option<LaneDrag>,
+    show_skew: bool,
 }
 
 impl Default for MotionEditorState {
@@ -95,6 +104,7 @@ impl Default for MotionEditorState {
             graph_size: 55.,
             expanded: 70.,
             drag: None,
+            show_skew: false,
         }
     }
 }
@@ -196,8 +206,31 @@ impl Editor {
             (metrics::CONTROL + space::S2) * (1. + ((state.graph_size - 55.).max(0.) / 45.) as f32);
         let expanded_h = (120. * state.expanded / 70.).clamp(f64::from(collapsed_h), 240.) as f32;
         let last = frames.saturating_sub(1).max(1) as f32;
-        let mut seek = None;
+        let skew_keys = self.motion_key_frames(&span, TweenProperty::Skew);
+        let has_skew = skew_keys.len() > 1
+            || skew_keys.iter().any(|f| {
+                self.motion_key_value(&span, TweenProperty::Skew, *f)
+                    .is_some_and(|v| v.abs() > 1e-6)
+            })
+            || span.property_override(TweenProperty::Skew).is_some();
+        let show_skew = state.show_skew || state.selected == TweenProperty::Skew || has_skew;
+        let mut rows: Vec<MotionRow> = Vec::with_capacity(MOTION_ROWS.len() + 1);
         for row in MOTION_ROWS {
+            rows.push(*row);
+            if show_skew
+                && matches!(
+                    row,
+                    MotionRow::Property {
+                        property: TweenProperty::ScaleY,
+                        ..
+                    }
+                )
+            {
+                rows.push(SKEW_ROW);
+            }
+        }
+        let mut seek = None;
+        for row in &rows {
             match row {
                 MotionRow::Section(label) => {
                     let (rect, _) = ui.allocate_exact_size(
@@ -215,12 +248,35 @@ impl Editor {
                                 .show(ui, |_| {});
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // Every track of a motion tween is always present; nothing to add yet.
-                            let add = ui.add_enabled(
-                                false,
-                                c::IconButton::new(i16::PLUS, "Add property").side(24.0),
-                            );
-                            c::not_available(add, "Add property");
+                            if *label == "Transformation" {
+                                let add = ui.add_enabled(
+                                    editable,
+                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
+                                );
+                                c::popup_below(&add, 160.0, |ui| {
+                                    if ui
+                                        .add_enabled(
+                                            !has_skew,
+                                            c::MenuItem::new("Skew").checked(show_skew),
+                                        )
+                                        .clicked()
+                                    {
+                                        state.show_skew = !show_skew;
+                                        if state.show_skew {
+                                            state.selected = TweenProperty::Skew;
+                                        } else if state.selected == TweenProperty::Skew {
+                                            state.selected = TweenProperty::X;
+                                        }
+                                        ui.close();
+                                    }
+                                });
+                            } else {
+                                let add = ui.add_enabled(
+                                    false,
+                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
+                                );
+                                c::not_available(add, "Add property");
+                            }
                         });
                     });
                     ui.painter().hline(

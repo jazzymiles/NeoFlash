@@ -632,6 +632,7 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     };
 
     let root_symbol = Symbol {
@@ -665,6 +666,7 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
                                 },
                                 scripts: vec![],
                                 accessibility: None,
+                                ..Element::default()
                             },
                             Element {
                                 id: "bmp-el-2".into(),
@@ -678,6 +680,7 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
                                 },
                                 scripts: vec![],
                                 accessibility: None,
+                                ..Element::default()
                             },
                             make_path("root-path-f0"),
                         ],
@@ -696,6 +699,7 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
                                 },
                                 scripts: vec![],
                                 accessibility: None,
+                                ..Element::default()
                             },
                             make_path("root-path-f1"),
                         ],
@@ -771,4 +775,105 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
         ElementKind::Instance { symbol_id, .. } if symbol_id == PLACEHOLDER
     ));
     project.validate().unwrap();
+}
+
+#[test]
+fn converts_legacy_filters_and_blend_modes_with_approximations_reported() {
+    let mut rep = report();
+    assert_eq!(
+        convert_blend_mode(Some(3), "inst-1", &mut rep),
+        BlendMode::Multiply
+    );
+    assert_eq!(
+        convert_blend_mode(Some(14), "inst-1", &mut rep),
+        BlendMode::Hardlight
+    );
+    assert!(rep.diagnostics.is_empty());
+
+    // Subtract is preserved in the model and reports the Canvas 2D compositing approximation.
+    assert_eq!(
+        convert_blend_mode(Some(9), "inst-sub", &mut rep),
+        BlendMode::Subtract
+    );
+    assert!(
+        rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_blend_mode" && d.location == "inst-sub")
+    );
+
+    let span = TimelineByteSpan { start: 0, end: 8 };
+    let filters = vec![
+        TimelineFilter {
+            encoded: span,
+            type_code: 0,
+            kind: TimelineFilterKind::DropShadow,
+            revision: 3,
+            enabled: Some(true),
+            params: TimelineFilterParams {
+                color_rgba: Some(0x8033_2211),
+                distance: Some(6.0),
+                blur_x: Some(8.0),
+                blur_y: Some(4.0),
+                angle_radians: Some(std::f32::consts::FRAC_PI_4),
+                strength_percent: Some(150),
+                quality: Some(2),
+                inner: Some(1),
+                knockout: Some(0),
+                hide_object: Some(0),
+                ..TimelineFilterParams::default()
+            },
+        },
+        TimelineFilter {
+            encoded: span,
+            type_code: 6,
+            kind: TimelineFilterKind::AdjustColor,
+            revision: 1,
+            enabled: Some(true),
+            params: TimelineFilterParams {
+                brightness: Some(10.0),
+                contrast: Some(-20.0),
+                saturation: Some(-100.0),
+                hue: Some(45.0),
+                ..TimelineFilterParams::default()
+            },
+        },
+        TimelineFilter {
+            encoded: span,
+            type_code: 1,
+            kind: TimelineFilterKind::Blur,
+            revision: 2,
+            enabled: Some(false),
+            params: TimelineFilterParams {
+                blur_x: Some(12.0),
+                blur_y: Some(12.0),
+                quality: Some(1),
+                ..TimelineFilterParams::default()
+            },
+        },
+    ];
+    let converted = convert_filters(&filters, "inst-filters", &mut rep);
+    assert_eq!(converted.len(), 2);
+    validate_filters(&converted).unwrap();
+    assert!(matches!(
+        &converted[0],
+        FilterSpec::DropShadow {
+            color: 0x112233,
+            distance,
+            blur_x,
+            blur_y,
+            strength,
+            quality: 2,
+            inner: true,
+            ..
+        } if (*distance - 6.0).abs() < 1e-5
+            && (*blur_x - 8.0).abs() < 1e-5
+            && (*blur_y - 4.0).abs() < 1e-5
+            && (*strength - 1.5).abs() < 1e-5
+    ));
+    assert!(matches!(&converted[1], FilterSpec::ColorMatrix { .. }));
+    assert!(
+        rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_filter_approximated" && d.location == "inst-filters")
+    );
 }

@@ -100,6 +100,16 @@ pub struct Editor {
     pub(crate) preferences: Option<crate::panels::preferences::PreferencesDraft>,
     pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
     pub(crate) project_panel: crate::panels::project::ProjectPanelState,
+    pub(crate) compiler_errors: crate::panels::compiler_errors::CompilerErrorsState,
+    pub(crate) code_snippets: crate::panels::code_snippets::CodeSnippetsState,
+    pub(crate) movie_explorer: crate::panels::movie_explorer::MovieExplorerState,
+    pub(crate) find_replace: Option<crate::panels::find_replace::FindReplaceState>,
+    pub(crate) confirm_revert: bool,
+    pub(crate) panels_hidden: bool,
+    pub enable_simple_buttons: bool,
+    pub(crate) hovered_simple_button: Option<Id>,
+    pub(crate) pressed_simple_button: Option<Id>,
+    pub(crate) simple_button_capturing: bool,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
     pub vector: crate::vector::VectorState,
@@ -122,6 +132,7 @@ pub enum Pending {
     Open,
     OpenPath(PathBuf),
     Import,
+    CloseDocument,
     Close,
 }
 
@@ -221,6 +232,10 @@ impl Editor {
                     "ease" => Some(PanelId::Ease),
                     "scene" => Some(PanelId::Scene),
                     "motion_editor" => Some(PanelId::MotionEditor),
+                    "filters" => Some(PanelId::Filters),
+                    "compiler_errors" => Some(PanelId::CompilerErrors),
+                    "code_snippets" => Some(PanelId::CodeSnippets),
+                    "movie_explorer" => Some(PanelId::MovieExplorer),
                     _ => None,
                 };
                 if let Some(panel) = panel {
@@ -231,6 +246,7 @@ impl Editor {
         match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
             Ok("document_settings") => s.open_document_settings(),
             Ok("edit_envelope") => s.open_edit_envelope(),
+            Ok("find_replace") => s.open_find_replace(),
             _ => {}
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` opens Preferences on that page.
@@ -264,6 +280,16 @@ impl Editor {
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
             document_settings: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
+            compiler_errors: Default::default(),
+            code_snippets: Default::default(),
+            movie_explorer: Default::default(),
+            find_replace: None,
+            confirm_revert: false,
+            panels_hidden: false,
+            enable_simple_buttons: false,
+            hovered_simple_button: None,
+            pressed_simple_button: None,
+            simple_button_capturing: false,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -326,6 +352,7 @@ impl Editor {
         theme.apply(ctx);
     }
     pub(crate) fn show_panel(&mut self, panel: PanelId) {
+        self.panels_hidden = false;
         self.workspace.show_panel(panel);
         self.bottom = self.workspace.active_bottom;
         if panel.detachable() && !self.workspace.is_panel_docked(panel) {
@@ -345,9 +372,29 @@ impl Editor {
         self.detached.focus_docked_actions = self.workspace.is_panel_docked(PanelId::Actions);
     }
     pub(crate) fn set_panel_visible(&mut self, panel: PanelId, visible: bool) {
+        if visible {
+            self.panels_hidden = false;
+        }
         self.workspace.active_bottom = self.bottom;
         self.workspace.set_panel_visible(panel, visible);
         self.bottom = self.workspace.active_bottom;
+    }
+    pub fn set_panels_hidden(&mut self, hidden: bool) {
+        self.panels_hidden = hidden;
+    }
+    pub fn toggle_hide_panels(&mut self) {
+        self.panels_hidden = !self.panels_hidden;
+    }
+    pub fn set_enable_simple_buttons(&mut self, enabled: bool) {
+        self.enable_simple_buttons = enabled;
+        if !enabled {
+            self.clear_simple_button_state();
+        }
+    }
+    pub(crate) fn clear_simple_button_state(&mut self) {
+        self.hovered_simple_button = None;
+        self.pressed_simple_button = None;
+        self.simple_button_capturing = false;
     }
     /// Re-apply the current workspace template ("Reset <template> workspace").
     pub(crate) fn restore_workspace(&mut self, ctx: &egui::Context) {
@@ -359,6 +406,7 @@ impl Editor {
         ctx: &egui::Context,
         template: crate::workspace::WorkspaceTemplate,
     ) {
+        self.panels_hidden = false;
         self.workspace.apply_template(template);
         if template == crate::workspace::WorkspaceTemplate::Classic {
             self.workspace
@@ -413,6 +461,8 @@ impl Editor {
             || self.document_settings.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
+            || self.find_replace.is_some()
+            || self.confirm_revert
             || self.recovery.has_prompt()
     }
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
@@ -587,6 +637,7 @@ impl Editor {
                 transform,
                 kind,
                 scripts: vec![],
+                ..Element::default()
             };
             if s.apply_drawing_gradients_to_element(&mut element) {
                 s.project.format_version = s.project.format_version.max(5);
@@ -611,6 +662,7 @@ impl Editor {
         if self.project.symbol(&id).is_none() {
             return;
         }
+        self.clear_simple_button_state();
         self.editing.push(id);
         self.frame = 0;
         self.layer = 0;
@@ -653,8 +705,9 @@ impl Editor {
     pub fn perform(&mut self, pending: Pending, ctx: &egui::Context) {
         self.cancel_edits();
         match pending {
-            Pending::New | Pending::Demo => {
-                self.project = if matches!(pending, Pending::New) {
+            Pending::New | Pending::CloseDocument | Pending::Demo => {
+                let closed = matches!(pending, Pending::CloseDocument);
+                self.project = if matches!(pending, Pending::New | Pending::CloseDocument) {
                     let mut blank = Project::blank();
                     if let Some(mut defaults) = self.workspace.document_defaults {
                         defaults.sanitize();
@@ -673,7 +726,10 @@ impl Editor {
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
                 self.document_settings = None;
+                self.find_replace = None;
+                self.confirm_revert = false;
                 self.edit_envelope = None;
+                self.clear_simple_button_state();
                 self.cancel_sound_properties(ctx);
                 self.cancel_layer_properties(ctx);
                 self.close_symbols_popover(ctx);
@@ -690,6 +746,9 @@ impl Editor {
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
+                if closed {
+                    self.message("Document closed.");
+                }
             }
             Pending::Open => {
                 if let Some(path) = rfd::FileDialog::new()
@@ -769,7 +828,10 @@ impl Editor {
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
                 self.document_settings = None;
+                self.find_replace = None;
+                self.confirm_revert = false;
                 self.edit_envelope = None;
+                self.clear_simple_button_state();
                 self.cancel_sound_properties(ctx);
                 self.cancel_layer_properties(ctx);
                 self.close_symbols_popover(ctx);
@@ -792,6 +854,64 @@ impl Editor {
             }
             Err(e) => {
                 self.message(format!("Open failed: {e}"));
+                false
+            }
+        }
+    }
+
+    pub fn can_revert(&self) -> bool {
+        self.path.is_some() && self.dirty()
+    }
+
+    pub fn request_revert(&mut self) {
+        self.finish_edits();
+        if self.can_revert() {
+            self.confirm_revert = true;
+        }
+    }
+
+    pub fn revert_to_saved(&mut self, ctx: &egui::Context) -> bool {
+        self.confirm_revert = false;
+        let Some(path) = self.path.clone() else {
+            return false;
+        };
+        self.cancel_edits();
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
+        {
+            Ok(project) => {
+                self.project = project;
+                self.clipboard = Default::default();
+                self.resource_panel = Default::default();
+                self.library_panel = Default::default();
+                self.project_panel = Default::default();
+                self.document_settings = None;
+                self.find_replace = None;
+                self.edit_envelope = None;
+                self.clear_simple_button_state();
+                self.cancel_sound_properties(ctx);
+                self.cancel_layer_properties(ctx);
+                self.close_symbols_popover(ctx);
+                self.timeline_edit = Default::default();
+                self.graphic_drop_position = None;
+                self.bitmap_textures = Default::default();
+                self.editing = vec![self.project.root.clone()];
+                self.frame = 0;
+                self.layer = 0;
+                self.clear_selection();
+                self.workspace.general.push_recent(&path);
+                self.path = Some(path);
+                self.clear_and_retarget_recovery();
+                self.history = History::new(self.workspace.undo_levels as usize);
+                self.saved_project = Some(self.project.clone());
+                self.playing = false;
+                self.load_project_fonts(ctx);
+                self.message("Project reverted to saved version.");
+                true
+            }
+            Err(e) => {
+                self.message(format!("Revert failed: {e}"));
                 false
             }
         }
@@ -823,7 +943,10 @@ impl Editor {
                             self.library_panel = Default::default();
                             self.project_panel = Default::default();
                             self.document_settings = None;
+                            self.find_replace = None;
+                            self.confirm_revert = false;
                             self.edit_envelope = None;
+                            self.clear_simple_button_state();
                             self.cancel_sound_properties(ctx);
                             self.cancel_layer_properties(ctx);
                             self.close_symbols_popover(ctx);
@@ -1298,6 +1421,40 @@ impl Editor {
                     self.set_tool(tool);
                 }
             }
+            if !self.timeline_edit.focused
+                && !self.selection.is_empty()
+                && self.object_gesture.is_none()
+                && !self.authoring_tools.is_drawing()
+                && self.shape_draft.is_none()
+                && self.vector.draft.is_none()
+            {
+                let mut nudge = [0.0, 0.0];
+                ctx.input_mut(|i| {
+                    if !i.modifiers.command && !i.modifiers.alt && !i.modifiers.ctrl {
+                        let step = if i.modifiers.shift { 10.0 } else { 1.0 };
+                        let m = if i.modifiers.shift {
+                            Modifiers::SHIFT
+                        } else {
+                            Modifiers::NONE
+                        };
+                        if i.consume_key(m, Key::ArrowLeft) {
+                            nudge[0] -= step;
+                        }
+                        if i.consume_key(m, Key::ArrowRight) {
+                            nudge[0] += step;
+                        }
+                        if i.consume_key(m, Key::ArrowUp) {
+                            nudge[1] -= step;
+                        }
+                        if i.consume_key(m, Key::ArrowDown) {
+                            nudge[1] += step;
+                        }
+                    }
+                });
+                if nudge != [0.0, 0.0] {
+                    self.nudge_selection(nudge[0], nudge[1]);
+                }
+            }
             let last = self.symbol().timeline.frame_count.saturating_sub(1);
             if self.take_command_shortcut(ctx, C::ControlStepBack) {
                 self.seek_frame(self.frame.saturating_sub(1));
@@ -1365,6 +1522,12 @@ impl Editor {
         }
 
         // File.
+        if self.take_command_shortcut(ctx, C::FileClose) {
+            self.request(Pending::CloseDocument, ctx);
+        }
+        if self.take_command_shortcut(ctx, C::FileRevert) && self.can_revert() {
+            self.request_revert();
+        }
         if self.take_command_shortcut(ctx, C::FileImportGraphics) {
             self.import_graphics_dialog();
         }
@@ -1384,7 +1547,7 @@ impl Editor {
             self.clear_selection();
         }
         if self.take_command_shortcut(ctx, C::EditFindAndReplace) {
-            Self::open_planned(ctx, "Edit ▸ Find and replace");
+            self.open_find_replace();
         }
         if self.take_command_shortcut(ctx, C::EditSymbols) {
             self.toggle_edit_symbols();
@@ -1427,6 +1590,11 @@ impl Editor {
         // Modify.
         if self.take_command_shortcut(ctx, C::ModifyDocument) {
             self.open_document_settings();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyDistributeToLayers)
+            && self.can_distribute_to_layers()
+        {
+            self.distribute_to_layers();
         }
         if self.take_command_shortcut(ctx, C::ModifyBreakApart) && !self.selection.is_empty() {
             self.break_apart_selection();
@@ -1481,6 +1649,9 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::ControlMuteSounds) {
             self.toggle_mute_sounds();
         }
+        if self.take_command_shortcut(ctx, C::ControlEnableSimpleButtons) {
+            self.set_enable_simple_buttons(!self.enable_simple_buttons);
+        }
 
         // Window.
         for panel in PanelId::DETACHABLE {
@@ -1492,8 +1663,8 @@ impl Editor {
                 self.set_panel_visible(panel, !visible);
             }
         }
-        if self.take_command_shortcut(ctx, C::WindowCompilerErrors) {
-            Self::toggle_planned(ctx, "Window ▸ Compiler errors");
+        if self.take_command_shortcut(ctx, C::WindowHidePanels) {
+            self.toggle_hide_panels();
         }
 
         // Unavailable items: consume only after active registry commands have had a chance to run,
@@ -1505,14 +1676,10 @@ impl Editor {
             Modifiers::NONE,
         );
         for (m, key) in [
-            (cmd, Key::W),
             (cmd, Key::P),
-            (cmd | shift, Key::D),
             (cmd | shift, Key::W),
             (alt | cmd, Key::H),
-            (alt | cmd, Key::B),
             (alt | cmd, Key::K),
-            (none, Key::F4),
             (none, Key::F1),
         ] {
             ctx.input_mut(|i| {
@@ -1622,6 +1789,7 @@ impl Editor {
             self.fonts.ensure_loaded(ctx, &font);
         }
         self.preferences_dialog(ctx);
+        self.find_replace_dialog(ctx);
         self.edit_envelope_dialog(ctx);
         self.sound_properties_dialog(ctx);
         self.layer_properties_dialog(ctx);
@@ -1685,6 +1853,82 @@ impl Editor {
             let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
             if close || enter || modal.should_close() {
                 self.show_about = false;
+            }
+        }
+        if self.confirm_revert {
+            // 0 = Revert, 1 = Cancel.
+            let mut action = None;
+            let name = self.project.name.clone();
+            let modal = egui::Modal::new(egui::Id::new("revert-changes"))
+                .frame(Surface::Dialog.frame(ctx))
+                .backdrop_color(p.overlay)
+                .show(ctx, |ui| {
+                    ui.set_width(480.);
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::same(space::S5 as i8))
+                        .show(ui, |ui| {
+                            ui.horizontal_top(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S4;
+                                let (badge, _) = ui.allocate_exact_size(
+                                    egui::vec2(40., 40.),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(badge.center(), 20., p.warning_subtle);
+                                neoflash_ui::icons::paint(
+                                    ui.painter(),
+                                    ctx,
+                                    badge,
+                                    neoflash_ui::icons::i16::WARNING,
+                                    p.warning_default,
+                                );
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = space::S1;
+                                    ui.label(
+                                        rich("Revert to saved version?", TextStyle::DialogTitle)
+                                            .color(p.text_primary),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            rich(
+                                                format!(
+                                                    "Your unsaved changes to “{name}” will be lost and the last saved version on disk will be reloaded."
+                                                ),
+                                                TextStyle::DialogBody,
+                                            )
+                                            .color(p.text_secondary),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                            });
+                        });
+                    let (mut revert, mut cancel) = (false, false);
+                    dialog_footer(
+                        ui,
+                        |_| {},
+                        |ui| {
+                            revert = ui.add(Button::danger("Revert").shortcut("↵")).clicked();
+                            cancel = ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
+                        },
+                    );
+                    if revert {
+                        action = Some(0);
+                    } else if cancel {
+                        action = Some(1);
+                    }
+                });
+            if action.is_none() {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                    action = Some(0);
+                } else if modal.should_close() {
+                    action = Some(1);
+                }
+            }
+            if let Some(action) = action {
+                self.confirm_revert = false;
+                if action == 0 {
+                    self.revert_to_saved(ctx);
+                }
             }
         }
         if let Some(pending) = self.confirm.clone() {
@@ -1894,7 +2138,9 @@ impl eframe::App for Editor {
         self.status_bar(ctx);
         self.bitmap_textures.begin_frame(&self.project);
         self.prepare_docked_panel_focus(ctx);
-        self.dock_grid(ctx);
+        if !self.panels_hidden {
+            self.dock_grid(ctx);
+        }
         self.stage(ctx);
         self.draw_dialogs(ctx);
         self.symbol_creation_dialog(ctx);

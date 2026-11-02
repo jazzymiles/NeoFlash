@@ -64,6 +64,9 @@ pub(crate) struct Node {
     /// Local script property; inherited visibility must not change readback.
     pub visible: bool,
     pub effective_visible: bool,
+    pub blend_mode: BlendMode,
+    pub cache_as_bitmap: bool,
+    pub filters: Vec<FilterSpec>,
     pub kind: Option<ElementKind>,
 }
 
@@ -194,6 +197,147 @@ fn color_lerp(a: Color, b: Color, t: f64) -> Color {
     std::array::from_fn(|i| lerp(a[i] as f64, b[i] as f64, t).clamp(0., 255.).round() as u8)
 }
 
+fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSpec> {
+    let lerp_rgb = |ca: u32, cb: u32| -> u32 {
+        let ch = |c: u32, shift: u32| ((c >> shift) & 0xff) as f64;
+        let r = lerp(ch(ca, 16), ch(cb, 16), t).round().clamp(0.0, 255.0) as u32;
+        let g = lerp(ch(ca, 8), ch(cb, 8), t).round().clamp(0.0, 255.0) as u32;
+        let bl = lerp(ch(ca, 0), ch(cb, 0), t).round().clamp(0.0, 255.0) as u32;
+        (r << 16) | (g << 8) | bl
+    };
+    match (a, b) {
+        (
+            FilterSpec::Blur {
+                blur_x: ax,
+                blur_y: ay,
+                quality,
+            },
+            FilterSpec::Blur {
+                blur_x: bx,
+                blur_y: by,
+                ..
+            },
+        ) => Some(FilterSpec::Blur {
+            blur_x: lerp(*ax, *bx, t),
+            blur_y: lerp(*ay, *by, t),
+            quality: *quality,
+        }),
+        (
+            FilterSpec::Glow {
+                color: ac,
+                alpha: aa,
+                blur_x: ax,
+                blur_y: ay,
+                strength: ast,
+                quality,
+                inner,
+                knockout,
+            },
+            FilterSpec::Glow {
+                color: bc,
+                alpha: ba,
+                blur_x: bx,
+                blur_y: by,
+                strength: bst,
+                ..
+            },
+        ) => Some(FilterSpec::Glow {
+            color: lerp_rgb(*ac, *bc),
+            alpha: lerp(*aa, *ba, t),
+            blur_x: lerp(*ax, *bx, t),
+            blur_y: lerp(*ay, *by, t),
+            strength: lerp(*ast, *bst, t),
+            quality: *quality,
+            inner: *inner,
+            knockout: *knockout,
+        }),
+        (
+            FilterSpec::DropShadow {
+                distance: ad,
+                angle: aang,
+                color: ac,
+                alpha: aa,
+                blur_x: ax,
+                blur_y: ay,
+                strength: ast,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            },
+            FilterSpec::DropShadow {
+                distance: bd,
+                angle: bang,
+                color: bc,
+                alpha: ba,
+                blur_x: bx,
+                blur_y: by,
+                strength: bst,
+                ..
+            },
+        ) => Some(FilterSpec::DropShadow {
+            distance: lerp(*ad, *bd, t),
+            angle: lerp(*aang, *bang, t),
+            color: lerp_rgb(*ac, *bc),
+            alpha: lerp(*aa, *ba, t),
+            blur_x: lerp(*ax, *bx, t),
+            blur_y: lerp(*ay, *by, t),
+            strength: lerp(*ast, *bst, t),
+            quality: *quality,
+            inner: *inner,
+            knockout: *knockout,
+            hide_object: *hide_object,
+        }),
+        (FilterSpec::ColorMatrix { matrix: am }, FilterSpec::ColorMatrix { matrix: bm }) => {
+            Some(FilterSpec::ColorMatrix {
+                matrix: std::array::from_fn(|i| lerp(am[i], bm[i], t)),
+            })
+        }
+        (
+            FilterSpec::Bevel {
+                distance: ad,
+                angle: aang,
+                highlight_color: ahc,
+                highlight_alpha: aha,
+                shadow_color: asc,
+                shadow_alpha: asa,
+                blur_x: ax,
+                blur_y: ay,
+                strength: ast,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpec::Bevel {
+                distance: bd,
+                angle: bang,
+                highlight_color: bhc,
+                highlight_alpha: bha,
+                shadow_color: bsc,
+                shadow_alpha: bsa,
+                blur_x: bx,
+                blur_y: by,
+                strength: bst,
+                ..
+            },
+        ) => Some(FilterSpec::Bevel {
+            distance: lerp(*ad, *bd, t),
+            angle: lerp(*aang, *bang, t),
+            highlight_color: lerp_rgb(*ahc, *bhc),
+            highlight_alpha: lerp(*aha, *bha, t),
+            shadow_color: lerp_rgb(*asc, *bsc),
+            shadow_alpha: lerp(*asa, *bsa, t),
+            blur_x: lerp(*ax, *bx, t),
+            blur_y: lerp(*ay, *by, t),
+            strength: lerp(*ast, *bst, t),
+            quality: *quality,
+            placement: placement.clone(),
+            knockout: *knockout,
+        }),
+        _ => None,
+    }
+}
+
 fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
     let mut e = a.clone();
     let (x, y) = (a.transform, b.transform);
@@ -249,6 +393,16 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         pivot,
         primitive,
     };
+    if a.filters.len() == b.filters.len()
+        && let Some(interpolated) = a
+            .filters
+            .iter()
+            .zip(&b.filters)
+            .map(|(fa, fb)| interpolate_filter(fa, fb, t))
+            .collect::<Option<Vec<_>>>()
+    {
+        e.filters = interpolated;
+    }
     match (&a.kind, &b.kind, &mut e.kind) {
         (
             ElementKind::Video {
@@ -907,6 +1061,9 @@ pub(crate) fn snapshot_mode(
         alpha: transform.alpha,
         visible,
         effective_visible: visible,
+        blend_mode: BlendMode::Normal,
+        cache_as_bitmap: false,
+        filters: vec![],
         kind: None,
     });
     let mut walker = Walker {
@@ -981,7 +1138,7 @@ impl Walker<'_> {
                 let mut path = parent.to_vec();
                 path.push(e.id.clone());
                 let patch = (self.patch)(&path);
-                let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(true);
+                let visible = patch.as_ref().and_then(|p| p.visible).unwrap_or(e.visible);
                 let button_frame = patch.as_ref().and_then(|p| p.button_frame).unwrap_or(0);
                 if let Some(patch) = patch {
                     patch.apply(&mut e.transform);
@@ -1031,6 +1188,9 @@ impl Walker<'_> {
                     alpha: opacity,
                     visible,
                     effective_visible,
+                    blend_mode: e.blend_mode,
+                    cache_as_bitmap: e.cache_as_bitmap,
+                    filters: e.filters.clone(),
                     kind: None,
                 };
                 if let ElementKind::Instance {

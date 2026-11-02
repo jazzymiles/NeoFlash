@@ -336,6 +336,7 @@ impl Editor {
     pub(crate) fn leave_to_level(&mut self, index: usize) {
         self.finish_edits();
         self.timeline_key_drag = None;
+        self.clear_simple_button_state();
         self.editing.truncate(index + 1);
         self.reset_authored_preview();
         self.frame = 0;

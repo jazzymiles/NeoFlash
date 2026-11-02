@@ -13,7 +13,7 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 
 ### ActionScript: Flash Player areas
 
-**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-11-01.
+**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-11-02.
 
 #### ActionScript 3 — Flash Player
 
@@ -26,9 +26,9 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | 5. Graphics, bitmaps and filters | 313 | 307 | 6 | 0 | 0 | 98.1% | 100.0% |
 | 6. Text and fonts | 174 | 144 | 28 | 2 | 0 | 82.8% | 98.9% |
 | 7. File audio and video playback | 91 | 5 | 34 | 52 | 0 | 5.5% | 42.9% |
-| 8. Services and advanced Player APIs | 2,134 | 82 | 293 | 1,759 | 0 | 3.8% | 17.6% |
+| 8. Services and advanced Player APIs | 2,134 | 83 | 292 | 1,759 | 0 | 3.9% | 17.6% |
 | **Now: areas 1–6** | 1,939 | 1,565 | 331 | 43 | 0 | 80.7% | 97.8% |
-| **All Flash Player areas** | 4,164 | 1,652 | 658 | 1,854 | 0 | 39.7% | 55.5% |
+| **All Flash Player areas** | 4,164 | 1,653 | 657 | 1,854 | 0 | 39.7% | 55.5% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 84 of 113 | 11 | 18 | 4 / 8 / 0 |
-| Timelines and animation | 61 of 74 | 8 | 5 | 5 / 5 / 0 |
-| HTML5 and interactivity | 47 of 74 | 4 | 23 | 5 / 5 / 2 |
+| Editor and graphics | 90 of 119 | 12 | 17 | 4 / 8 / 0 |
+| Timelines and animation | 61 of 75 | 9 | 5 | 5 / 5 / 0 |
+| HTML5 and interactivity | 50 of 77 | 4 | 23 | 5 / 5 / 2 |
 | Import and file compatibility | 46 of 67 | 14 | 7 | 1 / 8 / 1 |
 | Platform and quality | 35 of 51 | 0 | 16 | 4 / 5 / 1 |
-| **All areas** | 273 of 379 | 37 | 69 | 19 / 31 / 4 |
+| **All areas** | 282 of 389 | 39 | 68 | 19 / 31 / 4 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

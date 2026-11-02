@@ -1032,6 +1032,7 @@ impl Editor {
                 },
                 scripts: vec![],
                 accessibility: None,
+                ..Element::default()
             });
             timeline.layers.retain(|l| !selected.contains(&l.id));
             timeline.layers.insert(index, replacement);

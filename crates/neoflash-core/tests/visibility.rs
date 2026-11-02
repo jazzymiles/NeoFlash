@@ -30,6 +30,7 @@ fn object(id: &str, kind: ElementKind) -> Element {
             script: script(&format!("trace('{id}');")),
         })
         .collect(),
+        ..Element::default()
     }
 }
 fn leaf(id: &str) -> Element {

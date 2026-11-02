@@ -641,6 +641,7 @@ impl Editor {
                         );
                     }
                 }
+                let simple_button_consumed = self.update_simple_buttons_stage(ui, &p, rect, origin);
                 let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
                 self.paint_authored_scene(
                     &content,
@@ -675,105 +676,109 @@ impl Editor {
                 );
                 self.paint_motion_path(&p, origin);
                 self.paint_stage_guides(&p, rect, origin);
-                let extended_tool = self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
-                if !extended_tool {
-                    let zoom = self.zoom;
-                    let to_local = |pos: Pos2| (pos - origin) / zoom;
-                    let on_path_handle = self.tool == Tool::Subselect
-                        && (self.selected_sampled().is_some_and(|e| {
-                            if let ElementKind::Path { commands, .. }
-                            | ElementKind::PaintedPath { commands, .. } = &e.kind
-                            {
-                                let matrix = transform_matrix(e.transform);
-                                response.interact_pointer_pos().is_some_and(|pos| {
-                                    crate::vector::handles(commands).iter().any(|h| {
-                                        (origin + affine(matrix, h.point).to_vec2() * zoom)
-                                            .distance(pos)
-                                            < 8.
+                if !simple_button_consumed {
+                    let extended_tool =
+                        self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
+                    if !extended_tool {
+                        let zoom = self.zoom;
+                        let to_local = |pos: Pos2| (pos - origin) / zoom;
+                        let on_path_handle = self.tool == Tool::Subselect
+                            && (self.selected_sampled().is_some_and(|e| {
+                                if let ElementKind::Path { commands, .. }
+                                | ElementKind::PaintedPath { commands, .. } = &e.kind
+                                {
+                                    let matrix = transform_matrix(e.transform);
+                                    response.interact_pointer_pos().is_some_and(|pos| {
+                                        crate::vector::handles(commands).iter().any(|h| {
+                                            (origin + affine(matrix, h.point).to_vec2() * zoom)
+                                                .distance(pos)
+                                                < 8.
+                                        })
                                     })
-                                })
-                            } else {
-                                false
-                            }
-                        }) || ((ui.input(|i| {
-                            i.modifiers.alt
-                                || i.events.iter().any(|e| {
-                                    matches!(
-                                        e,
-                                        egui::Event::PointerButton {
-                                            pressed: true,
-                                            modifiers,
-                                            ..
-                                        } if modifiers.alt
-                                    )
-                                })
-                        }) || response.double_clicked())
-                            && response
-                                .interact_pointer_pos()
-                                .is_some_and(|pos| self.on_selected_path_segment(origin, pos))));
-                    let clicked = response.clicked() && !self.stage_view.guide_pointer;
-                    if clicked
-                        && self.tool == Tool::Subselect
-                        && !on_path_handle
-                        && self.vector.point_drag.is_none()
-                        && let Some(pos) = response.interact_pointer_pos()
-                    {
-                        if let Some(target) =
-                            self.pick_placement(&scene, &p, Pos2::ZERO + to_local(pos))
+                                } else {
+                                    false
+                                }
+                            }) || ((ui.input(|i| {
+                                i.modifiers.alt
+                                    || i.events.iter().any(|e| {
+                                        matches!(
+                                            e,
+                                            egui::Event::PointerButton {
+                                                pressed: true,
+                                                modifiers,
+                                                ..
+                                            } if modifiers.alt
+                                        )
+                                    })
+                            }) || response.double_clicked())
+                                && response.interact_pointer_pos().is_some_and(|pos| {
+                                    self.on_selected_path_segment(origin, pos)
+                                })));
+                        let clicked = response.clicked() && !self.stage_view.guide_pointer;
+                        if clicked
+                            && self.tool == Tool::Subselect
+                            && !on_path_handle
+                            && self.vector.point_drag.is_none()
+                            && let Some(pos) = response.interact_pointer_pos()
                         {
-                            self.set_selection(vec![target]);
-                        } else {
-                            self.clear_selection();
+                            if let Some(target) =
+                                self.pick_placement(&scene, &p, Pos2::ZERO + to_local(pos))
+                            {
+                                self.set_selection(vec![target]);
+                            } else {
+                                self.clear_selection();
+                            }
                         }
-                    }
-                    self.selection_stage(ui, &p, origin, rect, &scene, &response);
-                    self.shape_stage(ui, &p, origin, page, rect);
-                    if clicked
-                        && self.tool == Tool::Text
-                        && let Some(pos) = response.interact_pointer_pos()
-                        && page.contains(pos)
-                    {
-                        let local = to_local(pos);
-                        // Preferences ▸ Text ▸ Default font and size.
-                        let preferred = self.workspace.text_font.clone();
-                        let font =
-                            if !preferred.is_empty() && self.fonts.families.contains(&preferred) {
+                        self.selection_stage(ui, &p, origin, rect, &scene, &response);
+                        self.shape_stage(ui, &p, origin, page, rect);
+                        if clicked
+                            && self.tool == Tool::Text
+                            && let Some(pos) = response.interact_pointer_pos()
+                            && page.contains(pos)
+                        {
+                            let local = to_local(pos);
+                            // Preferences ▸ Text ▸ Default font and size.
+                            let preferred = self.workspace.text_font.clone();
+                            let font = if !preferred.is_empty()
+                                && self.fonts.families.contains(&preferred)
+                            {
                                 preferred
                             } else if self.fonts.families.iter().any(|s| s == "Arial") {
                                 "Arial".to_owned()
                             } else {
                                 "Helvetica".to_owned()
                             };
-                        let size = self.workspace.text_size;
-                        let _ = self.fonts.load(ctx, &font);
-                        self.add_element_transformed(
-                            ElementKind::TextBox {
-                                text: "Your text".into(),
-                                width: 240.,
-                                height: 100.,
-                                format: TextFormat {
-                                    font,
-                                    size,
-                                    color: u32::from_be_bytes([
-                                        0,
-                                        self.fill[0],
-                                        self.fill[1],
-                                        self.fill[2],
-                                    ]),
+                            let size = self.workspace.text_size;
+                            let _ = self.fonts.load(ctx, &font);
+                            self.add_element_transformed(
+                                ElementKind::TextBox {
+                                    text: "Your text".into(),
+                                    width: 240.,
+                                    height: 100.,
+                                    format: TextFormat {
+                                        font,
+                                        size,
+                                        color: u32::from_be_bytes([
+                                            0,
+                                            self.fill[0],
+                                            self.fill[1],
+                                            self.fill[2],
+                                        ]),
+                                        ..Default::default()
+                                    },
+                                    multiline: true,
+                                    word_wrap: true,
+                                },
+                                Transform {
+                                    x: local.x as f64,
+                                    y: local.y as f64,
+                                    alpha: self.fill[3] as f64 / 255.,
                                     ..Default::default()
                                 },
-                                multiline: true,
-                                word_wrap: true,
-                            },
-                            Transform {
-                                x: local.x as f64,
-                                y: local.y as f64,
-                                alpha: self.fill[3] as f64 / 255.,
-                                ..Default::default()
-                            },
-                        );
+                            );
+                        }
+                        self.vector_stage(ui, &content, origin, page, &response);
                     }
-                    self.vector_stage(ui, &content, origin, page, &response);
                 }
                 self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, origin);
@@ -862,7 +867,17 @@ impl Editor {
             self.create_tween(TweenKind::Motion);
             ui.close();
         }
-        Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
+        if menu_item_enabled(
+            ui,
+            self.can_distribute_to_layers(),
+            "Distribute to layers",
+            "⇧⌘D",
+        )
+        .clicked()
+        {
+            self.distribute_to_layers();
+            ui.close();
+        }
         nf::menu_separator(ui);
         self.arrange_menu(ui);
         self.align_menu(ui);
@@ -873,6 +888,114 @@ impl Editor {
             self.show_panel(crate::workspace::PanelId::Library);
             ui.close();
         }
+    }
+
+    /// Hit-test top-level visible `SymbolKind::Button` instances on `self.frame` front-to-back,
+    /// using frame `3` (`Hit`) when present and non-empty, otherwise falling back to frame `0` (`Up`).
+    pub(crate) fn hit_test_simple_button(
+        &self,
+        painter: &egui::Painter,
+        stage_point: Pos2,
+    ) -> Option<Id> {
+        let timeline = &self.symbol().timeline;
+        let zoom = self.zoom.max(0.1);
+        for layer in timeline.layers.iter().rev() {
+            if layer.properties.role != LayerRole::Normal
+                || !layer_effectively_visible(timeline, layer)
+            {
+                continue;
+            }
+            for el in sample_layer_in(timeline, layer, self.frame)
+                .into_iter()
+                .rev()
+            {
+                let ElementKind::Instance { symbol_id, .. } = &el.kind else {
+                    continue;
+                };
+                let Some(btn_sym) = self.project.symbol(symbol_id) else {
+                    continue;
+                };
+                if btn_sym.kind != SymbolKind::Button {
+                    continue;
+                }
+                let Some(local_pt) = inverse(transform_matrix(el.transform), stage_point) else {
+                    continue;
+                };
+                let hit_items = if btn_sym.timeline.frame_count > 3 {
+                    let hit = evaluate(&self.project, symbol_id, 3);
+                    if hit.is_empty() {
+                        evaluate(&self.project, symbol_id, 0)
+                    } else {
+                        hit
+                    }
+                } else {
+                    evaluate(&self.project, symbol_id, 0)
+                };
+                if hit_items
+                    .iter()
+                    .rev()
+                    .any(|item| hit_item(item, painter, local_pt, zoom))
+                {
+                    return Some(el.id);
+                }
+            }
+        }
+        None
+    }
+
+    fn update_simple_buttons_stage(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        rect: Rect,
+        origin: Pos2,
+    ) -> bool {
+        if !self.enable_simple_buttons
+            || self.playing
+            || self.stage_view.guide_pointer
+            || self.timeline_motion.drag.is_some()
+        {
+            self.clear_simple_button_state();
+            return false;
+        }
+        let pointer_pos = ui.input(|i| i.pointer.latest_pos());
+        let over_canvas = pointer_pos.is_some_and(|pos| {
+            rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+        });
+        let hit = if over_canvas {
+            let pos = pointer_pos.unwrap();
+            let stage_pt = Pos2::ZERO + (pos - origin) / self.zoom.max(0.01);
+            self.hit_test_simple_button(painter, stage_pt)
+        } else {
+            None
+        };
+        let (primary_pressed, primary_down, primary_released) = ui.input(|i| {
+            (
+                i.pointer.button_pressed(egui::PointerButton::Primary),
+                i.pointer.primary_down(),
+                i.pointer.button_released(egui::PointerButton::Primary),
+            )
+        });
+        self.hovered_simple_button = hit.clone();
+        if primary_pressed {
+            if let Some(id) = hit {
+                self.finish_edits();
+                self.pressed_simple_button = Some(id);
+                self.simple_button_capturing = true;
+            } else {
+                self.pressed_simple_button = None;
+                self.simple_button_capturing = false;
+            }
+        }
+        let consumed = self.simple_button_capturing;
+        if !primary_down || primary_released {
+            self.pressed_simple_button = None;
+            self.simple_button_capturing = false;
+        }
+        if self.pressed_simple_button.is_some() || self.hovered_simple_button.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        consumed
     }
 }
 

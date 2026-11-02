@@ -5,12 +5,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let mut source = None;
     let mut demo = false;
+    let mut size_report = false;
+    let mut has_output = false;
     let mut output = PathBuf::from("dist/html5");
     let mut runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--demo" => demo = true,
+            "--size-report" => size_report = true,
             "--output" => {
+                has_output = true;
                 output = PathBuf::from(args.next().ok_or("--output requires a directory")?)
             }
             "--runtime" => {
@@ -18,7 +22,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]"
                 );
                 return Ok(());
             }
@@ -40,8 +44,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             source.ok_or("Supply a project or --demo")?,
         )?)?
     };
+    if size_report && !has_output {
+        print!("{}", neoflash_export::format_size_report(&project)?);
+        return Ok(());
+    }
     let index = neoflash_export::export_project(&project, &output, &runtime)?;
     println!("HTML5 export: {}", index.display());
+    if size_report {
+        let report = neoflash_export::format_size_report(&project)?;
+        print!("{report}");
+    }
     for warning in neoflash_export::export_warnings(&project) {
         eprintln!("Note: {warning}");
     }

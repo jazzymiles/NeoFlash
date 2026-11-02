@@ -935,6 +935,190 @@ fn shadow(
     }
 }
 
+pub const IDENTITY_COLOR_MATRIX: [f64; 20] = [
+    1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 1., 0.,
+];
+
+/// Compose a 4x5 `ColorMatrix` for Flash's authoring Adjust Color filter.
+///
+/// `brightness`, `contrast`, and `saturation` are clamped to `-100..=100`;
+/// `hue` is clamped to `-180..=180` degrees. Offsets (`matrix[4, 9, 14, 19]`)
+/// use `0..=255` byte channel units matching `FilterSpec::ColorMatrix`.
+pub fn adjust_color_matrix(brightness: f64, contrast: f64, saturation: f64, hue: f64) -> [f64; 20] {
+    let sanitize = |v: f64, lo: f64, hi: f64| if v.is_finite() { v.clamp(lo, hi) } else { 0.0 };
+    let b = sanitize(brightness, -100.0, 100.0);
+    let c = sanitize(contrast, -100.0, 100.0);
+    let s = sanitize(saturation, -100.0, 100.0);
+    let h = sanitize(hue, -180.0, 180.0);
+    if b == 0.0 && c == 0.0 && s == 0.0 && h == 0.0 {
+        return IDENTITY_COLOR_MATRIX;
+    }
+
+    const LR: f64 = 0.213;
+    const LG: f64 = 0.715;
+    const LB: f64 = 0.072;
+
+    let mut m = IDENTITY_COLOR_MATRIX;
+    let concat = |lhs: &[f64; 20], rhs: &[f64; 20]| -> [f64; 20] {
+        let mut out = [0.0; 20];
+        for row in 0..4 {
+            let l = &lhs[row * 5..row * 5 + 5];
+            for col in 0..5 {
+                let mut sum = if col == 4 { l[4] } else { 0.0 };
+                for k in 0..4 {
+                    sum += l[k] * rhs[k * 5 + col];
+                }
+                out[row * 5 + col] = sum;
+            }
+        }
+        out
+    };
+
+    if h != 0.0 {
+        let rad = h.to_radians();
+        let cos = rad.cos();
+        let sin = rad.sin();
+        let hue_m = [
+            LR + cos * (1.0 - LR) - sin * LR,
+            LG - cos * LG - sin * LG,
+            LB - cos * LB + sin * (1.0 - LB),
+            0.0,
+            0.0,
+            LR - cos * LR + sin * 0.143,
+            LG + cos * (1.0 - LG) + sin * 0.140,
+            LB - cos * LB - sin * 0.283,
+            0.0,
+            0.0,
+            LR - cos * LR - sin * (1.0 - LR),
+            LG - cos * LG + sin * LG,
+            LB + cos * (1.0 - LB) + sin * LB,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+        ];
+        m = concat(&hue_m, &m);
+    }
+
+    if s != 0.0 {
+        let sat = if s <= 0.0 {
+            1.0 + s / 100.0
+        } else {
+            1.0 + 3.0 * (s / 100.0)
+        };
+        let inv = 1.0 - sat;
+        let sat_m = [
+            inv * LR + sat,
+            inv * LG,
+            inv * LB,
+            0.0,
+            0.0,
+            inv * LR,
+            inv * LG + sat,
+            inv * LB,
+            0.0,
+            0.0,
+            inv * LR,
+            inv * LG,
+            inv * LB + sat,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+        ];
+        m = concat(&sat_m, &m);
+    }
+
+    if c != 0.0 {
+        let norm = c / 100.0;
+        let gain = if c <= 0.0 {
+            1.0 + norm
+        } else {
+            1.0 + norm * 3.0 + norm.powi(3) * 6.0
+        };
+        let off = 127.5 * (1.0 - gain);
+        let con_m = [
+            gain, 0.0, 0.0, 0.0, off, 0.0, gain, 0.0, 0.0, off, 0.0, 0.0, gain, 0.0, off, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+        ];
+        m = concat(&con_m, &m);
+    }
+
+    if b != 0.0 {
+        let off = b * 2.55;
+        m[4] += off;
+        m[9] += off;
+        m[14] += off;
+    }
+
+    m
+}
+
+impl FilterSpec {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::DropShadow { .. } => "Drop shadow",
+            Self::Blur { .. } => "Blur",
+            Self::Glow { .. } => "Glow",
+            Self::Bevel { .. } => "Bevel",
+            Self::GradientGlow { .. } => "Gradient glow",
+            Self::GradientBevel { .. } => "Gradient bevel",
+            Self::ColorMatrix { .. } => "Adjust color",
+            Self::Convolution { .. } => "Convolution",
+        }
+    }
+
+    pub fn summary_value(&self) -> String {
+        let fmt = |v: f64| {
+            if (v - v.round()).abs() < 0.05 {
+                format!("{:.0}", v.round())
+            } else {
+                format!("{v:.1}")
+            }
+        };
+        match self {
+            Self::DropShadow {
+                blur_x, distance, ..
+            } => format!("{} px · {} px", fmt(*blur_x), fmt(*distance)),
+            Self::Blur { blur_x, blur_y, .. } => {
+                if (*blur_x - *blur_y).abs() < 0.05 {
+                    format!("{} px", fmt(*blur_x))
+                } else {
+                    format!("{} × {} px", fmt(*blur_x), fmt(*blur_y))
+                }
+            }
+            Self::Glow {
+                blur_x, strength, ..
+            } => format!("{} px · {:.0}%", fmt(*blur_x), (*strength * 100.0).round()),
+            Self::Bevel {
+                blur_x, distance, ..
+            }
+            | Self::GradientGlow {
+                blur_x, distance, ..
+            }
+            | Self::GradientBevel {
+                blur_x, distance, ..
+            } => format!("{} px · {} px", fmt(*blur_x), fmt(*distance)),
+            Self::ColorMatrix { matrix } => {
+                if *matrix == IDENTITY_COLOR_MATRIX {
+                    "Identity".into()
+                } else {
+                    "4×5 matrix".into()
+                }
+            }
+            Self::Convolution {
+                matrix_x, matrix_y, ..
+            } => format!("{matrix_x}×{matrix_y}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1071,5 +1255,57 @@ mod tests {
         }
         assert!(bad_matrix.validate().is_err());
         assert!(filter_rgba(7, 7, &shape, &vec![bevel; 9]).is_err());
+    }
+
+    #[test]
+    fn adjust_color_matrix_covers_identity_grayscale_brightness_contrast_and_hue() {
+        assert_eq!(
+            adjust_color_matrix(0.0, 0.0, 0.0, 0.0),
+            IDENTITY_COLOR_MATRIX
+        );
+        let pixel = [200u8, 100, 50, 255];
+
+        // Desaturating to -100 produces equal R=G=B luminance while preserving alpha.
+        let gray = FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(0.0, 0.0, -100.0, 0.0),
+        };
+        gray.validate().unwrap();
+        let gray_px = filter_rgba(1, 1, &pixel, &[gray]).unwrap();
+        assert_eq!(gray_px[0], gray_px[1]);
+        assert_eq!(gray_px[1], gray_px[2]);
+        assert_eq!(gray_px[3], 255);
+
+        // Hue rotation preserves neutral grays and rotates primary channels.
+        let hue = FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(0.0, 0.0, 0.0, 120.0),
+        };
+        hue.validate().unwrap();
+        let neutral = filter_rgba(1, 1, &[128, 128, 128, 255], std::slice::from_ref(&hue)).unwrap();
+        assert_eq!(neutral, vec![128, 128, 128, 255]);
+        let rotated = filter_rgba(1, 1, &[255, 0, 0, 255], &[hue]).unwrap();
+        assert_ne!(rotated[0], 255);
+
+        // Minimum contrast collapses RGB toward midpoint 128; extreme brightness clamps to black/white.
+        let flat = FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(0.0, -100.0, 0.0, 0.0),
+        };
+        assert_eq!(
+            filter_rgba(1, 1, &pixel, &[flat]).unwrap(),
+            vec![128, 128, 128, 255]
+        );
+        let dark = FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(-100.0, 0.0, 0.0, 0.0),
+        };
+        assert_eq!(
+            filter_rgba(1, 1, &pixel, &[dark]).unwrap(),
+            vec![0, 0, 0, 255]
+        );
+        let bright = FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(100.0, 0.0, 0.0, 0.0),
+        };
+        assert_eq!(
+            filter_rgba(1, 1, &[10, 20, 30, 200], &[bright]).unwrap(),
+            vec![255, 255, 255, 200]
+        );
     }
 }

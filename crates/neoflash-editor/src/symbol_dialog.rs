@@ -345,6 +345,10 @@ impl Editor {
             };
             content.scripts.clear();
             content.accessibility = None;
+            content.visible = true;
+            content.cache_as_bitmap = false;
+            content.blend_mode = BlendMode::Normal;
+            content.filters.clear();
             instance
         } else {
             for element in &mut elements {
@@ -366,6 +370,7 @@ impl Editor {
                 },
                 scripts: vec![],
                 accessibility: None,
+                ..Element::default()
             }
         };
         instance.kind = ElementKind::Instance {

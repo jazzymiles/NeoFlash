@@ -30,13 +30,8 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("File ▸ Export ▸ Export video…", P::ExportVideo),
     ("File ▸ Export ▸ Export audio…", P::ExportAudio),
     ("File ▸ Publish settings…", P::PublishSettings),
-    ("Edit ▸ Find and replace", P::FindReplace),
-    ("Window ▸ Compiler errors", P::CompilerErrors),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
-    ("Window ▸ Code snippets", P::CodeSnippets),
-    ("Window ▸ Movie Explorer", P::MovieExplorer),
-    ("Window ▸ Filters", P::PropertiesFilters),
     // Panel menus (§6).
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
@@ -69,7 +64,7 @@ fn entry_label(path: &str) -> &str {
 }
 
 /// Real panels in Window, in §8 order, with their shortcuts.
-const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
+const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
     ("Timeline", "⌥⌘T", PanelId::Timeline),
     ("Tools", "⌘F2", PanelId::Tools),
     ("Properties", "⌘F3", PanelId::Properties),
@@ -84,9 +79,13 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 17] = [
     ("History", "⌘F10", PanelId::History),
     ("Scene", "⇧F2", PanelId::Scene),
     ("Output", "F2", PanelId::Output),
+    ("Compiler errors", "⌥F2", PanelId::CompilerErrors),
     ("Accessibility", "⇧F11", PanelId::Accessibility),
     ("Motion editor", "", PanelId::MotionEditor),
     ("Project", "", PanelId::Project),
+    ("Code snippets", "", PanelId::CodeSnippets),
+    ("Movie Explorer", "", PanelId::MovieExplorer),
+    ("Filters", "", PanelId::Filters),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +99,8 @@ enum ConvertedTrigger {
     LayerProperties,
     SymbolsPopover,
     TestScene,
+    FindReplace,
+    ShowPanel(PanelId),
 }
 
 fn converted_triggers_id() -> egui::Id {
@@ -119,6 +120,15 @@ impl Editor {
             "Edit ▸ Keyboard shortcuts…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_SHORTCUTS,
             )),
+            "Edit ▸ Find and replace" => Some(ConvertedTrigger::FindReplace),
+            "Window ▸ Compiler errors" => {
+                Some(ConvertedTrigger::ShowPanel(PanelId::CompilerErrors))
+            }
+            "Window ▸ Code snippets" => Some(ConvertedTrigger::ShowPanel(PanelId::CodeSnippets)),
+            "Window ▸ Movie Explorer" => {
+                Some(ConvertedTrigger::ShowPanel(PanelId::MovieExplorer))
+            }
+            "Window ▸ Filters" => Some(ConvertedTrigger::ShowPanel(PanelId::Filters)),
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
@@ -164,6 +174,8 @@ impl Editor {
                 ConvertedTrigger::LayerProperties => self.open_layer_properties(ctx, self.layer),
                 ConvertedTrigger::SymbolsPopover => self.open_symbols_popover(ctx, None),
                 ConvertedTrigger::TestScene => self.test_scene(),
+                ConvertedTrigger::FindReplace => self.open_find_replace(),
+                ConvertedTrigger::ShowPanel(panel) => self.show_panel(panel),
             }
         }
     }
@@ -187,13 +199,6 @@ impl Editor {
         match self.history.redo_label() {
             Some(step) if !step.is_empty() => format!("Redo {step}"),
             _ => "Redo".to_owned(),
-        }
-    }
-
-    /// Show or hide the preview registered for `path` (Window shortcuts).
-    pub(crate) fn toggle_planned(ctx: &egui::Context, path: &str) {
-        if let Some(panel) = planned_entry(path) {
-            planned::set_open(ctx, panel, !planned::is_open(ctx, panel));
         }
     }
 
@@ -374,8 +379,9 @@ impl Editor {
         let widest_recent = recent
             .iter()
             .map(|p| Self::recent_file_label(p))
+            .chain(std::iter::once("Clear recent".to_owned()))
             .max_by_key(|s| s.len())
-            .unwrap_or_default();
+            .unwrap_or_else(|| "Clear recent".to_owned());
         ui.add_enabled_ui_semantic(!recent.is_empty(), |ui| {
             menu_popup(ui, "Open recent", &widest_recent, "", |ui| {
                 for path in recent {
@@ -386,9 +392,17 @@ impl Editor {
                         ui.close();
                     }
                 }
+                nf::menu_separator(ui);
+                if menu_item(ui, "Clear recent", "").clicked() {
+                    self.workspace.clear_recent_files();
+                    ui.close();
+                }
             });
         });
-        Self::unavailable_item(ui, "Close", "⌘W");
+        if menu_item(ui, "Close", &self.sc(C::FileClose)).clicked() {
+            self.request(Pending::CloseDocument, ctx);
+            ui.close();
+        }
         nf::menu_separator(ui);
         if menu_item(ui, "Save", &self.sc(C::FileSave)).clicked() {
             self.save(false);
@@ -398,7 +412,10 @@ impl Editor {
             self.save(true);
             ui.close();
         }
-        Self::unavailable_item(ui, "Revert", "");
+        if menu_item_enabled(ui, self.can_revert(), "Revert", &self.sc(C::FileRevert)).clicked() {
+            self.request_revert();
+            ui.close();
+        }
         nf::menu_separator(ui);
         menu_popup(ui, "Import", "Import graphics to Stage…", "", |ui| {
             if menu_item(
@@ -553,11 +570,10 @@ impl Editor {
             ui.close();
         }
         nf::menu_separator(ui);
-        Self::planned_menu_item(
-            ui,
-            "Edit ▸ Find and replace",
-            &self.sc(C::EditFindAndReplace),
-        );
+        if menu_item(ui, "Find and replace", &self.sc(C::EditFindAndReplace)).clicked() {
+            self.open_find_replace();
+            ui.close();
+        }
         menu_popup(ui, "Timeline", "Synchronise symbols", "⌥⌘X", |ui| {
             self.edit_timeline_menu(ui);
         });
@@ -885,7 +901,12 @@ impl Editor {
             self.toggle_mute_sounds();
         }
         nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Enable simple buttons", "⌥⌘B");
+        let mut simple = self.enable_simple_buttons;
+        let simple_sc = self.sc(C::ControlEnableSimpleButtons);
+        if menu_toggle(ui, &mut simple, "Enable simple buttons", &simple_sc).changed() {
+            self.set_enable_simple_buttons(simple);
+            ui.close();
+        }
     }
 
     /// Window (§8), then the §6 panels §8 does not list, then workspace placement and appearance.
@@ -903,28 +924,26 @@ impl Editor {
             }
         };
         // Timeline · Tools · Properties · Library · Actions · Align · Color · Swatches ·
-        // Transform · Info · Ease · History · Scene · Output.
-        for index in 0..14 {
+        // Transform · Info · Ease · History · Scene · Output · Compiler errors · Accessibility.
+        for index in 0..16 {
             toggle(self, ui, index);
         }
-        Self::planned_menu_toggle(
-            ui,
-            "Window ▸ Compiler errors",
-            &self.sc(C::WindowCompilerErrors),
-        );
-        toggle(self, ui, 14);
         nf::menu_separator(ui);
-        toggle(self, ui, 15);
-        Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
         toggle(self, ui, 16);
-        Self::planned_menu_toggle(ui, "Window ▸ Code snippets", "");
-        Self::planned_menu_toggle(ui, "Window ▸ Movie Explorer", "");
-        Self::planned_menu_toggle(ui, "Window ▸ Filters", "");
+        Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
+        for index in 17..21 {
+            toggle(self, ui, index);
+        }
         nf::menu_separator(ui);
         menu_popup(ui, "Workspaces", "Reset Developer workspace", "", |ui| {
             self.workspace_menu(ui, ctx);
         });
-        Self::unavailable_item(ui, "Hide panels", "F4");
+        let mut hidden = self.panels_hidden;
+        let hide_sc = self.sc(C::WindowHidePanels);
+        if menu_toggle(ui, &mut hidden, "Hide panels", &hide_sc).changed() {
+            self.set_panels_hidden(hidden);
+            ui.close();
+        }
         nf::menu_separator(ui);
         for (label, placement, target) in [
             (
@@ -1032,8 +1051,8 @@ mod tests {
     fn entry_labels_are_the_last_path_segment() {
         assert_eq!(entry_label("View ▸ Grid ▸ Edit grid…"), "Edit grid…");
         assert_eq!(
-            planned_entry("Edit ▸ Find and replace"),
-            Some(PlannedPanel::FindReplace)
+            planned_entry("File ▸ Publish settings…"),
+            Some(PlannedPanel::PublishSettings)
         );
     }
 }

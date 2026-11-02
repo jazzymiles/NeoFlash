@@ -268,6 +268,7 @@ impl Editor {
                 },
                 scripts: vec![],
                 accessibility: None,
+                ..Element::default()
             });
             candidate.symbols.push(Symbol {
                 id: symbol_id.clone(),
@@ -372,6 +373,7 @@ impl Editor {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         };
         self.commit_graphic_placements(
             self.project.clone(),
@@ -537,6 +539,7 @@ fn prepare_graphic(unit: ResourceUnit, name: String) -> Result<PreparedGraphic, 
                     },
                     scripts: vec![],
                     accessibility: None,
+                    ..Element::default()
                 }],
                 resources: vec![unit],
                 notice: None,

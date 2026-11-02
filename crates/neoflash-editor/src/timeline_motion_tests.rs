@@ -21,6 +21,7 @@ fn instance(id: &str, symbol: &str, x: f64, y: f64) -> Element {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 
@@ -496,6 +497,7 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         }],
     )];
     editor.layer = 0;

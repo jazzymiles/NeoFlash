@@ -49,6 +49,7 @@ fn editor_in(ctx: &egui::Context) -> Editor {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }];
     let mut fx = timeline.layers[0].clone();
     fx.id = "fx".into();
@@ -381,4 +382,55 @@ fn edit_envelope_dialog_commits_custom_stereo_envelope_and_cancels_cleanly() {
 
     editor.undo();
     assert_eq!(editor.project, before, "OK commits in a single Undo step");
+}
+
+#[test]
+fn waveform_peaks_cache_and_frame_sound_trim_playback_window() {
+    use crate::timeline_sound::VoiceSource;
+    let mut editor = editor();
+    editor.layer = 1;
+    editor.frame = 0;
+    editor.set_frame_sound(Some("beep".into()));
+    let with_sound = editor.project.clone();
+
+    let peaks = editor
+        .timeline_audio
+        .waveform_peaks(&editor.project, "beep", 16)
+        .unwrap();
+    assert_eq!(peaks.buckets(), 16);
+    assert_eq!((peaks.sample_rate, peaks.channels), (8000, 1));
+    assert!((peaks.duration - 0.5).abs() < 1e-9);
+    assert!(peaks.peak_amplitude(0, 0) > 0.1);
+    let cached = editor
+        .timeline_audio
+        .waveform_peaks(&editor.project, "beep", 16)
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(&peaks, &cached));
+
+    // Trim 0.10 s .. 0.35 s (0.25 s = 2000 frames at 8 kHz): upgrades to format 7 in one Undo step.
+    editor.set_frame_sound_trim(Some(0.10), Some(0.35));
+    assert_eq!(editor.project.format_version, 7);
+    editor.project.validate().unwrap();
+    let (_, sound) = editor.frame_sound().unwrap();
+    assert_eq!((sound.in_point, sound.out_point), (Some(0.10), Some(0.35)));
+
+    // Verify VoiceSource renders 2 loops of the 2000-frame trimmed segment (4000 stereo frames = 8000 samples).
+    let decoded = editor
+        .timeline_audio
+        .decoded(&editor.project, "beep")
+        .unwrap();
+    let rendered: Vec<f32> = VoiceSource::new(
+        decoded,
+        0.0,
+        2,
+        false,
+        (sound.in_point, sound.out_point),
+        vec![],
+    )
+    .unwrap()
+    .collect();
+    assert_eq!(rendered.len(), 2000 * 2 * 2);
+
+    editor.undo();
+    assert_eq!(editor.project, with_sound);
 }

@@ -1521,6 +1521,37 @@ where
     Ok(spans)
 }
 
+/// Lay out a text field once and return each character's glyph bounding box in field coordinates.
+pub fn layout_char_boxes<M>(
+    field: &TextFieldState,
+    mut measure: M,
+) -> Result<Vec<(char, TextCharBox)>, TextError>
+where
+    M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
+{
+    let layout = layout_text(field, &mut measure)?;
+    let mut out = Vec::new();
+    for line in &layout.lines {
+        let spans = line_char_spans(field, line, &mut measure)?;
+        for span in spans {
+            let start_byte = utf16_byte(&field.text, span.start)?;
+            let end_byte = utf16_byte(&field.text, span.end)?;
+            if let Some(ch) = field.text[start_byte..end_byte].chars().next() {
+                out.push((
+                    ch,
+                    TextCharBox {
+                        x: span.glyph_x,
+                        y: line.y,
+                        width: span.glyph_width,
+                        height: line.height,
+                    },
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn query_text<M>(
     field: &TextFieldState,
     query: &TextQuery,

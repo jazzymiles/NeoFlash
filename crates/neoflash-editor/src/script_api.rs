@@ -324,6 +324,35 @@ pub(crate) struct Hints {
     pub items: Vec<Hint>,
 }
 
+/// Classic Flash CS4 AS1/AS2 variable name suffixes for automatic Code Hints.
+pub(crate) const CLASSIC_VARIABLE_SUFFIXES: [(&str, &str); 25] = [
+    ("_mc", "MovieClip"),
+    ("_txt", "TextField"),
+    ("_btn", "Button"),
+    ("_array", "Array"),
+    ("_str", "String"),
+    ("_sound", "Sound"),
+    ("_xml", "XML"),
+    ("_xmlnode", "XMLNode"),
+    ("_xmlsocket", "XMLSocket"),
+    ("_so", "SharedObject"),
+    ("_nc", "NetConnection"),
+    ("_ns", "NetStream"),
+    ("_video", "Video"),
+    ("_fmt", "TextFormat"),
+    ("_lv", "LoadVars"),
+    ("_lc", "LocalConnection"),
+    ("_color", "Color"),
+    ("_date", "Date"),
+    ("_err", "Error"),
+    ("_cam", "Camera"),
+    ("_mic", "Microphone"),
+    ("_mcl", "MovieClipLoader"),
+    ("_pj", "PrintJob"),
+    ("_cm", "ContextMenu"),
+    ("_cmi", "ContextMenuItem"),
+];
+
 impl<'a> HintContext<'a> {
     pub fn new(project: &Project, language: ScriptLanguage, this_kind: ThisKind) -> Option<Self> {
         Some(Self {
@@ -454,7 +483,8 @@ impl<'a> HintContext<'a> {
 
     /// Type of a declared name: `name:Type` in the script (last declaration before `limit`).
     fn declared_type(source: &str, name: &str, limit: usize) -> Option<String> {
-        let head: String = source.chars().take(limit).collect();
+        let raw_head: String = source.chars().take(limit).collect();
+        let head = strip_comments(&raw_head);
         let mut found = None;
         for (i, _) in head.match_indices(name) {
             let before = head[..i].chars().next_back();
@@ -472,27 +502,99 @@ impl<'a> HintContext<'a> {
         found
     }
 
+    /// Classic Flash CS4 comment hint: `// ClassName varName;` or `/* ClassName varName; */`.
+    fn comment_hint_type(&self, source: &str, name: &str, limit: usize) -> Option<String> {
+        let head: String = source.chars().take(limit).collect();
+        let mut found = None;
+        for (range, token) in neoflash_ui::components::code::tokens(&head) {
+            if token != neoflash_ui::components::code::Token::Comment {
+                continue;
+            }
+            let raw = &head[range];
+            let body = if let Some(rest) = raw.strip_prefix("//") {
+                rest
+            } else if let Some(rest) = raw.strip_prefix("/*") {
+                rest.strip_suffix("*/").unwrap_or(rest)
+            } else {
+                continue;
+            };
+            for clause in body.split(['\n', ';']) {
+                let clause = clause.trim().trim_start_matches('*').trim();
+                let ty = ident(clause);
+                if ty.is_empty()
+                    || !ty
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+                {
+                    continue;
+                }
+                let rest = &clause[ty.len()..];
+                if !rest.starts_with(char::is_whitespace) {
+                    continue;
+                }
+                let rest = rest.trim_start();
+                let var_end = rest
+                    .char_indices()
+                    .find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '$'))
+                    .map_or(rest.len(), |(i, _)| i);
+                let var_name = &rest[..var_end];
+                let after = rest[var_end..].trim();
+                if var_name == name
+                    && after.is_empty()
+                    && let Some(resolved) = self.resolve_class(ty)
+                {
+                    found = Some(resolved);
+                }
+            }
+        }
+        found
+    }
+
+    /// Classic Flash CS4 AS1/AS2 suffix inference (`hero_mc` -> `MovieClip`, `msg_txt` -> `TextField`, ...).
+    fn suffix_type(language: ScriptLanguage, name: &str) -> Option<&'static str> {
+        if !matches!(
+            language,
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+        ) {
+            return None;
+        }
+        CLASSIC_VARIABLE_SUFFIXES
+            .iter()
+            .find_map(|&(suffix, class_name)| {
+                (name.len() > suffix.len() && name.ends_with(suffix)).then_some(class_name)
+            })
+    }
+
     /// Type (qualified class, `static:` prefix for a class object) of a receiver chain `a.b.c`.
     fn receiver_type(&self, chain: &[&str], source: &str, caret: usize) -> Option<String> {
         let (first, rest) = chain.split_first()?;
         let mut current = match *first {
             "this" => self.this_class.clone(),
             "super" => self.lineage(&self.this_class).get(1)?.clone(),
-            name => {
-                if let Some(ty) = Self::declared_type(source, name, caret) {
-                    self.resolve_class(&ty)?
-                } else if let Some((_, class)) = self.instances.iter().find(|(n, _)| n == name) {
-                    class.clone()
-                } else if let Some(class) = self.resolve_class(name) {
-                    format!("static:{class}")
-                } else {
+            name => Self::declared_type(source, name, caret)
+                .and_then(|ty| self.resolve_class(&ty))
+                .or_else(|| self.comment_hint_type(source, name, caret))
+                .or_else(|| {
+                    self.instances
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, class)| class.clone())
+                })
+                .or_else(|| {
+                    self.resolve_class(name)
+                        .map(|class| format!("static:{class}"))
+                })
+                .or_else(|| {
+                    Self::suffix_type(self.language, name).and_then(|ty| self.resolve_class(ty))
+                })
+                .or_else(|| {
                     let member = self
                         .members(&self.this_class, false)
                         .into_iter()
                         .find(|m| m.name == name)?;
-                    self.resolve_class(&member.ty)?
-                }
-            }
+                    self.resolve_class(&member.ty)
+                })?,
         };
         for segment in rest {
             let (class, statics) = match current.strip_prefix("static:") {
@@ -902,5 +1004,55 @@ mod tests {
         );
         assert!(missing_import("import flash.geom.*;", "flash.geom.Point").is_none());
         assert!(missing_import("", "Math").is_none());
+    }
+
+    #[test]
+    fn all_25_classic_as2_variable_suffixes_resolve_code_hints() {
+        assert_eq!(CLASSIC_VARIABLE_SUFFIXES.len(), 25);
+        for lang in [ScriptLanguage::ActionScript1, ScriptLanguage::ActionScript2] {
+            let ctx = HintContext::new(&Project::demo(), lang, ThisKind::MovieClip).unwrap();
+            for (suffix, expected_class) in CLASSIC_VARIABLE_SUFFIXES {
+                let var_name = format!("item{suffix}");
+                let resolved = ctx.receiver_type(&[var_name.as_str()], "", 0);
+                assert_eq!(
+                    resolved.as_deref(),
+                    Some(expected_class),
+                    "suffix {suffix} should resolve to {expected_class}"
+                );
+                let src = format!("{var_name}.");
+                let hints = ctx
+                    .hints(&src, src.chars().count(), false)
+                    .unwrap_or_else(|| panic!("expected hints for {src}"));
+                assert!(
+                    !hints.items.is_empty(),
+                    "expected non-empty members for {expected_class}"
+                );
+            }
+            // Bare `_mc` without a prefix must not be treated as a suffixed variable.
+            assert!(ctx.hints("_mc.", 4, false).is_none());
+        }
+    }
+
+    #[test]
+    fn comment_type_hints_resolve_in_as2_and_as3() {
+        let as2 = context(ScriptLanguage::ActionScript2);
+        let src_as2 = "// MovieClip myVar;\n/* TextField labelBox; */\nmyVar.";
+        let hints = as2
+            .hints(src_as2, src_as2.chars().count(), false)
+            .expect("AS2 comment hint");
+        assert!(hints.items.iter().any(|h| h.label == "gotoAndPlay()"));
+
+        let src_box = "// MovieClip myVar;\n/* TextField labelBox; */\nlabelBox.";
+        let box_hints = as2
+            .hints(src_box, src_box.chars().count(), false)
+            .expect("AS2 block comment hint");
+        assert!(box_hints.items.iter().any(|h| h.label == "htmlText"));
+
+        let as3 = context(ScriptLanguage::ActionScript3);
+        let src_as3 = "// flash.display.MovieClip heroClip;\nheroClip.";
+        let as3_hints = as3
+            .hints(src_as3, src_as3.chars().count(), false)
+            .expect("AS3 comment hint");
+        assert!(as3_hints.items.iter().any(|h| h.label == "gotoAndStop()"));
     }
 }

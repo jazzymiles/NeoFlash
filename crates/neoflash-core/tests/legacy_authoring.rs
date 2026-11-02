@@ -8,6 +8,7 @@ fn element(id: &str, kind: ElementKind) -> Element {
         transform: Transform::default(),
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 fn rectangle() -> ElementKind {

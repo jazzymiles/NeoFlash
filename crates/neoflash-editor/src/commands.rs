@@ -643,8 +643,10 @@ pub enum CommandId {
     // File
     FileNew,
     FileOpen,
+    FileClose,
     FileSave,
     FileSaveAs,
+    FileRevert,
     FileImportGraphics,
     FileImportLegacyFlash,
     FilePublishSettings,
@@ -702,6 +704,7 @@ pub enum CommandId {
     ModifyDocument,
     ModifyConvertToSymbol,
     ModifyBreakApart,
+    ModifyDistributeToLayers,
     ModifyTimelineLayerProperties,
     ModifyTimelineClearKeyframe,
     ModifyTimelineConvertToKeyframes,
@@ -722,6 +725,7 @@ pub enum CommandId {
     ControlTestScene,
     ControlLoopPlayback,
     ControlPlayAllScenes,
+    ControlEnableSimpleButtons,
     ControlMuteSounds,
     // Window
     WindowTimeline,
@@ -732,6 +736,7 @@ pub enum CommandId {
     WindowAlign,
     WindowColor,
     WindowSwatches,
+    WindowFilters,
     WindowTransform,
     WindowInfo,
     WindowEase,
@@ -739,9 +744,12 @@ pub enum CommandId {
     WindowScene,
     WindowCompilerErrors,
     WindowOutput,
+    WindowCodeSnippets,
+    WindowMovieExplorer,
     WindowAccessibility,
     WindowMotionEditor,
     WindowProject,
+    WindowHidePanels,
     // Tools
     ToolSelect,
     ToolSubselect,
@@ -775,6 +783,7 @@ struct CommandMeta {
 
 const S_CMD_N: &[Shortcut] = &[Shortcut::cmd(Key::N)];
 const S_CMD_O: &[Shortcut] = &[Shortcut::cmd(Key::O)];
+const S_CMD_W: &[Shortcut] = &[Shortcut::cmd(Key::W)];
 const S_CMD_S: &[Shortcut] = &[Shortcut::cmd(Key::S)];
 const S_SHIFT_CMD_S: &[Shortcut] = &[Shortcut::shift_cmd(Key::S)];
 const S_SHIFT_F12: &[Shortcut] = &[Shortcut::shift(Key::F12)];
@@ -821,6 +830,7 @@ const S_F7: &[Shortcut] = &[Shortcut::none(Key::F7)];
 const S_CMD_J: &[Shortcut] = &[Shortcut::cmd(Key::J)];
 const S_F8: &[Shortcut] = &[Shortcut::none(Key::F8)];
 const S_CMD_B: &[Shortcut] = &[Shortcut::cmd(Key::B)];
+const S_SHIFT_CMD_D: &[Shortcut] = &[Shortcut::shift_cmd(Key::D)];
 const S_SHIFT_F6: &[Shortcut] = &[Shortcut::shift(Key::F6)];
 const S_CMD_G: &[Shortcut] = &[Shortcut::cmd(Key::G)];
 const S_SHIFT_CMD_G: &[Shortcut] = &[Shortcut::shift_cmd(Key::G)];
@@ -832,6 +842,7 @@ const S_STEP_FWD: &[Shortcut] = &[Shortcut::none(Key::Period), Shortcut::none(Ke
 const S_STEP_BACK: &[Shortcut] = &[Shortcut::none(Key::Comma), Shortcut::none(Key::ArrowLeft)];
 const S_CMD_ENTER: &[Shortcut] = &[Shortcut::cmd(Key::Enter)];
 const S_ALT_CMD_ENTER: &[Shortcut] = &[Shortcut::alt_cmd(Key::Enter)];
+const S_ALT_CMD_B: &[Shortcut] = &[Shortcut::alt_cmd(Key::B)];
 const S_ALT_CMD_M: &[Shortcut] = &[Shortcut::alt_cmd(Key::M)];
 
 const S_ALT_CMD_T: &[Shortcut] = &[Shortcut::alt_cmd(Key::T)];
@@ -849,6 +860,7 @@ const S_SHIFT_F2: &[Shortcut] = &[Shortcut::shift(Key::F2)];
 const S_ALT_F2: &[Shortcut] = &[Shortcut::alt(Key::F2)];
 const S_F2: &[Shortcut] = &[Shortcut::none(Key::F2)];
 const S_SHIFT_F11: &[Shortcut] = &[Shortcut::shift(Key::F11)];
+const S_F4: &[Shortcut] = &[Shortcut::none(Key::F4)];
 
 const S_TOOL_V: &[Shortcut] = &[Shortcut::none(Key::V)];
 const S_TOOL_A: &[Shortcut] = &[Shortcut::none(Key::A)];
@@ -873,8 +885,10 @@ impl CommandId {
     pub const ALL: &'static [Self] = &[
         Self::FileNew,
         Self::FileOpen,
+        Self::FileClose,
         Self::FileSave,
         Self::FileSaveAs,
+        Self::FileRevert,
         Self::FileImportGraphics,
         Self::FileImportLegacyFlash,
         Self::FilePublishSettings,
@@ -928,6 +942,7 @@ impl CommandId {
         Self::ModifyDocument,
         Self::ModifyConvertToSymbol,
         Self::ModifyBreakApart,
+        Self::ModifyDistributeToLayers,
         Self::ModifyTimelineLayerProperties,
         Self::ModifyTimelineClearKeyframe,
         Self::ModifyTimelineConvertToKeyframes,
@@ -947,6 +962,7 @@ impl CommandId {
         Self::ControlTestScene,
         Self::ControlLoopPlayback,
         Self::ControlPlayAllScenes,
+        Self::ControlEnableSimpleButtons,
         Self::ControlMuteSounds,
         Self::WindowTimeline,
         Self::WindowTools,
@@ -956,6 +972,7 @@ impl CommandId {
         Self::WindowAlign,
         Self::WindowColor,
         Self::WindowSwatches,
+        Self::WindowFilters,
         Self::WindowTransform,
         Self::WindowInfo,
         Self::WindowEase,
@@ -963,9 +980,12 @@ impl CommandId {
         Self::WindowScene,
         Self::WindowCompilerErrors,
         Self::WindowOutput,
+        Self::WindowCodeSnippets,
+        Self::WindowMovieExplorer,
         Self::WindowAccessibility,
         Self::WindowMotionEditor,
         Self::WindowProject,
+        Self::WindowHidePanels,
         Self::ToolSelect,
         Self::ToolSubselect,
         Self::ToolTransform,
@@ -1006,6 +1026,14 @@ impl CommandId {
                 defaults: S_CMD_O,
                 allow_when_typing: true,
             },
+            Self::FileClose => CommandMeta {
+                id: "file.close",
+                category: C::File,
+                title: "File ▸ Close",
+                keywords: "",
+                defaults: S_CMD_W,
+                allow_when_typing: false,
+            },
             Self::FileSave => CommandMeta {
                 id: "file.save",
                 category: C::File,
@@ -1021,6 +1049,14 @@ impl CommandId {
                 keywords: "",
                 defaults: S_SHIFT_CMD_S,
                 allow_when_typing: true,
+            },
+            Self::FileRevert => CommandMeta {
+                id: "file.revert",
+                category: C::File,
+                title: "File ▸ Revert",
+                keywords: "",
+                defaults: &[],
+                allow_when_typing: false,
             },
             Self::FileImportGraphics => CommandMeta {
                 id: "file.import.graphics",
@@ -1446,6 +1482,14 @@ impl CommandId {
                 defaults: S_CMD_B,
                 allow_when_typing: false,
             },
+            Self::ModifyDistributeToLayers => CommandMeta {
+                id: "modify.timeline.distribute_to_layers",
+                category: C::Modify,
+                title: "Modify ▸ Timeline ▸ Distribute to layers",
+                keywords: "",
+                defaults: S_SHIFT_CMD_D,
+                allow_when_typing: false,
+            },
             Self::ModifyTimelineLayerProperties => CommandMeta {
                 id: "modify.timeline.layer_properties",
                 category: C::Modify,
@@ -1598,6 +1642,14 @@ impl CommandId {
                 defaults: &[],
                 allow_when_typing: false,
             },
+            Self::ControlEnableSimpleButtons => CommandMeta {
+                id: "control.enable_simple_buttons",
+                category: C::Control,
+                title: "Control ▸ Enable simple buttons",
+                keywords: "",
+                defaults: S_ALT_CMD_B,
+                allow_when_typing: false,
+            },
             Self::ControlMuteSounds => CommandMeta {
                 id: "control.mute_sounds",
                 category: C::Control,
@@ -1670,6 +1722,14 @@ impl CommandId {
                 defaults: S_CMD_F9,
                 allow_when_typing: false,
             },
+            Self::WindowFilters => CommandMeta {
+                id: "window.filters",
+                category: C::Window,
+                title: "Window ▸ Filters",
+                keywords: "",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::WindowTransform => CommandMeta {
                 id: "window.transform",
                 category: C::Window,
@@ -1726,6 +1786,22 @@ impl CommandId {
                 defaults: S_F2,
                 allow_when_typing: false,
             },
+            Self::WindowCodeSnippets => CommandMeta {
+                id: "window.code_snippets",
+                category: C::Window,
+                title: "Window ▸ Code snippets",
+                keywords: "",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::WindowMovieExplorer => CommandMeta {
+                id: "window.movie_explorer",
+                category: C::Window,
+                title: "Window ▸ Movie Explorer",
+                keywords: "",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::WindowAccessibility => CommandMeta {
                 id: "window.accessibility",
                 category: C::Window,
@@ -1748,6 +1824,14 @@ impl CommandId {
                 title: "Window ▸ Project",
                 keywords: "",
                 defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::WindowHidePanels => CommandMeta {
+                id: "window.hide_panels",
+                category: C::Window,
+                title: "Window ▸ Hide panels",
+                keywords: "",
+                defaults: S_F4,
                 allow_when_typing: false,
             },
             Self::ToolSelect => CommandMeta {
@@ -1943,12 +2027,16 @@ impl CommandId {
             PanelId::Align => Self::WindowAlign,
             PanelId::Color => Self::WindowColor,
             PanelId::Swatches => Self::WindowSwatches,
+            PanelId::Filters => Self::WindowFilters,
             PanelId::Transform => Self::WindowTransform,
             PanelId::Info => Self::WindowInfo,
             PanelId::Ease => Self::WindowEase,
             PanelId::History => Self::WindowHistory,
             PanelId::Scene => Self::WindowScene,
+            PanelId::CompilerErrors => Self::WindowCompilerErrors,
             PanelId::Output => Self::WindowOutput,
+            PanelId::CodeSnippets => Self::WindowCodeSnippets,
+            PanelId::MovieExplorer => Self::WindowMovieExplorer,
             PanelId::Accessibility => Self::WindowAccessibility,
             PanelId::MotionEditor => Self::WindowMotionEditor,
             PanelId::Project => Self::WindowProject,

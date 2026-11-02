@@ -19,6 +19,7 @@ fn static_snapshot_search_selection_geometry_and_live_paint_work_together() {
             font_size: 10.,
             color: [10, 20, 30, 255],
         },
+        ..Element::default()
     };
     project.symbols[0].timeline.layers[0].keyframes[0].elements =
         vec![make("first", "One\n", 10.), make("second", "Two", 60.)];

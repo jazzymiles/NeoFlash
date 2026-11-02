@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "50a86dc0c93e2592b3cca6407ce16dd0b731c05413dabdde9cbd5a0f4f611aa5",
+  "reviews": [
+    {
+      "id": "AS3-NET-NAVIGATE-20261102",
+      "date": "2026-11-02",
+      "commit": "1d3f4d0f3b9fda7f181fd092718c1c64ea3644fd",
+      "title": "AS3 flash.net.navigateToURL browser navigation and POST form dispatch",
+      "summary": "Promotes flash.net.navigateToURL(request, window) from partial to working: validates safe HTTP(S), relative and mailto: URLs, blocks javascript:/data:/vbscript:/file: schemes, supports _self/_blank/_parent/_top and named window targets, and submits POST requests via hidden form or query parameters.",
+      "tests": [
+        "crates/neoflash-script/tests/project.rs",
+        "web/tests/runtime.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:function:flash/net/package.html#navigateToURL()",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

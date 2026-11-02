@@ -22,6 +22,7 @@ fn rect(id: &str, x: f64, y: f64) -> Element {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 
@@ -655,6 +656,7 @@ fn motion_tween_sync_symbols_and_snap_to_guide() {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     };
     let mut k0 = key(0, vec![inst("a")]);
     k0.tween = Some(Easing::Linear);
@@ -690,6 +692,7 @@ fn motion_tween_sync_symbols_and_snap_to_guide() {
                 },
                 scripts: vec![],
                 accessibility: None,
+                ..Element::default()
             }],
         )],
     );

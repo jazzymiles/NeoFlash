@@ -332,6 +332,7 @@ fn compatible_path_topology_morphs_and_incompatible_topology_holds() {
         transform: Transform::default(),
         kind: path(square(0., 0., 10., false)),
         scripts: vec![],
+        ..Element::default()
     };
     let mut to = from.clone();
     to.kind = path(square(20., 0., 30., false));
@@ -391,6 +392,7 @@ fn invalid_path_geometry_is_rejected_on_document_load() {
             transform: Transform::default(),
             kind: path(vec![PathCommand::LineTo { x: 3., y: 4. }]),
             scripts: vec![],
+            ..Element::default()
         });
     assert!(project.validate().is_err());
     let json = serde_json::to_string(&project).unwrap();

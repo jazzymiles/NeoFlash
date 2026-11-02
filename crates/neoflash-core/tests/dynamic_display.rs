@@ -47,6 +47,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
             symbol_id: "component".into(),
             playback: InstancePlayback::Independent,
         },
+        ..Element::default()
     };
     let root = project.symbol_mut(&root_id).unwrap();
     root.timeline.frame_count = 3;
@@ -432,6 +433,7 @@ fn authored_children_follow_runtime_parents_until_source_retirement(mut project:
                 stroke: [0; 4],
                 stroke_width: 0.,
             },
+            ..Element::default()
         });
     component.timeline.scripts = vec![FrameScript {
         frame: 1,
@@ -923,6 +925,7 @@ fn video_viewports_share_display_state_and_lifetimes() {
             width: 160.,
             height: 90.,
         },
+        ..Element::default()
     });
     timeline.layers[0].keyframes.push(Keyframe {
         frame: 1,
@@ -1558,6 +1561,7 @@ fn affine_color_views_follow_the_display_lifecycle(mut project: Project) {
             stroke: [0; 4],
             stroke_width: 0.,
         },
+        ..Element::default()
     };
     project.symbol_mut("component").unwrap().timeline.layers[0].keyframes[0]
         .elements
@@ -1830,6 +1834,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
                 script: script("click();"),
             },
         ],
+        ..Element::default()
     };
     let text = Element {
         id: "linked-text".into(),
@@ -1843,6 +1848,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
             font_size: 16.,
             color: [0, 0, 0, 255],
         },
+        ..Element::default()
     };
     let nested = Element {
         id: "linked-nested".into(),
@@ -1857,6 +1863,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         },
         accessibility: None,
         scripts: vec![],
+        ..Element::default()
     };
     let mut pulse = project.symbol("component").unwrap().clone();
     pulse.id = "pulse".into();
@@ -2379,6 +2386,7 @@ fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
             stroke: [0; 4],
             stroke_width: 0.,
         },
+        ..Element::default()
     }];
     let original = project.to_json().unwrap();
     let mut png = vec![];

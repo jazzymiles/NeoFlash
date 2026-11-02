@@ -28,6 +28,10 @@ pub enum PanelId {
     Swatches,
     Info,
     Project,
+    Filters,
+    CompilerErrors,
+    CodeSnippets,
+    MovieExplorer,
 }
 impl PanelId {
     pub fn title(self) -> &'static str {
@@ -49,6 +53,10 @@ impl PanelId {
             Self::Swatches => "Swatches",
             Self::Info => "Info",
             Self::Project => "Project",
+            Self::Filters => "Filters",
+            Self::CompilerErrors => "Compiler errors",
+            Self::CodeSnippets => "Code snippets",
+            Self::MovieExplorer => "Movie Explorer",
         }
     }
     /// Body padding of the docked panel, from the Figma outlines: inspector 16, Library 8,
@@ -95,9 +103,13 @@ impl PanelId {
             Self::Swatches => i16::SWATCHES,
             Self::Info => i16::INFO_PANEL,
             Self::Project => i16::FOLDER,
+            Self::Filters => i16::FILTER,
+            Self::CompilerErrors => i16::WARNING,
+            Self::CodeSnippets => i16::SNIPPET,
+            Self::MovieExplorer => i16::MOVIECLIP,
         }
     }
-    pub const DETACHABLE: [Self; 17] = [
+    pub const DETACHABLE: [Self; 21] = [
         Self::Tools,
         Self::Timeline,
         Self::Library,
@@ -115,10 +127,14 @@ impl PanelId {
         Self::Swatches,
         Self::Info,
         Self::Project,
+        Self::Filters,
+        Self::CompilerErrors,
+        Self::CodeSnippets,
+        Self::MovieExplorer,
     ];
     /// Panels that are hidden in every built-in workspace and open beside Properties (or, for the
-    /// Motion editor, beside the Timeline) the first time they are shown.
-    pub const UTILITY: [Self; 10] = [
+    /// Motion editor / Compiler errors, beside Timeline / Output) the first time they are shown.
+    pub const UTILITY: [Self; 14] = [
         Self::Align,
         Self::Transform,
         Self::Color,
@@ -129,6 +145,10 @@ impl PanelId {
         Self::Swatches,
         Self::Info,
         Self::Project,
+        Self::Filters,
+        Self::CompilerErrors,
+        Self::CodeSnippets,
+        Self::MovieExplorer,
     ];
     pub fn detachable(self) -> bool {
         Self::DETACHABLE.contains(&self)
@@ -153,10 +173,14 @@ impl PanelId {
             Self::Swatches => Some("neoflash.panel.swatches"),
             Self::Info => Some("neoflash.panel.info"),
             Self::Project => Some("neoflash.panel.project"),
+            Self::Filters => Some("neoflash.panel.filters"),
+            Self::CompilerErrors => Some("neoflash.panel.compiler_errors"),
+            Self::CodeSnippets => Some("neoflash.panel.code_snippets"),
+            Self::MovieExplorer => Some("neoflash.panel.movie_explorer"),
         }
     }
     #[cfg(test)]
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 21] = [
         Self::Timeline,
         Self::Tools,
         Self::Library,
@@ -174,6 +198,10 @@ impl PanelId {
         Self::Swatches,
         Self::Info,
         Self::Project,
+        Self::Filters,
+        Self::CompilerErrors,
+        Self::CodeSnippets,
+        Self::MovieExplorer,
     ];
     pub const BOTTOM: [Self; 4] = [
         Self::Properties,
@@ -220,6 +248,10 @@ pub struct PanelVisibility {
     pub swatches: bool,
     pub info: bool,
     pub project: bool,
+    pub filters: bool,
+    pub compiler_errors: bool,
+    pub code_snippets: bool,
+    pub movie_explorer: bool,
 }
 impl Default for PanelVisibility {
     fn default() -> Self {
@@ -241,6 +273,10 @@ impl Default for PanelVisibility {
             swatches: false,
             info: false,
             project: false,
+            filters: false,
+            compiler_errors: false,
+            code_snippets: false,
+            movie_explorer: false,
         }
     }
 }
@@ -264,6 +300,10 @@ impl PanelVisibility {
             PanelId::Swatches => &mut self.swatches,
             PanelId::Info => &mut self.info,
             PanelId::Project => &mut self.project,
+            PanelId::Filters => &mut self.filters,
+            PanelId::CompilerErrors => &mut self.compiler_errors,
+            PanelId::CodeSnippets => &mut self.code_snippets,
+            PanelId::MovieExplorer => &mut self.movie_explorer,
         }
     }
     pub fn is_visible(self, panel: PanelId) -> bool {
@@ -285,6 +325,10 @@ impl PanelVisibility {
             PanelId::Swatches => self.swatches,
             PanelId::Info => self.info,
             PanelId::Project => self.project,
+            PanelId::Filters => self.filters,
+            PanelId::CompilerErrors => self.compiler_errors,
+            PanelId::CodeSnippets => self.code_snippets,
+            PanelId::MovieExplorer => self.movie_explorer,
         }
     }
 }
@@ -390,7 +434,10 @@ impl DockEdge {
             | PanelId::History
             | PanelId::Swatches
             | PanelId::Info
-            | PanelId::Project => Self::Right,
+            | PanelId::Project
+            | PanelId::Filters
+            | PanelId::CodeSnippets
+            | PanelId::MovieExplorer => Self::Right,
             _ => Self::Bottom,
         }
     }
@@ -773,6 +820,7 @@ impl Default for DockLayout {
                         PanelId::Output,
                         PanelId::Accessibility,
                         PanelId::MotionEditor,
+                        PanelId::CompilerErrors,
                     ],
                 )],
             },
@@ -791,6 +839,7 @@ impl Default for DockLayout {
                             5,
                             vec![
                                 PanelId::Properties,
+                                PanelId::Filters,
                                 PanelId::Align,
                                 PanelId::Transform,
                                 PanelId::Color,
@@ -800,6 +849,8 @@ impl Default for DockLayout {
                                 PanelId::History,
                                 PanelId::Scene,
                                 PanelId::Project,
+                                PanelId::CodeSnippets,
+                                PanelId::MovieExplorer,
                             ],
                         )
                     },
@@ -1034,6 +1085,7 @@ impl DockLayout {
         }
         let companion = match panel {
             PanelId::MotionEditor => Some(PanelId::Timeline),
+            PanelId::CompilerErrors => Some(PanelId::Output),
             p if PanelId::UTILITY.contains(&p) => Some(PanelId::Properties),
             _ => None,
         };
@@ -1112,6 +1164,10 @@ pub struct DetachedPanels {
     pub swatches: PanelWindowPrefs,
     pub info: PanelWindowPrefs,
     pub project: PanelWindowPrefs,
+    pub filters: PanelWindowPrefs,
+    pub compiler_errors: PanelWindowPrefs,
+    pub code_snippets: PanelWindowPrefs,
+    pub movie_explorer: PanelWindowPrefs,
 }
 impl DetachedPanels {
     fn get(&self, panel: PanelId) -> Option<&PanelWindowPrefs> {
@@ -1133,6 +1189,10 @@ impl DetachedPanels {
             PanelId::Swatches => Some(&self.swatches),
             PanelId::Info => Some(&self.info),
             PanelId::Project => Some(&self.project),
+            PanelId::Filters => Some(&self.filters),
+            PanelId::CompilerErrors => Some(&self.compiler_errors),
+            PanelId::CodeSnippets => Some(&self.code_snippets),
+            PanelId::MovieExplorer => Some(&self.movie_explorer),
         }
     }
     fn get_mut(&mut self, panel: PanelId) -> Option<&mut PanelWindowPrefs> {
@@ -1154,6 +1214,10 @@ impl DetachedPanels {
             PanelId::Swatches => Some(&mut self.swatches),
             PanelId::Info => Some(&mut self.info),
             PanelId::Project => Some(&mut self.project),
+            PanelId::Filters => Some(&mut self.filters),
+            PanelId::CompilerErrors => Some(&mut self.compiler_errors),
+            PanelId::CodeSnippets => Some(&mut self.code_snippets),
+            PanelId::MovieExplorer => Some(&mut self.movie_explorer),
         }
     }
     fn sanitize(&mut self) {
@@ -1216,6 +1280,9 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         | PanelId::Info => [248., 190.],
         PanelId::Swatches => [300., 360.],
         PanelId::Project => [248., 280.],
+        PanelId::Filters => [268., 260.],
+        PanelId::CodeSnippets | PanelId::MovieExplorer => [280., 280.],
+        PanelId::CompilerErrors => [360., 180.],
         PanelId::Ease => [320., 420.],
         PanelId::MotionEditor => [640., 260.],
         _ => [320., 220.],
@@ -1228,9 +1295,12 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Library => [300., 600.],
         PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
         PanelId::Swatches => [324., 490.],
+        PanelId::Filters => [324., 460.],
         PanelId::Info => [300., 220.],
         PanelId::History => [260., 320.],
         PanelId::Project => [300., 484.],
+        PanelId::CodeSnippets | PanelId::MovieExplorer => [340., 480.],
+        PanelId::CompilerErrors => [560., 260.],
         PanelId::Scene => [260., 360.],
         PanelId::Ease => [376., 640.],
         PanelId::MotionEditor => [960., 520.],
@@ -2144,7 +2214,14 @@ impl WorkspaceTemplate {
                         520.,
                         vec![group(
                             2,
-                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            vec![
+                                Timeline,
+                                Actions,
+                                Output,
+                                Accessibility,
+                                MotionEditor,
+                                CompilerErrors,
+                            ],
                             1.,
                         )],
                     ),
@@ -2155,8 +2232,19 @@ impl WorkspaceTemplate {
                             group(
                                 5,
                                 vec![
-                                    Properties, Transform, Align, Color, Swatches, Info, Ease,
-                                    History, Scene, Project,
+                                    Properties,
+                                    Filters,
+                                    Transform,
+                                    Align,
+                                    Color,
+                                    Swatches,
+                                    Info,
+                                    Ease,
+                                    History,
+                                    Scene,
+                                    Project,
+                                    CodeSnippets,
+                                    MovieExplorer,
                                 ],
                                 0.55,
                             ),
@@ -2177,7 +2265,14 @@ impl WorkspaceTemplate {
                         300.,
                         vec![group(
                             2,
-                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            vec![
+                                Timeline,
+                                Actions,
+                                Output,
+                                Accessibility,
+                                MotionEditor,
+                                CompilerErrors,
+                            ],
                             1.,
                         )],
                     ),
@@ -2187,7 +2282,18 @@ impl WorkspaceTemplate {
                         vec![
                             group(
                                 5,
-                                vec![Properties, Library, Info, Ease, History, Scene, Project],
+                                vec![
+                                    Properties,
+                                    Filters,
+                                    Library,
+                                    Info,
+                                    Ease,
+                                    History,
+                                    Scene,
+                                    Project,
+                                    CodeSnippets,
+                                    MovieExplorer,
+                                ],
                                 0.5,
                             ),
                             group(6, vec![Color, Swatches, Align, Transform], 0.5),
@@ -2200,7 +2306,14 @@ impl WorkspaceTemplate {
             Self::Developer => {
                 let mut bottom = group(
                     2,
-                    vec![Actions, Output, Timeline, Accessibility, MotionEditor],
+                    vec![
+                        Actions,
+                        Output,
+                        Timeline,
+                        Accessibility,
+                        MotionEditor,
+                        CompilerErrors,
+                    ],
                     1.,
                 );
                 bottom.active = Actions;
@@ -2214,8 +2327,19 @@ impl WorkspaceTemplate {
                             group(
                                 5,
                                 vec![
-                                    Properties, Align, Transform, Color, Swatches, Info, Ease,
-                                    History, Scene, Project,
+                                    Properties,
+                                    Filters,
+                                    Align,
+                                    Transform,
+                                    Color,
+                                    Swatches,
+                                    Info,
+                                    Ease,
+                                    History,
+                                    Scene,
+                                    Project,
+                                    CodeSnippets,
+                                    MovieExplorer,
                                 ],
                                 0.5,
                             ),
@@ -2233,7 +2357,14 @@ impl WorkspaceTemplate {
                         300.,
                         vec![group(
                             2,
-                            vec![Timeline, Actions, Output, Accessibility, MotionEditor],
+                            vec![
+                                Timeline,
+                                Actions,
+                                Output,
+                                Accessibility,
+                                MotionEditor,
+                                CompilerErrors,
+                            ],
                             1.,
                         )],
                     ),
@@ -2243,8 +2374,20 @@ impl WorkspaceTemplate {
                         vec![group(
                             5,
                             vec![
-                                Properties, Library, Align, Transform, Color, Swatches, Info, Ease,
-                                History, Scene, Project,
+                                Properties,
+                                Filters,
+                                Library,
+                                Align,
+                                Transform,
+                                Color,
+                                Swatches,
+                                Info,
+                                Ease,
+                                History,
+                                Scene,
+                                Project,
+                                CodeSnippets,
+                                MovieExplorer,
                             ],
                             1.,
                         )],
@@ -2437,6 +2580,17 @@ impl WorkspacePrefs {
         self.normalize_active_bottom();
         changed || before != self.active_bottom
     }
+
+    #[cfg(test)]
+    pub fn record_recent_file(&mut self, path: impl Into<std::path::PathBuf>) {
+        let path = path.into();
+        self.general.push_recent(&path);
+    }
+
+    pub fn clear_recent_files(&mut self) {
+        self.general.recent_files.clear();
+    }
+
     /// Reset layout only. Theme is a separate user preference. The caller may
     /// remove known egui PanelState IDs, but must preserve authoring/input state.
     /// Replace the layout with a built-in template, keeping theme and remembered window geometry.

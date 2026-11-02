@@ -1280,7 +1280,7 @@ pub(crate) fn tests_jump(
 }
 
 /// Move the caret of the code editor `id` to a 1-based line / column and focus it.
-fn jump_to(ctx: &egui::Context, id: egui::Id, source: &str, line: usize, column: usize) {
+pub(crate) fn jump_to(ctx: &egui::Context, id: egui::Id, source: &str, line: usize, column: usize) {
     let index = nf::code::char_index(source, line, column);
     let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     state

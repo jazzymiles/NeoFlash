@@ -639,8 +639,7 @@ fn build_textbox_element(
         name,
         transform,
         kind,
-        scripts: Vec::new(),
-        accessibility: None,
+        ..Element::default()
     })
 }
 
@@ -733,8 +732,7 @@ fn render_glyph_outlines_fallback(
                     stroke: [0, 0, 0, 0],
                     stroke_width: 0.0,
                 },
-                scripts: Vec::new(),
-                accessibility: None,
+                ..Element::default()
             });
         }
     }

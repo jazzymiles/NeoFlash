@@ -118,11 +118,15 @@ fn event_sound_carries_repeat_loop_and_effect_envelope() {
             loops: 3,
             loop_forever: false,
             envelope: vec![[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+            in_point: None,
+            out_point: None,
         }]
     );
     let json = serde_json::to_value(&commands[0]).unwrap();
     assert_eq!(json["op"], "play");
     assert_eq!(json["sync"], "event");
+    assert!(json.get("in_point").is_none());
+    assert!(json.get("out_point").is_none());
     assert_eq!(SoundEffect::FadeLeftToRight.gains_at(0.25), (0.75, 0.25));
 }
 
@@ -263,6 +267,7 @@ fn sounds_in_nested_movie_clips_and_guide_layers() {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     };
     let mut guide = layer("guide", vec![key(0, Some(("song", SoundSync::Event)))]);
     guide.properties.role = LayerRole::Guide;
@@ -422,4 +427,130 @@ fn custom_stereo_sound_envelope_emits_points_and_validates_bounds() {
             .envelope = Some(bad);
         assert!(invalid.validate().is_err());
     }
+}
+
+#[test]
+fn frame_sound_trim_points_validate_format_7_and_emit_on_commands() {
+    let mut proj = project(
+        4,
+        vec![
+            layer("fx", vec![key(0, Some(("beep", SoundSync::Event)))]),
+            layer("music", vec![key(0, Some(("song", SoundSync::Stream)))]),
+        ],
+    );
+    {
+        let fx = proj.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        fx.in_point = Some(0.15);
+        fx.out_point = Some(0.65);
+        let stream = proj.symbols[0].timeline.layers[1].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        stream.in_point = Some(0.25);
+        stream.out_point = Some(1.25);
+    }
+    assert!(proj.uses_format_7());
+    assert!(
+        proj.validate().is_err(),
+        "format 6 rejects sound trim points"
+    );
+    proj.upgrade_format_for_features();
+    assert_eq!(proj.format_version, 7);
+    proj.validate().unwrap();
+
+    let mut player = Player::new(&proj);
+    let cmds = player.drain_sound_commands();
+    assert!(matches!(
+        cmds.as_slice(),
+        [
+            SoundCommand::Play {
+                in_point: Some(inp1),
+                out_point: Some(outp1),
+                ..
+            },
+            SoundCommand::StreamStart {
+                in_point: Some(inp2),
+                out_point: Some(outp2),
+                ..
+            }
+        ] if (*inp1 - 0.15).abs() < 1e-9
+            && (*outp1 - 0.65).abs() < 1e-9
+            && (*inp2 - 0.25).abs() < 1e-9
+            && (*outp2 - 1.25).abs() < 1e-9
+    ));
+
+    let round_trip = Project::from_json(&proj.to_json().unwrap()).unwrap();
+    assert_eq!(round_trip, proj);
+
+    for (bad_in, bad_out) in [
+        (Some(-0.1), None),
+        (None, Some(-0.5)),
+        (Some(0.8), Some(0.8)),
+        (Some(0.9), Some(0.4)),
+        (Some(f64::NAN), None),
+        (None, Some(100_000.0)),
+    ] {
+        let mut invalid = proj.clone();
+        let sound = invalid.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        sound.in_point = bad_in;
+        sound.out_point = bad_out;
+        assert!(invalid.validate().is_err());
+    }
+}
+
+#[test]
+fn pure_wav_and_pcm_waveform_peaks_extract_stereo_envelope_and_trim_slices() {
+    use neoflash_core::{sample_waveform_peaks, wav_waveform_peaks};
+
+    // Synthesize 400 stereo frames at 1000 Hz (0.4 s):
+    // First 200 frames: L = +0.5, R = -0.25; Next 200 frames: L = -1.0, R = +0.75.
+    let mut wav = b"RIFF".to_vec();
+    let frames = 400usize;
+    let mut pcm = Vec::with_capacity(frames * 4);
+    for f in 0..frames {
+        let (l, r): (i16, i16) = if f < 200 {
+            (16_384, -8_192)
+        } else {
+            (-32_768, 24_576)
+        };
+        pcm.extend_from_slice(&l.to_le_bytes());
+        pcm.extend_from_slice(&r.to_le_bytes());
+    }
+    wav.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    wav.extend_from_slice(&2u16.to_le_bytes()); // stereo
+    wav.extend_from_slice(&1000u32.to_le_bytes()); // 1000 Hz
+    wav.extend_from_slice(&4000u32.to_le_bytes()); // byte rate
+    wav.extend_from_slice(&4u16.to_le_bytes()); // block align
+    wav.extend_from_slice(&16u16.to_le_bytes()); // bits
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&pcm);
+
+    let peaks = wav_waveform_peaks(&wav, 4).unwrap();
+    assert_eq!(peaks.channels, 2);
+    assert_eq!(peaks.sample_rate, 1000);
+    assert_eq!(peaks.frames, 400);
+    assert!((peaks.duration - 0.4).abs() < 1e-9);
+    assert_eq!(peaks.buckets(), 4);
+    assert!((peaks.left[0][1] - 0.5).abs() < 1e-4);
+    assert!((peaks.right[0][0] - (-0.25)).abs() < 1e-4);
+    assert!((peaks.left[2][0] - (-1.0)).abs() < 1e-4);
+    assert!((peaks.right[2][1] - 0.75).abs() < 1e-4);
+    assert!((peaks.peak_amplitude(0, 2) - 1.0).abs() < 1e-4);
+    assert!((peaks.peak_amplitude(1, 2) - 0.75).abs() < 1e-4);
+    assert_eq!(peaks.slice_range(Some(0.1), Some(0.3)), 1..3);
+
+    let mono = sample_waveform_peaks(&[0.0, 0.4, -0.8, 0.2], 1, 100, 2).unwrap();
+    assert!(mono.right.is_empty());
+    assert_eq!(mono.buckets(), 2);
+    assert!((mono.peak_amplitude(0, 1) - 0.8).abs() < 1e-6);
 }

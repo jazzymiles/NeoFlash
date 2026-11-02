@@ -880,6 +880,7 @@ mod tests {
             kind,
             scripts: Vec::new(),
             accessibility: None,
+            ..Element::default()
         }
     }
     fn at(x: f64, y: f64) -> Transform {

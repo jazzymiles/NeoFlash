@@ -232,6 +232,7 @@ pub(super) fn convert_shape(
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         });
     }
     for (i, stroke) in shape.strokes.iter().enumerate() {
@@ -288,6 +289,7 @@ pub(super) fn convert_shape(
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         });
     }
     if !notes.is_empty() {

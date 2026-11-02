@@ -1062,8 +1062,7 @@ fn flush_style_group_named(
                 name: String::new(),
                 transform: Transform::default(),
                 kind,
-                scripts: Vec::new(),
-                accessibility: None,
+                ..Element::default()
             });
         }
     }
@@ -1116,8 +1115,7 @@ fn flush_style_group_named(
                 name: String::new(),
                 transform: Transform::default(),
                 kind,
-                scripts: Vec::new(),
-                accessibility: None,
+                ..Element::default()
             });
         }
     }
@@ -1179,8 +1177,7 @@ fn try_build_bitmap_element(
             height: bm.height,
             smoothing,
         },
-        scripts: Vec::new(),
-        accessibility: None,
+        ..Element::default()
     })
 }
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "50a86dc0c93e2592b3cca6407ce16dd0b731c05413dabdde9cbd5a0f4f611aa5",
+  "catalogSha256": "ccf80b93ef4c3c89acf0a7af76e25bd4481f12b8b0b9306d75c98ed89ec40cf8",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -6727,6 +6727,14 @@
         "reviewIds": [
           "AS3-AIR-DESKTOP-FS-DATA-20261101"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-02-as3-net-navigate.json",
+        "sha256": "9203c7b1166fcd7f649c0c342277546a8e6540ab623c4a967c22008dc9b75ffc",
+        "baseCatalogSha256": "50a86dc0c93e2592b3cca6407ce16dd0b731c05413dabdde9cbd5a0f4f611aa5",
+        "reviewIds": [
+          "AS3-NET-NAVIGATE-20261102"
+        ]
       }
     ],
     "statusReviews": [
@@ -6866,13 +6874,22 @@
           "partial": 101,
           "working": 778
         }
+      },
+      {
+        "id": "AS3-NET-NAVIGATE-20261102",
+        "date": "2026-11-02",
+        "commit": "1d3f4d0f3b9fda7f181fd092718c1c64ea3644fd",
+        "path": "docs/progress/reviews/2026-11-02-as3-net-navigate.json",
+        "changes": {
+          "working": 1
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 3181,
-      "partial": 1873,
+      "implemented_subset": 3182,
+      "partial": 1872,
       "missing": 40993,
       "needs_review": 0,
       "total": 46047
@@ -6886,8 +6903,8 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 2470,
-        "partial": 915,
+        "implemented_subset": 2471,
+        "partial": 914,
         "missing": 40355,
         "needs_review": 0,
         "total": 43740
@@ -6930,8 +6947,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 2630,
-        "partial": 1055,
+        "implemented_subset": 2631,
+        "partial": 1054,
         "missing": 2473,
         "needs_review": 0,
         "total": 6158
@@ -7019,8 +7036,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 2217,
-          "partial": 560,
+          "implemented_subset": 2218,
+          "partial": 559,
           "missing": 2473,
           "needs_review": 0,
           "total": 5250
@@ -86217,6 +86234,37 @@
           "status": "missing",
           "ruleId": "B01",
           "evidenceKind": "architectural_absence_inference"
+        }
+      ]
+    },
+    {
+      "id": "AS3-NET-NAVIGATE-20261102",
+      "title": "AS3 flash.net.navigateToURL browser navigation and POST form dispatch",
+      "reason": "Promotes flash.net.navigateToURL(request, window) from partial to working: validates safe HTTP(S), relative and mailto: URLs, blocks javascript:/data:/vbscript:/file: schemes, supports _self/_blank/_parent/_top and named window targets, and submits POST requests via hidden form or query parameters.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/project.rs",
+          "sha256": "cab219420dc52a20d689a20fafb14162d8b1d966839b8a774b5303c8bc5c769b"
+        },
+        {
+          "path": "web/tests/runtime.test.cjs",
+          "sha256": "5b4d10462be1ead0d8d8cf23fef700e323de544e0ec9f7e16d157f8570575eae"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:function:flash/net/package.html#navigateToURL()",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:function:flash/net/package.html#navigateToURL()",
+          "status": "partial",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
         }
       ]
     }

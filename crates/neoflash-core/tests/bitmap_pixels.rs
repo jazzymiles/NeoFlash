@@ -39,6 +39,7 @@ fn portable_image_shared_runtime_pixels_and_transfer_keep_separate_lifetimes() {
             height: 2,
             smoothing: false,
         },
+        ..Element::default()
     };
     project.symbols[0].timeline.layers[0].keyframes[0]
         .elements
@@ -517,6 +518,7 @@ fn as2_bitmap_load_resolves_resource_id_linkage_symbol_and_asset_paths() {
             height: 2,
             smoothing: false,
         },
+        ..Element::default()
     }];
     project.symbols.push(sym);
     let mut player = Player::new(&project);

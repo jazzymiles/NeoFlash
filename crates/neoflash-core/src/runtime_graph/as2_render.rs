@@ -23,7 +23,7 @@ impl As2Render {
     }
     pub(super) fn operation(&self) -> &str {
         match self.blend() {
-            "normal" | "layer" => "source-over",
+            "normal" | "layer" | "subtract" | "invert" | "alpha" | "erase" => "source-over",
             "add" => "lighter",
             "hardlight" => "hard-light",
             value => value,
@@ -158,6 +158,15 @@ impl Player {
                 return Err(error("AS2 raster/filter groups exceed128 objects"));
             }
             if request["op"] == "set" {
+                match request["name"].as_str().unwrap_or("") {
+                    "blendMode" => {
+                        self.graph.blend_overridden.insert(target.clone());
+                    }
+                    "cacheAsBitmap" => {
+                        self.graph.cache_overridden.insert(target.clone());
+                    }
+                    _ => {}
+                }
                 if state.isolated() || state.scale9_grid.is_some() {
                     self.graph
                         .as2_render_states

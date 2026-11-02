@@ -18,6 +18,7 @@ fn element(id: &str, kind: ElementKind, x: f64) -> Element {
         kind,
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 
@@ -512,4 +513,51 @@ fn per_property_eases_and_move_motion_key_with_single_undo() {
         Some(80.)
     );
     undo_restores(&mut editor, &before_move);
+}
+
+#[test]
+fn motion_editor_reveals_and_edits_skew_property_track() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    let mut editor = motion_editor();
+    editor.frame = 4;
+    let span = editor.motion_tween_span().expect("motion span");
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::Skew),
+        vec![0]
+    );
+
+    let before = editor.project.clone();
+    editor.set_motion_value(&span, TweenProperty::Skew, 4, 24.0, None);
+    editor.finish_edits();
+    editor.project.validate().unwrap();
+
+    let span = editor.motion_tween_span().expect("motion span");
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::Skew),
+        vec![0, 4]
+    );
+    let mid = editor
+        .motion_value(&span, TweenProperty::Skew, 2)
+        .expect("interpolated skew");
+    assert!((mid - 12.0).abs() < 1e-6);
+
+    let after_edit = editor.project.clone();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1600., 1000.),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.motion_editor_panel_ui(ui);
+            });
+        },
+    );
+    assert_eq!(editor.project, after_edit);
+    undo_restores(&mut editor, &before);
 }

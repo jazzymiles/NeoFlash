@@ -141,6 +141,7 @@ fn prepare_svg_str(
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     };
     let notice = if !editable_paths {
         None
@@ -284,5 +285,6 @@ fn path_element(
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     })
 }

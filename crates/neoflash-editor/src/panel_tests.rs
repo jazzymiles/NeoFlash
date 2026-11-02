@@ -27,7 +27,9 @@ fn frame(
             editor.menu(ctx);
             editor.bitmap_textures.begin_frame(&editor.project);
             editor.prepare_docked_panel_focus(ctx);
-            editor.dock_grid(ctx);
+            if !editor.panels_hidden {
+                editor.dock_grid(ctx);
+            }
             editor.stage(ctx);
         },
     )
@@ -1190,7 +1192,6 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
 /// panel (Edit ▸ Find and replace → Find and replace preview).
 #[test]
 fn menu_bar_follows_design_and_opens_planned_previews() {
-    use crate::panels::planned::{self, PlannedPanel};
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::demo());
@@ -1263,7 +1264,8 @@ fn menu_bar_follows_design_and_opens_planned_previews() {
                 vec![Event::PointerMoved(find), primary_button(find, true)],
             );
             step(&mut editor, vec![primary_button(find, false)]);
-            assert!(planned::is_open(&ctx, PlannedPanel::FindReplace));
+            assert!(editor.find_replace.is_some());
+            editor.find_replace = None;
         } else {
             step(&mut editor, vec![escape()]);
         }
@@ -1421,7 +1423,9 @@ fn full_frame(
             editor.status_bar(ctx);
             editor.bitmap_textures.begin_frame(&editor.project);
             editor.prepare_docked_panel_focus(ctx);
-            editor.dock_grid(ctx);
+            if !editor.panels_hidden {
+                editor.dock_grid(ctx);
+            }
             editor.stage(ctx);
             editor.draw_dialogs(ctx);
             editor.symbol_creation_dialog(ctx);
@@ -1579,6 +1583,10 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         PanelId::Scene => "Scene (⇧F2)",
         PanelId::MotionEditor => "Motion editor",
         PanelId::Project => "Project",
+        PanelId::Filters => "Filters",
+        PanelId::CompilerErrors => "Compiler errors (⌥F2)",
+        PanelId::CodeSnippets => "Code snippets",
+        PanelId::MovieExplorer => "Movie Explorer",
     };
 
     // Real panels: Window menu opens and closes; the tab menu's Hide closes too.
@@ -2828,6 +2836,105 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
 }
 
 #[test]
+fn filters_panel_edits_display_properties_and_filters_with_undo_and_format_7() {
+    use crate::panels::filters::AuthoringFilterKind;
+    let mut d = Driver::new();
+    d.editor.select_all();
+    d.editor.selection.targets.truncate(1);
+    assert_eq!(d.editor.selection.len(), 1);
+    d.editor.show_panel(PanelId::Filters);
+    d.settle();
+
+    let baseline = d.editor.project.clone();
+
+    assert!(d.editor.set_selected_visible(false));
+    assert!(!d.editor.selected_element().unwrap().visible);
+    assert_eq!(d.editor.project.format_version, 7);
+    d.editor.project.validate().unwrap();
+
+    assert!(d.editor.set_selected_cache_as_bitmap(true));
+    assert!(d.editor.selected_element().unwrap().cache_as_bitmap);
+    d.editor.project.validate().unwrap();
+
+    assert!(d.editor.set_selected_blend_mode(BlendMode::Multiply));
+    assert_eq!(
+        d.editor.selected_element().unwrap().blend_mode,
+        BlendMode::Multiply
+    );
+    d.editor.project.validate().unwrap();
+
+    assert_eq!(
+        d.editor
+            .add_selected_filter(AuthoringFilterKind::DropShadow),
+        Some(0)
+    );
+    assert_eq!(
+        d.editor
+            .add_selected_filter(AuthoringFilterKind::AdjustColor),
+        Some(1)
+    );
+    assert!(d.editor.update_selected_filter(
+        1,
+        FilterSpec::ColorMatrix {
+            matrix: adjust_color_matrix(20.0, 15.0, -40.0, 30.0),
+        },
+        None,
+    ));
+    assert_eq!(d.editor.duplicate_selected_filter(0), Some(1));
+    assert_eq!(d.editor.selected_element().unwrap().filters.len(), 3);
+    d.settle();
+    d.editor.project.validate().unwrap();
+
+    assert!(d.editor.remove_selected_filter(1));
+    assert_eq!(d.editor.selected_element().unwrap().filters.len(), 2);
+    d.settle();
+    d.editor.project.validate().unwrap();
+
+    // Undo all 8 steps restores the exact baseline project.
+    for _ in 0..8 {
+        d.editor.undo();
+    }
+    assert_eq!(d.editor.project, baseline);
+
+    // Held-frame edit inserts a keyframe automatically and leaves frame 0 untouched.
+    let target = d.editor.selection.single().unwrap().clone();
+    let layer_idx = d
+        .editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.id == target.layer)
+        .unwrap();
+    d.editor.layer = layer_idx;
+    d.editor.frame = 4;
+    d.editor.insert_frame();
+    d.editor.frame = 2;
+    d.editor.selection.targets = vec![target.clone()];
+    assert!(d.editor.set_selected_blend_mode(BlendMode::Screen));
+    d.editor.project.validate().unwrap();
+    let layer = &d.editor.symbol().timeline.layers[layer_idx];
+    let kf0 = layer.keyframes.iter().find(|k| k.frame == 0).unwrap();
+    let kf2 = layer.keyframes.iter().find(|k| k.frame == 2).unwrap();
+    assert_eq!(
+        kf0.elements
+            .iter()
+            .find(|e| e.id == target.element)
+            .unwrap()
+            .blend_mode,
+        BlendMode::Normal
+    );
+    assert_eq!(
+        kf2.elements
+            .iter()
+            .find(|e| e.id == target.element)
+            .unwrap()
+            .blend_mode,
+        BlendMode::Screen
+    );
+}
+
+#[test]
 fn preferences_drawing_page_binds_controls_resets_and_saves() {
     use crate::panels::preferences::PAGE_DRAWING;
     use crate::workspace::{DrawingPrefs, Tolerance};
@@ -3534,4 +3641,969 @@ fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() 
     );
     assert_eq!(d.editor.workspace.timeline_prefs.onion_falloff, 70.0);
     assert_eq!(d.editor.project, project);
+}
+
+#[test]
+fn distribute_to_layers_names_layers_preserves_painter_order_and_undoes() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let btn_sym_id = new_id("symbol");
+    project.symbols.push(Symbol {
+        id: btn_sym_id.clone(),
+        name: "PlayButton".into(),
+        kind: SymbolKind::Button,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("object"),
+                        name: "rect_1".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 80.,
+                            height: 30.,
+                            fill: [200, 60, 60, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Default::default()
+                }],
+            }],
+        },
+    });
+    let el_unnamed_inst = Element {
+        id: new_id("object"),
+        name: "clip_1".into(),
+        transform: Transform {
+            x: 10.,
+            y: 20.,
+            ..Default::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: btn_sym_id.clone(),
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    };
+    let el_named_inst = Element {
+        id: new_id("object"),
+        name: "hero_mc".into(),
+        transform: Transform {
+            x: 120.,
+            y: 20.,
+            ..Default::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: btn_sym_id,
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    };
+    let el_text = Element {
+        id: new_id("object"),
+        name: "text_3".into(),
+        transform: Transform {
+            x: 10.,
+            y: 90.,
+            ..Default::default()
+        },
+        kind: ElementKind::Text {
+            text: "Welcome Banner".into(),
+            font_family: "sans-serif".into(),
+            font_size: 20.,
+            color: [255, 255, 255, 255],
+        },
+        ..Element::default()
+    };
+    let grp_a_id = new_id("object");
+    let grp_b_id = new_id("object");
+    let el_grp_a = Element {
+        id: grp_a_id.clone(),
+        name: "rectangle_4".into(),
+        transform: Transform {
+            x: 10.,
+            y: 150.,
+            ..Default::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 30.,
+            height: 30.,
+            fill: [40, 120, 220, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        ..Element::default()
+    };
+    let el_grp_b = Element {
+        id: grp_b_id.clone(),
+        name: "oval_5".into(),
+        transform: Transform {
+            x: 50.,
+            y: 150.,
+            ..Default::default()
+        },
+        kind: ElementKind::Ellipse {
+            width: 30.,
+            height: 30.,
+            fill: [240, 180, 40, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        ..Element::default()
+    };
+
+    let root_id = project.root.clone();
+    project.format_version = 4;
+    {
+        let root_sym = project.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.frame_count = 10;
+        let layer = &mut root_sym.timeline.layers[0];
+        layer.keyframes[0].elements =
+            vec![el_unnamed_inst, el_named_inst, el_text, el_grp_a, el_grp_b];
+        layer.properties.groups.push(AuthoringGroup {
+            id: new_id("group"),
+            name: "Badge Group".into(),
+            members: vec![grp_a_id, grp_b_id],
+        });
+    }
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    let draws_before: Vec<_> = evaluate(&editor.project, &root_id, 0)
+        .into_iter()
+        .map(|d| (d.transform, d.kind))
+        .collect();
+
+    editor.select_all();
+    assert!(editor.can_distribute_to_layers());
+    assert!(editor.distribute_to_layers());
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_label(), Some("Distribute to layers"));
+
+    let layer_names: Vec<_> = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .map(|l| l.name.as_str())
+        .collect();
+    assert_eq!(
+        layer_names,
+        vec![
+            "Layer 1",
+            "PlayButton",
+            "hero_mc",
+            "Welcome Banner",
+            "Badge Group"
+        ]
+    );
+    let draws_after: Vec<_> = evaluate(&editor.project, &root_id, 0)
+        .into_iter()
+        .map(|d| (d.transform, d.kind))
+        .collect();
+    assert_eq!(
+        draws_after, draws_before,
+        "back-to-front painter order must stay identical"
+    );
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Also verify distributing on frame > 0 when objects remain on frame 0 keeps unique element IDs.
+    editor.frame = 5;
+    editor.select_all();
+    assert!(editor.distribute_to_layers());
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn enable_simple_buttons_evaluates_up_over_down_and_hit_tests_frame_3() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let make_rect = |w: f64, h: f64, fill: Color| Element {
+        id: new_id("object"),
+        name: "rect_1".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: w,
+            height: h,
+            fill,
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        ..Element::default()
+    };
+
+    let visible_btn_id = new_id("symbol");
+    project.symbols.push(Symbol {
+        id: visible_btn_id.clone(),
+        name: "VisibleBtn".into(),
+        kind: SymbolKind::Button,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "States".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![make_rect(100., 40., [220, 40, 40, 255])],
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 1,
+                        elements: vec![make_rect(100., 40., [40, 200, 80, 255])],
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 2,
+                        elements: vec![make_rect(100., 40., [40, 100, 240, 255])],
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        elements: vec![make_rect(160., 90., [0, 0, 0, 255])],
+                        ..Default::default()
+                    },
+                ],
+            }],
+        },
+    });
+
+    let hotspot_btn_id = new_id("symbol");
+    project.symbols.push(Symbol {
+        id: hotspot_btn_id.clone(),
+        name: "HotspotBtn".into(),
+        kind: SymbolKind::Button,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Hotspot".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![],
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        elements: vec![make_rect(60., 60., [0, 0, 0, 255])],
+                        ..Default::default()
+                    },
+                ],
+            }],
+        },
+    });
+
+    let inst_visible_id = new_id("object");
+    let inst_hotspot_id = new_id("object");
+    let root_id = project.root.clone();
+    project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements = vec![
+        Element {
+            id: inst_visible_id.clone(),
+            name: "cta_btn".into(),
+            transform: Transform {
+                x: 50.,
+                y: 50.,
+                ..Default::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: visible_btn_id,
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: inst_hotspot_id.clone(),
+            name: "hot_btn".into(),
+            transform: Transform {
+                x: 300.,
+                y: 50.,
+                ..Default::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: hotspot_btn_id,
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        },
+    ];
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let _ = full_frame(&mut editor, &ctx, 0.1, vec![]);
+    let painter = ctx.layer_painter(egui::LayerId::background());
+
+    // Hit-test uses frame 3 (160x90 at (50,50)), so (180, 120) hits even outside Up's 100x40 box!
+    assert_eq!(
+        editor.hit_test_simple_button(&painter, Pos2::new(180., 120.)),
+        Some(inst_visible_id.clone())
+    );
+    // Invisible hotspot button (empty Up frame, 60x60 Hit frame at (300,50)) hits via frame 3!
+    assert_eq!(
+        editor.hit_test_simple_button(&painter, Pos2::new(320., 70.)),
+        Some(inst_hotspot_id)
+    );
+    assert_eq!(
+        editor.hit_test_simple_button(&painter, Pos2::new(10., 10.)),
+        None
+    );
+
+    let first_fill = |editor: &mut Editor| -> Color {
+        let scene = editor.current_authored_scene(true);
+        match &scene.draws[0].item.kind {
+            ElementKind::Rectangle { fill, .. } => *fill,
+            other => panic!("expected rectangle, got {other:?}"),
+        }
+    };
+
+    editor.set_enable_simple_buttons(true);
+    assert_eq!(first_fill(&mut editor), [220, 40, 40, 255]); // Up
+
+    editor.hovered_simple_button = Some(inst_visible_id.clone());
+    assert_eq!(first_fill(&mut editor), [40, 200, 80, 255]); // Over
+
+    editor.pressed_simple_button = Some(inst_visible_id.clone());
+    assert_eq!(first_fill(&mut editor), [40, 100, 240, 255]); // Down
+
+    editor.hovered_simple_button = None;
+    assert_eq!(first_fill(&mut editor), [40, 200, 80, 255]); // Dragged outside while held = Over
+
+    editor.set_enable_simple_buttons(false);
+    assert!(editor.hovered_simple_button.is_none());
+    assert!(editor.pressed_simple_button.is_none());
+    assert_eq!(first_fill(&mut editor), [220, 40, 40, 255]); // Back to Up
+}
+
+#[test]
+fn file_close_revert_recent_files_and_window_hide_panels() {
+    let ctx = egui::Context::default();
+    let dir = std::env::temp_dir().join(format!("neoflash-group2-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let file_path = dir.join("saved-test.nflash");
+
+    let mut project = Project::blank();
+    project.name = "SavedOriginal".into();
+    std::fs::write(&file_path, project.to_json().unwrap()).unwrap();
+
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.open_path(file_path.clone(), &ctx);
+    assert_eq!(editor.project.name, "SavedOriginal");
+    assert_eq!(editor.workspace.general.existing_recent_files().len(), 1);
+    assert!(!editor.can_revert());
+
+    // Mutate and revert from disk.
+    editor.transact(|e| e.project.name = "UnsavedEdit".into());
+    assert!(editor.dirty());
+    assert!(editor.can_revert());
+    editor.request_revert();
+    assert!(editor.confirm_revert);
+    assert!(editor.revert_to_saved(&ctx));
+    assert!(!editor.confirm_revert);
+    assert!(!editor.dirty());
+    assert_eq!(editor.project.name, "SavedOriginal");
+
+    // Recent files deduplication, cap at 10, and clear.
+    for i in 0..12 {
+        editor
+            .workspace
+            .record_recent_file(dir.join(format!("proj-{i}.nflash")));
+    }
+    assert_eq!(editor.workspace.general.recent_files.len(), 10);
+    editor.workspace.clear_recent_files();
+    assert!(editor.workspace.general.recent_files.is_empty());
+
+    // File ▸ Close prompts when dirty and resets to blank document when performed.
+    editor.transact(|e| e.project.name = "DirtyBeforeClose".into());
+    editor.request(crate::app::Pending::CloseDocument, &ctx);
+    assert_eq!(editor.confirm, Some(crate::app::Pending::CloseDocument));
+    editor.confirm = None;
+    editor.perform(crate::app::Pending::CloseDocument, &ctx);
+    assert!(editor.path.is_none());
+    assert!(!editor.dirty());
+
+    // Window ▸ Hide panels (F4) hides chrome transiently without mutating PanelVisibility.
+    let saved_visibility = editor.workspace.panels;
+    assert!(!editor.panels_hidden);
+    editor.toggle_hide_panels();
+    assert!(editor.panels_hidden);
+    assert_eq!(editor.workspace.panels, saved_visibility);
+    let out_hidden = full_frame(&mut editor, &ctx, 0.2, vec![]);
+    let has_tabs_while_hidden = out_hidden
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .is_some_and(|u| {
+            u.nodes
+                .iter()
+                .any(|(_, n)| n.role() == egui::accesskit::Role::Tab)
+        });
+    assert!(!has_tabs_while_hidden);
+
+    // Explicitly showing any panel auto-unhides panels.
+    editor.show_panel(PanelId::Library);
+    assert!(!editor.panels_hidden);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
+    use crate::panels::actions_sidebar::ScriptLocation;
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 3;
+    let src_id = new_id("source");
+    project.sources.push(SourceUnit {
+        id: src_id.clone(),
+        path: "src/Broken.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package {\n  function ( {\n}\n".into(),
+    });
+    let root_id = project.root.clone();
+    let obj_id = new_id("object");
+    {
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 5;
+        root.timeline.scripts.push(FrameScript {
+            frame: 2,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var x = ;".into(),
+            },
+        });
+        root.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: obj_id.clone(),
+            name: "bad_btn".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Text {
+                text: "Custom Font Warning".into(),
+                font_family: "Papyrus Custom NonWeb".into(),
+                font_size: 18.,
+                color: [255, 255, 255, 255],
+            },
+            scripts: vec![ObjectScript {
+                event: ObjectEvent::Click,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "if ( {".into(),
+                },
+            }],
+            ..Element::default()
+        });
+    }
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.show_panel(PanelId::CompilerErrors);
+    let snapshot = editor.project.clone();
+    let _ = full_frame(&mut editor, &ctx, 0.1, vec![]);
+    assert_eq!(
+        editor.project, snapshot,
+        "Compiler errors panel must never mutate project data"
+    );
+
+    editor.refresh_compiler_diagnostics();
+    let items = &editor.compiler_errors.items;
+    assert!(
+        items
+            .iter()
+            .any(|i| i.is_error && i.script == Some(ScriptLocation::Source(src_id.clone()))),
+        "expected project source error in {items:#?}"
+    );
+    assert!(
+        items.iter().any(|i| i.is_error
+            && i.script
+                == Some(ScriptLocation::Frame {
+                    symbol: root_id.clone(),
+                    frame: 2,
+                })),
+        "expected frame script error in {items:#?}"
+    );
+    assert!(
+        items.iter().any(|i| i.is_error
+            && i.script
+                == Some(ScriptLocation::Object {
+                    symbol: root_id.clone(),
+                    frame: 0,
+                    element: obj_id.clone(),
+                    event: ObjectEvent::Click,
+                })),
+        "expected object script error in {items:#?}"
+    );
+    assert!(
+        items.iter().any(|i| !i.is_error),
+        "expected HTML5 publish font warning in {items:#?}"
+    );
+
+    let frame_err_idx = items
+        .iter()
+        .position(|i| {
+            i.script
+                == Some(ScriptLocation::Frame {
+                    symbol: root_id.clone(),
+                    frame: 2,
+                })
+        })
+        .unwrap();
+    assert!(editor.jump_to_compiler_diagnostic(&ctx, frame_err_idx));
+    assert_eq!(editor.frame, 2);
+    assert!(editor.workspace.is_panel_visible(PanelId::Actions));
+}
+
+#[test]
+fn code_snippets_all_compile_across_every_language_and_insert_with_undo() {
+    use crate::panels::code_snippets::CODE_SNIPPETS;
+    let languages = [
+        ScriptLanguage::ActionScript3,
+        ScriptLanguage::ActionScript2,
+        ScriptLanguage::ActionScript1,
+        ScriptLanguage::JavaScript,
+        ScriptLanguage::TypeScript,
+    ];
+    let blank_program = neoflash_script::compile_project(&Project::blank()).unwrap();
+    for (idx, snippet) in CODE_SNIPPETS.iter().enumerate() {
+        for language in languages {
+            let source = snippet.merge_into("", language, "orbit_mc");
+            if let Err(errors) = neoflash_script::compile_with_program(
+                &Script {
+                    language,
+                    source: source.clone(),
+                },
+                &blank_program,
+            ) {
+                panic!(
+                    "snippet #{idx} ({:?}) failed to compile in {language:?}: {errors:#?}\nsource:\n{source}",
+                    snippet.title
+                );
+            }
+        }
+    }
+
+    // Insertion assigns an instance name to an unnamed selected symbol instance, merges AS3 imports
+    // without duplication, and undoes in one transaction.
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let clip_sym_id = new_id("symbol");
+    project.symbols.push(Symbol {
+        id: clip_sym_id.clone(),
+        name: "Star Spinner".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![],
+                    ..Default::default()
+                }],
+            }],
+        },
+    });
+    let inst_id = new_id("object");
+    let root_id = project.root.clone();
+    project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: inst_id.clone(),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: clip_sym_id,
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_single_id(inst_id.clone());
+    assert!(editor.insert_code_snippet(0)); // Click to go to frame and stop
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_label(), Some("Insert code snippet"));
+
+    let assigned_name = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .find(|e| e.id == inst_id)
+        .unwrap()
+        .name
+        .clone();
+    assert_eq!(assigned_name, "star_spinner_mc");
+    let script_src = &editor.symbol().timeline.scripts[0].script.source;
+    assert!(script_src.contains("import flash.events.MouseEvent;"));
+    assert!(script_src.contains("star_spinner_mc.addEventListener"));
+    let program = neoflash_script::compile_project(&editor.project).unwrap();
+    neoflash_script::compile_with_program(&editor.symbol().timeline.scripts[0].script, &program)
+        .unwrap();
+
+    // Inserting another MouseEvent snippet merges cleanly without duplicating the import line.
+    assert!(editor.insert_code_snippet(4)); // Click to go to frame and play
+    let merged_src = &editor.symbol().timeline.scripts[0].script.source;
+    assert_eq!(
+        merged_src
+            .matches("import flash.events.MouseEvent;")
+            .count(),
+        1
+    );
+    neoflash_script::compile_with_program(&editor.symbol().timeline.scripts[0].script, &program)
+        .unwrap();
+
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn movie_explorer_builds_tree_filters_searches_and_navigates() {
+    use crate::panels::movie_explorer::{
+        CAT_SCRIPTS, CAT_TEXT, MovieTarget, build_movie_explorer_rows,
+    };
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.new_scene();
+    let second_scene = editor.current_scene().to_owned();
+    let text_id = new_id("object");
+    editor.transact(|e| {
+        let sym = e.symbol_mut();
+        sym.timeline.frame_count = 6;
+        sym.timeline.scripts.push(FrameScript {
+            frame: 3,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "trace(\"explorer-hit\");".into(),
+            },
+        });
+        sym.timeline.layers[0].keyframes.push(Keyframe {
+            frame: 3,
+            elements: vec![Element {
+                id: text_id.clone(),
+                name: "banner_txt".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Text {
+                    text: "Secret Treasure".into(),
+                    font_family: "sans-serif".into(),
+                    font_size: 16.,
+                    color: [255, 255, 255, 255],
+                },
+                ..Element::default()
+            }],
+            ..Default::default()
+        });
+    });
+    let root_scene = editor.project.root.clone();
+    editor.switch_scene(&root_scene);
+
+    let all_rows = build_movie_explorer_rows(&editor);
+    assert!(all_rows.iter().any(|r| r.label.contains("Secret Treasure")));
+    assert!(all_rows.iter().any(|r| r.label.contains("Actions")));
+
+    // Filter to Text only: scripts disappear, text remains.
+    editor.movie_explorer.show_categories = [false; 4];
+    editor.movie_explorer.show_categories[CAT_TEXT] = true;
+    let text_rows = build_movie_explorer_rows(&editor);
+    assert!(
+        text_rows
+            .iter()
+            .any(|r| r.label.contains("Secret Treasure"))
+    );
+    assert!(!text_rows.iter().any(|r| r.label.contains("Actions  ·")));
+
+    // Filter to Scripts only + search query.
+    editor.movie_explorer.show_categories = [false; 4];
+    editor.movie_explorer.show_categories[CAT_SCRIPTS] = true;
+    let script_rows = build_movie_explorer_rows(&editor);
+    assert!(
+        script_rows
+            .iter()
+            .any(|r| matches!(r.target, MovieTarget::Script(_)))
+    );
+
+    editor.movie_explorer.show_categories = [true; 4];
+    editor.movie_explorer.query = "secret treasure".into();
+    let searched = build_movie_explorer_rows(&editor);
+    let target = searched
+        .iter()
+        .find(|r| r.label.contains("Secret Treasure"))
+        .unwrap()
+        .target
+        .clone();
+
+    let snapshot = editor.project.clone();
+    editor.navigate_movie_explorer_target(&target, false);
+    assert_eq!(editor.current_scene(), second_scene);
+    assert_eq!(editor.frame, 3);
+    assert_eq!(
+        editor.selected_element().map(|e| e.id.as_str()),
+        Some(text_id.as_str())
+    );
+    assert_eq!(editor.project, snapshot);
+}
+
+#[test]
+fn find_and_replace_covers_text_regex_font_colour_symbol_sound_and_undoes() {
+    use crate::panels::find_replace::FindKind;
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 6;
+
+    // Two audio resources for Sound swap.
+    let wav_bytes = {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"RIFF");
+        v.extend_from_slice(&36u32.to_le_bytes());
+        v.extend_from_slice(b"WAVEfmt ");
+        v.extend_from_slice(&16u32.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&8000u32.to_le_bytes());
+        v.extend_from_slice(&8000u32.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&8u16.to_le_bytes());
+        v.extend_from_slice(b"data");
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v
+    };
+    let snd_a = ResourceUnit::from_bytes(new_id("res"), "audio/click.wav", "audio/wav", &wav_bytes)
+        .unwrap();
+    let snd_b = ResourceUnit::from_bytes(new_id("res"), "audio/chime.wav", "audio/wav", &wav_bytes)
+        .unwrap();
+    let snd_a_id = snd_a.id.clone();
+    let snd_b_id = snd_b.id.clone();
+    project.resources.push(snd_a);
+    project.resources.push(snd_b);
+
+    // Two library symbols for Symbol swap.
+    let make_sym = |name: &str| Symbol {
+        id: new_id("symbol"),
+        name: name.into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![],
+                    ..Default::default()
+                }],
+            }],
+        },
+    };
+    let sym_old = make_sym("EnemyOld");
+    let sym_new = make_sym("EnemyNew");
+    let sym_old_id = sym_old.id.clone();
+    let sym_new_id = sym_new.id.clone();
+    project.symbols.push(sym_old);
+    project.symbols.push(sym_new);
+
+    let root_id = project.root.clone();
+    let text_el_id = new_id("object");
+    let rect_el_id = new_id("object");
+    let inst_el_id = new_id("object");
+    {
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var score_1 = 10; var score_25 = score_1 + 5;".into(),
+            },
+        });
+        let key = &mut root.timeline.layers[0].keyframes[0];
+        key.label = "intro_score_9".into();
+        key.sound = Some(FrameSound {
+            resource: snd_a_id.clone(),
+            sync: SoundSync::Event,
+            loops: 1,
+            loop_forever: false,
+            effect: SoundEffect::None,
+            envelope: None,
+            in_point: None,
+            out_point: None,
+        });
+        key.elements = vec![
+            Element {
+                id: text_el_id.clone(),
+                name: "score_label".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Text {
+                    text: "High score_100".into(),
+                    font_family: "Helvetica".into(),
+                    font_size: 24.,
+                    color: [255, 0, 0, 255],
+                },
+                ..Element::default()
+            },
+            Element {
+                id: rect_el_id.clone(),
+                name: "box_1".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: 50.,
+                    height: 50.,
+                    fill: [255, 0, 0, 180],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: inst_el_id.clone(),
+                name: "foe_mc".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: sym_old_id,
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+        ];
+    }
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let baseline = editor.project.clone();
+
+    // 1. Regex Text Find & Replace All across text field, frame label, and multiple occurrences in one script.
+    editor.open_find_replace();
+    {
+        let st = editor.find_replace.as_mut().unwrap();
+        st.kind = FindKind::Text;
+        st.find = "score_[0-9]+".into();
+        st.replace = "points".into();
+        st.regex = true;
+    }
+    assert_eq!(editor.find_all_matches(), 5);
+    assert_eq!(editor.replace_all_matches(), 5);
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_label(), Some("Find and replace"));
+    assert_eq!(
+        editor.symbol().timeline.scripts[0].script.source,
+        "var points = 10; var points = points + 5;"
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].label,
+        "intro_points"
+    );
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 2. Font replace.
+    {
+        let st = editor.find_replace.as_mut().unwrap();
+        st.kind = FindKind::Font;
+        st.regex = false;
+        st.find = "Helvetica".into();
+        st.replace = "Georgia".into();
+    }
+    assert_eq!(editor.replace_all_matches(), 1);
+    editor.project.validate().unwrap();
+    match &editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind {
+        ElementKind::Text { font_family, .. } => assert_eq!(font_family, "Georgia"),
+        other => panic!("unexpected {other:?}"),
+    }
+    editor.undo();
+
+    // 3. Colour replace (#RRGGBB preserves existing alpha 180 on rectangle fill!).
+    {
+        let st = editor.find_replace.as_mut().unwrap();
+        st.kind = FindKind::Colour;
+        st.find = "#ff0000".into();
+        st.replace = "#00ff88".into();
+    }
+    assert_eq!(editor.replace_all_matches(), 2);
+    editor.project.validate().unwrap();
+    match &editor.symbol().timeline.layers[0].keyframes[0].elements[1].kind {
+        ElementKind::Rectangle { fill, .. } => assert_eq!(*fill, [0, 255, 136, 180]),
+        other => panic!("unexpected {other:?}"),
+    }
+    editor.undo();
+
+    // 4. Symbol replace.
+    {
+        let st = editor.find_replace.as_mut().unwrap();
+        st.kind = FindKind::Symbol;
+        st.find = "EnemyOld".into();
+        st.replace = "EnemyNew".into();
+    }
+    assert_eq!(editor.replace_all_matches(), 1);
+    editor.project.validate().unwrap();
+    match &editor.symbol().timeline.layers[0].keyframes[0].elements[2].kind {
+        ElementKind::Instance { symbol_id, .. } => assert_eq!(symbol_id, &sym_new_id),
+        other => panic!("unexpected {other:?}"),
+    }
+    editor.undo();
+
+    // 5. Sound replace.
+    {
+        let st = editor.find_replace.as_mut().unwrap();
+        st.kind = FindKind::Sound;
+        st.find = "audio/click.wav".into();
+        st.replace = "audio/chime.wav".into();
+    }
+    assert_eq!(editor.replace_all_matches(), 1);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .sound
+            .as_ref()
+            .unwrap()
+            .resource,
+        snd_b_id
+    );
+    editor.undo();
+    assert_eq!(editor.project, baseline);
 }

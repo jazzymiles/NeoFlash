@@ -79,7 +79,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_7() && project.format_version < 7 {
         add(
             "format_version".into(),
-            "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, and custom sound envelopes require document version 7"
+            "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, custom sound envelopes or trim points, and authored display filters/blending/visibility require document version 7"
                 .into(),
         );
     }
@@ -571,6 +571,40 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             }
                         }
                     }
+                    if let Some(inp) = sound.in_point
+                        && (!inp.is_finite()
+                            || !(0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&inp))
+                    {
+                        add(
+                            format!("{kp}.sound.in_point"),
+                            format!(
+                                "sound in_point must be finite and in 0..={}",
+                                FrameSound::MAX_SOUND_TRIM_SECONDS
+                            ),
+                        );
+                    }
+                    if let Some(outp) = sound.out_point
+                        && (!outp.is_finite()
+                            || !(0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&outp))
+                    {
+                        add(
+                            format!("{kp}.sound.out_point"),
+                            format!(
+                                "sound out_point must be finite and in 0..={}",
+                                FrameSound::MAX_SOUND_TRIM_SECONDS
+                            ),
+                        );
+                    }
+                    if let (Some(inp), Some(outp)) = (sound.in_point, sound.out_point)
+                        && inp.is_finite()
+                        && outp.is_finite()
+                        && outp <= inp
+                    {
+                        add(
+                            format!("{kp}.sound.out_point"),
+                            "sound out_point must be greater than in_point".into(),
+                        );
+                    }
                 }
                 let mut placed = HashSet::new();
                 for (ei, element) in key.elements.iter().enumerate() {
@@ -611,6 +645,9 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 "focus order must be in 0..=10000".into(),
                             );
                         }
+                    }
+                    if let Err(err) = crate::validate_filters(&element.filters) {
+                        add(format!("{ep}.filters"), err.to_string());
                     }
                     if ![t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.alpha, t.skew]
                         .iter()

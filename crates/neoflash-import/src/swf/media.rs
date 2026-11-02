@@ -605,6 +605,8 @@ pub(crate) fn parse_sound_info(
         loop_forever,
         effect,
         envelope,
+        in_point: None,
+        out_point: None,
     })
 }
 

@@ -17,6 +17,7 @@ fn shape(id: &str, x: f64) -> Element {
             stroke_width: 0.,
         },
         scripts: vec![],
+        ..Element::default()
     }
 }
 fn instance(id: &str, target: &str, x: f64) -> Element {
@@ -822,6 +823,7 @@ fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
             stroke_width: 2.,
         },
         scripts: vec![],
+        ..Element::default()
     };
     let oval_el = Element {
         accessibility: None,
@@ -846,6 +848,7 @@ fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
             stroke_width: 3.,
         },
         scripts: vec![],
+        ..Element::default()
     };
     project.symbols[0].timeline.layers[0].keyframes[0].elements =
         vec![rect_el.clone(), oval_el.clone()];

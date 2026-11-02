@@ -31,6 +31,7 @@ fn tween_project(easing: Easing) -> (Project, Id) {
                 source: "this.x += 1;".into(),
             },
         }],
+        ..Element::default()
     };
     let mut end = start.clone();
     end.transform.x = 100.;
@@ -1303,6 +1304,7 @@ fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or
             },
             scripts: vec![],
             accessibility: None,
+            ..Element::default()
         }],
         tween: None,
         label: String::new(),

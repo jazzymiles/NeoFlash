@@ -55,6 +55,12 @@ pub struct DisplayNode {
     pub frame: u32,
     pub total_frames: u32,
     pub independent: bool,
+    #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+    pub blend_mode: BlendMode,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cache_as_bitmap: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<FilterSpec>,
     pub kind: Option<ElementKind>,
 }
 
@@ -383,6 +389,9 @@ impl Player {
                     frame: node.frame,
                     total_frames: symbol.map_or(0, |s| s.timeline.frame_count),
                     independent: node.independent,
+                    blend_mode: node.blend_mode,
+                    cache_as_bitmap: node.cache_as_bitmap,
+                    filters: node.filters,
                     kind: node.kind,
                 })
             })
@@ -614,9 +623,15 @@ impl Player {
             .nodes
             .iter()
             .filter_map(|node| {
-                self.lifetimes
-                    .get(&node.path)
-                    .map(|lifetime| (node.path.clone(), *lifetime))
+                self.lifetimes.get(&node.path).map(|lifetime| {
+                    crate::runtime_graph::AuthoredPlacement {
+                        path: node.path.clone(),
+                        lifetime: *lifetime,
+                        blend_mode: node.blend_mode,
+                        cache_as_bitmap: node.cache_as_bitmap,
+                        filters: node.filters.clone(),
+                    }
+                })
             })
             .collect::<Vec<_>>();
         self.graph.reconcile(&placements);

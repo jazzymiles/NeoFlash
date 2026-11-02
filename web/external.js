@@ -120,6 +120,11 @@
       if(!hostGlobal)throw new Error('Browser navigation is unavailable in this host.');
       const {url,method,fields}=prepared;let target=prepared.target;
       if(method==='GET'){
+        if(/^mailto:/i.test(url)){
+          if(typeof hostGlobal.location?.assign==='function'){hostGlobal.location.assign(url);return;}
+          if(typeof hostGlobal.open==='function'){hostGlobal.open(url,target);return;}
+          throw new Error('Browser mailto: navigation is unavailable.');
+        }
         if(target==='_self'||target==='_parent'||target==='_top'){
           const destination=target==='_self'?hostGlobal:hostGlobal[target==='_top'?'top':'parent'];
           if(typeof destination?.location?.assign!=='function')throw new Error('Browser location navigation is unavailable.');

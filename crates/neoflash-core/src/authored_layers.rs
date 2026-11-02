@@ -185,12 +185,35 @@ pub fn evaluate_scene(
     include_guides: bool,
     show_masking: bool,
 ) -> AuthoredScene {
+    evaluate_scene_with_buttons(
+        project,
+        symbol,
+        frame,
+        include_guides,
+        show_masking,
+        &|_| None,
+    )
+}
+
+pub fn evaluate_scene_with_buttons(
+    project: &Project,
+    symbol: &str,
+    frame: u32,
+    include_guides: bool,
+    show_masking: bool,
+    button_frame: &dyn Fn(&[Id]) -> Option<u32>,
+) -> AuthoredScene {
     let evaluation = crate::evaluate::snapshot_mode(
         project,
         symbol,
         frame,
         &|_| None,
-        &|_| None,
+        &|path| {
+            button_frame(path).map(|frame| crate::evaluate::DisplayPatch {
+                button_frame: Some(frame),
+                ..Default::default()
+            })
+        },
         include_guides,
     );
     scene_from_evaluation(project, evaluation, show_masking, Some(symbol))

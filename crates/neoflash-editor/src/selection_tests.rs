@@ -24,6 +24,7 @@ fn object(id: &str, x: f64, y: f64) -> Element {
         },
         scripts: vec![],
         accessibility: None,
+        ..Element::default()
     }
 }
 
@@ -1411,4 +1412,229 @@ fn onion_opacity_falloff_is_linear_to_fifteen_percent() {
     approx(editor.onion_frame_opacity(4), 0.45);
     approx(editor.onion_frame_opacity(3), 0.15);
     approx(editor.onion_frame_opacity(9), 0.15);
+}
+
+#[test]
+fn alt_drag_duplicates_selection_and_alt_shift_constrains_axis_in_one_undo_step() {
+    let (mut editor, ctx, page) = fixture(0);
+    let before = editor.project.clone();
+    let start = center(&editor, page, "first");
+    let end = start + egui::vec2(55., 35.);
+
+    drag(&mut editor, &ctx, 1.0, start, end, false, Modifiers::ALT);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        sampled(&editor, "first").transform.x,
+        100.0,
+        "original placement must stay untouched after Option-drag"
+    );
+    assert_eq!(sampled(&editor, "first").transform.y, 100.0);
+    assert_eq!(editor.selection.len(), 1);
+    let copy = editor.selected_element().unwrap().clone();
+    assert_ne!(copy.id, "first");
+    assert_eq!(copy.transform.x, 155.0);
+    assert_eq!(copy.transform.y, 135.0);
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+
+    // Option + Shift constrains duplication to the dominant axis.
+    let constrained_end = start + egui::vec2(60., 14.);
+    drag(
+        &mut editor,
+        &ctx,
+        2.0,
+        start,
+        constrained_end,
+        true,
+        Modifiers::ALT | Modifiers::SHIFT,
+    );
+    editor.project.validate().unwrap();
+    let constrained_copy = editor.selected_element().unwrap();
+    assert_ne!(constrained_copy.id, "first");
+    assert_eq!(constrained_copy.transform.x, 160.0);
+    assert_eq!(constrained_copy.transform.y, 100.0);
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn arrow_keys_nudge_selected_objects_by_1px_and_shift_arrow_by_10px() {
+    let (mut editor, ctx, _page) = fixture(2);
+    let press_key = |editor: &mut Editor, time: f64, key: egui::Key, modifiers: Modifiers| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280., 900.))),
+                time: Some(time),
+                modifiers,
+                events: vec![Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                editor.stage(ctx);
+                editor.shortcuts(ctx);
+            },
+        );
+    };
+
+    // With no selection, ArrowRight still steps the playhead.
+    assert!(editor.selection.is_empty());
+    press_key(&mut editor, 0.1, egui::Key::ArrowRight, Modifiers::NONE);
+    assert_eq!(editor.frame, 3);
+
+    // With stage selection and timeline unfocused, arrows nudge 1px and Shift+arrows 10px.
+    editor.timeline_edit.focused = false;
+    select(&mut editor, &["first"]);
+    let before = editor.project.clone();
+    let initial = sampled(&editor, "first").transform;
+    press_key(&mut editor, 0.2, egui::Key::ArrowRight, Modifiers::NONE);
+    assert_eq!(editor.frame, 3, "arrow nudge must not scrub playhead");
+    assert_eq!(sampled(&editor, "first").transform.x, initial.x + 1.0);
+    assert_eq!(sampled(&editor, "first").transform.y, initial.y);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    select(&mut editor, &["first"]);
+    press_key(&mut editor, 0.3, egui::Key::ArrowDown, Modifiers::SHIFT);
+    assert_eq!(sampled(&editor, "first").transform.x, initial.x);
+    assert_eq!(sampled(&editor, "first").transform.y, initial.y + 10.0);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters() {
+    let (mut editor, _ctx, _page) = fixture(0);
+    // 1. Grouping two paths then pressing Break Apart unpacks the group on the first step.
+    select(&mut editor, &["first", "untouched"]);
+    editor.break_apart_selection(); // Rectangle -> Path
+    select(&mut editor, &["first", "untouched"]);
+    editor.group_selection();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups.len(),
+        1
+    );
+    let grouped_snapshot = editor.project.clone();
+    editor.break_apart_selection();
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty(),
+        "first Break Apart on a group must unpack the group"
+    );
+    assert_eq!(ids(&editor), ["first", "untouched"]);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, grouped_snapshot);
+
+    // 2. TextBox Break Apart splits visible characters with horizontal & line offsets.
+    editor.layer = 1;
+    let tb_id = new_id("object");
+    let format = TextFormat {
+        size: 24.0,
+        letter_spacing: 2.0,
+        ..TextFormat::default()
+    };
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .push(Element {
+            id: tb_id.clone(),
+            name: "headline".into(),
+            transform: Transform {
+                x: 50.0,
+                y: 80.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::TextBox {
+                text: "A B\nC".into(),
+                width: 220.0,
+                height: 90.0,
+                format,
+                word_wrap: false,
+                multiline: true,
+            },
+            ..Element::default()
+        });
+    let before_text_break = editor.project.clone();
+    select(&mut editor, &[tb_id.as_str()]);
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.selection.len(),
+        3,
+        "spaces/newlines are skipped; 3 letters remain"
+    );
+    let letters: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| el)
+        .collect();
+    let chars: Vec<&str> = letters
+        .iter()
+        .filter_map(|el| match &el.kind {
+            ElementKind::TextBox { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chars, ["A", "B", "C"]);
+    assert!((letters[0].transform.x - 50.0).abs() < 1e-6);
+    assert!((letters[0].transform.y - 80.0).abs() < 1e-6);
+    assert!(
+        letters[1].transform.x > letters[0].transform.x + 10.0,
+        "B must be shifted right past A and space"
+    );
+    assert!((letters[1].transform.y - letters[0].transform.y).abs() < 1e-6);
+    assert!((letters[2].transform.x - 50.0).abs() < 1e-6);
+    assert!(
+        letters[2].transform.y > letters[0].transform.y + 20.0,
+        "C on line 2 must be shifted down by line advance"
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_text_break);
+
+    // 3. Point Text (`ElementKind::Text`) Break Apart splits letters horizontally.
+    let pt_id = new_id("object");
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .push(Element {
+            id: pt_id.clone(),
+            name: String::new(),
+            transform: Transform {
+                x: 120.0,
+                y: 40.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Text {
+                text: "NEO".into(),
+                font_family: "Helvetica".into(),
+                font_size: 20.0,
+                color: [255, 255, 255, 255],
+            },
+            ..Element::default()
+        });
+    let before_pt = editor.project.clone();
+    select(&mut editor, &[pt_id.as_str()]);
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    let pt_letters: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| el)
+        .collect();
+    assert_eq!(pt_letters.len(), 3);
+    assert!(pt_letters[0].transform.x < pt_letters[1].transform.x);
+    assert!(pt_letters[1].transform.x < pt_letters[2].transform.x);
+    editor.undo();
+    assert_eq!(editor.project, before_pt);
 }
