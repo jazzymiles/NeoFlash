@@ -668,7 +668,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
       if(global.NeoFlashAIR&&typeof wasm?.AirKernel==='function'){
-        airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
+        airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getDisplay:()=>display||null,getBitmap:()=>bitmapHost||null,getLoader:()=>loaderHost||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
@@ -865,9 +865,10 @@
       }
       if(airHost){
         for(const [qname,type] of Object.entries(airHost.builtins)){
-          if(qname==='flash.desktop.IFilePromise')builtins[qname]=nativeInterface(qname,type);
+          if(qname==='flash.desktop.IFilePromise'||qname==='flash.security.IURIDereferencer')builtins[qname]=nativeInterface(qname,type);
           else if(!(qname in builtins))builtins[qname]=type;
         }
+        airHost.augmentBuiltins?.(builtins);
         builtins.__nfAirVectorFactory=airHost.setVectorFactory;
       }
       program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
@@ -1215,6 +1216,7 @@
         if(typeof name!=='string')return name===Symbol.toStringTag;
         if(ownsTimelineMetadata(name))return true;
         if(['toString','toJSON','root','_root','parent','_parent','currentFrame','_currentframe','totalFrames','_totalframes','visible','_visible'].includes(name)||Object.hasOwn(methods,name)||Object.hasOwn(propertyMap,name))return true;
+        if(airHost?.hasDisplayProperty?.(proxy,name))return true;
         return Boolean(display&&display.get(proxy,name)!==display.UNHANDLED);
       }
       const proxy = new Proxy(target, {
@@ -1236,6 +1238,7 @@
           if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
           if (ownsTimelineMetadata(name)) return timelineMetadata(name);
           if (Object.hasOwn(methods, name)) return methods[name];
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();return airHost.getDisplayProperty(proxy,name);}
           if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
           if (name === 'visible' || name === '_visible') {
             assertAlive();
@@ -1250,6 +1253,7 @@
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
           if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
           if (name === 'visible' || name === '_visible') {
             assertAlive();

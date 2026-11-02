@@ -14,6 +14,7 @@ const NeoFlashGeom3D = require('../geom3d.js');
 const NeoFlashXML = require('../xml.js');
 const NeoFlashStage = require('../stage.js');
 const NeoFlashNet = require('../net.js');
+const NeoFlashBitmap = require('../bitmap.js');
 const NeoFlashAIR = require('../air.js');
 
 const runtimeDir = path.resolve(__dirname, '../../target/web-runtime');
@@ -111,6 +112,11 @@ function createAirHarness(customProject = {}) {
     height: dummyProject.height,
     frameRate: 24,
   });
+  const bitmap = NeoFlashBitmap.create({
+    player,
+    geometry: geom2d,
+    getBinary: () => binary,
+  });
 
   const air = NeoFlashAIR.create({
     wasm,
@@ -119,6 +125,7 @@ function createAirHarness(customProject = {}) {
     binary,
     geometry: geom2d,
     net,
+    getBitmap: () => bitmap,
     getXML: () => xml.XML,
     getStage: () => stageHost.stage,
     getViewportSize: () => [dummyProject.width, dummyProject.height],
@@ -135,14 +142,17 @@ function createAirHarness(customProject = {}) {
     air,
     B: air.builtins,
     binary,
+    bitmap,
     geom: geom2d,
     xml,
     net,
     events: allEvents,
+    eventFamilies,
     stage: stageHost.stage,
     flushTasks,
     dispose() {
       air.dispose();
+      bitmap.dispose();
       stageHost.dispose();
       net.dispose();
       xml.dispose();
@@ -883,3 +893,712 @@ test('flash.events, flash.errors & companion AIR classes: event cloning/formatti
     h.dispose();
   }
 });
+
+test('flash.data encrypted SQLConnection: open, openAsync, attach, reencrypt, and key validation', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'Encrypted SQL Verification' });
+  try {
+    const { B } = h;
+    const File = B['flash.filesystem.File'];
+    const SQLConnection = B['flash.data.SQLConnection'];
+    const SQLStatement = B['flash.data.SQLStatement'];
+    const SQLMode = B['flash.data.SQLMode'];
+    const ByteArray = h.binary.ByteArray;
+
+    const makeKey = str16 => {
+      const ba = new ByteArray();
+      ba.writeUTFBytes(str16);
+      ba.position = 0;
+      return ba;
+    };
+
+    const key1 = makeKey('0123456789abcdef');
+    const key2 = makeKey('fedcba9876543210');
+    const badShortKey = makeKey('short');
+
+    const dbFile = File.applicationStorageDirectory.resolvePath('vault.db');
+    const conn = new SQLConnection();
+
+    // Invalid key length must throw #3143
+    assert.throws(
+      () => conn.open(dbFile, SQLMode.CREATE, false, 1024, badShortKey),
+      err => err.errorID === 3143
+    );
+
+    conn.open(dbFile, SQLMode.CREATE, false, 1024, key1);
+    assert.equal(conn.connected, true);
+
+    const stmt = new SQLStatement();
+    stmt.sqlConnection = conn;
+    stmt.text = 'CREATE TABLE secrets (id INTEGER PRIMARY KEY, code TEXT)';
+    stmt.execute();
+    stmt.text = "INSERT INTO secrets (code) VALUES ('alpha-7')";
+    stmt.execute();
+    conn.close();
+
+    // Opening with wrong key must fail with #3138
+    const wrongConn = new SQLConnection();
+    assert.throws(
+      () => wrongConn.open(dbFile, SQLMode.UPDATE, false, 1024, key2),
+      err => err.errorID === 3138
+    );
+
+    // Reopen with key1 and reencrypt to key2
+    const connRe = new SQLConnection();
+    connRe.open(dbFile, SQLMode.UPDATE, false, 1024, key1);
+
+    // reencrypt inside a transaction must fail with #3115
+    connRe.begin();
+    assert.throws(
+      () => connRe.reencrypt(key2),
+      err => err.errorID === 3115
+    );
+    connRe.rollback();
+
+    let reencryptedEvent = false;
+    connRe.addEventListener('reencrypt', () => {
+      reencryptedEvent = true;
+    });
+    connRe.reencrypt(key2);
+    assert.equal(reencryptedEvent, true);
+    connRe.close();
+
+    // Old key1 now fails, new key2 succeeds in openAsync and attach
+    assert.throws(
+      () => new SQLConnection().open(dbFile, SQLMode.READ, false, 1024, key1),
+      err => err.errorID === 3138
+    );
+
+    const asyncConn = new SQLConnection();
+    let asyncOpened = false;
+    asyncConn.addEventListener('open', () => {
+      asyncOpened = true;
+    });
+    asyncConn.openAsync(dbFile, SQLMode.READ, null, false, 1024, key2);
+    h.flushTasks();
+    assert.equal(asyncOpened, true);
+    asyncConn.close();
+    h.flushTasks();
+
+    // Attach encrypted database onto main connection
+    const mainConn = new SQLConnection();
+    mainConn.open(null);
+    mainConn.attach('vault', dbFile, null, key2);
+    const qStmt = new SQLStatement();
+    qStmt.sqlConnection = mainConn;
+    qStmt.text = 'SELECT code FROM vault.secrets';
+    qStmt.execute();
+    const res = qStmt.getResult();
+    assert.equal(res.data.length, 1);
+    assert.equal(res.data[0].code, 'alpha-7');
+    mainConn.close();
+  } finally {
+    h.dispose();
+  }
+});
+
+test('flash.html: HTMLLoader, HTMLHost, HTMLWindowCreateOptions, HTMLHistoryItem, and capabilities', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'HTML Verification' });
+  try {
+    const { B } = h;
+    const HTMLPDFCapability = B['flash.html.HTMLPDFCapability'];
+    const HTMLSWFCapability = B['flash.html.HTMLSWFCapability'];
+    const HTMLHistoryItem = B['flash.html.HTMLHistoryItem'];
+    const HTMLWindowCreateOptions = B['flash.html.HTMLWindowCreateOptions'];
+    const HTMLHost = B['flash.html.HTMLHost'];
+    const HTMLLoader = B['flash.html.HTMLLoader'];
+    const URLRequest = B['flash.net.URLRequest'];
+
+    assert.equal(HTMLPDFCapability.STATUS_OK, 0);
+    assert.equal(HTMLPDFCapability.ERROR_INSTALLED_READER_NOT_FOUND, 3201);
+    assert.equal(HTMLSWFCapability.STATUS_OK, 0);
+    assert.equal(HTMLSWFCapability.ERROR_RUNTIME_NOT_FOUND, 3221);
+
+    const histItem = new HTMLHistoryItem('https://example.com/a', 'https://example.com/a', false, 'Page A');
+    assert.equal(histItem.url, 'https://example.com/a');
+    assert.equal(histItem.title, 'Page A');
+
+    const opts = new HTMLWindowCreateOptions();
+    opts.width = 640;
+    opts.height = 480;
+    opts.locationBarVisible = true;
+    assert.equal(opts.width, 640);
+    assert.equal(opts.locationBarVisible, true);
+
+    const loader = new HTMLLoader();
+    assert.equal(HTMLLoader.isSupported, true);
+    assert.equal(HTMLLoader.pdfCapability, HTMLPDFCapability.ERROR_INSTALLED_READER_NOT_FOUND);
+    assert.equal(HTMLLoader.swfCapability, HTMLSWFCapability.STATUS_OK);
+
+    const hostUpdates = [];
+    const customHost = new HTMLHost(true);
+    customHost.updateTitle = title => hostUpdates.push(`title:${title}`);
+    customHost.updateLocation = loc => hostUpdates.push(`loc:${loc}`);
+    customHost.updateStatus = status => hostUpdates.push(`status:${status}`);
+    loader.htmlHost = customHost;
+    assert.equal(customHost.htmlLoader, loader);
+
+    let completed = 0;
+    let domInit = 0;
+    loader.addEventListener('htmlDOMInitialize', () => domInit++);
+    loader.addEventListener('complete', () => completed++);
+
+    loader.loadString('<html><head><title>First Doc</title></head><body>Hello AIR</body></html>');
+    assert.equal(domInit, 1);
+    assert.equal(completed, 1);
+    assert.equal(loader.loaded, true);
+    assert.equal(loader.window.document.title, 'First Doc');
+    assert.ok(loader.contentHeight >= 400);
+    assert.ok(hostUpdates.includes('title:First Doc'));
+
+    loader.load(new URLRequest('https://neoflash.local/second'));
+    assert.equal(loader.location, 'https://neoflash.local/second');
+    assert.equal(loader.historyLength, 2);
+    assert.equal(loader.historyPosition, 1);
+    assert.equal(loader.getHistoryAt(0).title, 'First Doc');
+
+    loader.historyBack();
+    assert.equal(loader.historyPosition, 0);
+    loader.historyForward();
+    assert.equal(loader.historyPosition, 1);
+    loader.historyGo(-1);
+    assert.equal(loader.historyPosition, 0);
+    loader.reload();
+    loader.cancelLoad();
+
+    let uncaughtMsg = null;
+    loader.addEventListener('uncaughtScriptException', ev => {
+      uncaughtMsg = ev.exceptionValue?.message;
+    });
+    loader.window.__throwScriptError(new Error('boom'));
+    assert.equal(uncaughtMsg, 'boom');
+
+    customHost.windowFocus();
+    customHost.windowBlur();
+    loader.window.setStatus('Ready');
+    assert.ok(hostUpdates.includes('status:Ready'));
+
+    const popup = HTMLLoader.createRootWindow(true, opts, true, new h.geom.Rectangle(10, 20, 320, 200));
+    assert.equal(popup.width, 320);
+    assert.equal(popup.height, 200);
+  } finally {
+    h.dispose();
+  }
+});
+
+test('flash.media: CameraRoll, CameraUI, MediaPromise, StageWebView, AVURLLoader, Camera, Microphone, and SoundMixer', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'Media Verification' });
+  try {
+    const { B } = h;
+    const AudioPlaybackMode = B['flash.media.AudioPlaybackMode'];
+    const CameraPosition = B['flash.media.CameraPosition'];
+    const MediaType = B['flash.media.MediaType'];
+    const CameraRoll = B['flash.media.CameraRoll'];
+    const CameraRollBrowseOptions = B['flash.media.CameraRollBrowseOptions'];
+    const CameraUI = B['flash.media.CameraUI'];
+    const StageWebView = B['flash.media.StageWebView'];
+    const AVURLLoader = B['flash.media.AVURLLoader'];
+    const Camera = B['flash.media.Camera'];
+    const Microphone = B['flash.media.Microphone'];
+    const SoundMixer = B['flash.media.SoundMixer'];
+    const URLRequest = B['flash.net.URLRequest'];
+
+    assert.equal(AudioPlaybackMode.VOICE, 'voice');
+    assert.equal(CameraPosition.FRONT, 'front');
+    assert.equal(MediaType.IMAGE, 'image');
+    assert.equal(MediaType.VIDEO, 'video');
+
+    const roll = new CameraRoll();
+    assert.equal(CameraRoll.supportsAddBitmapData, true);
+    assert.equal(CameraRoll.supportsBrowseForImage, true);
+    assert.equal(CameraRoll.permissionStatus, 'granted');
+
+    const bmd = new h.bitmap.BitmapData(8, 8, true, 0xff336699);
+    let rollAdded = false;
+    roll.addEventListener('complete', () => {
+      rollAdded = true;
+    });
+    roll.addBitmapData(bmd);
+    assert.equal(rollAdded, true);
+
+    const browseOpts = new CameraRollBrowseOptions();
+    browseOpts.width = 200;
+    browseOpts.height = 150;
+    let selectedPromise = null;
+    roll.addEventListener('select', ev => {
+      selectedPromise = ev.data;
+    });
+    roll.browseForImage(browseOpts);
+    assert.ok(selectedPromise);
+    assert.equal(selectedPromise.mediaType, 'image');
+    assert.equal(selectedPromise.isAsync, false);
+    const input = selectedPromise.open();
+    assert.ok(input.bytesAvailable > 0);
+    selectedPromise.close();
+
+    const camUI = new CameraUI();
+    assert.equal(CameraUI.isSupported, true);
+    let camPromise = null;
+    camUI.addEventListener('complete', ev => {
+      camPromise = ev.data;
+    });
+    camUI.launch(MediaType.IMAGE);
+    assert.ok(camPromise);
+    assert.ok(camPromise.file.exists);
+
+    const wv = new StageWebView(true);
+    assert.equal(StageWebView.isSupported, true);
+    wv.stage = h.stage;
+    wv.viewPort = new h.geom.Rectangle(0, 0, 120, 40);
+    wv.loadString('<html><head><title>WebView Title</title></head><body>Hello StageWebView</body></html>');
+    assert.equal(wv.title, 'WebView Title');
+    wv.loadURL('https://example.org/docs');
+    assert.equal(wv.isHistoryBackEnabled, true);
+    wv.historyBack();
+    assert.equal(wv.isHistoryForwardEnabled, true);
+    wv.historyForward();
+    wv.reload();
+    wv.stop();
+    wv.assignFocus('top');
+
+    const captureBmd = new h.bitmap.BitmapData(120, 40, true, 0x00000000);
+    wv.drawViewPortToBitmapData(captureBmd);
+    // Verify non-zero pixels rendered by rasterize_text_rgba
+    assert.notEqual(captureBmd.getPixel32(0, 0), 0);
+    wv.dispose();
+
+    const avLoader = new AVURLLoader(new URLRequest('app-storage:/CameraRoll/image_1.png'));
+    assert.ok(avLoader.bytesLoaded > 0);
+
+    const cam = Camera.getCamera();
+    assert.equal(cam.position, 'front');
+    const frameBa = new h.binary.ByteArray();
+    cam.copyToByteArray(new h.geom.Rectangle(0, 0, 2, 2), frameBa);
+    assert.equal(frameBa.length, 16);
+
+    const mic = Microphone.getEnhancedMicrophone();
+    assert.equal(Microphone.isSupported, true);
+    assert.ok(mic.enhancedOptions);
+
+    SoundMixer.audioPlaybackMode = AudioPlaybackMode.AMBIENT;
+    SoundMixer.useSpeakerphoneForVoice = true;
+    assert.equal(SoundMixer.audioPlaybackMode, 'ambient');
+    assert.equal(SoundMixer.useSpeakerphoneForVoice, true);
+  } finally {
+    h.dispose();
+  }
+});
+
+test('flash.net & flash.net.drm: NetworkInfo, DatagramSocket, ServerSocket, Socket, URLRequestDefaults, URLStream, and DRMDeviceGroup', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'Network Verification' });
+  try {
+    const { B } = h;
+    const IPVersion = B['flash.net.IPVersion'];
+    const NetworkInfo = B['flash.net.NetworkInfo'];
+    const DatagramSocket = B['flash.net.DatagramSocket'];
+    const ServerSocket = B['flash.net.ServerSocket'];
+    const Socket = B['flash.net.Socket'];
+    const URLRequestDefaults = B['flash.net.URLRequestDefaults'];
+    const URLRequest = B['flash.net.URLRequest'];
+    const URLRequestMethod = B['flash.net.URLRequestMethod'];
+    const URLStream = B['flash.net.URLStream'];
+    const DRMDeviceGroup = B['flash.net.drm.DRMDeviceGroup'];
+
+    assert.equal(IPVersion.IPV4, 'IPv4');
+    assert.equal(IPVersion.IPV6, 'IPv6');
+    assert.equal(NetworkInfo.isSupported, true);
+    const interfaces = NetworkInfo.networkInfo.findInterfaces();
+    assert.ok(interfaces.length >= 1);
+    assert.equal(interfaces[0].name, 'lo0');
+    assert.equal(interfaces[0].addresses[0].address, '127.0.0.1');
+
+    // UDP DatagramSocket loopback
+    const udp1 = new DatagramSocket();
+    const udp2 = new DatagramSocket();
+    udp1.bind(41001, '127.0.0.1');
+    udp2.bind(41002, '127.0.0.1');
+    udp1.receive();
+    let receivedUdpText = '';
+    udp1.addEventListener('data', ev => {
+      receivedUdpText = ev.data.readUTFBytes(ev.data.bytesAvailable);
+    });
+    const payload = new h.binary.ByteArray();
+    payload.writeUTFBytes('ping-udp');
+    udp2.send(payload, 0, 0, '127.0.0.1', 41001);
+    h.flushTasks();
+    assert.equal(receivedUdpText, 'ping-udp');
+    udp1.close();
+    udp2.close();
+
+    // TCP ServerSocket + Socket loopback
+    const srv = new ServerSocket();
+    srv.bind(42001, '127.0.0.1');
+    srv.listen(5);
+    assert.equal(srv.bound, true);
+    assert.equal(srv.listening, true);
+
+    let acceptedSocket = null;
+    srv.addEventListener('connect', ev => {
+      acceptedSocket = ev.socket;
+    });
+
+    const client = new Socket();
+    client.connect('127.0.0.1', 42001);
+    assert.equal(client.connected, true);
+    assert.ok(acceptedSocket);
+    assert.equal(acceptedSocket.connected, true);
+
+    client.writeUTFBytes('hello-tcp');
+    client.flush();
+    assert.equal(acceptedSocket.bytesAvailable, 9);
+    assert.equal(acceptedSocket.readUTFBytes(9), 'hello-tcp');
+
+    acceptedSocket.writeInt(2026);
+    acceptedSocket.flush();
+    assert.equal(client.readInt(), 2026);
+
+    client.close();
+    acceptedSocket.close();
+    srv.close();
+
+    // URLRequestDefaults + URLRequest + URLStream
+    const authToken = URLRequestDefaults.setLoginCredentialsForHost('api.neoflash.local', 'alice', 'secret');
+    assert.equal(authToken, 'YWxpY2U6c2VjcmV0');
+    URLRequestDefaults.userAgent = 'NeoFlashAIR/1.0';
+    URLRequestDefaults.idleTimeout = 5000;
+    const req = new URLRequest('https://api.neoflash.local/items');
+    req.method = URLRequestMethod.PUT;
+    assert.equal(req.userAgent, 'NeoFlashAIR/1.0');
+    assert.equal(req.idleTimeout, 5000);
+    assert.equal(req.method, 'PUT');
+
+    // Write a VFS file and stream it via URLStream
+    const f = B['flash.filesystem.File'].applicationStorageDirectory.resolvePath('stream.txt');
+    const fs = new B['flash.filesystem.FileStream']();
+    fs.open(f, 'write');
+    fs.writeUTFBytes('streamed-air-bytes');
+    fs.close();
+
+    const stream = new URLStream();
+    stream.load(new URLRequest('app-storage:/stream.txt'));
+    assert.equal(stream.connected, true);
+    assert.equal(stream.readUTFBytes(stream.bytesAvailable), 'streamed-air-bytes');
+    stream.close();
+
+    const grp = new DRMDeviceGroup();
+    grp.name = 'home-devices';
+    assert.equal(grp.name, 'home-devices');
+  } finally {
+    h.dispose();
+  }
+});
+
+test('flash.printing & flash.security: PrintJob, PaperSize, XMLSignatureValidator, and IURIDereferencer', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'Print & Security Verification' });
+  try {
+    const { B } = h;
+    const PaperSize = B['flash.printing.PaperSize'];
+    const PrintMethod = B['flash.printing.PrintMethod'];
+    const PrintJobOrientation = B['flash.printing.PrintJobOrientation'];
+    const PrintUIOptions = B['flash.printing.PrintUIOptions'];
+    const PrintJobOptions = B['flash.printing.PrintJobOptions'];
+    const PrintJob = B['flash.printing.PrintJob'];
+    const ReferencesValidationSetting = B['flash.security.ReferencesValidationSetting'];
+    const RevocationCheckSettings = B['flash.security.RevocationCheckSettings'];
+    const SignatureStatus = B['flash.security.SignatureStatus'];
+    const SignerTrustSettings = B['flash.security.SignerTrustSettings'];
+    const XMLSignatureValidator = B['flash.security.XMLSignatureValidator'];
+
+    assert.equal(PaperSize.A4, 'a4');
+    assert.equal(PaperSize.ENV_10, 'env_10');
+    assert.equal(PrintMethod.VECTOR, 'vector');
+    assert.equal(PrintJobOrientation.LANDSCAPE, 'landscape');
+
+    const uiOpts = new PrintUIOptions();
+    uiOpts.minPage = 1;
+    uiOpts.maxPage = 5;
+    const jobOpts = new PrintJobOptions(true);
+    jobOpts.printMethod = PrintMethod.BITMAP;
+
+    const pj = new PrintJob();
+    assert.equal(PrintJob.isSupported, true);
+    assert.ok(pj.papers.length >= 17);
+    pj.selectPaperSize(PaperSize.A4);
+    assert.equal(pj.paperWidth, 595);
+    assert.equal(pj.paperHeight, 842);
+    assert.equal(pj.showPageSetupDialog(), true);
+    assert.equal(pj.start2(uiOpts, false), true);
+    pj.addPage(h.stage, null, jobOpts, 1);
+    pj.send();
+    assert.equal(PrintJob.active, false);
+
+    // XMLSignatureValidator cryptographic verification
+    assert.equal(XMLSignatureValidator.isSupported, true);
+    assert.equal(ReferencesValidationSetting.VALID_IDENTITY, 'validIdentity');
+    assert.equal(RevocationCheckSettings.BEST_EFFORT, 'bestEffort');
+    assert.equal(SignatureStatus.VALID, 'valid');
+    assert.equal(SignerTrustSettings.CODE_SIGNING, 'codeSigning');
+
+    const validator = new XMLSignatureValidator();
+    const certBytes = new h.binary.ByteArray();
+    certBytes.writeUTFBytes('CN=NeoFlash Signer,O=NeoFlash Test Org');
+    validator.addCertificate(certBytes, true);
+
+    const derefMap = {
+      'urn:doc1': 'Hello World',
+    };
+    validator.uriDereferencer = {
+      dereference(uri) {
+        const ba = new h.binary.ByteArray();
+        ba.writeUTFBytes(derefMap[uri] ?? '');
+        ba.position = 0;
+        return ba;
+      },
+    };
+
+    const sigXml = new h.xml.XML(
+      '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">' +
+        '<SignedInfo>' +
+        '<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>' +
+        '<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#hmac-sha256"/>' +
+        '<Reference URI="urn:doc1">' +
+        '<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>' +
+        '<DigestValue>a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e</DigestValue>' +
+        '</Reference>' +
+        '</SignedInfo>' +
+        '<SignatureValue>TkVPRkxBU0hTU0lHTkFUVVJFVjE=</SignatureValue>' +
+        '</Signature>'
+    );
+
+    let verifyComplete = false;
+    validator.addEventListener('complete', () => {
+      verifyComplete = true;
+    });
+    validator.verify(sigXml);
+    assert.equal(verifyComplete, true);
+    assert.equal(validator.digestStatus, SignatureStatus.VALID);
+    assert.equal(validator.referencesStatus, SignatureStatus.VALID);
+    assert.equal(validator.identityStatus, SignatureStatus.VALID);
+    assert.equal(validator.validityStatus, SignatureStatus.VALID);
+    assert.equal(validator.signerCN, 'NeoFlash Signer');
+    assert.equal(validator.signerDN, 'CN=NeoFlash Signer, O=NeoFlash Test Org');
+
+    // Tamper with dereferenced data -> INVALID
+    derefMap['urn:doc1'] = 'Tampered Content';
+    validator.verify(sigXml);
+    assert.equal(validator.referencesStatus, SignatureStatus.INVALID);
+    assert.equal(validator.validityStatus, SignatureStatus.INVALID);
+  } finally {
+    h.dispose();
+  }
+});
+
+test('flash.text, flash.ui, flash.external, flash.display3D, flash.system & desktop drag/menu/clipboard lifecycle', async () => {
+  await ready;
+  const h = createAirHarness({ name: 'UI, StageText, 3D & System Verification' });
+  try {
+    const { B } = h;
+    const StageTextInitOptions = B['flash.text.StageTextInitOptions'];
+    const StageText = B['flash.text.StageText'];
+    const NativeApplication = B['flash.desktop.NativeApplication'];
+    const NativeDragManager = B['flash.desktop.NativeDragManager'];
+    const Clipboard = B['flash.desktop.Clipboard'];
+    const ContextMenu = B['flash.ui.ContextMenu'];
+    const ContextMenuItem = B['flash.ui.ContextMenuItem'];
+    const GameInput = B['flash.ui.GameInput'];
+    const Multitouch = B['flash.ui.Multitouch'];
+    const ExtensionContext = B['flash.external.ExtensionContext'];
+    const Context3D = B['flash.display3D.Context3D'];
+    const Capabilities = B['flash.system.Capabilities'];
+    const Security = B['flash.system.Security'];
+    const LoaderContext = B['flash.system.LoaderContext'];
+
+    // StageText + NativeApplication clipboard commands
+    const stOpts = new StageTextInitOptions(true);
+    const st = new StageText(stOpts);
+    st.stage = h.stage;
+    st.viewPort = new h.geom.Rectangle(0, 0, 200, 40);
+    st.restrict = 'A-Z0-9 ';
+    st.maxChars = 10;
+    st.text = 'Abc123!@#456789';
+    assert.equal(st.text, 'A123456789');
+    st.assignFocus();
+    st.selectRange(0, 4);
+    assert.equal(NativeApplication.nativeApplication.copy(), true);
+    assert.equal(Clipboard.generalClipboard.getData('air:text'), 'A123');
+    assert.equal(NativeApplication.nativeApplication.cut(), true);
+    assert.equal(st.text, '456789');
+    assert.equal(NativeApplication.nativeApplication.paste(), true);
+    assert.equal(st.text, 'A123456789');
+    assert.equal(NativeApplication.nativeApplication.selectAll(), true);
+    assert.equal(NativeApplication.nativeApplication.clear(), true);
+    assert.equal(st.text, '');
+
+    st.text = 'RENDER';
+    const stBmd = new h.bitmap.BitmapData(200, 40, true, 0);
+    st.drawViewPortToBitmapData(stBmd);
+    assert.notEqual(stBmd.getPixel32(0, 0), 0);
+    st.dispose();
+
+    // NativeDragManager 7-event lifecycle
+    const dragEvents = [];
+    for (const type of [
+      'nativeDragStart',
+      'nativeDragEnter',
+      'nativeDragOver',
+      'nativeDragExit',
+      'nativeDragDrop',
+      'nativeDragUpdate',
+      'nativeDragComplete',
+    ]) {
+      h.stage.addEventListener(type, ev => dragEvents.push(ev.type));
+    }
+    const dragCb = new Clipboard();
+    dragCb.setData('air:text', 'drag-payload');
+    NativeDragManager.acceptDragDrop(h.stage);
+    NativeDragManager.doDrag(h.stage, dragCb);
+    h.flushTasks();
+    const cancelOpts = new B['flash.desktop.NativeDragOptions']();
+    cancelOpts.allowCopy = false;
+    cancelOpts.allowMove = false;
+    cancelOpts.allowLink = false;
+    NativeDragManager.acceptDragDrop(h.stage);
+    NativeDragManager.doDrag(h.stage, dragCb, null, null, cancelOpts);
+    h.flushTasks();
+    assert.deepEqual(dragEvents, [
+      'nativeDragStart',
+      'nativeDragEnter',
+      'nativeDragOver',
+      'nativeDragUpdate',
+      'nativeDragDrop',
+      'nativeDragComplete',
+      'nativeDragStart',
+      'nativeDragEnter',
+      'nativeDragOver',
+      'nativeDragUpdate',
+      'nativeDragExit',
+      'nativeDragComplete',
+    ]);
+
+    // ContextMenu & ContextMenuItem
+    const cm = new ContextMenu();
+    const item = new ContextMenuItem('Inspect', true, true, true);
+    const clonedItem = item.clone();
+    assert.equal(clonedItem.caption, 'Inspect');
+    cm.customItems = [item];
+    cm.hideBuiltInItems();
+    assert.equal(cm.builtInItems.save, false);
+    const menuEvents = [];
+    cm.addEventListener('preparing', () => menuEvents.push('preparing'));
+    cm.addEventListener('displaying', () => menuEvents.push('displaying'));
+    cm.display(h.stage, 10, 20);
+    assert.deepEqual(menuEvents, ['preparing', 'displaying']);
+
+    // GameInput & Multitouch
+    assert.equal(GameInput.isSupported, true);
+    assert.equal(GameInput.numDevices, 1);
+    const dev = GameInput.getDeviceAt(0);
+    dev.enabled = true;
+    dev.startCachingSamples(10, ['AXIS_0', 'BUTTON_0']);
+    const sampleBa = new h.binary.ByteArray();
+    assert.equal(dev.getCachedSamples(sampleBa, false), 2);
+    assert.ok(sampleBa.length > 0);
+    assert.equal(Multitouch.supportsGestureEvents, true);
+
+    // ExtensionContext
+    const ext = ExtensionContext.createExtensionContext('com.neoflash.test', 'core');
+    assert.equal(ext.call('ping', 42), 42);
+    assert.ok(ExtensionContext.getExtensionDirectory('com.neoflash.test').nativePath.includes('com.neoflash.test'));
+    ext.dispose();
+
+    // Context3D & Textures
+    const ctx3d = new Context3D();
+    const tex = ctx3d.createTexture(64, 64, 'bgra', false);
+    const rectTex = ctx3d.createRectangleTexture(128, 64, 'bgra', false);
+    const bmd3d = new h.bitmap.BitmapData(4, 4, true, 0xffffffff);
+    tex.uploadFromBitmapData(bmd3d);
+    rectTex.uploadFromBitmapData(bmd3d);
+    const ib = ctx3d.createIndexBuffer(6, 'staticDraw');
+    const vb = ctx3d.createVertexBuffer(4, 3, 'dynamicDraw');
+    ib.dispose();
+    vb.dispose();
+    tex.dispose();
+    rectTex.dispose();
+
+    // Capabilities & Security & LoaderContext
+    assert.ok(Array.isArray(Capabilities.languages) && Capabilities.languages.length >= 1);
+    assert.equal(Security.APPLICATION, 'application');
+    const lc = new LoaderContext();
+    assert.equal(lc.imageDecodingPolicy, 'onDemand');
+
+    // Stage.vsyncEnabled & VsyncStateChangeAvailabilityEvent
+    let vsyncEv = null;
+    h.stage.addEventListener(
+      B['flash.events.VsyncStateChangeAvailabilityEvent'].VSYNC_STATE_CHANGE_AVAILABILITY,
+      ev => {
+        vsyncEv = ev;
+      }
+    );
+    h.stage.vsyncEnabled = false;
+    assert.equal(h.stage.vsyncEnabled, false);
+    assert.ok(vsyncEv);
+
+    // TouchEvent & TransformGestureEvent AIR extensions + DRM/AV/StageVideo events
+    const TouchEvent = h.eventFamilies.TouchEvent;
+    const TransformGestureEvent = h.eventFamilies.TransformGestureEvent;
+    assert.equal(TouchEvent.PROXIMITY_BEGIN, 'proximityBegin');
+    const tev = new TouchEvent(TouchEvent.PROXIMITY_MOVE);
+    const tbuf = new h.binary.ByteArray();
+    assert.equal(tev.getSamples(tbuf, true), 1);
+    assert.equal(tbuf.length, 12);
+    assert.equal(tev.isToolButtonDown(0), false);
+    assert.equal(tev.touchIntent, 'unknown');
+    assert.equal(TransformGestureEvent.GESTURE_DIRECTIONAL_TAP, 'gestureDirectionalTap');
+    const gev = new TransformGestureEvent(TransformGestureEvent.GESTURE_DIRECTIONAL_TAP);
+    assert.equal(gev.velocity, 0);
+
+    const avEv = new B['flash.events.AVHTTPStatusEvent']('avHttpResponseStatus', false, false, 200, 'https://a.test', []);
+    assert.equal(avEv.clone().status, 200);
+    const dgEv = new B['flash.events.DRMDeviceGroupEvent']('addToDeviceGroupComplete');
+    assert.equal(dgEv.clone().type, 'addToDeviceGroupComplete');
+    const dgeEv = new B['flash.events.DRMDeviceGroupErrorEvent']('addToDeviceGroupError', false, false, 'err', 100, 5);
+    assert.equal(dgeEv.clone().subErrorID, 5);
+    const dsEv = new B['flash.events.DRMStatusEvent']('drmStatus');
+    assert.equal(dsEv.clone().type, 'drmStatus');
+    const svEv = new B['flash.events.StageVideoEvent']('renderState', false, false, 'accelerated', 'BT.709');
+    assert.equal(svEv.clone().colorSpace, 'BT.709');
+
+    // File.uploadUnencoded & FileReference.uploadUnencoded & Responder
+    const uploadFile = B['flash.filesystem.File'].applicationStorageDirectory.resolvePath('up.txt');
+    const ufs = new B['flash.filesystem.FileStream']();
+    ufs.open(uploadFile, 'write');
+    ufs.writeUTFBytes('hello-upload');
+    ufs.close();
+    let fileUploaded = false;
+    uploadFile.addEventListener('complete', () => {
+      fileUploaded = true;
+    });
+    uploadFile.uploadUnencoded(new B['flash.net.URLRequest']('https://upload.neoflash.local/put'));
+    h.flushTasks();
+    assert.equal(fileUploaded, true);
+
+    const fref = new B['flash.net.FileReference']();
+    let frefUploaded = false;
+    fref.addEventListener('complete', () => {
+      frefUploaded = true;
+    });
+    fref.uploadUnencoded(new B['flash.net.URLRequest']('https://upload.neoflash.local/put'));
+    h.flushTasks();
+    assert.equal(frefUploaded, true);
+
+    const resp = new B['flash.net.Responder'](() => {});
+    assert.ok(resp);
+  } finally {
+    h.dispose();
+  }
+});
+

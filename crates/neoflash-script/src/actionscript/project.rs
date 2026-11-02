@@ -396,6 +396,84 @@ const BUILTINS: &[&str] = &[
     "flash.notifications.RemoteNotifier",
     "flash.sensors.DeviceRotation",
     "flash.sensors.Geolocation",
+    // AIR HTML, media, networking, printing, security, text, UI, Stage3D, ANE & system
+    "flash.display3D.Context3D",
+    "flash.display3D.Context3DFillMode",
+    "flash.display3D.Context3DProfile",
+    "flash.display3D.IndexBuffer3D",
+    "flash.display3D.VertexBuffer3D",
+    "flash.display3D.textures.TextureBase",
+    "flash.display3D.textures.Texture",
+    "flash.display3D.textures.RectangleTexture",
+    "flash.events.AVHTTPStatusEvent",
+    "flash.events.DRMDeviceGroupErrorEvent",
+    "flash.events.DRMDeviceGroupEvent",
+    "flash.events.DRMStatusEvent",
+    "flash.events.StageVideoEvent",
+    "flash.external.ExtensionContext",
+    "flash.html.HTMLHistoryItem",
+    "flash.html.HTMLHost",
+    "flash.html.HTMLLoader",
+    "flash.html.HTMLPDFCapability",
+    "flash.html.HTMLSWFCapability",
+    "flash.html.HTMLWindowCreateOptions",
+    "flash.media.AVURLLoader",
+    "flash.media.AudioPlaybackMode",
+    "flash.media.Camera",
+    "flash.media.CameraPosition",
+    "flash.media.CameraRoll",
+    "flash.media.CameraRollBrowseOptions",
+    "flash.media.CameraUI",
+    "flash.media.MediaPromise",
+    "flash.media.MediaType",
+    "flash.media.Microphone",
+    "flash.media.StageWebView",
+    "flash.net.DatagramSocket",
+    "flash.net.IPVersion",
+    "flash.net.InterfaceAddress",
+    "flash.net.NetworkInfo",
+    "flash.net.NetworkInterface",
+    "flash.net.Responder",
+    "flash.net.ServerSocket",
+    "flash.net.Socket",
+    "flash.net.URLRequestDefaults",
+    "flash.net.URLStream",
+    "flash.net.drm.DRMContentData",
+    "flash.net.drm.DRMDeviceGroup",
+    "flash.net.drm.DRMVoucher",
+    "flash.printing.PaperSize",
+    "flash.printing.PrintJob",
+    "flash.printing.PrintJobOptions",
+    "flash.printing.PrintJobOrientation",
+    "flash.printing.PrintMethod",
+    "flash.printing.PrintUIOptions",
+    "flash.security.IURIDereferencer",
+    "flash.security.ReferencesValidationSetting",
+    "flash.security.RevocationCheckSettings",
+    "flash.security.SignatureStatus",
+    "flash.security.SignerTrustSettings",
+    "flash.security.XMLSignatureValidator",
+    "flash.system.ApplicationDomain",
+    "flash.system.Capabilities",
+    "flash.system.ImageDecodingPolicy",
+    "flash.system.LoaderContext",
+    "flash.system.Security",
+    "flash.system.SecurityDomain",
+    "flash.text.AutoCapitalize",
+    "flash.text.ReturnKeyLabel",
+    "flash.text.SoftKeyboardType",
+    "flash.text.StageText",
+    "flash.text.StageTextClearButtonMode",
+    "flash.text.StageTextInitOptions",
+    "flash.ui.ContextMenu",
+    "flash.ui.ContextMenuBuiltInItems",
+    "flash.ui.ContextMenuClipboardItems",
+    "flash.ui.ContextMenuItem",
+    "flash.ui.GameInput",
+    "flash.ui.GameInputControl",
+    "flash.ui.GameInputDevice",
+    "flash.ui.Multitouch",
+    "flash.ui.MultitouchInputMode",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -835,6 +913,63 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "subscribe"
                 | "unsubscribe"
                 | "setRequestedUpdateInterval"
+                | "cancelLoad"
+                | "createRootWindow"
+                | "getHistoryAt"
+                | "historyBack"
+                | "historyForward"
+                | "historyGo"
+                | "loadString"
+                | "reload"
+                | "createWindow"
+                | "updateLocation"
+                | "updateStatus"
+                | "updateTitle"
+                | "windowBlur"
+                | "windowClose"
+                | "windowFocus"
+                | "loadURL"
+                | "drawViewPortToBitmapData"
+                | "addBitmapData"
+                | "browseForImage"
+                | "launch"
+                | "selectRange"
+                | "bind"
+                | "receive"
+                | "listen"
+                | "findInterfaces"
+                | "setLoginCredentialsForHost"
+                | "uploadUnencoded"
+                | "preloadEmbeddedData"
+                | "setDRMAuthenticationCredentials"
+                | "selectPaperSize"
+                | "showPageSetupDialog"
+                | "start2"
+                | "terminate"
+                | "addPage"
+                | "addCertificate"
+                | "verify"
+                | "dereference"
+                | "createExtensionContext"
+                | "getExtensionDirectory"
+                | "call"
+                | "getDeviceAt"
+                | "getControlAt"
+                | "startCachingSamples"
+                | "stopCachingSamples"
+                | "getCachedSamples"
+                | "loadFilePromise"
+                | "createVertexBufferForInstances"
+                | "drawToBitmapData"
+                | "drawTrianglesInstanced"
+                | "setFillMode"
+                | "uploadFromBitmapDataAsync"
+                | "uploadFromByteArrayAsync"
+                | "getSamples"
+                | "isToolButtonDown"
+                | "hideBuiltInItems"
+                | "getCamera"
+                | "getMicrophone"
         )
 }
 
@@ -966,6 +1101,8 @@ fn visible_names(
                                 || !AS2_BUILTINS.contains(&name.as_str())))
                         || *name == "flash.display.BitmapData"
                         || *name == "flash.external.ExternalInterface"
+                        || *name == "flash.net.FileReference"
+                        || *name == "flash.net.FileReferenceList"
                         || (language == ScriptLanguage::ActionScript2
                             && matches!(
                                 name.as_str(),
@@ -1648,6 +1785,11 @@ fn parse_class(
                 | "flash.events.RemoteNotificationEvent"
                 | "flash.events.GameInputEvent"
                 | "flash.events.VsyncStateChangeAvailabilityEvent"
+                | "flash.events.AVHTTPStatusEvent"
+                | "flash.events.DRMDeviceGroupErrorEvent"
+                | "flash.events.DRMDeviceGroupEvent"
+                | "flash.events.DRMStatusEvent"
+                | "flash.events.StageVideoEvent"
         )
     ) {
         return Err(Diagnostic::at(
@@ -1664,6 +1806,12 @@ fn parse_class(
             || base.starts_with("flash.permissions.")
             || base.starts_with("flash.notifications.")
             || base.starts_with("flash.sensors.")
+            || base.starts_with("flash.printing.")
+            || (base.starts_with("flash.security.") && base != "flash.security.IURIDereferencer")
+            || (base.starts_with("flash.html.") && base != "flash.html.HTMLHost")
+            || base.starts_with("flash.net.dns.")
+            || base.starts_with("flash.net.drm.")
+            || base.starts_with("flash.display3D.")
             || matches!(
                 base.as_str(),
                 "flash.display.FocusDirection"
@@ -1680,6 +1828,32 @@ fn parse_class(
                     | "flash.display.NativeWindowRenderMode"
                     | "flash.display.NativeWindowInitOptions"
                     | "flash.display.NativeWindow"
+                    | "flash.external.ExtensionContext"
+                    | "flash.media.AudioPlaybackMode"
+                    | "flash.media.CameraPosition"
+                    | "flash.media.CameraRoll"
+                    | "flash.media.CameraRollBrowseOptions"
+                    | "flash.media.CameraUI"
+                    | "flash.media.MediaPromise"
+                    | "flash.media.MediaType"
+                    | "flash.media.StageWebView"
+                    | "flash.net.DatagramSocket"
+                    | "flash.net.IPVersion"
+                    | "flash.net.InterfaceAddress"
+                    | "flash.net.NetworkInfo"
+                    | "flash.net.NetworkInterface"
+                    | "flash.net.ServerSocket"
+                    | "flash.net.URLRequestDefaults"
+                    | "flash.system.ImageDecodingPolicy"
+                    | "flash.text.AutoCapitalize"
+                    | "flash.text.ReturnKeyLabel"
+                    | "flash.text.SoftKeyboardType"
+                    | "flash.text.StageText"
+                    | "flash.text.StageTextClearButtonMode"
+                    | "flash.text.StageTextInitOptions"
+                    | "flash.ui.GameInput"
+                    | "flash.ui.GameInputControl"
+                    | "flash.ui.GameInputDevice"
             )
     }) {
         return Err(Diagnostic::at(
@@ -2073,6 +2247,7 @@ fn native_member(base: &str, name: &str) -> bool {
                 | "toString"
         ),
         "flash.text.Font" => matches!(name, "fontName" | "fontStyle" | "fontType" | "hasGlyphs"),
+        "flash.html.HTMLHost" => matches!(name, "htmlLoader"),
         _ => false,
     };
     if value_member {
@@ -2416,6 +2591,16 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                 ),
             ]),
         ),
+        (
+            "flash.security.IURIDereferencer".to_owned(),
+            BTreeMap::from([entry(
+                "flash.security.IURIDereferencer",
+                "dereference",
+                MethodKind::Method,
+                &[("String", false)],
+                "flash.utils.IDataInput",
+            )]),
+        ),
     ])
 }
 
@@ -2559,6 +2744,46 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut resolved = BTreeMap::<String, Vec<MemberRecord>>::new();
     let mut class_contracts =
         BTreeMap::<String, Vec<((String, MethodKind), MethodContract)>>::new();
+    let html_host_contract = |method_name: &str, kind: MethodKind, params: &[&str], ret: &str| {
+        (
+            (method_name.to_owned(), kind),
+            MethodContract {
+                signature: Signature {
+                    params: params.iter().map(|s| (*s).to_owned()).collect(),
+                    optional: vec![false; params.len()],
+                    rest: false,
+                    returns: ret.to_owned(),
+                },
+                access: Access::Public,
+                owner: "flash.html.HTMLHost".to_owned(),
+                final_: false,
+            },
+        )
+    };
+    class_contracts.insert(
+        "flash.html.HTMLHost".to_owned(),
+        vec![
+            html_host_contract(
+                "createWindow",
+                MethodKind::Method,
+                &["flash.html.HTMLWindowCreateOptions"],
+                "flash.html.HTMLLoader",
+            ),
+            html_host_contract("updateLocation", MethodKind::Method, &["String"], "void"),
+            html_host_contract("updateStatus", MethodKind::Method, &["String"], "void"),
+            html_host_contract("updateTitle", MethodKind::Method, &["String"], "void"),
+            html_host_contract("windowBlur", MethodKind::Method, &[], "void"),
+            html_host_contract("windowClose", MethodKind::Method, &[], "void"),
+            html_host_contract("windowFocus", MethodKind::Method, &[], "void"),
+            html_host_contract("windowRect", MethodKind::Get, &[], "flash.geom.Rectangle"),
+            html_host_contract(
+                "windowRect",
+                MethodKind::Set,
+                &["flash.geom.Rectangle"],
+                "void",
+            ),
+        ],
+    );
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut contracts = builtin_interfaces.clone();
     let mut interface_closures: BTreeMap<String, BTreeSet<String>> = builtin_interfaces
@@ -2567,7 +2792,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .collect();
     let mut reflection_types = BUILTINS
         .iter()
-        .filter(|name| !name.starts_with("mx.transitions.") && !AS2_BUILTINS.contains(name))
+        .filter(|name| {
+            (!name.starts_with("mx.transitions.") && !AS2_BUILTINS.contains(name))
+                || matches!(
+                    **name,
+                    "flash.net.FileReference" | "flash.net.FileReferenceList"
+                )
+        })
         .copied()
         .collect::<Vec<_>>();
     reflection_types.extend([
