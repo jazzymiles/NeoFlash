@@ -679,22 +679,22 @@ fn xfl_imports_multi_scenes_tweens_guides_masks_folders_skew_and_graphic_offsets
         "guided instance did not follow quadratic guide arc: {mid_items:?}"
     );
 
-    // Explicit blocking of CS4+ <MotionObjectXML> / tweenType="motion object":
-    let blocked_dir = TempDir::new();
+    // CS4+ <MotionObjectXML> / tweenType="motion object" imports as approximated keyframe pose with warning:
+    let motion_dir = TempDir::new();
     fs::write(
-        blocked_dir.0.join("DOMDocument.xml"),
+        motion_dir.0.join("DOMDocument.xml"),
         r#"<DOMDocument><timelines><DOMTimeline><layers><DOMLayer><frames><DOMFrame index="0" duration="4" tweenType="motion object"><MotionObjectXML/></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#,
     )
     .unwrap();
-    let blocked_report = inspect(&blocked_dir.0).unwrap();
-    assert!(!blocked_report.can_import);
+    let motion_report = inspect(&motion_dir.0).unwrap();
+    assert!(motion_report.can_import, "{:?}", motion_report.diagnostics);
     assert!(
-        blocked_report
+        motion_report
             .diagnostics
             .iter()
-            .any(|d| d.severity == Severity::Error && d.code == "motion_object_not_supported"),
+            .any(|d| d.severity == Severity::Warning && d.code == "motion_object_not_supported"),
         "{:?}",
-        blocked_report.diagnostics
+        motion_report.diagnostics
     );
 }
 
@@ -1396,4 +1396,129 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
         })
         .sum();
     assert_eq!(total_quads, frame_count * edges_per_frame);
+}
+
+#[test]
+fn public_corpus_all_21_cases_and_real_world_xfl_features_import_cleanly() {
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fla-corpus");
+    for rel in [
+        "upstream/ruffle/avm1-clip-events/test.fla",
+        "upstream/ruffle/avm2-button-frame-scripts/test.fla",
+        "upstream/ruffle/avm2-nested-construction/test.fla",
+        "upstream/flump/rotate_test2/rotate_test2.fla",
+        "upstream/flump/potion_simple/potion_simple.fla",
+        "upstream/flump/flump/flump.fla",
+    ] {
+        let path = corpus.join(rel);
+        let report = inspect(&path).unwrap();
+        assert!(report.can_import, "{rel}: {:?}", report.diagnostics);
+        let project = import_project(&path).unwrap();
+        project.validate().unwrap();
+    }
+
+    // Real-world XFL CS5/CS6/Animate CC feature coverage (DOMDynamicText, DOMInputText,
+    // DOMTLFText, DOMGroup, DOMVideoItem/DOMVideoInstance, DOMCompiledClipItem/Instance,
+    // DOMComponentItem/Instance, DOMFontItem, filters, color tint, persistentData <PD/>,
+    // __Camera__, and bundled .as source files).
+    let temp = TempDir::new();
+    fs::create_dir_all(temp.0.join("LIBRARY/Assets")).unwrap();
+    fs::create_dir_all(temp.0.join("com/example")).unwrap();
+    fs::write(
+        temp.0.join("PublishSettings.xml"),
+        r#"<flash_profiles><flash_profile version="1.0" name="Default" current="true"><PublishFlashProperties enabled="true"><ActionScriptVersion>3</ActionScriptVersion><DocumentClass>com.example.AppMain</DocumentClass><AS3PackagePaths>.</AS3PackagePaths></PublishFlashProperties></flash_profile></flash_profiles>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp.0.join("com/example/AppMain.as"),
+        "package com.example { import flash.display.MovieClip; public class AppMain extends MovieClip { public function AppMain() {} } }\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.0.join("LIBRARY/Assets/Widget.xml"),
+        r#"<DOMComponentItem name="Assets/ Widget" linkageExportForAS="true" linkageClassName="com.example.Widget"><timeline><DOMTimeline name="Widget"><layers><DOMLayer name="Layer 1"><frames><DOMFrame index="0"><elements><DOMRectangleObject objectWidth="40" objectHeight="20"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timeline><parametersAsXML><property id="label"/></parametersAsXML></DOMComponentItem>"#,
+    )
+    .unwrap();
+    fs::write(
+        temp.0.join("DOMDocument.xml"),
+        r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24">
+  <folders>
+    <DOMFolderItem name="Assets"/>
+  </folders>
+  <fonts>
+    <DOMFontItem name="EmbeddedSans" font="Arial" size="14"/>
+  </fonts>
+  <media>
+    <DOMVideoItem name="intro.flv" width="320" height="180"/>
+    <DOMCompiledClipItem name="PrebuiltClip" movieRectLeft="0" movieRectTop="0" movieRectRight="1600" movieRectBottom="800"/>
+  </media>
+  <symbols>
+    <Include href="Assets/Widget.xml"/>
+  </symbols>
+  <persistentData>
+    <PD n="com.adobe.animate" t="s" v="ok"/>
+  </persistentData>
+  <timelines>
+    <DOMTimeline name="Scene 1">
+      <layers>
+        <DOMLayer name="Main">
+          <frames>
+            <DOMFrame index="0" duration="2">
+              <elements>
+                <DOMSymbolInstance libraryItemName="__Camera__"/>
+                <DOMComponentInstance libraryItemName="Assets/ Widget" name="widget1">
+                  <color><Color tintColor="#FF0000" tintMultiplier="0.5"/></color>
+                  <filters><BlurFilter blurX="4" blurY="4" quality="1"/></filters>
+                </DOMComponentInstance>
+                <DOMCompiledClipInstance libraryItemName="PrebuiltClip" name="swc1"/>
+                <DOMVideoInstance libraryItemName="intro.flv" name="vid1" frameRight="6400" frameBottom="3600"/>
+                <DOMDynamicText name="score_txt" width="120" height="24" isSelectable="false">
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>Score: 0</characters>
+                      <textAttrs><DOMTextAttrs face="EmbeddedSans" size="14" fillColor="#336699" alignment="center"/></textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMDynamicText>
+                <DOMInputText name="input_txt" width="120" height="24" lineType="multiline">
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>Type here</characters>
+                      <textAttrs><DOMTextAttrs face="Arial" size="12" fillColor="#000000"/></textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMInputText>
+                <DOMTLFText name="tlf_txt" left="0" top="0" right="200" bottom="40">
+                  <tlfTextObject>
+                    <TextFlow xmlns="http://ns.adobe.com/textLayout/2008" fontFamily="Arial" fontSize="16" color="#112233">
+                      <p><span>Hello TLF</span></p>
+                    </TextFlow>
+                  </tlfTextObject>
+                </DOMTLFText>
+                <DOMGroup>
+                  <members>
+                    <DOMRectangleObject objectWidth="30" objectHeight="15" topLeftRadius="4" topRightRadius="4" bottomLeftRadius="4" bottomRightRadius="4"/>
+                    <DOMOvalObject objectWidth="20" objectHeight="20" startAngle="0" endAngle="180" innerRadius="25" closePath="true"/>
+                  </members>
+                </DOMGroup>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timelines>
+</DOMDocument>"##,
+    )
+    .unwrap();
+
+    let report = inspect(&temp.0).unwrap();
+    assert!(report.can_import, "{:?}", report.diagnostics);
+    let project = import_project(&temp.0).unwrap();
+    project.validate().unwrap();
+    assert_eq!(
+        project.document_class.as_deref(),
+        Some("com.example.AppMain")
+    );
+    assert_eq!(project.sources.len(), 1);
+    assert_eq!(project.sources[0].path, "com/example/AppMain.as");
 }

@@ -1,0 +1,1107 @@
+{
+  "format_version": 5,
+  "name": "Imported XFL",
+  "width": 550,
+  "height": 400,
+  "fps": 24,
+  "background": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "root": "symbol-9",
+  "symbols": [
+    {
+      "id": "symbol-9",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-11",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-9-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 41.0,
+                      "y": 130.55,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-9-0-1",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 192.5,
+                      "y": 235.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "symbol-1",
+      "name": "ButtonDummyChild",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-12",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -71.0,
+                          "y": -26.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 296.0,
+                          "y": -26.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 296.0,
+                          "y": 26.05
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -71.0,
+                          "y": 26.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        51,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "ButtonDummyChild",
+      "linkage_id": "ButtonDummyChild"
+    },
+    {
+      "id": "symbol-2",
+      "name": "Container",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-13",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-0-0",
+                    "name": "firstChild",
+                    "transform": {
+                      "x": 20.4,
+                      "y": -0.4,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-4",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-2-0-1",
+                    "name": "secondChild",
+                    "transform": {
+                      "x": 123.65,
+                      "y": 0.85,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-7",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-2-0-2",
+                    "name": "thirdChildDummy",
+                    "transform": {
+                      "x": 259.15,
+                      "y": -13.65,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-8",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "Container",
+      "linkage_id": "Container"
+    },
+    {
+      "id": "symbol-3",
+      "name": "ContainerSibling",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-14",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-3-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -23.0,
+                          "y": -36.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 18.0,
+                          "y": -36.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 18.0,
+                          "y": 51.05
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -23.0,
+                          "y": 51.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        204,
+                        0,
+                        51,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "ContainerSibling",
+      "linkage_id": "ContainerSibling"
+    },
+    {
+      "id": "symbol-4",
+      "name": "FirstChild",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 2,
+        "layers": [
+          {
+            "id": "layer-15",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-4-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -40.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 35.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 35.0,
+                          "y": 45.05
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -40.0,
+                          "y": 45.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        51,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-4-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -40.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 35.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 35.0,
+                          "y": 45.05
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -40.0,
+                          "y": 45.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        51,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-4-0-1-placement-1",
+                    "name": "fourthChild",
+                    "transform": {
+                      "x": 125.0,
+                      "y": 14.35,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-5",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "FirstChild",
+      "linkage_id": "FirstChild"
+    },
+    {
+      "id": "symbol-5",
+      "name": "FourthChild",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-16",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-5-0-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 39.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 39.0,
+                          "cy": 18.15,
+                          "x": 29.05,
+                          "y": 28.1
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 19.1,
+                          "cy": 38.05,
+                          "x": 5.0,
+                          "y": 38.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -9.1,
+                          "cy": 38.05,
+                          "x": -19.05,
+                          "y": 28.1
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": 18.15,
+                          "x": -29.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": -10.05,
+                          "x": -19.05,
+                          "y": -20.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -9.1,
+                          "cy": -29.95,
+                          "x": 5.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 19.1,
+                          "cy": -29.95,
+                          "x": 29.05,
+                          "y": -20.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 39.0,
+                          "cy": -10.05,
+                          "x": 39.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        51,
+                        102,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-5-0-0-1",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 39.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 39.0,
+                          "cy": 18.15,
+                          "x": 29.05,
+                          "y": 28.1
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 19.1,
+                          "cy": 38.05,
+                          "x": 5.0,
+                          "y": 38.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -9.1,
+                          "cy": 38.05,
+                          "x": -19.05,
+                          "y": 28.1
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": 18.15,
+                          "x": -29.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": -10.05,
+                          "x": -19.05,
+                          "y": -20.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -9.1,
+                          "cy": -29.95,
+                          "x": 5.0,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 19.1,
+                          "cy": -29.95,
+                          "x": 29.05,
+                          "y": -20.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 39.0,
+                          "cy": -10.05,
+                          "x": 39.0,
+                          "y": 4.05
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-5-0-1",
+                    "name": "DOMStaticText",
+                    "transform": {
+                      "x": -21.9,
+                      "y": -36.6,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "FourthChild",
+                      "font_family": "TimesNewRomanPSMT",
+                      "font_size": 12.0,
+                      "color": [
+                        0,
+                        51,
+                        102,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-5-0-2",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 121.5,
+                      "y": 10.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-6",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "FourthChild",
+      "linkage_id": "FourthChild"
+    },
+    {
+      "id": "symbol-6",
+      "name": "MyButton",
+      "kind": "button",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-17",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-6-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": -138.5,
+                      "y": -11.5,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "MyButton",
+      "linkage_id": "MyButton"
+    },
+    {
+      "id": "symbol-7",
+      "name": "SecondChild",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-18",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-7-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": -38.0,
+                          "y": -38.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 38.5,
+                          "y": -38.95
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 38.5,
+                          "y": 37.55
+                        },
+                        {
+                          "op": "line_to",
+                          "x": -38.0,
+                          "y": 37.55
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        255,
+                        51,
+                        204,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "SecondChild",
+      "linkage_id": "SecondChild"
+    },
+    {
+      "id": "symbol-8",
+      "name": "ThirdChildDummy",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-19",
+            "name": "Layer_1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-8-0-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 34.5,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 34.5,
+                          "cy": 14.95,
+                          "x": 25.2,
+                          "y": 24.25
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 15.9,
+                          "cy": 33.55,
+                          "x": 2.75,
+                          "y": 33.55
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -10.4,
+                          "cy": 33.55,
+                          "x": -19.7,
+                          "y": 24.25
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": 14.95,
+                          "x": -29.0,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": -11.35,
+                          "x": -19.7,
+                          "y": -20.65
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -10.4,
+                          "cy": -29.95,
+                          "x": 2.75,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 15.9,
+                          "cy": -29.95,
+                          "x": 25.2,
+                          "y": -20.65
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 34.5,
+                          "cy": -11.35,
+                          "x": 34.5,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        50,
+                        50,
+                        50,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-8-0-0-1",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 34.5,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 34.5,
+                          "cy": 14.95,
+                          "x": 25.2,
+                          "y": 24.25
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 15.9,
+                          "cy": 33.55,
+                          "x": 2.75,
+                          "y": 33.55
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -10.4,
+                          "cy": 33.55,
+                          "x": -19.7,
+                          "y": 24.25
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": 14.95,
+                          "x": -29.0,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -29.0,
+                          "cy": -11.35,
+                          "x": -19.7,
+                          "y": -20.65
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": -10.4,
+                          "cy": -29.95,
+                          "x": 2.75,
+                          "y": -29.95
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 15.9,
+                          "cy": -29.95,
+                          "x": 25.2,
+                          "y": -20.65
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 34.5,
+                          "cy": -11.35,
+                          "x": 34.5,
+                          "y": 1.8
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        255
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 1.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ]
+}

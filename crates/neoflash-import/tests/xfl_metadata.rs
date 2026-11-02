@@ -68,19 +68,35 @@ fn inactive_as3_defaults_are_only_ignored_for_unambiguous_as2() {
             .any(|d| d.code == "inactive_script_configuration")
     );
     for language in [
-        "<ActionScriptVersion>3</ActionScriptVersion>",
         "",
         "<ActionScriptVersion>2</ActionScriptVersion><ActionScriptVersion>3</ActionScriptVersion>",
     ] {
         temp.publish(language, settings);
         temp.blocked("external_script_configuration");
     }
+    temp.publish("<ActionScriptVersion>3</ActionScriptVersion>", settings);
+    let as3_report = inspect(&temp.0).unwrap();
+    assert!(as3_report.can_import, "{:?}", as3_report.diagnostics);
+    assert!(
+        as3_report
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.code == "external_script_configuration")
+    );
     for active in [
         "<PackagePaths>source</PackagePaths>",
         "<DocumentClass>Main</DocumentClass>",
     ] {
         temp.publish("<ActionScriptVersion>2</ActionScriptVersion>", active);
-        temp.blocked("external_script_configuration");
+        let active_report = inspect(&temp.0).unwrap();
+        assert!(active_report.can_import, "{:?}", active_report.diagnostics);
+        assert!(
+            active_report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Warning
+                    && d.code == "external_script_configuration")
+        );
     }
 }
 

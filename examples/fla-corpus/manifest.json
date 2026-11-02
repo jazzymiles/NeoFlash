@@ -546,6 +546,48 @@
       "license": "LGPL-2.1",
       "sha256": "648ee91b15cc2e01c7ea8fa7172bf04930ff9ecdb251bbace269d23ff9397b5c",
       "bytes": 81642
+    },
+    {
+      "path": "imported/ruffle-avm1-clip-events.nflash",
+      "derived_from": "upstream/ruffle/avm1-clip-events/test.fla",
+      "license": "MIT OR Apache-2.0",
+      "sha256": "f7b36db0665f11943fa44654041e049ef094cb29d6018c34f6307f8788c60f4d",
+      "bytes": 11023
+    },
+    {
+      "path": "imported/ruffle-avm2-button-frame-scripts.nflash",
+      "derived_from": "upstream/ruffle/avm2-button-frame-scripts/test.fla",
+      "license": "MIT OR Apache-2.0",
+      "sha256": "3122e65caa248f7bd0e7019ae61c18c819b2a4e2c974ca2914e7406b446a4dc3",
+      "bytes": 25002
+    },
+    {
+      "path": "imported/ruffle-avm2-nested-construction.nflash",
+      "derived_from": "upstream/ruffle/avm2-nested-construction/test.fla",
+      "license": "MIT OR Apache-2.0",
+      "sha256": "883b023327076fd3b85678e487abf82d65cf4f53084af7a799f5e089f361fc38",
+      "bytes": 34269
+    },
+    {
+      "path": "imported/flump-rotate-test2.nflash",
+      "derived_from": "upstream/flump/rotate_test2/rotate_test2.fla",
+      "license": "MIT",
+      "sha256": "75e30727cb1ec3dec0e9f82063bdb4ba382e3a9f940639446523c2d60e8fa3e9",
+      "bytes": 13291
+    },
+    {
+      "path": "imported/flump-potion-simple.nflash",
+      "derived_from": "upstream/flump/potion_simple/potion_simple.fla",
+      "license": "MIT",
+      "sha256": "1e548ed85e54c2ba772730c5ba9738234af3456f4f511d9f44678519e4478177",
+      "bytes": 69144
+    },
+    {
+      "path": "imported/flump-flump.nflash",
+      "derived_from": "upstream/flump/flump/flump.fla",
+      "license": "MIT",
+      "sha256": "389263af0b25cc7aaf392070446728b578f7fe945193184740e173aeb09ebac7",
+      "bytes": 695490
     }
   ],
   "cases": [
@@ -665,12 +707,25 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "unsupported_element",
-          "script_preserved"
-        ]
-      }
+          "editor_metadata",
+          "inactive_script_configuration",
+          "publish_settings",
+          "script_preserved",
+          "transform_pivot",
+          "xfl_cubic_editing_metadata",
+          "xfl_shape_selection"
+        ],
+        "statistics": {
+          "symbols": 3,
+          "layers": 5,
+          "keyframes": 10,
+          "elements": 4,
+          "scripts": 8
+        }
+      },
+      "native_project": "imported/ruffle-avm1-clip-events.nflash"
     },
     {
       "id": "ruffle-avm1-nested-button-text",
@@ -714,11 +769,26 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration"
-        ]
-      }
+          "ambiguous_instance_continuity",
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "transform_pivot",
+          "xfl_filters_approximated",
+          "xfl_layer_depth_ignored",
+          "xfl_shape_selection"
+        ],
+        "statistics": {
+          "symbols": 7,
+          "layers": 7,
+          "keyframes": 11,
+          "elements": 15,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/ruffle-avm2-button-frame-scripts.nflash"
     },
     {
       "id": "ruffle-avm2-nested-construction",
@@ -733,11 +803,24 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration"
-        ]
-      }
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "text_metrics",
+          "transform_pivot",
+          "xfl_layer_depth_ignored"
+        ],
+        "statistics": {
+          "symbols": 9,
+          "layers": 9,
+          "keyframes": 10,
+          "elements": 18,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/ruffle-avm2-nested-construction.nflash"
     },
     {
       "id": "flump-rotate-test2",
@@ -755,11 +838,23 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration"
-        ]
-      }
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "transform_pivot",
+          "tween_rotation"
+        ],
+        "statistics": {
+          "symbols": 4,
+          "layers": 4,
+          "keyframes": 6,
+          "elements": 5,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flump-rotate-test2.nflash"
     },
     {
       "id": "flump-potion-simple",
@@ -776,11 +871,24 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration"
-        ]
-      }
+          "editor_metadata",
+          "external_script_configuration",
+          "publish_settings",
+          "transform_pivot",
+          "tween_rotation",
+          "xfl_tween_dropped"
+        ],
+        "statistics": {
+          "symbols": 9,
+          "layers": 16,
+          "keyframes": 29,
+          "elements": 27,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flump-potion-simple.nflash"
     },
     {
       "id": "flump-flump",
@@ -799,11 +907,24 @@
       ],
       "expected": {
         "format": "xfl_archive",
-        "can_import": false,
+        "can_import": true,
         "required_diagnostics": [
-          "external_script_configuration"
-        ]
-      }
+          "editor_metadata",
+          "external_script_configuration",
+          "hidden_layer_publish_policy",
+          "publish_settings",
+          "transform_pivot",
+          "xfl_tween_dropped"
+        ],
+        "statistics": {
+          "symbols": 27,
+          "layers": 78,
+          "keyframes": 364,
+          "elements": 364,
+          "scripts": 0
+        }
+      },
+      "native_project": "imported/flump-flump.nflash"
     },
     {
       "id": "flacomdoc-flash5-shapes",

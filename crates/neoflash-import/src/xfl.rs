@@ -1,7 +1,7 @@
 use crate::{ImportReport, Statistics, source};
 use neoflash_core::*;
 use roxmltree::{Document, Node, ParsingOptions};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 mod publish;
 mod shape;
@@ -23,6 +23,7 @@ pub(crate) fn convert(
         return None;
     }
     report.version = root.attribute("xflVersion").map(str::to_owned);
+    let has_publish_settings = files.contains_key("PublishSettings.xml");
     let publish = files
         .get("PublishSettings.xml")
         .and_then(|text| parse(text, "PublishSettings.xml", report))
@@ -34,9 +35,13 @@ pub(crate) fn convert(
         symbols: HashMap::new(),
         bitmaps: HashMap::new(),
         sounds: HashMap::new(),
+        videos: HashMap::new(),
+        font_items: HashMap::new(),
+        extra_symbols: Vec::new(),
         resources: Vec::new(),
         resource_bytes_total: 0,
         language: publish.language,
+        has_publish_settings,
         include_hidden_layers: publish.include_hidden_layers,
         text_warning: false,
     };
@@ -63,6 +68,49 @@ pub(crate) fn convert(
             "playOptionsPlayFrameActions",
             "autoSaveHasPrompted",
             "autoSaveEnabled",
+            "filetypeGUID",
+            "fileGUID",
+            "objectsSnapTo",
+            "viewAngle3D",
+            "gridColor",
+            "guidesColor",
+            "gridSpacingX",
+            "gridSpacingY",
+            "snapAlignBorderSpacing",
+            "previewMode",
+            "gridSnapTo",
+            "snapAlignHorizontalSpacing",
+            "snapAlignVerticalSpacing",
+            "snapAlign",
+            "pixelSnap",
+            "vanishingPoint3DX",
+            "vanishingPoint3DY",
+            "timelineLabelWidth",
+            "viewOptionsPasteBoardView",
+            "guidesVisible",
+            "gridVisible",
+            "guidesSnapTo",
+            "sharedLibraryURL",
+            "breakPointCount",
+            "tabOrderMode",
+            "rulerVisible",
+            "gridSnapAccuracy",
+            "guidesSnapAccuracy",
+            "timelineHeight",
+            "useCarbonLineSpacing",
+            "viewOptionsAnimationControlVisible",
+            "viewOptionsButtonsActive",
+            "guidesLocked",
+            "snapAlignHorizontalCenter",
+            "snapAlignVerticalCenter",
+            "rulerUnitType",
+            "accName",
+            "description",
+            "autoLabeling",
+            "hasAccessibleData",
+            "forceSimple",
+            "silent",
+            "docType",
         ],
         &[
             "timelines",
@@ -70,22 +118,31 @@ pub(crate) fn convert(
             "folders",
             "swatchLists",
             "swatches",
+            "extendedSwatchLists",
             "media",
             "fonts",
             "PrinterSettings",
             "publishHistory",
+            "scripts",
+            "persistentData",
+            "documentPersistentData",
+            "swcCache",
         ],
     );
     if root.attribute("platform").is_some() {
         parser.report.warning("editor_metadata", "DOMDocument.xml", "Authoring platform metadata is not retained; source artwork and scripts are unaffected.");
     }
     if let Some(printer) = child(root, "PrinterSettings") {
-        // Only an empty marker is proven harmless. Actual printer settings remain unsupported.
-        parser.audit(printer, "DOMDocument.xml", &[], &[]);
+        parser.audit(
+            printer,
+            "DOMDocument.xml",
+            &["platform", "modeData", "namesData"],
+            &[],
+        );
         parser.report.warning(
             "editor_metadata",
             "DOMDocument.xml/PrinterSettings",
-            "Empty printer-settings marker is not retained.",
+            "Authoring printer-settings metadata is not retained.",
         );
     }
     if let Some(history) = child(root, "publishHistory") {
@@ -94,9 +151,10 @@ pub(crate) fn convert(
             parser.audit(
                 item,
                 "DOMDocument.xml",
-                &["publishSize", "publishTime"],
+                &["publishSize", "publishTime", "publishDebug"],
                 &[],
             );
+            let _ = parser.boolean(item, "publishDebug", false, "DOMDocument.xml");
             for attribute in ["publishSize", "publishTime"] {
                 if item
                     .attribute(attribute)
@@ -112,17 +170,70 @@ pub(crate) fn convert(
         }
         parser.report.warning("editor_metadata", "DOMDocument.xml/publishHistory", "Previous Flash publish timestamps and output sizes are not retained; authored content is unchanged.");
     }
+    if let Some(scripts_meta) = child(root, "scripts") {
+        parser.audit(scripts_meta, "DOMDocument.xml", &[], &["Include"]);
+        for inc in elements(scripts_meta).filter(|n| n.has_tag_name("Include")) {
+            parser.audit(
+                inc,
+                "DOMDocument.xml",
+                &[
+                    "href",
+                    "itemID",
+                    "lastModified",
+                    "loadImmediate",
+                    "itemIcon",
+                ],
+                &[],
+            );
+        }
+        parser.report.warning(
+            "editor_metadata",
+            "DOMDocument.xml/scripts",
+            "Authoring script-navigator entries are not retained separately; bundled .as files are imported directly.",
+        );
+    }
+    for pd_tag in ["persistentData", "documentPersistentData"] {
+        if let Some(pd_node) = child(root, pd_tag) {
+            parser.audit_persistent_data(pd_node, "DOMDocument.xml");
+        }
+    }
+    if let Some(swc_cache) = child(root, "swcCache") {
+        parser.audit(swc_cache, "DOMDocument.xml", &[], &["Swc"]);
+        for swc in elements(swc_cache).filter(|n| n.has_tag_name("Swc")) {
+            parser.audit(
+                swc,
+                "DOMDocument.xml",
+                &["hashKey", "href"],
+                &["classDefinitions"],
+            );
+            if let Some(defs) = child(swc, "classDefinitions") {
+                parser.audit(defs, "DOMDocument.xml", &[], &["ClassDefinition"]);
+                for def in elements(defs).filter(|n| n.has_tag_name("ClassDefinition")) {
+                    parser.audit(def, "DOMDocument.xml", &["value"], &[]);
+                }
+            }
+        }
+        parser.report.warning(
+            "editor_metadata",
+            "DOMDocument.xml/swcCache",
+            "Cached SWC class-definition index is not retained.",
+        );
+    }
     if let Some(media) = child(root, "media") {
         parser.parse_media(media, binary_files);
     }
     if let Some(assets) = child(root, "fonts") {
-        parser.audit(assets, "DOMDocument.xml", &[], &[]);
-        if elements(assets).next().is_some() {
-            parser.report.error(
-                "unsupported_assets",
-                "DOMDocument.xml/fonts",
-                "Media/font library assets are not imported yet.",
-            );
+        parser.audit(assets, "DOMDocument.xml", &[], &["DOMFontItem"]);
+        for item in elements(assets) {
+            if item.has_tag_name("DOMFontItem") {
+                parser.parse_font_item(item);
+            } else {
+                parser.report.error(
+                    "unsupported_assets",
+                    parser.location(item, "DOMDocument.xml"),
+                    "Unsupported font library asset is not imported yet.",
+                );
+            }
         }
     }
     let mut declared_folders = Vec::new();
@@ -160,10 +271,11 @@ pub(crate) fn convert(
                         "Flash library folder itemID is not retained.",
                     );
                 }
-                let folder_name = item.attribute("name").unwrap_or("");
+                let raw_folder = item.attribute("name").unwrap_or("");
+                let folder_name = normalize_xfl_folder_path(raw_folder);
                 if folder_name.is_empty()
-                    || !valid_library_folder(folder_name)
-                    || !seen_folders.insert(folder_name.to_owned())
+                    || !valid_library_folder(&folder_name)
+                    || !seen_folders.insert(folder_name.clone())
                 {
                     parser.report.error(
                         "invalid_library_folder",
@@ -171,27 +283,14 @@ pub(crate) fn convert(
                         "Library folder paths must be unique, nonempty, normalized NeoFlash folder paths.",
                     );
                 } else {
-                    declared_folders.push(folder_name.to_owned());
+                    declared_folders.push(folder_name);
                 }
             }
         }
     }
-    for tag in ["swatchLists", "swatches"] {
+    for tag in ["swatchLists", "swatches", "extendedSwatchLists"] {
         if let Some(metadata) = child(root, tag) {
-            // Empty authoring markers are harmless. Do not treat an entire
-            // unaudited subtree as metadata: it may contain unsupported content.
-            let first_diagnostic = parser.report.diagnostics.len();
-            parser.audit(metadata, "DOMDocument.xml", &[], &[]);
-            if !parser.report.diagnostics[first_diagnostic..]
-                .iter()
-                .any(|d| d.severity == crate::Severity::Error)
-            {
-                parser.report.warning(
-                    "editor_metadata",
-                    format!("DOMDocument.xml/{tag}"),
-                    "Empty library folder/swatch marker is not retained; nonempty organization requires a dedicated importer.",
-                );
-            }
+            parser.audit_swatch_container(metadata, tag, "DOMDocument.xml");
         }
     }
     let mut libraries = vec![];
@@ -221,7 +320,7 @@ pub(crate) fn convert(
                 continue;
             }
             let path = format!("LIBRARY/{href}");
-            let Some(xml) = files.get(&path) else {
+            let Some(xml) = get_file_ci(files, &path) else {
                 parser.report.error(
                     "missing_symbol",
                     &path,
@@ -233,17 +332,32 @@ pub(crate) fn convert(
                 continue;
             };
             let symbol = doc.root_element();
-            if !symbol.has_tag_name("DOMSymbolItem") {
+            if !matches!(
+                symbol.tag_name().name(),
+                "DOMSymbolItem" | "DOMComponentItem"
+            ) {
                 parser
                     .report
                     .error("invalid_symbol", &path, "Expected DOMSymbolItem.");
                 continue;
             }
             let name = symbol.attribute("name").unwrap_or("");
-            let pre_kind = match symbol.attribute("symbolType").unwrap_or("movie clip") {
-                "graphic" => SymbolKind::Graphic,
-                "button" => SymbolKind::Button,
-                _ => SymbolKind::MovieClip,
+            let has_linkage = symbol.attribute("linkageExportForAS") == Some("true")
+                || symbol
+                    .attribute("linkageIdentifier")
+                    .is_some_and(|s| !s.trim().is_empty())
+                || symbol
+                    .attribute("linkageClassName")
+                    .is_some_and(|s| !s.trim().is_empty());
+            let pre_kind = if symbol.has_tag_name("DOMComponentItem") {
+                SymbolKind::MovieClip
+            } else {
+                match symbol.attribute("symbolType").unwrap_or("movie clip") {
+                    "graphic" if has_linkage => SymbolKind::MovieClip,
+                    "graphic" => SymbolKind::Graphic,
+                    "button" => SymbolKind::Button,
+                    _ => SymbolKind::MovieClip,
+                }
             };
             if name.is_empty()
                 || parser
@@ -262,9 +376,9 @@ pub(crate) fn convert(
     }
     let mut p = Project::blank();
     p.name = "Imported XFL".into();
-    p.width = parser.integer(root, "width", 550, "DOMDocument.xml");
-    p.height = parser.integer(root, "height", 400, "DOMDocument.xml");
-    p.fps = parser.integer(root, "frameRate", 24, "DOMDocument.xml");
+    p.width = parser.stage_dimension(root, "width", 550, 65535, "DOMDocument.xml");
+    p.height = parser.stage_dimension(root, "height", 400, 65535, "DOMDocument.xml");
+    p.fps = parser.stage_dimension(root, "frameRate", 24, 1000, "DOMDocument.xml");
     p.background = parser.color(
         root.attribute("backgroundColor").unwrap_or("#FFFFFF"),
         1.,
@@ -315,8 +429,61 @@ pub(crate) fn convert(
             p.symbols.push(scene_symbol);
         }
     }
+    let mut used_export_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut used_exported_classes: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for (path, doc) in &libraries {
         let node = doc.root_element();
+        let name = node.attribute("name").unwrap_or("");
+        let (symbol_folder, display_name) = if let Some(explicit) = node.attribute("folder") {
+            let norm_explicit = normalize_xfl_folder_path(explicit);
+            if !valid_library_folder(&norm_explicit) {
+                parser.report.error(
+                    "invalid_library_folder",
+                    path,
+                    "Symbol folder attribute must be a valid normalized NeoFlash library folder path.",
+                );
+                (String::new(), name.to_owned())
+            } else {
+                let base = name.rsplit_once('/').map_or(name, |(_, b)| b);
+                (norm_explicit, base.to_owned())
+            }
+        } else if let Some((prefix, base)) = name.rsplit_once('/') {
+            let norm_prefix = normalize_xfl_folder_path(prefix);
+            if norm_prefix.is_empty() || base.is_empty() || !valid_library_folder(&norm_prefix) {
+                parser.report.error(
+                    "invalid_library_folder",
+                    path,
+                    "Slash-separated symbol name does not form a valid normalized library folder path.",
+                );
+                (String::new(), name.to_owned())
+            } else {
+                (norm_prefix, base.to_owned())
+            }
+        } else {
+            (String::new(), name.to_owned())
+        };
+        if !symbol_folder.is_empty() && !p.library_folders.contains(&symbol_folder) {
+            p.library_folders.push(symbol_folder.clone());
+        }
+        let id = parser
+            .symbols
+            .get(name)
+            .map(|(id, _)| id.clone())
+            .unwrap_or_else(|| new_id("symbol"));
+        if node.has_tag_name("DOMComponentItem") {
+            let symbol = parser.parse_component_item(
+                node,
+                id,
+                symbol_folder,
+                display_name,
+                path,
+                &mut used_export_ids,
+                &mut used_exported_classes,
+            );
+            p.symbols.push(symbol);
+            continue;
+        }
         parser.audit(
             node,
             path,
@@ -328,6 +495,8 @@ pub(crate) fn convert(
                 "lastModified",
                 "sourceFlashFilepath",
                 "sourceLibraryItemHRef",
+                "sourceLastModified",
+                "sourceItemID",
                 "sourceAutoUpdate",
                 "scaleGridLeft",
                 "scaleGridRight",
@@ -335,9 +504,21 @@ pub(crate) fn convert(
                 "scaleGridBottom",
                 "itemIcon",
                 "lastUniqueIdentifier",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageExportForRS",
+                "linkageImportForRS",
+                "isSpriteSubclass",
             ],
-            &["timeline"],
+            &["timeline", "persistentData"],
         );
+        if let Some(pd_node) = child(node, "persistentData") {
+            parser.audit_persistent_data(pd_node, path);
+        }
         let mut has_scale_grid = false;
         for attr in [
             "scaleGridLeft",
@@ -364,40 +545,18 @@ pub(crate) fn convert(
                 "External auto-updating symbols are not supported.",
             );
         }
-        let name = node.attribute("name").unwrap_or("");
-        let (symbol_folder, display_name) = if let Some(explicit) = node.attribute("folder") {
-            if !valid_library_folder(explicit) {
-                parser.report.error(
-                    "invalid_library_folder",
-                    path,
-                    "Symbol folder attribute must be a valid normalized NeoFlash library folder path.",
-                );
-                (String::new(), name.to_owned())
-            } else {
-                let base = name.rsplit_once('/').map_or(name, |(_, b)| b);
-                (explicit.to_owned(), base.to_owned())
-            }
-        } else if let Some((prefix, base)) = name.rsplit_once('/') {
-            if prefix.is_empty() || base.is_empty() || !valid_library_folder(prefix) {
-                parser.report.error(
-                    "invalid_library_folder",
-                    path,
-                    "Slash-separated symbol name does not form a valid normalized library folder path.",
-                );
-                (String::new(), name.to_owned())
-            } else {
-                (prefix.to_owned(), base.to_owned())
-            }
-        } else {
-            (String::new(), name.to_owned())
-        };
-        if !symbol_folder.is_empty() && !p.library_folders.contains(&symbol_folder) {
-            p.library_folders.push(symbol_folder.clone());
-        }
         let kind = match node.attribute("symbolType").unwrap_or("movie clip") {
             "graphic" => SymbolKind::Graphic,
             "movie clip" => SymbolKind::MovieClip,
             "button" => SymbolKind::Button,
+            "ik container" => {
+                parser.report.warning(
+                    "xfl_ik_approximated",
+                    path,
+                    "IK container symbol imported as a MovieClip; inverse-kinematics bone constraints are not evaluated.",
+                );
+                SymbolKind::MovieClip
+            }
             other => {
                 parser.report.error(
                     "symbol_type",
@@ -430,16 +589,41 @@ pub(crate) fn convert(
             );
             continue;
         };
-        let id = parser
-            .symbols
-            .get(name)
-            .map(|(id, _)| id.clone())
-            .unwrap_or_else(|| new_id("symbol"));
         let mut symbol = parser.symbol(timeline, id, kind, path);
         symbol.folder = symbol_folder;
         symbol.name = display_name;
+        parser.apply_symbol_linkage(
+            &mut symbol,
+            node,
+            path,
+            &mut used_export_ids,
+            &mut used_exported_classes,
+        );
         p.symbols.push(symbol);
     }
+    p.symbols.extend(parser.extra_symbols);
+    if let Some(raw_doc_class) = publish.document_class {
+        let trimmed = raw_doc_class.trim();
+        if !trimmed.is_empty() {
+            if is_valid_qualified_class_name(trimmed) {
+                p.document_class = Some(trimmed.to_owned());
+            } else {
+                parser.report.warning(
+                    "xfl_invalid_document_class",
+                    "PublishSettings.xml",
+                    format!(
+                        "DocumentClass {trimmed:?} is not a valid qualified ActionScript identifier and was omitted."
+                    ),
+                );
+            }
+        }
+    }
+    import_bundled_as_sources(files, &mut p, parser.language, parser.report);
+    if p.has_program() {
+        p.enable_program();
+    }
+    normalize_xfl_playback(&mut p.symbols, parser.report);
+    normalize_xfl_masks(&mut p, parser.report);
     p.resources = parser.resources;
     if !p.resources.is_empty() {
         p.format_version = p.format_version.max(3);
@@ -488,7 +672,21 @@ pub(crate) fn convert(
             .flat_map(|l| &l.keyframes)
             .map(|k| k.elements.len())
             .sum(),
-        scripts: p.symbols.iter().map(|s| s.timeline.scripts.len()).sum(),
+        scripts: p
+            .symbols
+            .iter()
+            .map(|s| {
+                s.timeline.scripts.len()
+                    + s.timeline
+                        .layers
+                        .iter()
+                        .flat_map(|l| &l.keyframes)
+                        .flat_map(|k| &k.elements)
+                        .map(|e| e.scripts.len())
+                        .sum::<usize>()
+            })
+            .sum::<usize>()
+            + p.sources.len(),
     };
     Some(p)
 }
@@ -518,7 +716,10 @@ fn publish_value(node: Node<'_, '_>, report: &mut ImportReport) -> Option<String
     )
 }
 
-fn publish_language(properties: Node<'_, '_>, report: &mut ImportReport) -> Option<ScriptLanguage> {
+fn publish_language(
+    properties: Node<'_, '_>,
+    report: &mut ImportReport,
+) -> (Option<ScriptLanguage>, Option<String>) {
     report.warning("publish_settings", "PublishSettings.xml", "ActionScriptVersion and hidden-layer publishing are read from the current profile; other Flash publishing options are not carried into HTML5 export.");
     let mut versions = std::collections::BTreeSet::new();
     let mut valid = true;
@@ -539,6 +740,7 @@ fn publish_language(properties: Node<'_, '_>, report: &mut ImportReport) -> Opti
     }
     let language = if valid && versions.len() == 1 {
         match versions.iter().next().map(String::as_str) {
+            Some("1") => Some(ScriptLanguage::ActionScript1),
             Some("2") => Some(ScriptLanguage::ActionScript2),
             Some("3") => Some(ScriptLanguage::ActionScript3),
             _ => None,
@@ -550,9 +752,10 @@ fn publish_language(properties: Node<'_, '_>, report: &mut ImportReport) -> Opti
         report.error(
             "script_language",
             "PublishSettings.xml",
-            "Publish settings must identify one unambiguous ActionScriptVersion, 2 or 3.",
+            "Publish settings must identify one unambiguous ActionScriptVersion (1, 2 or 3).",
         );
     }
+    let mut document_class = None;
     for node in properties.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name().name();
         if !matches!(
@@ -576,17 +779,67 @@ fn publish_language(properties: Node<'_, '_>, report: &mut ImportReport) -> Opti
         if value.is_empty() {
             continue;
         }
-        if language == Some(ScriptLanguage::ActionScript2) && name.starts_with("AS3") {
-            report.warning("inactive_script_configuration", "PublishSettings.xml", format!("{name} is inactive because ActionScriptVersion is 2; the AS2 frame source is retained and the original publish settings are unchanged."));
-        } else {
-            report.error(
-                "external_script_configuration",
-                "PublishSettings.xml",
-                format!("Nonempty {name} cannot be preserved by this importer yet."),
-            );
+        match language {
+            None => {
+                report.error(
+                    "external_script_configuration",
+                    "PublishSettings.xml",
+                    format!("Nonempty {name} cannot be interpreted when ActionScriptVersion is ambiguous or missing."),
+                );
+            }
+            Some(lang) if lang != ScriptLanguage::ActionScript3 && name.starts_with("AS3") => {
+                report.warning(
+                    "inactive_script_configuration",
+                    "PublishSettings.xml",
+                    format!(
+                        "{name} is inactive because ActionScriptVersion is not 3; the frame source is retained and the original publish settings are unchanged."
+                    ),
+                );
+            }
+            Some(ScriptLanguage::ActionScript3)
+                if matches!(name, "DocumentClass" | "AS3DocumentClass") =>
+            {
+                document_class = Some(value.clone());
+                report.warning(
+                    "external_script_configuration",
+                    "PublishSettings.xml",
+                    format!(
+                        "Document class {value:?} from {name} is retained; bundled .as sources in the XFL folder/archive are imported, while external filesystem classpaths are not read."
+                    ),
+                );
+            }
+            Some(_) => {
+                report.warning(
+                    "external_script_configuration",
+                    "PublishSettings.xml",
+                    format!(
+                        "Nonempty {name} is approximated: bundled .as files inside the XFL folder/archive are imported, while external filesystem classpaths and SWC libraries are not resolved."
+                    ),
+                );
+            }
         }
     }
-    language
+    (language, document_class)
+}
+
+fn is_tlf_namespace_element(tag: &str, namespace: &str) -> bool {
+    namespace == "http://ns.adobe.com/textLayout/2008"
+        && matches!(
+            tag,
+            "TextFlow"
+                | "p"
+                | "span"
+                | "br"
+                | "div"
+                | "a"
+                | "tab"
+                | "tcy"
+                | "g"
+                | "img"
+                | "format"
+                | "ListElement"
+                | "ListItemElement"
+        )
 }
 
 fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Document<'a>> {
@@ -604,7 +857,9 @@ fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Docu
             // including empty asset/metadata containers that need no conversion.
             for node in doc.descendants().filter(Node::is_element) {
                 if node.tag_name().namespace().is_some_and(|namespace| {
-                    path == "PublishSettings.xml" || namespace != "http://ns.adobe.com/xfl/2008/"
+                    path == "PublishSettings.xml"
+                        || (namespace != "http://ns.adobe.com/xfl/2008/"
+                            && !is_tlf_namespace_element(node.tag_name().name(), namespace))
                 }) {
                     report.error(
                         "unknown_namespace",
@@ -658,9 +913,13 @@ struct Parser<'a> {
     symbols: HashMap<String, (Id, SymbolKind)>,
     bitmaps: HashMap<String, XflBitmapAsset>,
     sounds: HashMap<String, XflSoundAsset>,
+    videos: HashMap<String, (f64, f64)>,
+    font_items: HashMap<String, String>,
+    extra_symbols: Vec<Symbol>,
     resources: Vec<ResourceUnit>,
     resource_bytes_total: usize,
     language: Option<ScriptLanguage>,
+    has_publish_settings: bool,
     include_hidden_layers: bool,
     text_warning: bool,
 }
@@ -735,12 +994,22 @@ impl Parser<'_> {
                     | "DOMFolderItem"
                     | "DOMBitmapItem"
                     | "DOMSoundItem"
+                    | "DOMVideoItem"
+                    | "DOMCompiledClipItem"
+                    | "DOMFontItem"
                     | "DOMLayer"
                     | "DOMFrame"
                     | "DOMTimeline"
                     | "DOMSymbolInstance"
                     | "DOMBitmapInstance"
                     | "DOMStaticText"
+                    | "DOMDynamicText"
+                    | "DOMInputText"
+                    | "DOMTLFText"
+                    | "DOMGroup"
+                    | "DOMVideoInstance"
+                    | "DOMCompiledClipInstance"
+                    | "DOMComponentInstance"
                     | "DOMRectangleObject"
                     | "DOMOvalObject"
                     | "DOMShape"
@@ -752,7 +1021,24 @@ impl Parser<'_> {
                     | "SoundEnvelopePoint"
                     | "PublishItem"
                     | "CustomEase"
+                    | "Ease"
                     | "Point"
+                    | "swatchList"
+                    | "SolidSwatchItem"
+                    | "LinearGradientSwatchItem"
+                    | "RadialGradientSwatchItem"
+                    | "Swc"
+                    | "ClassDefinition"
+                    | "PD"
+                    | "pd"
+                    | "DropShadowFilter"
+                    | "GlowFilter"
+                    | "BevelFilter"
+                    | "BlurFilter"
+                    | "GradientGlowFilter"
+                    | "GradientBevelFilter"
+                    | "AdjustColorFilter"
+                    | "TLFFont"
             ) && elements(node)
                 .filter(|n| n.tag_name().name() == *tag)
                 .count()
@@ -836,13 +1122,609 @@ impl Parser<'_> {
         }
     }
 
+    fn stage_dimension(
+        &mut self,
+        node: Node<'_, '_>,
+        attr: &str,
+        default: u32,
+        max_val: u32,
+        file: &str,
+    ) -> u32 {
+        let value = self.number(node, attr, f64::from(default), file);
+        if value <= 0.0 || value > f64::from(max_val) {
+            self.report.error(
+                "integer_required",
+                self.location(node, file),
+                format!("{attr} must be a positive number <= {max_val}."),
+            );
+            default
+        } else if value.fract() != 0.0 {
+            let rounded = (value.round() as u32).clamp(1, max_val);
+            self.report.warning(
+                "xfl_stage_rounded",
+                self.location(node, file),
+                format!("Fractional {attr}={value} rounded to {rounded}."),
+            );
+            rounded
+        } else {
+            value as u32
+        }
+    }
+
+    fn audit_persistent_data(&mut self, pd_node: Node<'_, '_>, file: &str) {
+        self.audit(pd_node, file, &[], &["PD", "pd"]);
+        for pd in elements(pd_node).filter(|n| matches!(n.tag_name().name(), "PD" | "pd")) {
+            self.audit(pd, file, &["n", "t", "v"], &[]);
+        }
+        self.report.warning(
+            "editor_metadata",
+            format!("{file}/{}", pd_node.tag_name().name()),
+            "Authoring persistentData metadata is not retained.",
+        );
+    }
+
+    fn audit_swatch_container(&mut self, metadata: Node<'_, '_>, tag: &str, file: &str) {
+        let first_diagnostic = self.report.diagnostics.len();
+        if tag == "swatches" {
+            self.audit_swatches_node(metadata, file);
+        } else {
+            self.audit(metadata, file, &[], &["swatchList"]);
+            for sl in elements(metadata).filter(|n| n.has_tag_name("swatchList")) {
+                self.audit(sl, file, &[], &["swatches", "swatchListInfo"]);
+                if let Some(info) = child(sl, "swatchListInfo") {
+                    self.audit(info, file, &["name"], &[]);
+                }
+                if let Some(sw) = child(sl, "swatches") {
+                    self.audit_swatches_node(sw, file);
+                }
+            }
+        }
+        if !self.report.diagnostics[first_diagnostic..]
+            .iter()
+            .any(|d| d.severity == crate::Severity::Error)
+        {
+            self.report.warning(
+                "editor_metadata",
+                format!("{file}/{tag}"),
+                "Authoring color-swatch palettes are not retained.",
+            );
+        }
+    }
+
+    fn audit_swatches_node(&mut self, sw: Node<'_, '_>, file: &str) {
+        self.audit(
+            sw,
+            file,
+            &[],
+            &[
+                "swatchListInfo",
+                "SolidSwatchItem",
+                "LinearGradientSwatchItem",
+                "RadialGradientSwatchItem",
+            ],
+        );
+        if let Some(info) = child(sw, "swatchListInfo") {
+            self.audit(info, file, &["name"], &[]);
+        }
+        for item in elements(sw) {
+            match item.tag_name().name() {
+                "SolidSwatchItem" => {
+                    self.audit(
+                        item,
+                        file,
+                        &["color", "alpha", "hue", "saturation", "brightness"],
+                        &[],
+                    );
+                }
+                "LinearGradientSwatchItem" | "RadialGradientSwatchItem" => {
+                    self.audit(
+                        item,
+                        file,
+                        &["spreadMethod", "interpolationMethod", "focalPointRatio"],
+                        &["GradientEntry"],
+                    );
+                    for entry in elements(item).filter(|n| n.has_tag_name("GradientEntry")) {
+                        self.audit(entry, file, &["color", "alpha", "ratio"], &[]);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn parse_font_item(&mut self, item: Node<'_, '_>) {
+        let loc = self.location(item, "DOMDocument.xml");
+        self.audit(
+            item,
+            "DOMDocument.xml",
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "font",
+                "id",
+                "size",
+                "style",
+                "sourceLastImported",
+                "embedRanges",
+                "embeddedCharacters",
+                "bitmapSize",
+                "isDefineFont4",
+                "lastModified",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageExportForRS",
+                "linkageImportForRS",
+            ],
+            &[],
+        );
+        let _ = self.boolean(item, "isDefineFont4", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageExportInFirstFrame", true, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageExportForRS", false, "DOMDocument.xml");
+        let _ = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
+        if let (Some(name), Some(font)) = (
+            item.attribute("name")
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+            item.attribute("font")
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && s.len() <= 1024 && !s.chars().any(char::is_control)),
+        ) {
+            self.font_items.insert(name.to_owned(), font.to_owned());
+            self.font_items.insert(format!("{name}*"), font.to_owned());
+        }
+        self.report.warning(
+            "xfl_font_item_approximated",
+            loc,
+            "DOMFontItem embedded glyph outlines are not bundled; text uses the mapped system/CSS font family.",
+        );
+    }
+
+    fn apply_symbol_linkage(
+        &mut self,
+        symbol: &mut Symbol,
+        node: Node<'_, '_>,
+        path: &str,
+        used_export_ids: &mut std::collections::HashSet<String>,
+        used_exported_classes: &mut std::collections::HashSet<String>,
+    ) {
+        let export_as = self.boolean(node, "linkageExportForAS", false, path);
+        let _ = self.boolean(node, "linkageExportInFirstFrame", true, path);
+        let export_rs = self.boolean(node, "linkageExportForRS", false, path);
+        let import_rs = self.boolean(node, "linkageImportForRS", false, path);
+        let _ = self.boolean(node, "isSpriteSubclass", false, path);
+        if export_rs
+            || import_rs
+            || node
+                .attribute("linkageURL")
+                .is_some_and(|s| !s.trim().is_empty())
+        {
+            self.report.warning(
+                "xfl_linkage_approximated",
+                path,
+                "Runtime shared-library linkage (linkageExportForRS/linkageImportForRS/linkageURL) is not fetched externally; local symbol content is retained.",
+            );
+        }
+        let raw_id = node
+            .attribute("linkageIdentifier")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let raw_class = node
+            .attribute("linkageClassName")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if !export_as && raw_id.is_none() && raw_class.is_none() {
+            return;
+        }
+        if symbol.kind == SymbolKind::Graphic {
+            symbol.kind = SymbolKind::MovieClip;
+        }
+        if let Some(cls) = raw_class {
+            if is_valid_qualified_class_name(cls) && used_exported_classes.insert(cls.to_owned()) {
+                symbol.class_name = Some(cls.to_owned());
+            } else {
+                self.report.warning(
+                    "xfl_linkage_approximated",
+                    path,
+                    format!(
+                        "Symbol linkageClassName {cls:?} is invalid or duplicated across library symbols and was omitted."
+                    ),
+                );
+            }
+        }
+        let candidate_id = raw_id.or(symbol.class_name.as_deref());
+        if let Some(lid) = candidate_id {
+            if !lid.is_empty()
+                && lid.len() <= 512
+                && !lid.chars().any(char::is_control)
+                && used_export_ids.insert(lid.to_owned())
+            {
+                symbol.linkage_id = Some(lid.to_owned());
+            } else if raw_id.is_some() {
+                self.report.warning(
+                    "xfl_linkage_approximated",
+                    path,
+                    format!(
+                        "Symbol linkageIdentifier {lid:?} is invalid or duplicated across library symbols and was omitted."
+                    ),
+                );
+            }
+        }
+        if let Some(base_cls) = node
+            .attribute("linkageBaseClass")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            && !matches!(
+                base_cls,
+                "flash.display.MovieClip" | "flash.display.Sprite" | "flash.display.SimpleButton"
+            )
+        {
+            self.report.warning(
+                "xfl_linkage_approximated",
+                path,
+                format!(
+                    "Custom linkageBaseClass {base_cls:?} relies on bundled .as sources if present."
+                ),
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn parse_component_item(
+        &mut self,
+        node: Node<'_, '_>,
+        id: Id,
+        symbol_folder: String,
+        display_name: String,
+        path: &str,
+        used_export_ids: &mut std::collections::HashSet<String>,
+        used_exported_classes: &mut std::collections::HashSet<String>,
+    ) -> Symbol {
+        self.audit(
+            node,
+            path,
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "symbolType",
+                "lastModified",
+                "lastUniqueIdentifier",
+                "sourceFlashFilepath",
+                "sourceLibraryItemHRef",
+                "sourceLastModified",
+                "sourceItemID",
+                "sourceAutoUpdate",
+                "tooltip",
+                "customIconID",
+                "actionscriptClass",
+                "livePreviewScmHRef",
+                "livePreviewScmSourceFilename",
+                "persistLivePreview11",
+                "livePreview11ScmHRef",
+                "livePreview11ScmSourceFilename",
+                "editFrameIndex",
+                "requiredMinimumPlayerVersion",
+                "requiredMinimumASVersion",
+                "parametersAreLocked",
+                "displayAsComponent",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageExportForRS",
+                "linkageImportForRS",
+            ],
+            &[
+                "timeline",
+                "parametersAsXML",
+                "classProperties",
+                "customIcon",
+                "dataBindingXML",
+                "persistentData",
+            ],
+        );
+        if let Some(pd_node) = child(node, "persistentData") {
+            self.audit_persistent_data(pd_node, path);
+        }
+        for meta_tag in [
+            "parametersAsXML",
+            "classProperties",
+            "customIcon",
+            "dataBindingXML",
+        ] {
+            if let Some(sub) = child(node, meta_tag) {
+                self.audit_unmodeled_xfl_subtree(sub, path);
+            }
+        }
+        let mut symbol = if let Some(timeline_node) =
+            child(node, "timeline").and_then(|w| child(w, "DOMTimeline"))
+        {
+            self.symbol(timeline_node, id, SymbolKind::MovieClip, path)
+        } else {
+            let layer_id = format!("xfl-component-layer-{}", self.extra_symbols.len() + 1);
+            Symbol {
+                folder: String::new(),
+                class_name: None,
+                linkage_id: None,
+                id,
+                name: display_name.clone(),
+                kind: SymbolKind::MovieClip,
+                timeline: Timeline {
+                    guides: vec![],
+                    frame_count: 1,
+                    layers: vec![Layer {
+                        properties: LayerProperties::default(),
+                        id: layer_id,
+                        name: "Layer 1".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: vec![],
+                            ..Default::default()
+                        }],
+                    }],
+                    scripts: vec![],
+                },
+            }
+        };
+        symbol.folder = symbol_folder;
+        symbol.name = display_name;
+        self.apply_symbol_linkage(
+            &mut symbol,
+            node,
+            path,
+            used_export_ids,
+            used_exported_classes,
+        );
+        if symbol.class_name.is_none()
+            && let Some(as_cls) = node
+                .attribute("actionscriptClass")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            && is_valid_qualified_class_name(as_cls)
+            && used_exported_classes.insert(as_cls.to_owned())
+        {
+            symbol.class_name = Some(as_cls.to_owned());
+        }
+        self.report.warning(
+            "xfl_component_approximated",
+            path,
+            "DOMComponentItem imported as a MovieClip; authoring component parameters and live-preview SWFs are not evaluated.",
+        );
+        symbol
+    }
+
+    fn resolve_script_language(&mut self, source: &str, location: &str) -> Option<ScriptLanguage> {
+        if let Some(lang) = self.language {
+            return Some(lang);
+        }
+        if self.has_publish_settings {
+            self.report.error(
+                "script_language_unknown",
+                location,
+                "Cannot determine AS2/AS3. Supply PublishSettings.xml with an unambiguous ActionScriptVersion.",
+            );
+            return None;
+        }
+        let inferred = if source.contains("package ")
+            || source.contains("import flash.")
+            || source.contains("addEventListener(")
+        {
+            ScriptLanguage::ActionScript3
+        } else {
+            ScriptLanguage::ActionScript2
+        };
+        self.report.warning(
+            "script_language_defaulted",
+            location,
+            format!("PublishSettings.xml is absent; defaulted script language to {inferred:?}."),
+        );
+        Some(inferred)
+    }
+
+    fn audit_unmodeled_xfl_subtree(&mut self, root_sub: Node<'_, '_>, file: &str) {
+        for n in root_sub.descendants().filter(Node::is_element) {
+            let loc = self.location(n, file);
+            if n.tag_name()
+                .namespace()
+                .is_some_and(|ns| ns != "http://ns.adobe.com/xfl/2008/")
+            {
+                self.report
+                    .error("unknown_namespace", &loc, "Unknown XML namespace.");
+            }
+            for attr in n.attributes() {
+                if let Some(namespace) = attr.namespace() {
+                    self.report.error(
+                        "unsupported_attribute_namespace",
+                        &loc,
+                        format!(
+                            "Namespaced attribute {{{namespace}}}{} is unsupported; XFL attributes must have no namespace.",
+                            attr.name()
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn audit_tlf_subtree(&mut self, root_sub: Node<'_, '_>, file: &str) {
+        for n in root_sub.descendants().filter(Node::is_element) {
+            let loc = self.location(n, file);
+            if let Some(ns) = n.tag_name().namespace()
+                && ns != "http://ns.adobe.com/xfl/2008/"
+                && !is_tlf_namespace_element(n.tag_name().name(), ns)
+            {
+                self.report
+                    .error("unknown_namespace", &loc, "Unknown XML namespace.");
+            }
+            for attr in n.attributes() {
+                if let Some(namespace) = attr.namespace() {
+                    self.report.error(
+                        "unsupported_attribute_namespace",
+                        &loc,
+                        format!(
+                            "Namespaced attribute {{{namespace}}}{} is unsupported.",
+                            attr.name()
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn audit_filters(&mut self, filters_node: Node<'_, '_>, file: &str, location: &str) {
+        self.audit(
+            filters_node,
+            file,
+            &[],
+            &[
+                "DropShadowFilter",
+                "GlowFilter",
+                "BevelFilter",
+                "BlurFilter",
+                "GradientGlowFilter",
+                "GradientBevelFilter",
+                "AdjustColorFilter",
+            ],
+        );
+        let mut saw_filter = false;
+        for f in elements(filters_node) {
+            saw_filter = true;
+            match f.tag_name().name() {
+                "DropShadowFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "color",
+                            "alpha",
+                            "distance",
+                            "strength",
+                            "quality",
+                            "inner",
+                            "knockout",
+                            "hideObject",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                }
+                "GlowFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "blurX",
+                            "blurY",
+                            "color",
+                            "alpha",
+                            "strength",
+                            "quality",
+                            "inner",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                }
+                "BevelFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "distance",
+                            "highlightColor",
+                            "highlightAlpha",
+                            "shadowColor",
+                            "shadowAlpha",
+                            "strength",
+                            "quality",
+                            "type",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &[],
+                    );
+                }
+                "BlurFilter" => {
+                    self.audit(f, file, &["blurX", "blurY", "quality", "isEnabled"], &[]);
+                }
+                "GradientGlowFilter" | "GradientBevelFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &[
+                            "angle",
+                            "blurX",
+                            "blurY",
+                            "distance",
+                            "strength",
+                            "quality",
+                            "type",
+                            "knockout",
+                            "isEnabled",
+                        ],
+                        &["GradientEntry"],
+                    );
+                    for entry in elements(f).filter(|n| n.has_tag_name("GradientEntry")) {
+                        self.audit(entry, file, &["color", "alpha", "ratio"], &[]);
+                    }
+                }
+                "AdjustColorFilter" => {
+                    self.audit(
+                        f,
+                        file,
+                        &["brightness", "contrast", "saturation", "hue", "isEnabled"],
+                        &[],
+                    );
+                }
+                _ => {}
+            }
+        }
+        if saw_filter {
+            self.report.warning(
+                "xfl_filters_approximated",
+                location,
+                "XFL display filters (DropShadow/Glow/Bevel/Blur/AdjustColor) are not rendered on authored elements yet.",
+            );
+        }
+    }
+
     fn symbol(&mut self, node: Node<'_, '_>, id: Id, kind: SymbolKind, file: &str) -> Symbol {
         self.audit(
             node,
             file,
-            &["name", "currentFrame", "guides", "autoNamed"],
+            &[
+                "name",
+                "currentFrame",
+                "guides",
+                "autoNamed",
+                "layerDepthEnabled",
+            ],
             &["layers"],
         );
+        if self.boolean(node, "layerDepthEnabled", false, file) {
+            self.report.warning(
+                "xfl_layer_depth_ignored",
+                self.location(node, file),
+                "Animate CC layerDepthEnabled Z-depth is approximated as flat 2D painter order.",
+            );
+        }
         let mut timeline = Timeline {
             guides: vec![],
             frame_count: 1,
@@ -895,6 +1777,8 @@ impl Parser<'_> {
                     "heightMultiplier",
                     "outline",
                     "useOutlineView",
+                    "highlighted",
+                    "poseLocations",
                 ],
                 &["frames"],
             );
@@ -914,11 +1798,11 @@ impl Parser<'_> {
                 && !anim.is_empty()
                 && anim != "none"
             {
-                self.report.error(
+                self.report.warning(
                     "motion_object_not_supported",
                     self.location(layer_node, file),
                     format!(
-                        "XFL layer animationType={anim:?} is not supported yet; convert to classic/shape tweens or frame keyframes."
+                        "XFL layer animationType={anim:?} is approximated using its authored keyframe poses."
                     ),
                 );
             }
@@ -927,6 +1811,14 @@ impl Parser<'_> {
                 "guide" => LayerRole::Guide,
                 "mask" => LayerRole::Mask,
                 "folder" => LayerRole::Folder,
+                "camera" => {
+                    self.report.warning(
+                        "xfl_camera_layer_approximated",
+                        self.location(layer_node, file),
+                        "Animate CC camera layer is imported as an ordinary layer; virtual camera pan/zoom is not evaluated.",
+                    );
+                    LayerRole::Normal
+                }
                 other => {
                     self.report.error(
                         "layer_type",
@@ -980,7 +1872,8 @@ impl Parser<'_> {
             if let Some(frames) = child(layer_node, "frames") {
                 self.audit(frames, file, &[], &["DOMFrame"]);
                 for frame_node in elements(frames).filter(|n| n.has_tag_name("DOMFrame")) {
-                    let has_motion_xml = child(frame_node, "MotionObjectXML").is_some();
+                    let has_motion_xml = child(frame_node, "MotionObjectXML").is_some()
+                        || child(frame_node, "motionObjectXML").is_some();
                     self.audit(
                         frame_node,
                         file,
@@ -992,6 +1885,12 @@ impl Parser<'_> {
                             "keyMode",
                             "tweenType",
                             "acceleration",
+                            "easeMethodName",
+                            "isMotionObject",
+                            "visibleAnimationKeyframes",
+                            "bookmark",
+                            "tweenInstanceName",
+                            "isIKPose",
                             "motionTweenOrientToPath",
                             "motionTweenSnap",
                             "motionTweenRotate",
@@ -1010,38 +1909,78 @@ impl Parser<'_> {
                             "outPoint44",
                             "soundZoomLevel",
                         ],
-                        if has_motion_xml {
-                            &[
-                                "elements",
-                                "Actionscript",
-                                "tweens",
-                                "SoundEnvelope",
-                                "MotionObjectXML",
-                            ]
-                        } else {
-                            &["elements", "Actionscript", "tweens", "SoundEnvelope"]
-                        },
+                        &[
+                            "elements",
+                            "Actionscript",
+                            "tweens",
+                            "SoundEnvelope",
+                            "MotionObjectXML",
+                            "motionObjectXML",
+                            "MorphShape",
+                            "betweenFrameMatrixList",
+                            "IKTree",
+                        ],
                     );
-                    if has_motion_xml {
-                        self.report.error(
-                            "motion_object_not_supported",
+                    let _ = self.boolean(frame_node, "isMotionObject", false, file);
+                    let _ = self.boolean(frame_node, "bookmark", false, file);
+                    let _ = self.boolean(frame_node, "isIKPose", false, file);
+                    for motion_tag in ["MotionObjectXML", "motionObjectXML"] {
+                        if let Some(sub) = child(frame_node, motion_tag) {
+                            self.audit_unmodeled_xfl_subtree(sub, file);
+                            self.report.warning(
+                                "motion_object_not_supported",
+                                self.location(frame_node, file),
+                                "XFL motion-object property-track XML is approximated by holding the authored keyframe pose.",
+                            );
+                        }
+                    }
+                    for morph_tag in ["MorphShape", "betweenFrameMatrixList"] {
+                        if let Some(sub) = child(frame_node, morph_tag) {
+                            self.audit_unmodeled_xfl_subtree(sub, file);
+                            self.report.warning(
+                                "xfl_morph_hints_ignored",
+                                self.location(frame_node, file),
+                                "XFL shape-tween MorphShape hints/segments are ignored; NeoFlash resamples contours automatically.",
+                            );
+                        }
+                    }
+                    if let Some(sub) = child(frame_node, "IKTree") {
+                        self.audit_unmodeled_xfl_subtree(sub, file);
+                        self.report.warning(
+                            "xfl_ik_approximated",
                             self.location(frame_node, file),
-                            "XFL MotionObjectXML property-track tweens are not imported yet; convert to classic/shape tweens or frame keyframes.",
+                            "XFL inverse-kinematics IKTree pose constraints are approximated using authored element poses.",
                         );
                     }
                     let frame_loc = self.location(frame_node, file);
                     let (tween, tween_kind, orient_to_path) =
                         self.frame_tween(frame_node, has_motion_xml, file);
                     let sound = self.frame_sound(frame_node, file);
-                    if frame_node
-                        .attribute("labelType")
-                        .is_some_and(|t| t != "name")
-                    {
-                        self.report.error(
-                            "frame_label_type",
-                            &frame_loc,
-                            "Only ordinary frame labels are supported.",
-                        );
+                    let mut frame_label: String = frame_node.attribute("name").unwrap_or("").into();
+                    match frame_node.attribute("labelType").unwrap_or("name") {
+                        "name" => {}
+                        "comment" => {
+                            frame_label.clear();
+                            self.report.warning(
+                                "xfl_frame_comment",
+                                &frame_loc,
+                                "Authoring frame comment (labelType=\"comment\") is not exported as a runtime jump label.",
+                            );
+                        }
+                        "anchor" => {
+                            self.report.warning(
+                                "xfl_frame_anchor",
+                                &frame_loc,
+                                "Browser anchor frame label (labelType=\"anchor\") is imported as an ordinary frame label.",
+                            );
+                        }
+                        other => {
+                            self.report.error(
+                                "frame_label_type",
+                                &frame_loc,
+                                format!("Unsupported frame labelType {other:?}."),
+                            );
+                        }
                     }
                     let frame = self.integer(frame_node, "index", 0, file);
                     let duration = self.integer(frame_node, "duration", 1, file);
@@ -1056,10 +1995,7 @@ impl Parser<'_> {
                     if role != LayerRole::Folder {
                         if excluded {
                             excluded_end = excluded_end.max(end);
-                            if frame_node
-                                .attribute("name")
-                                .is_some_and(|name| !name.is_empty())
-                            {
+                            if !frame_label.is_empty() {
                                 self.report.error("excluded_layer_label", &frame_loc, "A label on an excluded hidden layer cannot be retained with its publication ownership in the current model. Move the label to a published layer before importing.");
                             }
                         } else {
@@ -1086,7 +2022,7 @@ impl Parser<'_> {
                         tween_kind,
                         orient_to_path,
                         sound,
-                        label: frame_node.attribute("name").unwrap_or("").into(),
+                        label: frame_label,
                         ..Default::default()
                     };
                     let mut elem_locs = vec![];
@@ -1099,6 +2035,13 @@ impl Parser<'_> {
                                 "DOMSymbolInstance",
                                 "DOMBitmapInstance",
                                 "DOMStaticText",
+                                "DOMDynamicText",
+                                "DOMInputText",
+                                "DOMTLFText",
+                                "DOMGroup",
+                                "DOMVideoInstance",
+                                "DOMCompiledClipInstance",
+                                "DOMComponentInstance",
                                 "DOMRectangleObject",
                                 "DOMOvalObject",
                                 "DOMShape",
@@ -1113,13 +2056,10 @@ impl Parser<'_> {
                                 );
                                 continue;
                             }
-                            let mut identity = format!("xfl-{id}-{li}-{ei}");
-                            // A later authored instance span never inherits an earlier
-                            // XML slot's state unless explicitly connected by a classic tween.
-                            if element_node.has_tag_name("DOMSymbolInstance") && frame != 0 {
-                                identity.push_str(&format!("-placement-{frame}"));
-                            }
-                            for element in self.element(element_node, identity, file) {
+                            let identity = format!("xfl-{id}-{li}-{ei}");
+                            for element in
+                                self.element_with_depth(element_node, identity, frame, 0, file)
+                            {
                                 elem_locs
                                     .push((element.id.clone(), self.location(element_node, file)));
                                 key.elements.push(element);
@@ -1127,7 +2067,7 @@ impl Parser<'_> {
                         }
                     }
                     if let Some(actions) = child(frame_node, "Actionscript") {
-                        self.audit(actions, file, &[], &["script"]);
+                        self.audit(actions, file, &["breakpoints"], &["script"]);
                         if let Some(script) = child(actions, "script") {
                             self.audit(script, file, &[], &[]);
                             let source = immediate_text(script);
@@ -1142,14 +2082,15 @@ impl Parser<'_> {
                                 if excluded {
                                     self.report.error("excluded_layer_script", self.location(script, file), "A frame script on an excluded hidden layer cannot retain its publication ownership in the current model. Import is blocked rather than executing or discarding that source.");
                                 }
-                                if let Some(language) = self.language {
+                                let script_loc = self.location(script, file);
+                                if let Some(language) =
+                                    self.resolve_script_language(&source, &script_loc)
+                                {
                                     timeline.scripts.push(FrameScript {
                                         frame,
                                         script: Script { language, source },
                                     });
-                                    self.report.warning("script_preserved",self.location(script,file),"ActionScript source retained unchanged. Execution compatibility is checked separately by the compiler/exporter.");
-                                } else {
-                                    self.report.error("script_language_unknown",self.location(script,file),"Cannot determine AS2/AS3. Supply PublishSettings.xml with an unambiguous ActionScriptVersion.");
+                                    self.report.warning("script_preserved",script_loc,"ActionScript source retained unchanged. Execution compatibility is checked separately by the compiler/exporter.");
                                 }
                             }
                         }
@@ -1237,10 +2178,13 @@ impl Parser<'_> {
                         let valid_to = !raw_keys[idx + 1].4.elements.is_empty()
                             && raw_keys[idx + 1].4.elements.iter().all(is_shape);
                         if !valid_from || !valid_to {
-                            self.report.error(
-                                "invalid_shape_tween",
+                            raw_keys[idx].4.tween = None;
+                            raw_keys[idx].4.tween_kind = TweenKind::Classic;
+                            raw_keys[idx].4.orient_to_path = false;
+                            self.report.warning(
+                                "xfl_tween_dropped",
                                 prev_loc,
-                                "Shape tweens require vector shape elements on both the start and end keyframes.",
+                                "Shape tween requires vector shape elements on both start and end keyframes; tween dropped and poses held.",
                             );
                         }
                     }
@@ -1324,7 +2268,11 @@ impl Parser<'_> {
             if let Some(ends) = instance_ends.get(&frame) {
                 for (symbol, location) in starts {
                     if ends.contains(&symbol) {
-                        self.report.error("ambiguous_instance_continuity", location, "An adjacent key ends and places the same library symbol. XML order, name and referenceID do not establish whether the Flash instance continues, is reordered or is replaced. Use a held placement span or an explicit blank-frame gap; this importer does not guess instance lifetimes.");
+                        self.report.warning(
+                            "ambiguous_instance_continuity",
+                            location,
+                            "An adjacent key ends and places the same library symbol without a classic tween; the importer treats the second keyframe as a new placement span.",
+                        );
                     }
                 }
             }
@@ -1362,14 +2310,83 @@ impl Parser<'_> {
         }
     }
 
-    fn element(&mut self, node: Node<'_, '_>, id: Id, file: &str) -> Vec<Element> {
+    fn element_with_depth(
+        &mut self,
+        node: Node<'_, '_>,
+        base_id: Id,
+        frame: u32,
+        depth: usize,
+        file: &str,
+    ) -> Vec<Element> {
         let tag = node.tag_name().name();
         if tag == "DOMShape" {
-            return self.shape(node, id, file).unwrap_or_default();
+            return self.shape(node, base_id, file).unwrap_or_default();
         }
         let location = self.location(node, file);
+        if tag == "DOMGroup" {
+            self.audit(
+                node,
+                file,
+                &["name", "selected", "locked"],
+                &["matrix", "transformationPoint", "members"],
+            );
+            let _ = self.transform(node, file);
+            if depth >= 32 {
+                self.report.error(
+                    "xfl_group_depth",
+                    &location,
+                    "Nested DOMGroup depth exceeds 32 levels.",
+                );
+                return vec![];
+            }
+            let mut grouped = Vec::new();
+            if let Some(members) = child(node, "members") {
+                self.audit(
+                    members,
+                    file,
+                    &[],
+                    &[
+                        "DOMSymbolInstance",
+                        "DOMBitmapInstance",
+                        "DOMStaticText",
+                        "DOMDynamicText",
+                        "DOMInputText",
+                        "DOMTLFText",
+                        "DOMGroup",
+                        "DOMVideoInstance",
+                        "DOMCompiledClipInstance",
+                        "DOMComponentInstance",
+                        "DOMRectangleObject",
+                        "DOMOvalObject",
+                        "DOMShape",
+                    ],
+                );
+                for (mi, member) in elements(members).enumerate() {
+                    let member_id = format!("{base_id}-g{mi}");
+                    grouped.extend(self.element_with_depth(
+                        member,
+                        member_id,
+                        frame,
+                        depth + 1,
+                        file,
+                    ));
+                }
+            }
+            return grouped;
+        }
+        let mut id = base_id;
+        // A later authored instance span never inherits an earlier
+        // XML slot's state unless explicitly connected by a classic tween.
+        if matches!(
+            tag,
+            "DOMSymbolInstance" | "DOMCompiledClipInstance" | "DOMComponentInstance"
+        ) && frame != 0
+        {
+            id.push_str(&format!("-placement-{frame}"));
+        }
         let mut transform = self.transform(node, file);
         let mut name: String = node.attribute("name").unwrap_or(tag).into();
+        let mut scripts = Vec::new();
         let kind = match tag {
             "DOMSymbolInstance" => {
                 self.audit(
@@ -1388,8 +2405,32 @@ impl Parser<'_> {
                         "uniqueIdentifier",
                         "centerPoint3DX",
                         "centerPoint3DY",
+                        "blendMode",
+                        "cacheAsBitmap",
+                        "exportAsBitmap",
+                        "isVisible",
+                        "bits32",
+                        "matrix3D",
+                        "rotationX",
+                        "rotationY",
+                        "rotationZ",
+                        "hasAccessibleData",
+                        "accName",
+                        "description",
+                        "shortcut",
+                        "tabIndex",
+                        "silent",
+                        "forceSimple",
                     ],
-                    &["matrix", "transformationPoint", "color"],
+                    &[
+                        "matrix",
+                        "transformationPoint",
+                        "color",
+                        "filters",
+                        "Actionscript",
+                        "MatteColor",
+                        "persistentData",
+                    ],
                 );
                 if node.attribute("centerPoint3DX").is_some()
                     || node.attribute("centerPoint3DY").is_some()
@@ -1398,8 +2439,77 @@ impl Parser<'_> {
                     self.number(node, "centerPoint3DY", 0., file);
                     self.report.warning("transform_pivot", &location, "Placement matrix retained; Flash's 2D authoring centerPoint3DX/Y pivot is not retained. Actual 3D transforms remain unsupported.");
                 }
+                let _ = self.boolean(node, "cacheAsBitmap", false, file);
+                let _ = self.boolean(node, "exportAsBitmap", false, file);
+                let _ = self.boolean(node, "isVisible", true, file);
+                let _ = self.boolean(node, "hasAccessibleData", false, file);
+                let _ = self.boolean(node, "silent", false, file);
+                let _ = self.boolean(node, "forceSimple", false, file);
+                if let Some(bm) = node.attribute("blendMode")
+                    && !bm.is_empty()
+                    && bm != "normal"
+                {
+                    self.report.warning(
+                        "xfl_blend_mode_approximated",
+                        &location,
+                        format!(
+                            "XFL instance blendMode={bm:?} is rendered with normal alpha compositing."
+                        ),
+                    );
+                }
+                if node.attribute("matrix3D").is_some()
+                    || node.attribute("rotationX").is_some()
+                    || node.attribute("rotationY").is_some()
+                    || node.attribute("rotationZ").is_some()
+                {
+                    self.report.warning(
+                        "xfl_3d_approximated",
+                        &location,
+                        "XFL 3D instance transform attributes (matrix3D/rotationX/Y/Z) are projected to 2D placement.",
+                    );
+                }
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
+                }
+                if let Some(matte) = child(node, "MatteColor") {
+                    self.audit(matte, file, &["color", "alpha"], &[]);
+                }
+                if let Some(pd_node) = child(node, "persistentData") {
+                    self.audit_persistent_data(pd_node, file);
+                }
+                if let Some(actions) = child(node, "Actionscript") {
+                    self.audit(actions, file, &["breakpoints"], &["script"]);
+                    if let Some(script_node) = child(actions, "script") {
+                        self.audit(script_node, file, &[], &[]);
+                        let source = immediate_text(script_node);
+                        if !source.trim().is_empty() {
+                            let script_loc = self.location(script_node, file);
+                            if let Some(language) =
+                                self.resolve_script_language(&source, &script_loc)
+                            {
+                                scripts.push(ObjectScript {
+                                    event: ObjectEvent::Load,
+                                    script: Script { language, source },
+                                });
+                                self.report.warning(
+                                    "script_preserved",
+                                    script_loc,
+                                    "Object ActionScript handler source retained unchanged.",
+                                );
+                            }
+                        }
+                    }
+                }
                 let target = node.attribute("libraryItemName").unwrap_or("");
                 let Some((symbol_id, target_kind)) = self.symbols.get(target).cloned() else {
+                    if matches!(target, "__Camera__" | "___camera___instance") {
+                        self.report.warning(
+                            "xfl_camera_layer_ignored",
+                            &location,
+                            "Animate CC virtual camera symbol instance is omitted.",
+                        );
+                        return vec![];
+                    }
                     self.report.error(
                         "missing_symbol",
                         &location,
@@ -1416,10 +2526,10 @@ impl Parser<'_> {
                 let playback = match node.attribute("symbolType").unwrap_or(default_type) {
                     "button" => {
                         if target_kind != SymbolKind::Button {
-                            self.report.error(
+                            self.report.warning(
                                 "symbol_type_mismatch",
                                 &location,
-                                "Button instance behavior requires a symbolType=\"button\" library symbol.",
+                                "Button instance behavior on a non-button library symbol is approximated using the target symbol's timeline.",
                             );
                         }
                         if track_as_menu {
@@ -1430,51 +2540,51 @@ impl Parser<'_> {
                             );
                         }
                         if first != 0 || node.attribute("loop").is_some() {
-                            self.report.error(
+                            self.report.warning(
                                 "clip_start_frame",
                                 &location,
-                                "Button instances do not support graphic loop or firstFrame overrides.",
+                                "Button instances ignore graphic loop and firstFrame attributes.",
                             );
                         }
                         InstancePlayback::Independent
                     }
                     "movie clip" => {
                         if target_kind == SymbolKind::Button {
-                            self.report.error(
+                            self.report.warning(
                                 "symbol_type_mismatch",
                                 &location,
-                                "A button symbol cannot be placed with movie clip instance behavior.",
+                                "MovieClip instance behavior on a button library symbol is approximated.",
                             );
                         }
                         if track_as_menu {
-                            self.report.error(
+                            self.report.warning(
                                 "symbol_type_mismatch",
                                 &location,
-                                "trackAsMenu is only valid on button instances.",
+                                "trackAsMenu on a MovieClip instance is ignored.",
                             );
                         }
                         if first != 0 {
-                            self.report.error(
+                            self.report.warning(
                                 "clip_start_frame",
                                 &location,
-                                "MovieClip start-frame override is unsupported.",
+                                "MovieClip firstFrame authoring attribute is ignored; MovieClips always start at frame 0.",
                             );
                         }
                         InstancePlayback::Independent
                     }
                     "graphic" => {
                         if target_kind == SymbolKind::Button {
-                            self.report.error(
+                            self.report.warning(
                                 "symbol_type_mismatch",
                                 &location,
-                                "A button symbol cannot be placed with graphic instance behavior.",
+                                "Graphic instance behavior on a button library symbol is approximated.",
                             );
                         }
                         if track_as_menu {
-                            self.report.error(
+                            self.report.warning(
                                 "symbol_type_mismatch",
                                 &location,
-                                "trackAsMenu is only valid on button instances.",
+                                "trackAsMenu on a graphic instance is ignored.",
                             );
                         }
                         match node.attribute("loop").unwrap_or("loop") {
@@ -1517,6 +2627,159 @@ impl Parser<'_> {
                     playback,
                 }
             }
+            "DOMCompiledClipInstance" | "DOMComponentInstance" => {
+                self.audit(
+                    node,
+                    file,
+                    &[
+                        "libraryItemName",
+                        "name",
+                        "selected",
+                        "locked",
+                        "referenceID",
+                        "uniqueIdentifier",
+                        "uniqueID",
+                        "centerPoint3DX",
+                        "centerPoint3DY",
+                        "blendMode",
+                        "cacheAsBitmap",
+                        "isVisible",
+                        "hasAccessibleData",
+                        "accName",
+                        "description",
+                        "shortcut",
+                        "tabIndex",
+                        "silent",
+                        "forceSimple",
+                    ],
+                    &[
+                        "matrix",
+                        "transformationPoint",
+                        "color",
+                        "filters",
+                        "dataBindingXML",
+                        "parametersAsXML",
+                        "persistentData",
+                    ],
+                );
+                if node.attribute("centerPoint3DX").is_some()
+                    || node.attribute("centerPoint3DY").is_some()
+                {
+                    self.number(node, "centerPoint3DX", 0., file);
+                    self.number(node, "centerPoint3DY", 0., file);
+                }
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
+                }
+                if let Some(pd_node) = child(node, "persistentData") {
+                    self.audit_persistent_data(pd_node, file);
+                }
+                for meta_tag in ["dataBindingXML", "parametersAsXML"] {
+                    if let Some(sub) = child(node, meta_tag) {
+                        self.audit_unmodeled_xfl_subtree(sub, file);
+                    }
+                }
+                let target = node.attribute("libraryItemName").unwrap_or("");
+                let symbol_id = if let Some((sid, _)) = self.symbols.get(target).cloned() {
+                    sid
+                } else if !target.is_empty() {
+                    let placeholder_idx = self.extra_symbols.len() + 1;
+                    let sid = format!("xfl-component-placeholder-{placeholder_idx}");
+                    let lid = format!("xfl-component-placeholder-layer-{placeholder_idx}");
+                    let sym_name = target.rsplit_once('/').map_or(target, |(_, b)| b);
+                    self.extra_symbols.push(Symbol {
+                        folder: String::new(),
+                        class_name: None,
+                        linkage_id: None,
+                        id: sid.clone(),
+                        name: sym_name.to_owned(),
+                        kind: SymbolKind::MovieClip,
+                        timeline: Timeline {
+                            guides: vec![],
+                            frame_count: 1,
+                            layers: vec![Layer {
+                                properties: LayerProperties::default(),
+                                id: lid,
+                                name: "Layer 1".into(),
+                                visible: true,
+                                locked: false,
+                                keyframes: vec![Keyframe {
+                                    frame: 0,
+                                    elements: vec![],
+                                    ..Default::default()
+                                }],
+                            }],
+                            scripts: vec![],
+                        },
+                    });
+                    self.symbols
+                        .insert(target.to_owned(), (sid.clone(), SymbolKind::MovieClip));
+                    sid
+                } else {
+                    self.report.error(
+                        "missing_symbol",
+                        &location,
+                        "Component instance is missing libraryItemName.",
+                    );
+                    return vec![];
+                };
+                self.report.warning(
+                    "xfl_component_approximated",
+                    &location,
+                    format!("{tag} is approximated as a MovieClip instance."),
+                );
+                ElementKind::Instance {
+                    symbol_id,
+                    playback: InstancePlayback::Independent,
+                }
+            }
+            "DOMVideoInstance" => {
+                self.audit(
+                    node,
+                    file,
+                    &[
+                        "libraryItemName",
+                        "name",
+                        "selected",
+                        "locked",
+                        "referenceID",
+                        "uniqueIdentifier",
+                        "frameLeft",
+                        "frameRight",
+                        "frameTop",
+                        "frameBottom",
+                        "centerPoint3DX",
+                        "centerPoint3DY",
+                    ],
+                    &["matrix", "transformationPoint", "color", "filters"],
+                );
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
+                }
+                let target = node.attribute("libraryItemName").unwrap_or("");
+                let (default_w, default_h) =
+                    self.videos.get(target).copied().unwrap_or((320.0, 240.0));
+                let fl = self.number(node, "frameLeft", 0.0, file);
+                let fr = self.number(node, "frameRight", 0.0, file);
+                let ft = self.number(node, "frameTop", 0.0, file);
+                let fb = self.number(node, "frameBottom", 0.0, file);
+                let width = if fr > fl {
+                    ((fr - fl) / 20.0).clamp(1.0, 8192.0)
+                } else {
+                    default_w.clamp(1.0, 8192.0)
+                };
+                let height = if fb > ft {
+                    ((fb - ft) / 20.0).clamp(1.0, 8192.0)
+                } else {
+                    default_h.clamp(1.0, 8192.0)
+                };
+                self.report.warning(
+                    "xfl_video_approximated",
+                    &location,
+                    "DOMVideoInstance is imported as a Video viewport; embedded FLV/video stream data is not bundled.",
+                );
+                ElementKind::Video { width, height }
+            }
             "DOMBitmapInstance" => {
                 self.audit(
                     node,
@@ -1535,8 +2798,11 @@ impl Parser<'_> {
                         "frameTop",
                         "frameBottom",
                     ],
-                    &["matrix", "transformationPoint"],
+                    &["matrix", "transformationPoint", "color", "filters"],
                 );
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
+                }
                 if node.attribute("centerPoint3DX").is_some()
                     || node.attribute("centerPoint3DY").is_some()
                 {
@@ -1572,7 +2838,7 @@ impl Parser<'_> {
                     smoothing: asset.smoothing,
                 }
             }
-            "DOMStaticText" => {
+            "DOMStaticText" | "DOMDynamicText" | "DOMInputText" => {
                 self.audit(
                     node,
                     file,
@@ -1583,120 +2849,479 @@ impl Parser<'_> {
                         "left",
                         "top",
                         "selected",
+                        "locked",
                         "isSelectable",
                         "fontRenderingMode",
                         "antiAliasSharpness",
                         "antiAliasThickness",
                         "referenceID",
+                        "uniqueIdentifier",
+                        "autoExpand",
+                        "renderAsHTML",
+                        "lineType",
+                        "includeOutlines",
+                        "orientation",
+                        "border",
+                        "variableName",
+                        "scrollable",
+                        "maxCharacters",
+                        "blendMode",
+                        "cacheAsBitmap",
+                        "isVisible",
+                        "centerPoint3DX",
+                        "centerPoint3DY",
+                        "hasAccessibleData",
+                        "accName",
+                        "description",
+                        "shortcut",
+                        "tabIndex",
+                        "silent",
+                        "forceSimple",
                     ],
-                    &["matrix", "transformationPoint", "textRuns"],
-                );
-                let Some(runs) = child(node, "textRuns") else {
-                    self.report.error(
-                        "missing_text_runs",
-                        &location,
-                        "Static text has no textRuns.",
-                    );
-                    return vec![];
-                };
-                self.audit(runs, file, &[], &["DOMTextRun"]);
-                let runs: Vec<_> = elements(runs).collect();
-                if runs.len() != 1 {
-                    self.report.error(
-                        "rich_text",
-                        &location,
-                        "Only a single plain static text run is supported.",
-                    );
-                    return vec![];
-                }
-                self.audit(runs[0], file, &[], &["characters", "textAttrs"]);
-                let Some(characters) = child(runs[0], "characters") else {
-                    self.report.error(
-                        "missing_text",
-                        &location,
-                        "Text run has no characters node.",
-                    );
-                    return vec![];
-                };
-                self.audit(characters, file, &[], &[]);
-                let text = immediate_text(characters);
-                if text.contains(['\n', '\r']) {
-                    self.report.error(
-                        "multiline_text",
-                        &location,
-                        "Multiline text layout is not imported yet.",
-                    );
-                }
-                let Some(attrs_wrapper) = child(runs[0], "textAttrs") else {
-                    self.report.error(
-                        "missing_text_style",
-                        &location,
-                        "Text run has no textAttrs.",
-                    );
-                    return vec![];
-                };
-                self.audit(attrs_wrapper, file, &[], &["DOMTextAttrs"]);
-                let Some(attrs) = child(attrs_wrapper, "DOMTextAttrs") else {
-                    self.report
-                        .error("missing_text_style", &location, "No DOMTextAttrs.");
-                    return vec![];
-                };
-                self.audit(
-                    attrs,
-                    file,
                     &[
-                        "face",
-                        "size",
-                        "fillColor",
-                        "alpha",
-                        "bitmapSize",
-                        "aliasText",
-                        "autoKern",
-                        "alignment",
-                        "letterSpacing",
-                        "lineSpacing",
-                        "leftMargin",
-                        "rightMargin",
-                        "indent",
+                        "matrix",
+                        "transformationPoint",
+                        "color",
+                        "filters",
+                        "textRuns",
+                        "persistentData",
                     ],
-                    &[],
                 );
-                for field in ["letterSpacing", "leftMargin", "rightMargin", "indent"] {
-                    if self.number(attrs, field, 0., file) != 0. {
-                        self.report.error(
-                            "text_layout",
-                            &location,
-                            format!("Nonzero {field} is unsupported."),
-                        );
-                    }
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
                 }
-                if attrs.attribute("alignment").is_some_and(|a| a != "left") {
-                    self.report.error(
-                        "text_alignment",
-                        &location,
-                        "Only left-aligned text is supported.",
+                if let Some(pd_node) = child(node, "persistentData") {
+                    self.audit_persistent_data(pd_node, file);
+                }
+                let _ = self.boolean(node, "isSelectable", true, file);
+                let _ = self.boolean(node, "autoExpand", false, file);
+                let render_as_html = self.boolean(node, "renderAsHTML", false, file);
+                let _ = self.boolean(node, "includeOutlines", false, file);
+                let border = self.boolean(node, "border", false, file);
+                let _ = self.boolean(node, "scrollable", false, file);
+                let _ = self.u32_attr(node, "maxCharacters", 0, file);
+                let orientation = node.attribute("orientation").unwrap_or("horizontal");
+                let line_type = node.attribute("lineType").unwrap_or("single line");
+                let Some(runs_wrapper) = child(node, "textRuns") else {
+                    if tag == "DOMStaticText" {
+                        self.report.error(
+                            "missing_text_runs",
+                            &location,
+                            "Static text has no textRuns.",
+                        );
+                        return vec![];
+                    }
+                    let left = self.number(node, "left", 0., file);
+                    let top = self.number(node, "top", 0., file);
+                    let matrix = transform_matrix(transform);
+                    transform.x += matrix[0] * left + matrix[2] * top;
+                    transform.y += matrix[1] * left + matrix[3] * top;
+                    let width = self
+                        .number(node, "width", 100., file)
+                        .clamp(0.0, 1_000_000.0);
+                    let height = self
+                        .number(node, "height", 20., file)
+                        .clamp(0.0, 1_000_000.0);
+                    let multiline = matches!(line_type, "multiline" | "multiline no wrap");
+                    let word_wrap = line_type == "multiline";
+                    return vec![Element {
+                        id,
+                        accessibility: None,
+                        name,
+                        transform,
+                        kind: ElementKind::TextBox {
+                            text: String::new(),
+                            width,
+                            height,
+                            format: TextFormat::default(),
+                            word_wrap,
+                            multiline,
+                        },
+                        scripts,
+                        ..Element::default()
+                    }];
+                };
+                self.audit(runs_wrapper, file, &[], &["DOMTextRun"]);
+                let run_nodes: Vec<_> = elements(runs_wrapper)
+                    .filter(|n| n.has_tag_name("DOMTextRun"))
+                    .collect();
+                let mut combined_text = String::new();
+                let mut first_format: Option<TextFormat> = None;
+                let mut first_color_rgba: Color = [0, 0, 0, 255];
+                let mut first_raw_face: String = "Arial".into();
+                let mut first_raw_size: f64 = 12.0;
+                let mut any_nondefault_layout = false;
+                let mut any_nonleft_align = false;
+                for (ri, run_node) in run_nodes.iter().copied().enumerate() {
+                    self.audit(run_node, file, &[], &["characters", "textAttrs"]);
+                    let Some(characters) = child(run_node, "characters") else {
+                        self.report.error(
+                            "missing_text",
+                            &location,
+                            "Text run has no characters node.",
+                        );
+                        return vec![];
+                    };
+                    self.audit(characters, file, &[], &[]);
+                    let run_text = immediate_text(characters);
+                    combined_text.push_str(&run_text);
+                    let Some(attrs_wrapper) = child(run_node, "textAttrs") else {
+                        self.report.error(
+                            "missing_text_style",
+                            &location,
+                            "Text run has no textAttrs.",
+                        );
+                        return vec![];
+                    };
+                    self.audit(attrs_wrapper, file, &[], &["DOMTextAttrs"]);
+                    let Some(attrs) = child(attrs_wrapper, "DOMTextAttrs") else {
+                        self.report
+                            .error("missing_text_style", &location, "No DOMTextAttrs.");
+                        return vec![];
+                    };
+                    self.audit(
+                        attrs,
+                        file,
+                        &[
+                            "face",
+                            "size",
+                            "fillColor",
+                            "alpha",
+                            "bitmapSize",
+                            "aliasText",
+                            "autoKern",
+                            "alignment",
+                            "letterSpacing",
+                            "lineSpacing",
+                            "lineHeight",
+                            "leftMargin",
+                            "rightMargin",
+                            "indent",
+                            "rotation",
+                            "characterPosition",
+                            "useScreenSpacing",
+                            "bold",
+                            "italic",
+                            "underline",
+                            "url",
+                            "target",
+                        ],
+                        &[],
                     );
+                    let _ = self.boolean(attrs, "aliasText", false, file);
+                    let auto_kern = self.boolean(attrs, "autoKern", false, file);
+                    let _ = self.boolean(attrs, "rotation", false, file);
+                    let _ = self.boolean(attrs, "useScreenSpacing", false, file);
+                    let bold = self.boolean(attrs, "bold", false, file);
+                    let italic = self.boolean(attrs, "italic", false, file);
+                    let underline = self.boolean(attrs, "underline", false, file);
+                    let letter_spacing = self.number(attrs, "letterSpacing", 0., file);
+                    let left_margin = self.number(attrs, "leftMargin", 0., file);
+                    let right_margin = self.number(attrs, "rightMargin", 0., file);
+                    let indent = self.number(attrs, "indent", 0., file);
+                    let line_spacing = self.number(attrs, "lineSpacing", 0., file);
+                    let _ = self.number(attrs, "lineHeight", 0., file);
+                    if letter_spacing != 0.0
+                        || left_margin != 0.0
+                        || right_margin != 0.0
+                        || indent != 0.0
+                        || bold
+                        || italic
+                        || underline
+                        || attrs.attribute("url").is_some_and(|s| !s.is_empty())
+                        || attrs.attribute("target").is_some_and(|s| !s.is_empty())
+                    {
+                        any_nondefault_layout = true;
+                    }
+                    let align_str = attrs.attribute("alignment").unwrap_or("left");
+                    if align_str != "left" {
+                        any_nonleft_align = true;
+                    }
+                    let align = match align_str {
+                        "center" => TextAlign::Center,
+                        "right" => TextAlign::Right,
+                        _ => TextAlign::Left,
+                    };
+                    let alpha = self.number(attrs, "alpha", 1., file);
+                    let color = self.color(
+                        attrs.attribute("fillColor").unwrap_or("#000000"),
+                        alpha,
+                        &location,
+                    );
+                    let raw_face = attrs.attribute("face").unwrap_or("Arial");
+                    let mapped_face = self
+                        .font_items
+                        .get(raw_face)
+                        .map(String::as_str)
+                        .unwrap_or(raw_face);
+                    let clean_face: String = mapped_face
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(256)
+                        .collect();
+                    let valid_face = if clean_face.trim().is_empty() {
+                        "Arial".to_owned()
+                    } else {
+                        clean_face
+                    };
+                    let raw_size = self.number(attrs, "size", 12., file);
+                    let valid_size = raw_size.clamp(0.5, 10_000.0);
+                    let min_leading = -(valid_size * 1.2) + 0.5;
+                    let valid_leading = line_spacing.max(min_leading).clamp(-10_000.0, 10_000.0);
+                    let clean_url: String = attrs
+                        .attribute("url")
+                        .unwrap_or("")
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(1024)
+                        .collect();
+                    let clean_target: String = attrs
+                        .attribute("target")
+                        .unwrap_or("")
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(128)
+                        .collect();
+                    if ri == 0 {
+                        first_color_rgba = color;
+                        first_raw_face = valid_face.clone();
+                        first_raw_size = valid_size;
+                        first_format = Some(TextFormat {
+                            font: valid_face,
+                            size: valid_size,
+                            color: (u32::from(color[0]) << 16)
+                                | (u32::from(color[1]) << 8)
+                                | u32::from(color[2]),
+                            bold,
+                            italic,
+                            leading: valid_leading,
+                            align,
+                            left_margin: left_margin.clamp(0.0, 10_000.0),
+                            right_margin: right_margin.clamp(0.0, 10_000.0),
+                            indent: indent.clamp(-10_000.0, 10_000.0),
+                            block_indent: 0.0,
+                            underline,
+                            letter_spacing: letter_spacing.clamp(-1_000.0, 1_000.0),
+                            kerning: auto_kern.then_some(true),
+                            bullet: false,
+                            tab_stops: Vec::new(),
+                            url: clean_url,
+                            target: clean_target,
+                        });
+                    }
                 }
                 let left = self.number(node, "left", 0., file);
                 let top = self.number(node, "top", 0., file);
                 let matrix = transform_matrix(transform);
                 transform.x += matrix[0] * left + matrix[2] * top;
                 transform.y += matrix[1] * left + matrix[3] * top;
-                let alpha = self.number(attrs, "alpha", 1., file);
-                let color = self.color(
-                    attrs.attribute("fillColor").unwrap_or("#000000"),
-                    alpha,
-                    &location,
-                );
                 if !self.text_warning {
                     self.report.warning("text_metrics",&location,"Font names and text are retained; line metrics/antialiasing may differ from Flash. Verify imported typography.");
                     self.text_warning = true;
                 }
-                ElementKind::Text {
+                let has_newlines = combined_text.contains(['\n', '\r']);
+                if tag == "DOMStaticText"
+                    && run_nodes.len() == 1
+                    && !has_newlines
+                    && !any_nondefault_layout
+                    && !any_nonleft_align
+                    && orientation == "horizontal"
+                    && !render_as_html
+                {
+                    ElementKind::Text {
+                        text: combined_text,
+                        font_family: first_raw_face,
+                        font_size: first_raw_size,
+                        color: first_color_rgba,
+                    }
+                } else {
+                    if tag == "DOMStaticText" {
+                        if has_newlines {
+                            self.report.warning(
+                                "multiline_text",
+                                &location,
+                                "Multiline static text is imported as a bounded TextBox.",
+                            );
+                        }
+                        if run_nodes.len() != 1 {
+                            self.report.warning(
+                                "rich_text",
+                                &location,
+                                "Multi-run static text is flattened into a single-format TextBox.",
+                            );
+                        }
+                        if any_nondefault_layout
+                            || any_nonleft_align
+                            || orientation != "horizontal"
+                            || render_as_html
+                        {
+                            self.report.warning(
+                                "xfl_text_approximated",
+                                &location,
+                                "Static text paragraph layout/orientation/HTML attributes are approximated in a TextBox.",
+                            );
+                        }
+                    } else if render_as_html
+                        || border
+                        || node
+                            .attribute("variableName")
+                            .is_some_and(|s| !s.is_empty())
+                        || run_nodes.len() > 1
+                    {
+                        self.report.warning(
+                            "xfl_text_approximated",
+                            &location,
+                            format!(
+                                "{tag} authoring options (HTML/border/variableName/multi-run) are approximated in a TextBox."
+                            ),
+                        );
+                    }
+                    let normalized: String = normalize_text(&combined_text)
+                        .chars()
+                        .take(MAX_TEXT_BYTES / 4)
+                        .collect();
+                    let width = self
+                        .number(node, "width", 100., file)
+                        .clamp(0.0, 1_000_000.0);
+                    let height = self
+                        .number(node, "height", 20., file)
+                        .clamp(0.0, 1_000_000.0);
+                    let multiline =
+                        has_newlines || matches!(line_type, "multiline" | "multiline no wrap");
+                    let word_wrap = line_type == "multiline"
+                        || (tag == "DOMStaticText"
+                            && has_newlines
+                            && line_type != "multiline no wrap");
+                    if first_color_rgba[3] < 255 {
+                        transform.alpha = (transform.alpha
+                            * (f64::from(first_color_rgba[3]) / 255.0))
+                            .clamp(0.0, 1.0);
+                    }
+                    ElementKind::TextBox {
+                        text: normalized,
+                        width,
+                        height,
+                        format: first_format.unwrap_or_default(),
+                        word_wrap,
+                        multiline,
+                    }
+                }
+            }
+            "DOMTLFText" => {
+                self.audit(
+                    node,
+                    file,
+                    &[
+                        "name",
+                        "selected",
+                        "locked",
+                        "left",
+                        "top",
+                        "right",
+                        "bottom",
+                        "width",
+                        "height",
+                        "referenceID",
+                        "uniqueIdentifier",
+                        "blendMode",
+                        "cacheAsBitmap",
+                        "isVisible",
+                    ],
+                    &[
+                        "matrix",
+                        "transformationPoint",
+                        "color",
+                        "filters",
+                        "tlfFonts",
+                        "markup",
+                        "tlfTextObject",
+                    ],
+                );
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
+                }
+                if let Some(tlf_fonts) = child(node, "tlfFonts") {
+                    self.audit(tlf_fonts, file, &[], &["TLFFont"]);
+                    for tf in elements(tlf_fonts).filter(|n| n.has_tag_name("TLFFont")) {
+                        self.audit(tf, file, &["platformName", "psName"], &[]);
+                    }
+                }
+                let mut paragraphs = Vec::new();
+                let mut format = TextFormat::default();
+                if let Some(markup) = child(node, "markup").or_else(|| child(node, "tlfTextObject"))
+                {
+                    self.audit_tlf_subtree(markup, file);
+                    for p_node in markup
+                        .descendants()
+                        .filter(|n| n.is_element() && n.tag_name().name() == "p")
+                    {
+                        let mut para = String::new();
+                        for desc in p_node.descendants() {
+                            if desc.is_text()
+                                && let Some(t) = desc.text()
+                            {
+                                para.push_str(t);
+                            } else if desc.is_element() && desc.tag_name().name() == "br" {
+                                para.push('\n');
+                            }
+                        }
+                        paragraphs.push(para);
+                    }
+                    if let Some(span) = markup
+                        .descendants()
+                        .find(|n| n.is_element() && n.tag_name().name() == "span")
+                    {
+                        if let Some(ff) = span
+                            .attribute("fontFamily")
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty() && !s.chars().any(char::is_control))
+                        {
+                            format.font = ff.chars().take(256).collect();
+                        }
+                        if let Some(fs) = span
+                            .attribute("fontSize")
+                            .and_then(|s| s.parse::<f64>().ok())
+                            .filter(|v| v.is_finite())
+                        {
+                            format.size = fs.clamp(0.5, 10_000.0);
+                        }
+                        if let Some(col_str) = span.attribute("color") {
+                            let c = self.color(col_str, 1.0, &location);
+                            format.color =
+                                (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2]);
+                        }
+                    }
+                }
+                let left = self.number(node, "left", 0., file);
+                let top = self.number(node, "top", 0., file);
+                let right = self.number(node, "right", left + 100., file);
+                let bottom = self.number(node, "bottom", top + 20., file);
+                let matrix = transform_matrix(transform);
+                transform.x += matrix[0] * left + matrix[2] * top;
+                transform.y += matrix[1] * left + matrix[3] * top;
+                let width = self
+                    .number(node, "width", (right - left).max(100.0), file)
+                    .clamp(0.0, 1_000_000.0);
+                let height = self
+                    .number(node, "height", (bottom - top).max(20.0), file)
+                    .clamp(0.0, 1_000_000.0);
+                let text: String = normalize_text(&paragraphs.join("\n"))
+                    .chars()
+                    .take(MAX_TEXT_BYTES / 4)
+                    .collect();
+                let multiline = text.contains('\n');
+                self.report.warning(
+                    "xfl_tlf_text_approximated",
+                    &location,
+                    "DOMTLFText TextFlow markup is imported as a plain TextBox.",
+                );
+                ElementKind::TextBox {
                     text,
-                    font_family: attrs.attribute("face").unwrap_or("Arial").into(),
-                    font_size: self.number(attrs, "size", 12., file),
-                    color,
+                    width,
+                    height,
+                    format,
+                    word_wrap: true,
+                    multiline,
                 }
             }
             "DOMRectangleObject" | "DOMOvalObject" => {
@@ -1710,7 +3335,9 @@ impl Parser<'_> {
                         "x",
                         "y",
                         "selected",
+                        "locked",
                         "referenceID",
+                        "uniqueIdentifier",
                         "lockFlag",
                         "topLeftRadius",
                         "topRightRadius",
@@ -1721,35 +3348,31 @@ impl Parser<'_> {
                         "innerRadius",
                         "closePath",
                     ],
-                    &["matrix", "transformationPoint", "fill", "stroke"],
+                    &[
+                        "matrix",
+                        "transformationPoint",
+                        "color",
+                        "filters",
+                        "fill",
+                        "stroke",
+                    ],
                 );
-                for field in [
-                    "topLeftRadius",
-                    "topRightRadius",
-                    "bottomLeftRadius",
-                    "bottomRightRadius",
-                    "startAngle",
-                    "endAngle",
-                    "innerRadius",
-                ] {
-                    if self.number(node, field, 0., file) != 0. {
-                        self.report.error(
-                            "primitive_geometry",
-                            &location,
-                            format!("Nonzero {field} is unsupported."),
-                        );
-                    }
+                if let Some(filters_node) = child(node, "filters") {
+                    self.audit_filters(filters_node, file, &location);
                 }
-                if child(node, "stroke").is_some() {
-                    self.report.error(
-                        "primitive_stroke",
-                        &location,
-                        "Imported primitive strokes are not supported yet.",
+                let fill = if let Some(fill_wrapper) = child(node, "fill") {
+                    self.audit(
+                        fill_wrapper,
+                        file,
+                        &[],
+                        &[
+                            "SolidColor",
+                            "LinearGradient",
+                            "RadialGradient",
+                            "BitmapFill",
+                        ],
                     );
-                }
-                let fill = if let Some(fill) = child(node, "fill") {
-                    self.audit(fill, file, &[], &["SolidColor"]);
-                    if let Some(solid) = child(fill, "SolidColor") {
+                    if let Some(solid) = child(fill_wrapper, "SolidColor") {
                         self.audit(solid, file, &["color", "alpha"], &[]);
                         let alpha = self.number(solid, "alpha", 1., file);
                         self.color(
@@ -1757,34 +3380,150 @@ impl Parser<'_> {
                             alpha,
                             &location,
                         )
+                    } else if let Some(grad) = child(fill_wrapper, "LinearGradient")
+                        .or_else(|| child(fill_wrapper, "RadialGradient"))
+                    {
+                        self.audit_unmodeled_xfl_subtree(grad, file);
+                        self.report.warning(
+                            "xfl_primitive_approximated",
+                            &location,
+                            "Gradient fill on primitive object is approximated using its first stop color.",
+                        );
+                        if let Some(entry) =
+                            elements(grad).find(|n| n.has_tag_name("GradientEntry"))
+                        {
+                            let alpha = self.number(entry, "alpha", 1.0, file);
+                            self.color(
+                                entry.attribute("color").unwrap_or("#000000"),
+                                alpha,
+                                &location,
+                            )
+                        } else {
+                            [0, 0, 0, 255]
+                        }
+                    } else if let Some(bf) = child(fill_wrapper, "BitmapFill") {
+                        self.audit_unmodeled_xfl_subtree(bf, file);
+                        self.report.warning(
+                            "xfl_primitive_approximated",
+                            &location,
+                            "BitmapFill on primitive object is approximated as solid gray.",
+                        );
+                        [128, 128, 128, 255]
                     } else {
                         [0, 0, 0, 0]
                     }
                 } else {
                     [0, 0, 0, 0]
                 };
+                let (stroke, stroke_width) = if let Some(stroke_wrapper) = child(node, "stroke") {
+                    self.audit(
+                        stroke_wrapper,
+                        file,
+                        &[],
+                        &[
+                            "SolidStroke",
+                            "DashedStroke",
+                            "DottedStroke",
+                            "RaggedStroke",
+                            "StippleStroke",
+                            "HatchedStroke",
+                        ],
+                    );
+                    if let Some(stroke_node) = elements(stroke_wrapper).next() {
+                        self.audit_unmodeled_xfl_subtree(stroke_node, file);
+                        if stroke_node.tag_name().name() != "SolidStroke" {
+                            self.report.warning(
+                                "primitive_stroke",
+                                &location,
+                                "Patterned stroke on primitive object is approximated as a solid stroke.",
+                            );
+                        }
+                        let w = self
+                            .number(stroke_node, "weight", 1.0, file)
+                            .clamp(0.0, 1e9);
+                        let scolor = if let Some(sfill) = child(stroke_node, "fill")
+                            && let Some(solid) = child(sfill, "SolidColor")
+                        {
+                            let alpha = self.number(solid, "alpha", 1.0, file);
+                            self.color(
+                                solid.attribute("color").unwrap_or("#000000"),
+                                alpha,
+                                &location,
+                            )
+                        } else {
+                            [0, 0, 0, 255]
+                        };
+                        (scolor, w)
+                    } else {
+                        ([0, 0, 0, 0], 0.0)
+                    }
+                } else {
+                    ([0, 0, 0, 0], 0.0)
+                };
                 let x = self.number(node, "x", 0., file);
                 let y = self.number(node, "y", 0., file);
                 let matrix = transform_matrix(transform);
                 transform.x += matrix[0] * x + matrix[2] * y;
                 transform.y += matrix[1] * x + matrix[3] * y;
-                let width = self.number(node, "objectWidth", 0., file);
-                let height = self.number(node, "objectHeight", 0., file);
+                let width = self.number(node, "objectWidth", 0., file).clamp(0.0, 1e9);
+                let height = self.number(node, "objectHeight", 0., file).clamp(0.0, 1e9);
                 if tag == "DOMRectangleObject" {
+                    let locked = self.boolean(node, "lockFlag", true, file);
+                    let raw_radii = [
+                        self.number(node, "topLeftRadius", 0., file),
+                        self.number(node, "topRightRadius", 0., file),
+                        self.number(node, "bottomLeftRadius", 0., file),
+                        self.number(node, "bottomRightRadius", 0., file),
+                    ];
+                    if raw_radii.iter().any(|&r| r < 0.0) {
+                        self.report.warning(
+                            "xfl_primitive_approximated",
+                            &location,
+                            "Negative (inverted) rectangle corner radii are clamped to 0.",
+                        );
+                    }
+                    let corner_radii = raw_radii.map(|r| r.clamp(0.0, 1e9));
+                    let opts = RectangleOptions {
+                        corner_radii,
+                        corners_locked: locked,
+                    };
+                    if !opts.is_default() {
+                        transform.primitive = Some(PrimitiveOptions::Rectangle(opts));
+                    }
                     ElementKind::Rectangle {
                         width,
                         height,
                         fill,
-                        stroke: [0, 0, 0, 0],
-                        stroke_width: 0.,
+                        stroke,
+                        stroke_width,
                     }
                 } else {
+                    let norm_angle = |a: f64| -> f64 {
+                        if (a - 360.0).abs() <= 1e-6 {
+                            360.0
+                        } else {
+                            a.rem_euclid(360.0)
+                        }
+                    };
+                    let start_angle = norm_angle(self.number(node, "startAngle", 0., file));
+                    let end_angle = norm_angle(self.number(node, "endAngle", 0., file));
+                    let inner_radius = self.number(node, "innerRadius", 0., file).clamp(0.0, 99.0);
+                    let close_path = self.boolean(node, "closePath", true, file);
+                    let opts = OvalOptions {
+                        start_angle,
+                        end_angle,
+                        inner_radius,
+                        close_path,
+                    };
+                    if !opts.is_default() {
+                        transform.primitive = Some(PrimitiveOptions::Oval(opts));
+                    }
                     ElementKind::Ellipse {
                         width,
                         height,
                         fill,
-                        stroke: [0, 0, 0, 0],
-                        stroke_width: 0.,
+                        stroke,
+                        stroke_width,
                     }
                 }
             }
@@ -1796,7 +3535,7 @@ impl Parser<'_> {
             name,
             transform,
             kind,
-            scripts: vec![],
+            scripts,
             ..Element::default()
         }]
     }
@@ -1819,62 +3558,91 @@ impl Parser<'_> {
         let has_custom_ease = self.boolean(frame_node, "hasCustomEase", false, file);
         let single_ease = self.boolean(frame_node, "useSingleEaseCurve", true, file);
         let mut custom_bezier = None;
+        let mut named_ease_method: Option<String> =
+            frame_node.attribute("easeMethodName").map(str::to_owned);
         if let Some(tweens) = child(frame_node, "tweens") {
-            self.audit(tweens, file, &[], &["CustomEase"]);
+            self.audit(tweens, file, &[], &["CustomEase", "Ease"]);
+            for ease_preset in elements(tweens).filter(|n| n.has_tag_name("Ease")) {
+                self.audit(ease_preset, file, &["target", "method", "intensity"], &[]);
+                if named_ease_method.is_none()
+                    && let Some(m) = ease_preset.attribute("method")
+                {
+                    named_ease_method = Some(m.to_owned());
+                }
+            }
             let eases: Vec<_> = elements(tweens)
                 .filter(|n| n.has_tag_name("CustomEase"))
                 .collect();
             if has_custom_ease || !eases.is_empty() {
-                if !single_ease || eases.len() != 1 {
-                    self.report.error(
+                let chosen = eases
+                    .iter()
+                    .copied()
+                    .find(|n| n.attribute("target") == Some("all"))
+                    .or_else(|| eases.first().copied());
+                if !single_ease || eases.len() > 1 {
+                    self.report.warning(
                         "custom_ease_not_supported",
                         self.location(tweens, file),
-                        "Only a single global CustomEase target=\"all\" cubic Bézier curve is supported.",
+                        "Multiple per-property XFL CustomEase curves are approximated with the primary curve.",
                     );
-                } else {
-                    let ease_node = eases[0];
-                    self.audit(ease_node, file, &["target"], &["Point"]);
+                }
+                for ease_node in &eases {
+                    self.audit(*ease_node, file, &["target"], &["Point"]);
+                    for pt in elements(*ease_node).filter(|n| n.has_tag_name("Point")) {
+                        self.audit(pt, file, &["x", "y"], &[]);
+                        let _ = self.number(pt, "x", 0., file);
+                        let _ = self.number(pt, "y", 0., file);
+                    }
+                }
+                if let Some(ease_node) = chosen {
                     if ease_node.attribute("target") != Some("all") {
-                        self.report.error(
+                        self.report.warning(
                             "custom_ease_not_supported",
                             self.location(ease_node, file),
-                            "Per-property XFL CustomEase targets are not supported; use target=\"all\".",
+                            "Per-property XFL CustomEase target is applied to the whole tween span.",
                         );
                     }
                     let pts: Vec<_> = elements(ease_node)
                         .filter(|n| n.has_tag_name("Point"))
                         .map(|pt| {
-                            self.audit(pt, file, &["x", "y"], &[]);
                             [
                                 self.number(pt, "x", 0., file),
                                 self.number(pt, "y", 0., file),
                             ]
                         })
                         .collect();
-                    if pts.len() != 4 || pts[0] != [0., 0.] || pts[3] != [1., 1.] {
-                        self.report.error(
-                            "custom_ease_not_supported",
-                            self.location(ease_node, file),
-                            "Multi-segment XFL CustomEase curves are not supported yet.",
-                        );
-                    } else if !(0.0..=1.0).contains(&pts[1][0])
-                        || !(0.0..=1.0).contains(&pts[2][0])
-                        || pts[1][1].abs() > 100.0
-                        || pts[2][1].abs() > 100.0
-                    {
-                        self.report.error(
-                            "custom_ease_not_supported",
-                            self.location(ease_node, file),
-                            "CustomEase Bézier controls must have x in [0, 1] and |y| <= 100.",
-                        );
+                    if pts.len() == 4 && pts[0] == [0., 0.] && pts[3] == [1., 1.] {
+                        if !(0.0..=1.0).contains(&pts[1][0])
+                            || !(0.0..=1.0).contains(&pts[2][0])
+                            || pts[1][1].abs() > 100.0
+                            || pts[2][1].abs() > 100.0
+                        {
+                            self.report.error(
+                                "custom_ease_not_supported",
+                                self.location(ease_node, file),
+                                "CustomEase Bézier controls must have x in [0, 1] and |y| <= 100.",
+                            );
+                        } else {
+                            custom_bezier = Some(Easing::CubicBezier {
+                                x1: pts[1][0],
+                                y1: pts[1][1],
+                                x2: pts[2][0],
+                                y2: pts[2][1],
+                            });
+                        }
                     } else {
-                        custom_bezier = Some(Easing::CubicBezier {
-                            x1: pts[1][0],
-                            y1: pts[1][1],
-                            x2: pts[2][0],
-                            y2: pts[2][1],
-                        });
+                        self.report.warning(
+                            "custom_ease_not_supported",
+                            self.location(ease_node, file),
+                            "Multi-segment XFL CustomEase curve is approximated with standard tween easing.",
+                        );
                     }
+                } else {
+                    self.report.warning(
+                        "custom_ease_not_supported",
+                        self.location(tweens, file),
+                        "hasCustomEase is true, but no CustomEase curve was supplied.",
+                    );
                 }
             }
         } else if has_custom_ease {
@@ -1885,6 +3653,24 @@ impl Parser<'_> {
             );
         }
         let ease = custom_bezier.unwrap_or_else(|| {
+            if let Some(ref method) = named_ease_method {
+                let m = method.to_ascii_lowercase();
+                if m.contains("bounce") {
+                    return Easing::Bounce;
+                }
+                if m.contains("elastic") {
+                    return Easing::Elastic;
+                }
+                if m.contains("inout") || m.contains("in_out") || m.contains("in-out") {
+                    return Easing::EaseInOut;
+                }
+                if m.contains("in") {
+                    return Easing::EaseIn;
+                }
+                if m.contains("out") {
+                    return Easing::EaseOut;
+                }
+            }
             let clamped = accel.clamp(-100.0, 100.0);
             if clamped == 0.0 {
                 Easing::Linear
@@ -1944,12 +3730,20 @@ impl Parser<'_> {
             }
             Some("motion object") => {
                 if !has_motion_xml {
-                    self.report.error(
+                    self.report.warning(
                         "motion_object_not_supported",
                         &loc,
-                        "XFL motion-object property-track tweens are not imported yet; convert to classic/shape tweens or frame keyframes.",
+                        "XFL motion-object property-track tween is approximated by holding the authored keyframe pose.",
                     );
                 }
+                (None, TweenKind::Classic, false)
+            }
+            Some("IK pose") => {
+                self.report.warning(
+                    "xfl_ik_approximated",
+                    &loc,
+                    "XFL inverse-kinematics IK pose tween is approximated using authored keyframe poses.",
+                );
                 (None, TweenKind::Classic, false)
             }
             Some(other) => {
@@ -2009,8 +3803,88 @@ impl Parser<'_> {
         if let Some(wrapper) = child(node, "color") {
             self.audit(wrapper, file, &[], &["Color"]);
             if let Some(color) = child(wrapper, "Color") {
-                self.audit(color, file, &["alphaMultiplier"], &[]);
-                t.alpha = self.number(color, "alphaMultiplier", 1., file);
+                self.audit(
+                    color,
+                    file,
+                    &[
+                        "alphaMultiplier",
+                        "redMultiplier",
+                        "greenMultiplier",
+                        "blueMultiplier",
+                        "alphaOffset",
+                        "redOffset",
+                        "greenOffset",
+                        "blueOffset",
+                        "tintColor",
+                        "tintMultiplier",
+                        "brightness",
+                    ],
+                    &[],
+                );
+                let has_only_alpha = color.attributes().all(|a| a.name() == "alphaMultiplier");
+                if has_only_alpha {
+                    t.alpha = self.number(color, "alphaMultiplier", 1., file);
+                } else {
+                    let loc = self.location(color, file);
+                    let mut rm = self.number(color, "redMultiplier", 1., file);
+                    let mut gm = self.number(color, "greenMultiplier", 1., file);
+                    let mut bm = self.number(color, "blueMultiplier", 1., file);
+                    let am = self.number(color, "alphaMultiplier", 1., file);
+                    let mut ro = self.number(color, "redOffset", 0., file);
+                    let mut go = self.number(color, "greenOffset", 0., file);
+                    let mut bo = self.number(color, "blueOffset", 0., file);
+                    let ao = self.number(color, "alphaOffset", 0., file);
+                    if color.attribute("tintColor").is_some()
+                        || color.attribute("tintMultiplier").is_some()
+                    {
+                        let tm = self
+                            .number(color, "tintMultiplier", 0., file)
+                            .clamp(0.0, 1.0);
+                        let tc = self.color(
+                            color.attribute("tintColor").unwrap_or("#000000"),
+                            1.0,
+                            &loc,
+                        );
+                        rm = 1.0 - tm;
+                        gm = 1.0 - tm;
+                        bm = 1.0 - tm;
+                        ro = f64::from(tc[0]) * tm;
+                        go = f64::from(tc[1]) * tm;
+                        bo = f64::from(tc[2]) * tm;
+                    } else if color.attribute("brightness").is_some() {
+                        let br = self.number(color, "brightness", 0., file).clamp(-1.0, 1.0);
+                        if br < 0.0 {
+                            let m = 1.0 + br;
+                            rm = m;
+                            gm = m;
+                            bm = m;
+                        } else {
+                            let m = 1.0 - br;
+                            let off = 255.0 * br;
+                            rm = m;
+                            gm = m;
+                            bm = m;
+                            ro = off;
+                            go = off;
+                            bo = off;
+                        }
+                    }
+                    t.alpha = am.clamp(0.0, 1.0);
+                    t.color_transform = ColorTransform {
+                        multipliers: [
+                            rm.clamp(-10_000.0, 10_000.0),
+                            gm.clamp(-10_000.0, 10_000.0),
+                            bm.clamp(-10_000.0, 10_000.0),
+                            1.0,
+                        ],
+                        offsets: [
+                            ro.clamp(-255.0, 255.0),
+                            go.clamp(-255.0, 255.0),
+                            bo.clamp(-255.0, 255.0),
+                            ao.clamp(-255.0, 255.0),
+                        ],
+                    };
+                }
             }
         }
         if let Some(point) = child(node, "transformationPoint") {
@@ -2070,12 +3944,19 @@ impl Parser<'_> {
             media,
             "DOMDocument.xml",
             &[],
-            &["DOMBitmapItem", "DOMSoundItem"],
+            &[
+                "DOMBitmapItem",
+                "DOMSoundItem",
+                "DOMVideoItem",
+                "DOMCompiledClipItem",
+            ],
         );
         for item in elements(media) {
             match item.tag_name().name() {
                 "DOMBitmapItem" => self.parse_bitmap_item(item, binary_files),
                 "DOMSoundItem" => self.parse_sound_item(item, binary_files),
+                "DOMVideoItem" => self.parse_video_item(item),
+                "DOMCompiledClipItem" => self.parse_compiled_clip_item(item),
                 _ => {
                     self.report.error(
                         "unsupported_assets",
@@ -2085,6 +3966,190 @@ impl Parser<'_> {
                 }
             }
         }
+    }
+
+    fn parse_video_item(&mut self, item: Node<'_, '_>) {
+        let loc = self.location(item, "DOMDocument.xml");
+        self.audit(
+            item,
+            "DOMDocument.xml",
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "sourceExternalFilepath",
+                "sourceLastImported",
+                "sourcePlatform",
+                "externalFileSize",
+                "externalFileCRC32",
+                "href",
+                "videoDataHRef",
+                "videoType",
+                "fps",
+                "width",
+                "height",
+                "length",
+                "channels",
+                "rate",
+                "bits",
+                "lastModified",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageExportForRS",
+                "linkageImportForRS",
+            ],
+            &[],
+        );
+        let name = item.attribute("name").unwrap_or("");
+        let w = self
+            .number(item, "width", 320.0, "DOMDocument.xml")
+            .clamp(1.0, 8192.0);
+        let h = self
+            .number(item, "height", 240.0, "DOMDocument.xml")
+            .clamp(1.0, 8192.0);
+        if !name.is_empty() {
+            self.videos.insert(name.to_owned(), (w, h));
+        }
+        self.report.warning(
+            "xfl_video_approximated",
+            loc,
+            "DOMVideoItem metadata is registered as a Video viewport; embedded FLV/video stream data is not bundled.",
+        );
+    }
+
+    fn parse_compiled_clip_item(&mut self, item: Node<'_, '_>) {
+        let loc = self.location(item, "DOMDocument.xml");
+        self.audit(
+            item,
+            "DOMDocument.xml",
+            &[
+                "name",
+                "folder",
+                "itemID",
+                "sourceExternalFilepath",
+                "sourceLastImported",
+                "sourcePlatform",
+                "lastModified",
+                "tooltip",
+                "customIconID",
+                "actionscriptClass",
+                "swfScmHRef",
+                "swfScmSourceFilename",
+                "persistLivePreview11",
+                "livePreviewScmHRef",
+                "livePreviewScmSourceFilename",
+                "livePreview11ScmHRef",
+                "livePreview11ScmSourceFilename",
+                "editFrameIndex",
+                "requiredMinimumPlayerVersion",
+                "requiredMinimumASVersion",
+                "parametersAreLocked",
+                "swcPath",
+                "rootSymbolLinkageID",
+                "playerVersion",
+                "actionscriptVersion",
+                "displayAsComponent",
+                "hashKey",
+                "movieRectLeft",
+                "movieRectTop",
+                "movieRectRight",
+                "movieRectBottom",
+                "linkageExportForAS",
+                "linkageExportInFirstFrame",
+                "linkageIdentifier",
+                "linkageClassName",
+                "linkageBaseClass",
+                "linkageURL",
+                "linkageExportForRS",
+                "linkageImportForRS",
+            ],
+            &[
+                "classProperties",
+                "customIcon",
+                "SwcItem",
+                "parametersAsXML",
+                "dataBindingXML",
+                "persistentData",
+            ],
+        );
+        if let Some(pd_node) = child(item, "persistentData") {
+            self.audit_persistent_data(pd_node, "DOMDocument.xml");
+        }
+        for meta_tag in [
+            "classProperties",
+            "customIcon",
+            "SwcItem",
+            "parametersAsXML",
+            "dataBindingXML",
+        ] {
+            if let Some(sub) = child(item, meta_tag) {
+                self.audit_unmodeled_xfl_subtree(sub, "DOMDocument.xml");
+            }
+        }
+        let name = item.attribute("name").unwrap_or("");
+        if !name.is_empty() && !self.symbols.contains_key(name) {
+            let idx = self.extra_symbols.len() + 1;
+            let sid = format!("xfl-compiled-clip-{idx}");
+            let lid = format!("xfl-compiled-clip-layer-{idx}");
+            let w = (self.number(item, "movieRectRight", 2000.0, "DOMDocument.xml")
+                - self.number(item, "movieRectLeft", 0.0, "DOMDocument.xml"))
+                / 20.0;
+            let h = (self.number(item, "movieRectBottom", 2000.0, "DOMDocument.xml")
+                - self.number(item, "movieRectTop", 0.0, "DOMDocument.xml"))
+                / 20.0;
+            let rect_el = Element {
+                id: format!("xfl-compiled-clip-el-{idx}"),
+                name: String::new(),
+                accessibility: None,
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: w.clamp(10.0, 4096.0),
+                    height: h.clamp(10.0, 4096.0),
+                    fill: [180, 180, 180, 64],
+                    stroke: [120, 120, 120, 160],
+                    stroke_width: 1.0,
+                },
+                scripts: vec![],
+                ..Element::default()
+            };
+            let display_name = name.rsplit_once('/').map_or(name, |(_, b)| b);
+            self.extra_symbols.push(Symbol {
+                folder: String::new(),
+                class_name: None,
+                linkage_id: None,
+                id: sid.clone(),
+                name: display_name.to_owned(),
+                kind: SymbolKind::MovieClip,
+                timeline: Timeline {
+                    guides: vec![],
+                    frame_count: 1,
+                    layers: vec![Layer {
+                        properties: LayerProperties::default(),
+                        id: lid,
+                        name: "Layer 1".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: vec![rect_el],
+                            ..Default::default()
+                        }],
+                    }],
+                    scripts: vec![],
+                },
+            });
+            self.symbols
+                .insert(name.to_owned(), (sid, SymbolKind::MovieClip));
+        }
+        self.report.warning(
+            "xfl_compiled_clip_approximated",
+            loc,
+            "DOMCompiledClipItem SWC/compiled clip is imported as a placeholder MovieClip symbol.",
+        );
     }
 
     fn register_resource(
@@ -2166,6 +4231,7 @@ impl Parser<'_> {
                 "linkageClassName",
                 "linkageBaseClass",
                 "linkageURL",
+                "linkageExportForRS",
                 "linkageImportForRS",
             ],
             &[],
@@ -2176,8 +4242,10 @@ impl Parser<'_> {
         let _ = self.boolean(item, "isJPEG", false, "DOMDocument.xml");
         let _ = self.boolean(item, "linkageExportInFirstFrame", true, "DOMDocument.xml");
         let export_as = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
+        let export_rs = self.boolean(item, "linkageExportForRS", false, "DOMDocument.xml");
         let import_rs = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
         if export_as
+            || export_rs
             || import_rs
             || item
                 .attribute("linkageClassName")
@@ -2186,10 +4254,10 @@ impl Parser<'_> {
                 .attribute("linkageIdentifier")
                 .is_some_and(|s| !s.is_empty())
         {
-            self.report.error(
+            self.report.warning(
                 "xfl_bitmap_linkage_unsupported",
                 &loc,
-                "ActionScript BitmapData linkage on XFL bitmap items is not supported yet.",
+                "ActionScript BitmapData linkage on XFL bitmap items is not bound as a runtime class yet; the bitmap image is imported.",
             );
         }
 
@@ -2209,62 +4277,79 @@ impl Parser<'_> {
                 self.report.error("unsafe_reference", &loc, err.to_string());
                 return;
             }
-            external_bytes = binary_files
-                .get(&format!("LIBRARY/{href}"))
-                .or_else(|| binary_files.get(href))
-                .map(Vec::as_slice);
+            external_bytes = get_binary_ci(binary_files, &format!("LIBRARY/{href}"))
+                .or_else(|| get_binary_ci(binary_files, href));
         }
         if external_bytes.is_none() && source::safe_name(name).is_ok() {
-            external_bytes = binary_files
-                .get(&format!("LIBRARY/{name}"))
-                .or_else(|| binary_files.get(name))
-                .map(Vec::as_slice);
+            external_bytes = get_binary_ci(binary_files, &format!("LIBRARY/{name}"))
+                .or_else(|| get_binary_ci(binary_files, name));
         }
 
         let idx = self.bitmaps.len() + 1;
         let resource_id = format!("xfl-bitmap-{idx}");
 
+        let has_dat_href = item
+            .attribute("bitmapDataHRef")
+            .is_some_and(|s| !s.is_empty());
+
         if let Some(raw) = external_bytes {
-            let Some((media_type, ext)) = detect_raster_format(raw) else {
+            let owned_png: Option<Vec<u8>> =
+                if detect_raster_format(raw).is_none() && raw.starts_with(b"BM") {
+                    image::load_from_memory_with_format(raw, image::ImageFormat::Bmp)
+                        .ok()
+                        .and_then(|img| {
+                            let mut buf = std::io::Cursor::new(Vec::new());
+                            img.write_to(&mut buf, image::ImageFormat::Png).ok()?;
+                            Some(buf.into_inner())
+                        })
+                } else {
+                    None
+                };
+            let effective_raw = owned_png.as_deref().unwrap_or(raw);
+            if let Some((media_type, ext)) = detect_raster_format(effective_raw) {
+                let Some(unit) = self.register_resource(
+                    &resource_id,
+                    build_xfl_resource_path("assets/bitmaps", idx, name, ext),
+                    name,
+                    media_type,
+                    effective_raw,
+                    &loc,
+                ) else {
+                    return;
+                };
+                match unit.decode_image() {
+                    Ok(decoded) => {
+                        self.bitmaps.insert(
+                            name.to_owned(),
+                            XflBitmapAsset {
+                                resource_id,
+                                width: decoded.width,
+                                height: decoded.height,
+                                smoothing,
+                            },
+                        );
+                        return;
+                    }
+                    Err(err) => {
+                        self.resources.pop();
+                        if !has_dat_href {
+                            self.report.error(
+                                "xfl_media_invalid",
+                                &loc,
+                                format!("Cannot decode bitmap image {name:?}: {err}"),
+                            );
+                            return;
+                        }
+                    }
+                }
+            } else if !has_dat_href {
                 self.report.error(
                     "xfl_media_invalid",
                     &loc,
-                    format!("Bitmap file for {name:?} is neither PNG nor JPEG."),
+                    format!("Bitmap file for {name:?} is neither PNG, JPEG nor BMP."),
                 );
                 return;
-            };
-            let Some(unit) = self.register_resource(
-                &resource_id,
-                build_xfl_resource_path("assets/bitmaps", idx, name, ext),
-                name,
-                media_type,
-                raw,
-                &loc,
-            ) else {
-                return;
-            };
-            match unit.decode_image() {
-                Ok(decoded) => {
-                    self.bitmaps.insert(
-                        name.to_owned(),
-                        XflBitmapAsset {
-                            resource_id,
-                            width: decoded.width,
-                            height: decoded.height,
-                            smoothing,
-                        },
-                    );
-                }
-                Err(err) => {
-                    self.resources.pop();
-                    self.report.error(
-                        "xfl_media_invalid",
-                        &loc,
-                        format!("Cannot decode bitmap image {name:?}: {err}"),
-                    );
-                }
             }
-            return;
         }
 
         if let Some(dat_href) = item.attribute("bitmapDataHRef").filter(|s| !s.is_empty()) {
@@ -2272,33 +4357,36 @@ impl Parser<'_> {
                 self.report.error("unsafe_reference", &loc, err.to_string());
                 return;
             }
-            if let Some(raw) = binary_files
-                .get(&format!("bin/{dat_href}"))
-                .or_else(|| binary_files.get(dat_href))
+            if let Some(raw) = get_binary_ci(binary_files, &format!("bin/{dat_href}"))
+                .or_else(|| get_binary_ci(binary_files, dat_href))
             {
-                let png_bytes = if raw.starts_with(b"\x89PNG\r\n\x1a\n") {
-                    raw.clone()
+                let (bytes_vec, media_type, ext) = if let Some((mt, ext)) =
+                    detect_raster_format(raw)
+                {
+                    (raw.to_vec(), mt, ext)
                 } else {
                     match crate::legacy::media::decode_binary_bitmap(raw, 0)
                         .and_then(|decoded| decoded.png_bytes())
                     {
-                        Ok(png) => png,
+                        Ok(png) => (png, "image/png", "png"),
                         Err(err) => {
-                            self.report.error(
-                                "xfl_media_invalid",
-                                &loc,
-                                format!("Cannot decode binary bitmap cache {dat_href:?}: {err}"),
-                            );
-                            return;
+                            self.report.warning(
+                                    "xfl_media_invalid",
+                                    &loc,
+                                    format!(
+                                        "Cannot decode binary bitmap cache {dat_href:?} ({err}); substituted a 1x1 transparent PNG placeholder."
+                                    ),
+                                );
+                            (SYNTHETIC_1X1_PNG.to_vec(), "image/png", "png")
                         }
                     }
                 };
                 let Some(unit) = self.register_resource(
                     &resource_id,
-                    build_xfl_resource_path("assets/bitmaps", idx, name, "png"),
+                    build_xfl_resource_path("assets/bitmaps", idx, name, ext),
                     name,
-                    "image/png",
-                    &png_bytes,
+                    media_type,
+                    &bytes_vec,
                     &loc,
                 ) else {
                     return;
@@ -2320,7 +4408,7 @@ impl Parser<'_> {
                         self.report.error(
                             "xfl_media_invalid",
                             &loc,
-                            format!("Cannot decode converted PNG for {name:?}: {err}"),
+                            format!("Cannot decode converted bitmap for {name:?}: {err}"),
                         );
                     }
                 }
@@ -2375,6 +4463,7 @@ impl Parser<'_> {
                 "linkageClassName",
                 "linkageBaseClass",
                 "linkageURL",
+                "linkageExportForRS",
                 "linkageImportForRS",
             ],
             &[],
@@ -2383,8 +4472,10 @@ impl Parser<'_> {
         let _ = self.boolean(item, "use8kSampleRate", false, "DOMDocument.xml");
         let _ = self.boolean(item, "linkageExportInFirstFrame", true, "DOMDocument.xml");
         let export_as = self.boolean(item, "linkageExportForAS", false, "DOMDocument.xml");
+        let export_rs = self.boolean(item, "linkageExportForRS", false, "DOMDocument.xml");
         let import_rs = self.boolean(item, "linkageImportForRS", false, "DOMDocument.xml");
         if export_as
+            || export_rs
             || import_rs
             || item
                 .attribute("linkageClassName")
@@ -2393,10 +4484,10 @@ impl Parser<'_> {
                 .attribute("linkageIdentifier")
                 .is_some_and(|s| !s.is_empty())
         {
-            self.report.error(
+            self.report.warning(
                 "xfl_sound_linkage_unsupported",
                 &loc,
-                "ActionScript Sound linkage on XFL sound items is not supported yet.",
+                "ActionScript Sound linkage on XFL sound items is not bound as a runtime class yet; the audio asset is imported.",
             );
         }
 
@@ -2424,16 +4515,12 @@ impl Parser<'_> {
                 self.report.error("unsafe_reference", &loc, err.to_string());
                 return;
             }
-            external_bytes = binary_files
-                .get(&format!("LIBRARY/{href}"))
-                .or_else(|| binary_files.get(href))
-                .map(Vec::as_slice);
+            external_bytes = get_binary_ci(binary_files, &format!("LIBRARY/{href}"))
+                .or_else(|| get_binary_ci(binary_files, href));
         }
         if external_bytes.is_none() && source::safe_name(name).is_ok() {
-            external_bytes = binary_files
-                .get(&format!("LIBRARY/{name}"))
-                .or_else(|| binary_files.get(name))
-                .map(Vec::as_slice);
+            external_bytes = get_binary_ci(binary_files, &format!("LIBRARY/{name}"))
+                .or_else(|| get_binary_ci(binary_files, name));
         }
 
         let idx = self.sounds.len() + 1;
@@ -2510,15 +4597,16 @@ impl Parser<'_> {
                 self.report.error("unsafe_reference", &loc, err.to_string());
                 return;
             }
-            if let Some(raw_vec) = binary_files
-                .get(&format!("bin/{dat_href}"))
-                .or_else(|| binary_files.get(dat_href))
+            if let Some(raw_slice) = get_binary_ci(binary_files, &format!("bin/{dat_href}"))
+                .or_else(|| get_binary_ci(binary_files, dat_href))
             {
-                let mut raw = raw_vec.as_slice();
+                let mut raw = raw_slice;
                 let mut flags = base_flags;
                 let href_lower = item.attribute("href").unwrap_or(name).to_ascii_lowercase();
                 let fmt_lower = format_str.to_ascii_lowercase();
-                let is_mp3 = (data_length.is_some_and(|d| d > 0) || href_lower.ends_with(".mp3"))
+                let is_mp3 = (data_length.is_some_and(|d| d > 0)
+                    || href_lower.ends_with(".mp3")
+                    || fmt_lower.contains("mp3"))
                     && looks_like_xfl_mp3(raw);
                 let mut effective_samples = sample_count;
                 let encoded_byte_count = if is_mp3 {
@@ -2961,7 +5049,240 @@ fn classic_tween_matches(a: &Element, b: &Element) -> bool {
             | (ElementKind::Ellipse { .. }, ElementKind::Ellipse { .. })
             | (ElementKind::Path { .. }, ElementKind::Path { .. })
             | (ElementKind::PaintedPath { .. }, ElementKind::PaintedPath { .. })
-            | (ElementKind::Text { .. }, ElementKind::Text { .. }) => true,
+            | (ElementKind::Text { .. }, ElementKind::Text { .. })
+            | (ElementKind::TextBox { .. }, ElementKind::TextBox { .. })
+            | (ElementKind::Video { .. }, ElementKind::Video { .. }) => true,
             _ => false,
         }
+}
+
+const SYNTHETIC_1X1_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x60, 0x60, 0x60, 0x60,
+    0x00, 0x00, 0x00, 0x05, 0x00, 0x01, 0xA5, 0xF6, 0x45, 0x40, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+fn normalize_xfl_folder_path(raw: &str) -> String {
+    if raw.is_empty() || raw.starts_with('/') || raw.ends_with('/') {
+        return raw.to_owned();
+    }
+    let parts: Vec<&str> = raw.split('/').collect();
+    if parts.iter().any(|s| s.trim().is_empty()) {
+        return raw.to_owned();
+    }
+    parts
+        .into_iter()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn normalize_text(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn get_file_ci<'a>(files: &'a BTreeMap<String, String>, target: &str) -> Option<&'a String> {
+    files.get(target).or_else(|| {
+        files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(target))
+            .map(|(_, v)| v)
+    })
+}
+
+fn get_binary_ci<'a>(files: &'a BTreeMap<String, Vec<u8>>, target: &str) -> Option<&'a [u8]> {
+    files.get(target).map(Vec::as_slice).or_else(|| {
+        files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(target))
+            .map(|(_, v)| v.as_slice())
+    })
+}
+
+fn is_valid_qualified_class_name(value: &str) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 512
+        && trimmed.split('.').all(|segment| {
+            let mut chars = segment.chars();
+            chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '_' | '$'))
+                && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+        })
+}
+
+fn import_bundled_as_sources(
+    files: &BTreeMap<String, String>,
+    project: &mut Project,
+    default_lang: Option<ScriptLanguage>,
+    report: &mut ImportReport,
+) {
+    let mut source_idx = 0usize;
+    for (path, source) in files {
+        let lower = path.to_ascii_lowercase();
+        if !lower.ends_with(".as") {
+            continue;
+        }
+        if project.sources.len() >= 1024 {
+            report.warning(
+                "xfl_sources_truncated",
+                path,
+                "Bundled ActionScript source file count exceeds 1024; remaining .as files were omitted.",
+            );
+            break;
+        }
+        let lang = default_lang.unwrap_or_else(|| {
+            if source.contains("package ")
+                || source.contains("import flash.")
+                || source.contains("public class ")
+            {
+                ScriptLanguage::ActionScript3
+            } else {
+                ScriptLanguage::ActionScript2
+            }
+        });
+        source_idx += 1;
+        project.sources.push(SourceUnit {
+            id: format!("xfl-source-{source_idx}"),
+            path: path.clone(),
+            language: lang,
+            source: source.clone(),
+        });
+    }
+}
+
+fn normalize_xfl_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
+    let frame_counts: HashMap<String, u32> = symbols
+        .iter()
+        .map(|s| (s.id.clone(), s.timeline.frame_count.max(1)))
+        .collect();
+    for sym in symbols.iter_mut() {
+        let sym_name = sym.name.clone();
+        for layer in &mut sym.timeline.layers {
+            for key in &mut layer.keyframes {
+                for el in &mut key.elements {
+                    if let ElementKind::Instance {
+                        symbol_id,
+                        playback,
+                    } = &mut el.kind
+                        && let Some(&fc) = frame_counts.get(symbol_id)
+                    {
+                        let max_idx = fc.saturating_sub(1);
+                        match playback {
+                            InstancePlayback::SingleFrame(f)
+                            | InstancePlayback::LoopFrom(f)
+                            | InstancePlayback::PlayOnceFrom(f)
+                                if *f >= fc =>
+                            {
+                                *f = max_idx;
+                                report.warning(
+                                    "xfl_playback_frame_clamped",
+                                    format!("{sym_name}:frame {}", key.frame + 1),
+                                    format!(
+                                        "Graphic instance firstFrame clamped to last frame ({}) of target symbol.",
+                                        max_idx + 1
+                                    ),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn is_pure_vector_mask_symbol(
+    sym_id: &str,
+    symbols: &HashMap<&str, &Symbol>,
+    visiting: &mut HashSet<String>,
+) -> bool {
+    let Some(sym) = symbols.get(sym_id) else {
+        return false;
+    };
+    if !visiting.insert(sym_id.to_owned()) {
+        return false;
+    }
+    let ok = sym
+        .timeline
+        .layers
+        .iter()
+        .filter(|l| l.properties.role != LayerRole::Guide)
+        .all(|l| {
+            l.properties.role != LayerRole::Mask
+                && l.keyframes.iter().flat_map(|k| &k.elements).all(|el| {
+                    matches!(
+                        el.kind,
+                        ElementKind::Rectangle { .. }
+                            | ElementKind::Ellipse { .. }
+                            | ElementKind::Path { .. }
+                            | ElementKind::PaintedPath { .. }
+                    ) || matches!(
+                        &el.kind,
+                        ElementKind::Instance { symbol_id, .. }
+                            if is_pure_vector_mask_symbol(symbol_id, symbols, visiting)
+                    )
+                })
+        });
+    visiting.remove(sym_id);
+    ok
+}
+
+fn normalize_xfl_masks(project: &mut Project, report: &mut ImportReport) {
+    let sym_map: HashMap<&str, &Symbol> =
+        project.symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut invalid_masks_per_symbol: Vec<HashSet<String>> =
+        Vec::with_capacity(project.symbols.len());
+    for sym in &project.symbols {
+        let mut bad = HashSet::new();
+        for layer in &sym.timeline.layers {
+            if layer.properties.role != LayerRole::Mask {
+                continue;
+            }
+            let valid = layer.keyframes.iter().flat_map(|k| &k.elements).all(|el| {
+                matches!(
+                    el.kind,
+                    ElementKind::Rectangle { .. }
+                        | ElementKind::Ellipse { .. }
+                        | ElementKind::Path { .. }
+                        | ElementKind::PaintedPath { .. }
+                ) || matches!(
+                    &el.kind,
+                    ElementKind::Instance { symbol_id, .. }
+                        if is_pure_vector_mask_symbol(symbol_id, &sym_map, &mut HashSet::new())
+                )
+            });
+            if !valid {
+                bad.insert(layer.id.clone());
+            }
+        }
+        invalid_masks_per_symbol.push(bad);
+    }
+    for (sym, bad_ids) in project.symbols.iter_mut().zip(invalid_masks_per_symbol) {
+        if bad_ids.is_empty() {
+            continue;
+        }
+        for layer in &mut sym.timeline.layers {
+            if bad_ids.contains(&layer.id) {
+                layer.properties.role = LayerRole::Normal;
+                report.warning(
+                    "xfl_mask_approximated",
+                    format!("{}/{}", sym.name, layer.name),
+                    "XFL mask layer contains non-vector or nested-mask elements and was converted to a normal layer.",
+                );
+            }
+            if layer
+                .properties
+                .mask
+                .as_ref()
+                .is_some_and(|m| bad_ids.contains(m))
+            {
+                layer.properties.mask = None;
+            }
+        }
+    }
 }

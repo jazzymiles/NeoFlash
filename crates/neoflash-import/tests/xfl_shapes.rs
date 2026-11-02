@@ -391,9 +391,19 @@ fn validates_xml_semantics_and_resource_limits() {
         &no_stroke(SQUARE).replace("<DOMShape>", "<DOMShape arbitrary=\"1\">"),
         "unsupported_attribute",
     );
-    reject(
-        &no_stroke(SQUARE).replace("<DOMShape>", "<DOMShape isFloating=\"true\">"),
-        "xfl_shape_object_mode",
+    let floating =
+        Source::new(&no_stroke(SQUARE).replace("<DOMShape>", "<DOMShape isFloating=\"true\">"));
+    let floating_report = inspect(&floating.0).unwrap();
+    assert!(
+        floating_report.can_import,
+        "{:?}",
+        floating_report.diagnostics
+    );
+    assert!(
+        floating_report
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.code == "xfl_shape_object_mode")
     );
     reject(
         &no_stroke(SQUARE).replace("color=\"#FF0000\"", "color=\"#FF0000\" alpha=\"2\""),

@@ -1,0 +1,249 @@
+{
+  "format_version": 5,
+  "name": "Imported XFL",
+  "width": 550,
+  "height": 400,
+  "fps": 24,
+  "background": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "root": "symbol-4",
+  "symbols": [
+    {
+      "id": "symbol-4",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-6",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "symbol-1",
+      "name": "villager_01_centered",
+      "folder": "symbols",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-7",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": -25.0,
+                      "y": -28.5,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-3",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "symbol-2",
+      "name": "villager_01_dance",
+      "folder": "symbols",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 25,
+        "layers": [
+          {
+            "id": "layer-8",
+            "name": "layer",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.5,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": {
+                  "flash": {
+                    "acceleration": -100.0
+                  }
+                },
+                "label": ""
+              },
+              {
+                "frame": 14,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 0.0,
+                      "y": -34.5,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              },
+              {
+                "frame": 24,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-0-0",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.5,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "villager_01_dance",
+      "linkage_id": "villager_01_dance"
+    },
+    {
+      "id": "symbol-3",
+      "name": "img_villager_01",
+      "folder": "textures",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-9",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-3-0-0",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "bitmap",
+                      "resource_id": "xfl-bitmap-1",
+                      "width": 50,
+                      "height": 57,
+                      "smoothing": false
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      },
+      "class_name": "img_villager_01",
+      "linkage_id": "img_villager_01"
+    }
+  ],
+  "library_folders": [
+    "images",
+    "symbols",
+    "textures"
+  ],
+  "resources": [
+    {
+      "id": "xfl-bitmap-1",
+      "path": "assets/bitmaps/1-Villager_01.png",
+      "media_type": "image/png",
+      "data_base64": "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"
+    }
+  ]
+}

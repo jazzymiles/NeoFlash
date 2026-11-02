@@ -121,12 +121,11 @@ impl Parser<'_> {
         if self.boolean(node, "isDrawingObject", false, file)
             || self.boolean(node, "isFloating", false, file)
         {
-            self.report.error(
+            self.report.warning(
                 "xfl_shape_object_mode",
                 self.location(node, file),
-                "Floating/drawing-object shape authoring semantics are not supported yet.",
+                "Floating/drawing-object shape authoring mode is imported as standard vector path artwork.",
             );
-            return None;
         }
 
         // Fast path: preserve byte-identical ElementKind::Path output for simple
@@ -282,6 +281,7 @@ impl Parser<'_> {
         let mut selected = false;
         let mut has_cubics = false;
         let mut saw_interior_seam = false;
+        let mut saw_unstyled_edge = false;
         let mut saw_nonempty_edge_record = false;
 
         for edge in elements(edges_node).filter(|n| n.has_tag_name("Edge")) {
@@ -340,10 +340,14 @@ impl Parser<'_> {
                 ));
             }
             if left == 0 && right == 0 && line == 0 {
-                return Err(ShapeError(
-                    "xfl_shape_style_reference",
-                    "Edge references neither a fill style nor a stroke style.",
-                ));
+                let rem_check = MAX_GENERAL_SEGMENTS.saturating_sub(total_segments);
+                let (_, has_sel) = parse_general_edges(text, rem_check)?;
+                selected |= has_sel;
+                saw_unstyled_edge = true;
+                warn_approximated.get_or_insert(
+                    "Unpainted XFL helper edges without fill or stroke style are ignored.",
+                );
+                continue;
             }
             saw_nonempty_edge_record = true;
 
@@ -381,7 +385,14 @@ impl Parser<'_> {
             if edges.is_empty() {
                 continue;
             }
-            let commands = assemble_fill_commands(&edges)?;
+            let commands = match assemble_fill_commands(&edges) {
+                Ok(cmds) => cmds,
+                Err(_) if saw_unstyled_edge => {
+                    let repaired = repair_open_fill_edges(&edges);
+                    assemble_fill_commands(&repaired)?
+                }
+                Err(err) => return Err(err),
+            };
             validate_path_commands(&commands).map_err(|_| {
                 ShapeError(
                     "xfl_shape_limit",
@@ -427,10 +438,10 @@ impl Parser<'_> {
         }
 
         if output.is_empty() {
-            if saw_interior_seam {
+            if saw_unstyled_edge || saw_interior_seam {
                 return Err(ShapeError(
                     "xfl_shape_style_reference",
-                    "Shape contains only interior fill seams with no painted boundary or stroke.",
+                    "Shape contains only interior fill seams or unstyled edges with no painted boundary or stroke.",
                 ));
             }
             if saw_nonempty_edge_record {
@@ -493,7 +504,12 @@ impl Parser<'_> {
         let tag = paint_node.tag_name().name();
         match tag {
             "SolidColor" | "SolidSwatchItem" => {
-                self.audit(paint_node, file, &["color", "alpha"], &[]);
+                let allowed_attrs: &[&str] = if tag == "SolidSwatchItem" {
+                    &["color", "alpha", "hue", "saturation", "brightness"]
+                } else {
+                    &["color", "alpha"]
+                };
+                self.audit(paint_node, file, allowed_attrs, &[]);
                 let alpha = self.number(paint_node, "alpha", 1.0, file);
                 let color = self.color(
                     paint_node.attribute("color").unwrap_or("#000000"),
@@ -790,6 +806,7 @@ impl Parser<'_> {
                         "sharpCorners",
                         "solidStyle",
                         "thickness",
+                        "hatchThickness",
                         "space",
                         "jiggle",
                         "rotate",
@@ -1431,6 +1448,57 @@ fn coordinate_24_8(bytes: &[u8], cursor: &mut usize) -> Result<i64> {
         ));
     }
     Ok(val)
+}
+
+fn repair_open_fill_edges(edges: &[GenEdge]) -> Vec<GenEdge> {
+    let mut balance: BTreeMap<Point24_8, i64> = BTreeMap::new();
+    for e in edges {
+        *balance.entry(e.start).or_default() += 1;
+        *balance.entry(e.end).or_default() -= 1;
+    }
+    let mut ends = Vec::new();
+    let mut starts = Vec::new();
+    for (&pt, &b) in &balance {
+        if b < 0 {
+            for _ in 0..(-b) {
+                ends.push(pt);
+            }
+        } else if b > 0 {
+            for _ in 0..b {
+                starts.push(pt);
+            }
+        }
+    }
+    let mut repaired = edges.to_vec();
+    let mut used_starts = vec![false; starts.len()];
+    for end_pt in ends {
+        let mut best_idx = None;
+        let mut best_dist = i128::MAX;
+        for (i, &start_pt) in starts.iter().enumerate() {
+            if used_starts[i] {
+                continue;
+            }
+            let dx = i128::from(end_pt[0] - start_pt[0]);
+            let dy = i128::from(end_pt[1] - start_pt[1]);
+            let dist = dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy));
+            if dist < best_dist {
+                best_dist = dist;
+                best_idx = Some(i);
+            }
+        }
+        if let Some(i) = best_idx {
+            used_starts[i] = true;
+            let start_pt = starts[i];
+            if end_pt != start_pt {
+                repaired.push(GenEdge {
+                    start: end_pt,
+                    end: start_pt,
+                    control: None,
+                });
+            }
+        }
+    }
+    repaired
 }
 
 fn assemble_fill_commands(edges: &[GenEdge]) -> Result<Vec<PathCommand>> {

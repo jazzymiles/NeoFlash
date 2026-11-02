@@ -620,7 +620,7 @@ fn xfl_rejects_broken_media_mismatched_button_types_and_invalid_sound_envelopes(
         "missing_bitmap",
     );
 
-    // 4. DOMSymbolInstance symbolType="button" referencing a MovieClip symbol.
+    // 4. DOMSymbolInstance with invalid symbolType.
     assert_error(
         BTreeMap::from([
             (
@@ -629,10 +629,10 @@ fn xfl_rejects_broken_media_mismatched_button_types_and_invalid_sound_envelopes(
             ),
             (
                 "DOMDocument.xml".into(),
-                br#"<DOMDocument><symbols><Include href="Clip.xml"/></symbols><timelines><DOMTimeline><layers><DOMLayer><frames><DOMFrame index="0"><elements><DOMSymbolInstance libraryItemName="Clip" symbolType="button"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#.to_vec(),
+                br#"<DOMDocument><symbols><Include href="Clip.xml"/></symbols><timelines><DOMTimeline><layers><DOMLayer><frames><DOMFrame index="0"><elements><DOMSymbolInstance libraryItemName="Clip" symbolType="unknown"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#.to_vec(),
             ),
         ]),
-        "symbol_type_mismatch",
+        "instance_type",
     );
 
     // 5. DOMFrame soundName referencing undeclared sound.

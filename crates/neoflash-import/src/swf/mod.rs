@@ -320,17 +320,25 @@ pub(crate) fn convert(
     };
 
     let [xmin, xmax, ymin, ymax] = bounds;
-    let mut invalid_rect = false;
     if xmax < xmin || ymax < ymin {
-        invalid_rect = true;
-        report.error(
+        report.warning(
             "swf_invalid_rect",
             format!("{location}#header"),
-            format!("SWF stage RECT has inverted bounds: [{xmin}, {xmax}, {ymin}, {ymax}]."),
+            format!(
+                "SWF stage RECT has inverted bounds [{xmin}, {xmax}, {ymin}, {ymax}]; falling back to default 550x400 px stage dimensions for invalid axis."
+            ),
         );
     }
-    let width_px = ((i64::from(xmax) - i64::from(xmin)).max(0) as f64) / 20.0;
-    let height_px = ((i64::from(ymax) - i64::from(ymin)).max(0) as f64) / 20.0;
+    let width_px = if xmax < xmin {
+        550.0
+    } else {
+        ((i64::from(xmax) - i64::from(xmin)).max(0) as f64) / 20.0
+    };
+    let height_px = if ymax < ymin {
+        400.0
+    } else {
+        ((i64::from(ymax) - i64::from(ymin)).max(0) as f64) / 20.0
+    };
 
     if body.len() < rect_bytes + 4 {
         report.error(
@@ -386,7 +394,7 @@ pub(crate) fn convert(
     };
     report.swf = Some(inspection.clone());
 
-    if invalid_rect || state.budget_exceeded {
+    if state.budget_exceeded {
         return None;
     }
 

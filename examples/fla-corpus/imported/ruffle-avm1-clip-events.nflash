@@ -1,0 +1,373 @@
+{
+  "format_version": 5,
+  "name": "Imported XFL",
+  "width": 550,
+  "height": 400,
+  "fps": 24,
+  "background": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "root": "symbol-3",
+  "symbols": [
+    {
+      "id": "symbol-3",
+      "name": "Scene 1",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 4,
+        "layers": [
+          {
+            "id": "layer-6",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-3-1-0-placement-1",
+                    "name": "clip",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "onClipEvent(initialize) {\n\ttrace(\"clip initialize1\");\n}\nonClipEvent(construct) {\n\ttrace(\"clip construct\");\n}\nonClipEvent(initialize) {\n\ttrace(\"clip initialize2\");\n}\n\nonClipEvent(load) {\n\ttrace(\"clip load\");\n}\nonClipEvent(enterFrame) {\n\ttrace(\"clip enterFrame\");\n}\nonClipEvent(unload) {\n\ttrace(\"clip unload\");\n}"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-5",
+            "name": "Layer 2",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 2,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"frame 1\");"
+            }
+          },
+          {
+            "frame": 1,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"frame 2\");\nclip.onEnterFrame = function() { trace(\"clip onEnterFrame\"); }\nclip.onUnload = function() { trace(\"clip onUnload\"); }"
+            }
+          },
+          {
+            "frame": 2,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"frame 3\");"
+            }
+          },
+          {
+            "frame": 3,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"frame 4\");\nstop();"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "symbol-1",
+      "name": "Child",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-7",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-1-0-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 100.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 100.0,
+                          "y": 100.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 100.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 100.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        255,
+                        0,
+                        0,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"child frame 1\");"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "symbol-2",
+      "name": "Clip",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "layer-9",
+            "name": "Layer 1",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "xfl-symbol-2-1-0",
+                    "name": "DOMShape",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 100.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 100.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 100.0,
+                          "y": 100.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 100.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        102,
+                        204,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": null,
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "xfl-symbol-2-1-1",
+                    "name": "DOMSymbolInstance",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 200.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "symbol-1",
+                      "playback": "independent"
+                    },
+                    "scripts": [
+                      {
+                        "event": "load",
+                        "script": {
+                          "language": "action_script2",
+                          "source": "onClipEvent(initialize) {\n\ttrace(\"child initialize\");\n}\n\nonClipEvent(construct) {\n\ttrace(\"child construct\");\n}\n\nonClipEvent(load) {\n\ttrace(\"child load\");\n}\n\nonClipEvent(enterFrame) {\n\ttrace(\"child enterframe\");\n}\n\nonClipEvent(unload) {\n\ttrace(\"child unload\");\n}"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "layer-8",
+            "name": "Layer 2",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "trace(\"clip frame 1\");"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

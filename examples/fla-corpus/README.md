@@ -38,13 +38,13 @@ The real [Ruffle frame-labels FLA](upstream/ruffle/avm1-frame-labels/test.fla)
 now imports as [an editable native project](imported/ruffle-avm1-frame-labels.nflash),
 including its solid vector shapes and all nine AS2 scripts. All eight binary
 FLA inputs (Flash 5, MX, 8 and CS4: buttons, static and dynamic text, a shape
-tween, nested layers, AS2 scripts and a motion tween) import as checked native
-projects; their reports list each approximation. The two binary MX
+tween, nested layers, AS2 scripts and a motion tween) and all seven XFL/ZIP-FLA
+upstream inputs (Ruffle frame labels, clip events, AS3 button frame scripts,
+AS3 nested construction, and the three Flump animation timelines) import as
+checked native projects; their reports list each approximation. The two binary MX
 button/static-text fixtures also have model checks for button states,
-Hit geometry and archived text style. The other **6 external inputs (XFL clip
-events, AS3 document classes and Flump animation timelines) still block
-editable conversion**. Inspect reports identify
-unsupported structures, media, tweens and script configuration. Original Ruffle `.as` files, reference SWFs, test configuration
+Hit geometry and archived text style. Inspect reports identify
+approximated structures, media, tweens and script configuration. Original Ruffle `.as` files, reference SWFs, test configuration
 and expected traces are retained where present. Only the frame-labels case has
 an executable NeoFlash comparison against its upstream trace; the other expected
 outputs are reference material, not claims of execution compatibility.
@@ -55,8 +55,8 @@ Their bytes remain intact to preserve this real container compatibility case.
 
 Every upstream payload, companion file and license has a commit-pinned download
 URL, byte length and SHA-256 in [manifest.json](manifest.json). Collection
-metadata retains the upstream paths and purpose. The manifest contains 72
-verified files totaling 1,007,040 bytes, including the native imports and
+metadata retains the upstream paths and purpose. The manifest contains 84
+verified files totaling 2,231,673 bytes, including the native imports and
 excluding local explanatory metadata.
 Upstream files retain their own licenses; NeoFlash's license applies to its own
 authored examples and checking scripts.
@@ -71,8 +71,8 @@ python3 scripts/check-fla-corpus.py
 
 The script builds the current importer with the pinned Cargo lockfile, verifies
 all source hashes, inspects 21 entry points (15 external FLA plus three original
-examples in both XFL and FLA form), and tests actual conversion/refusal: 15
-successful imports and 6 explicit refusals. Positive
+examples in both XFL and FLA form), and tests actual conversion across all 21
+cases. Positive
 imports must equal the checked-in native project; blocked inputs must produce a
 normal diagnostic refusal without writing a partial project. An existing output
 must remain unchanged. Source hashes are rechecked afterwards. Detailed reports

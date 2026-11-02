@@ -19,6 +19,13 @@ pub(crate) struct Source {
     pub swf: Option<crate::swf::SwfContainer>,
 }
 
+fn is_xfl_actionscript(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
+}
+
 fn is_xfl_binary_media(name: &str) -> bool {
     if !(name.starts_with("LIBRARY/") || name.starts_with("bin/")) {
         return false;
@@ -29,7 +36,7 @@ fn is_xfl_binary_media(name: &str) -> bool {
         .is_some_and(|ext| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "wav" | "mp3" | "dat"
+                "png" | "jpg" | "jpeg" | "bmp" | "wav" | "mp3" | "dat"
             )
         })
 }
@@ -142,6 +149,17 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                             "ZIP entry exceeded its size budget".into(),
                         ));
                     }
+                    files.insert(name, content);
+                } else if is_xfl_actionscript(&name) {
+                    let mut raw = Vec::new();
+                    entry.by_ref().take(MAX_FILE + 1).read_to_end(&mut raw)?;
+                    if raw.len() as u64 > MAX_FILE {
+                        return Err(ImportError::Container(
+                            "ZIP entry exceeded its size budget".into(),
+                        ));
+                    }
+                    let content = String::from_utf8(raw)
+                        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
                     files.insert(name, content);
                 } else if is_xfl_binary_media(&name) {
                     let mut content = Vec::new();
@@ -281,6 +299,20 @@ fn read_directory(
                         "source file grew beyond limit".into(),
                     ));
                 }
+                files.insert(rel_name, content);
+            } else if is_xfl_actionscript(&rel_name) {
+                safe_name(&rel_name)?;
+                let mut raw = Vec::new();
+                File::open(entry.path())?
+                    .take(MAX_FILE + 1)
+                    .read_to_end(&mut raw)?;
+                if raw.len() as u64 > MAX_FILE {
+                    return Err(ImportError::Container(
+                        "source file grew beyond limit".into(),
+                    ));
+                }
+                let content = String::from_utf8(raw)
+                    .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
                 files.insert(rel_name, content);
             } else if is_xfl_binary_media(&rel_name) {
                 safe_name(&rel_name)?;

@@ -843,7 +843,7 @@ Structural inspection and conversion to an editable project are tracked separate
 - Working: Native semantic regressions for MX sources
 - Planned: Per-file visual and behavioral comparison with Flash
 
-**Scope:** Synthetic fixtures and local historical samples are supplemented by 15 unchanged licensed FLA files: one XFL source has an exact browser reference trace, all eight binary FLA sources import as checked native projects with required warnings, and 6 external files retain explicit refusals. All 21 input forms pass the corpus checker with 15 imports and 6 refusals. A private 106-document survey script measures refusals and approximations.
+**Scope:** Synthetic fixtures and local historical samples are supplemented by 15 unchanged licensed FLA files: one XFL source has an exact browser reference trace, all eight binary FLA sources and all seven external XFL/FLA sources import as checked native projects with required warnings, and all 21 input forms pass the corpus checker with 21 imports and 0 refusals. A private 106-document survey script (105/106 imported, 100% of non-empty files) and internet SWF/FLA/XFL test sweeps (100% of valid SWFs and 99.8% of Ruffle FLAs) measure coverage and approximations.
 
 **Limitations:** Complete per-file visual/behavioral comparison across Flash generations remains unfinished. Source retention and native regression evidence do not imply original-player parity; private Clock/banner artwork stays outside public fixtures.
 

@@ -629,6 +629,25 @@ fn parse_traits(r: &mut AbcReader<'_>) -> Option<Vec<AbcTrait>> {
     Some(out)
 }
 
+fn sanitize_source_segment(raw: &str) -> String {
+    let mut s = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '$') {
+            s.push(c);
+        } else {
+            s.push('_');
+        }
+    }
+    let trimmed = s.trim_matches('_');
+    if trimmed.is_empty() || matches!(trimmed, "." | "..") {
+        String::new()
+    } else if trimmed.len() > 80 {
+        trimmed[..80].to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
     let mut bundle = DecompiledAbcBundle::default();
 
@@ -646,13 +665,20 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
         let mut rel_parts = Vec::new();
         rel_parts.push("src".to_owned());
         if !pkg.is_empty() {
-            for seg in pkg.split('.') {
-                if !seg.is_empty() {
-                    rel_parts.push(seg.to_owned());
+            for seg in pkg.split(['.', '/', '\\', ':']) {
+                let clean = sanitize_source_segment(seg);
+                if !clean.is_empty() && rel_parts.len() < 10 {
+                    rel_parts.push(clean);
                 }
             }
         }
-        rel_parts.push(format!("{class_name}.as"));
+        let clean_class = sanitize_source_segment(&class_name);
+        let file_stem = if clean_class.is_empty() {
+            format!("Class_{idx}")
+        } else {
+            clean_class
+        };
+        rel_parts.push(format!("{file_stem}.as"));
         let source_path = rel_parts.join("/");
 
         let mut imports = BTreeSet::new();

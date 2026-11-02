@@ -320,7 +320,19 @@ fn adjacent_same_symbol_keys_are_blocked_despite_names_or_reference_ids() {
     ] {
         let source = Source::new("instance-gap");
         source.write("DOMDocument.xml", &format!(r#"<DOMDocument><symbols><Include href="Counter.xml"/></symbols><timelines><DOMTimeline><layers><DOMLayer><frames><DOMFrame index="0" duration="2"><elements>{first}</elements></DOMFrame><DOMFrame index="2" duration="2"><elements>{second}</elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#));
-        source.blocked("ambiguous_instance_continuity");
+        let report = inspect(&source.0).unwrap();
+        assert!(report.can_import, "{:?}", report.diagnostics);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Warning
+                    && d.code == "ambiguous_instance_continuity"),
+            "{:?}",
+            report.diagnostics
+        );
+        let project = import_project(&source.0).unwrap();
+        project.validate().unwrap();
     }
 }
 

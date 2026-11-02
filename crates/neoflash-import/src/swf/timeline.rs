@@ -148,14 +148,30 @@ pub(crate) fn build_project_from_swf(
     report: &mut ImportReport,
 ) -> Option<Project> {
     let bounds = inspection.stage_bounds_twips.unwrap_or([0, 11000, 0, 8000]);
-    let width_px = ((i64::from(bounds[1]) - i64::from(bounds[0])).max(20) as f64 / 20.0)
-        .round()
-        .clamp(1.0, 65535.0) as u32;
-    let height_px = ((i64::from(bounds[3]) - i64::from(bounds[2])).max(20) as f64 / 20.0)
-        .round()
-        .clamp(1.0, 65535.0) as u32;
-    let stage_dx = -(f64::from(bounds[0]) / 20.0);
-    let stage_dy = -(f64::from(bounds[2]) / 20.0);
+    let width_px = if bounds[1] < bounds[0] {
+        550
+    } else {
+        ((i64::from(bounds[1]) - i64::from(bounds[0])).max(20) as f64 / 20.0)
+            .round()
+            .clamp(1.0, 65535.0) as u32
+    };
+    let height_px = if bounds[3] < bounds[2] {
+        400
+    } else {
+        ((i64::from(bounds[3]) - i64::from(bounds[2])).max(20) as f64 / 20.0)
+            .round()
+            .clamp(1.0, 65535.0) as u32
+    };
+    let stage_dx = if bounds[1] < bounds[0] {
+        0.0
+    } else {
+        -(f64::from(bounds[0]) / 20.0)
+    };
+    let stage_dy = if bounds[3] < bounds[2] {
+        0.0
+    } else {
+        -(f64::from(bounds[2]) / 20.0)
+    };
     let fps = inspection
         .frame_rate
         .unwrap_or(24.0)
@@ -1578,6 +1594,7 @@ impl SwfBuilder<'_> {
                 }
                 let mask_id = layers[mask_lidx].id.clone();
                 layers[mask_lidx].properties.role = LayerRole::Mask;
+                all_layers_pure_vector = false;
                 for idx in masked_indices {
                     layers[idx].properties.mask = Some(mask_id.clone());
                 }

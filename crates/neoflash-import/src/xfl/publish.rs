@@ -12,6 +12,7 @@ use roxmltree::{Document, Node};
 pub(super) struct Settings {
     pub language: Option<ScriptLanguage>,
     pub include_hidden_layers: bool,
+    pub document_class: Option<String>,
 }
 
 impl Default for Settings {
@@ -19,6 +20,7 @@ impl Default for Settings {
         Self {
             language: None,
             include_hidden_layers: true,
+            document_class: None,
         }
     }
 }
@@ -27,7 +29,7 @@ pub(super) fn read(doc: &Document<'_>, report: &mut ImportReport) -> Settings {
     let Some(properties) = active_properties(doc, report) else {
         return Settings::default();
     };
-    let language = publish_language(properties, report);
+    let (language, document_class) = publish_language(properties, report);
     let mut visibility = vec![];
     for node in properties.document().descendants().filter(Node::is_element) {
         if !matches!(
@@ -72,6 +74,7 @@ pub(super) fn read(doc: &Document<'_>, report: &mut ImportReport) -> Settings {
     Settings {
         language,
         include_hidden_layers,
+        document_class,
     }
 }
 

@@ -97,7 +97,22 @@ fn text_after_comments_still_receives_layout_validation() {
         "Hello NeoFlash</characters>",
         "Hello<!-- split -->\nNeoFlash</characters>",
     );
-    source.blocked("multiline_text");
+    let report = inspect(&source.0).unwrap();
+    assert!(report.can_import, "{:?}", report.diagnostics);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.code == "multiline_text"),
+        "{:?}",
+        report.diagnostics
+    );
+    let project = import_project(&source.0).unwrap();
+    let items = evaluate(&project, &project.root, 0);
+    assert!(items.iter().any(|item| matches!(
+        &item.kind,
+        ElementKind::TextBox { text, multiline: true, .. } if text == "Hello\nNeoFlash"
+    )));
 }
 
 #[test]
