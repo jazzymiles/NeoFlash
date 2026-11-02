@@ -425,6 +425,8 @@
         set() { throw illegalOperationError(); } },
       accessibilityImplementation: { enumerable: true, get: () => null,
         set() { throw illegalOperationError(); } },
+      accessibilityProperties: { enumerable: true, get: () => null,
+        set() { throw illegalOperationError(); } },
       showDefaultContextMenu: { enumerable: true, get: () => showDefaultContextMenu,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.showDefaultContextMenu requires a Boolean.'); showDefaultContextMenu = value; } },
       stageFocusRect: { enumerable: true, get: () => stageFocusRect,

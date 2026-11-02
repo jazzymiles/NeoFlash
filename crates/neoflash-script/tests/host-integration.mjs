@@ -95,6 +95,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashExternal={create:settings=>externalModule.create({...settings,...options.external})};
   const airModule=require(resolve(root,'web/air.js'));
   globals.NeoFlashAIR={...airModule,create:settings=>airModule.create({...settings,...options.air})};
+  const as3MediaEventsModule=require(resolve(root,'web/as3-media-events.js'));
+  globals.NeoFlashAS3MediaEvents={...as3MediaEventsModule,create:settings=>as3MediaEventsModule.create({...settings,...options.as3MediaEvents})};
   const timerModule=require(resolve(root,'web/timers.js'));
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
   globals.requestAnimationFrame=options.requestAnimationFrame||(callback=>queueMicrotask(callback));

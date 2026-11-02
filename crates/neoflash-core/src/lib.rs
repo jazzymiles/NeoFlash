@@ -22,6 +22,7 @@ pub mod as2d_geom;
 pub mod as3_air;
 pub mod as3_collections;
 pub mod as3_geom;
+pub mod as3_media_events;
 pub mod as3_object;
 pub mod as3_strings;
 pub mod as_binary;

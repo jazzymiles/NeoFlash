@@ -79,7 +79,7 @@
     }
     function initialized(info){const record=infoState(info);if(!record.content)throw new Error('LoaderInfo dimensions and contentType are available after INIT.');return record;}
     Object.defineProperties(LoaderInfo,{__nfIs:{value:value=>infos.has(value)},__nfInitialize:{value:()=>unsupported('LoaderInfo native subclassing')}});
-    for(const name of ['applicationDomain','bytes','childAllowsParent','parentAllowsChild','sameDomain','sharedEvents','uncaughtErrorEvents','parameters','frameRate','swfVersion','actionScriptVersion'])Object.defineProperty(LoaderInfo.prototype,name,{get(){infoState(this);unsupported(`LoaderInfo.${name}`);}});
+    for(const name of ['applicationDomain','bytes','childAllowsParent','parentAllowsChild','sameDomain','sharedEvents','uncaughtErrorEvents','parameters','frameRate','swfVersion','actionScriptVersion'])Object.defineProperty(LoaderInfo.prototype,name,{configurable:true,get(){infoState(this);unsupported(`LoaderInfo.${name}`);}});
     function begin(record,url){
       cancel(record);record.url=url;record.bytesLoaded=record.bytesTotal=0;
       const op={record,generation,transport:null,status:0};record.operation=op;return op;

@@ -39,7 +39,12 @@
     formatToString(className, ...fields) {
       if (!formatRust) throw new Error('Event formatting requires the Rust runtime. Re-export this publication.');
       if (fields.length > 64) throw new RangeError('Event formatting exceeds 64 fields.');
-      const entries = fields.map(field => { const key = String(field), value = this[key]; return [key, String(value), typeof value === 'string']; });
+      const entries = fields.map(field => {
+        const key = String(field), value = this[key];
+        let text;
+        try { text = String(value); } catch (_) { text = Object.prototype.toString.call(value); }
+        return [key, text, typeof value === 'string'];
+      });
       return formatRust(String(className), JSON.stringify(entries));
     }
     toString() { return `[Event type="${this.type}" bubbles=${this.bubbles} cancelable=${this.cancelable} eventPhase=${this.eventPhase}]`; }
@@ -145,7 +150,7 @@
         if (field.kind === 'array' && !Array.isArray(value)) throw new TypeError(`${field.name} requires an Array or null.`);
         if (field.kind !== 'any' && field.kind !== 'array' && (value === undefined || (typeof value !== 'object' && typeof value !== 'function')))
           throw new TypeError(`${field.name} requires an object or null.`);
-        if (field.kind === 'byteArray' && options.isByteArray && !options.isByteArray(value)) throw new TypeError('SampleDataEvent.data requires ByteArray.');
+        if (field.kind === 'byteArray' && options.isByteArray && !options.isByteArray(value)) throw new TypeError(`${field.name} requires ByteArray.`);
         refs.set(key, value); return 0;
       }
       switch (field.kind) {
@@ -215,12 +220,28 @@
       Constructor.__nfIs = value => states.has(value) && value instanceof Constructor;
       Constructor.__nfInitialize = () => { throw new TypeError(`${definition.name} native subclass initialization is not supported; construct the event and use listeners through composition.`); };
       if (['GestureEvent','TouchEvent'].includes(definition.name)) Constructor.prototype.updateAfterEvent = function () {
-        state(this);
-        if (typeof options.requestRender !== 'function') throw new Error(`${definition.name}.updateAfterEvent requires the host render-request hook.`);
-        options.requestRender();
+        state(this).updateRequested = true;
+        if (typeof options.requestRender === 'function') options.requestRender();
       };
       if (definition.name === 'TouchEvent') {
-        for (const method of ['getSamples','isToolButtonDown']) Constructor.prototype[method] = () => { throw new Error(`TouchEvent.${method} requires a browser touch-sample adapter, outside this profile.`); };
+        Constructor.prototype.getSamples = function (buffer, append = false) {
+          state(this);
+          if (!buffer || typeof buffer !== 'object' || (options.isByteArray && !options.isByteArray(buffer))) {
+            throw new TypeError('TouchEvent.getSamples requires a ByteArray buffer.');
+          }
+          if (!append && typeof buffer.clear === 'function') buffer.clear();
+          const src = this.samples;
+          if (src && typeof src.length === 'number' && src.length > 0 && typeof buffer.writeBytes === 'function') {
+            buffer.writeBytes(src, 0, src.length);
+            return Math.floor(src.length / 12);
+          }
+          return 0;
+        };
+        Constructor.prototype.isToolButtonDown = function (index) {
+          state(this);
+          void (Number(index) | 0);
+          return false;
+        };
       }
       families[definition.name] = Constructor;
     }
