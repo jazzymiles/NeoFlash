@@ -1,0 +1,2136 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "ccf80b93ef4c3c89acf0a7af76e25bd4481f12b8b0b9306d75c98ed89ec40cf8",
+  "reviews": [
+    {
+      "id": "AS2-WAVE5-COMPLETE-20261102",
+      "date": "2026-11-02",
+      "commit": "821c1ae84b0ee001c1eed52daaaab63a573adc9f",
+      "title": "Close remaining AS1/AS2 compiler and runtime gaps and promote all 527 AS2 APIs to Working",
+      "summary": "Implements AS1/AS2 delete <identifier>, AS2 1-arg ClassName(expr) type casts, iterative if/else-if chains, MovieClip/XMLNode/prototype for..in enumeration, nested MovieClip scene jumps, Button enabled state reset, TextFormat justify and range setTextFormat/getTextFormat, streaming Sound and stop(id), NetStream/SharedObject/PrintJob/MovieClipLoader/FileReference/System.onStatus edge cases.",
+      "tests": [
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/legacy-import.mjs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/project.rs",
+        "crates/neoflash-script/src/actionscript/control_tests.rs",
+        "web/tests/as2-timeline.test.cjs",
+        "web/tests/display-family.test.cjs",
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "crates/neoflash-script/tests/saved-game.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Button.html#_alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_focusrect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_rotation",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_target",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_url",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_xmouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_xscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_ymouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#_yscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#blendMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#cacheAsBitmap",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onDragOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onDragOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onKeyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onKeyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onKillFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onPress",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onRelease",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onReleaseOutside",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onRollOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onRollOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#event:onSetFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#filters",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#getDepth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#scale9Grid",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#tabEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#tabIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#trackAsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Button.html#useHandCursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#ContextMenu()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#copy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#customItems",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#event:onSelect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#hideBuiltInItems()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#ContextMenuItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#caption",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#copy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#event:onSelect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#separatorBefore",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#BACKSPACE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#CAPSLOCK",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#CONTROL",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#DELETEKEY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#DOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#END",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#ENTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#ESCAPE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#HOME",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#INSERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#LEFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#PGDN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#PGUP",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#RIGHT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#SHIFT",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#SPACE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#TAB",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#UP",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#_listeners",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#event:onKeyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#event:onKeyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#getAscii()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#getCode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#isAccessible()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#isDown()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#isToggled()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Key.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#LocalConnection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#domain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#isPerUser",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseMove",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#event:onMouseWheel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#hide()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Mouse.html#show()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_currentframe",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_droptarget",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_focusrect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_framesloaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_rotation",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_target",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_totalframes",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_url",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_xmouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_xscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_ymouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_yscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachAudio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachBitmap()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#attachMovie()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#beginGradientFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#cacheAsBitmap",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#createEmptyMovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#createTextField()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#curveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#duplicateMovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#endFill()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onDragOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onDragOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onEnterFrame",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onKeyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onKeyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onKillFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onLoad",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onMouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onMouseMove",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onMouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onPress",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRelease",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onReleaseOutside",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRollOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onRollOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onSetFocus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#event:onUnload",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#filters",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#focusEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#forceSmoothing",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBounds()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesLoaded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesTotal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getDepth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getInstanceAtDepth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getNextHighestDepth()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getRect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getTextSnapshot()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#globalToLocal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#gotoAndPlay()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#gotoAndStop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#hitArea",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#hitTest()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineGradientStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadMovie()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadVariables()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#localToGlobal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#moveTo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#nextFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#opaqueBackground",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#play()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#prevFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#removeMovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#scale9Grid",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#scrollRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#startDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#stop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#stopDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#swapDepths()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#tabChildren",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#tabEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#tabIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#trackAsMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#transform",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#unloadMovie()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#useHandCursor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#MovieClipLoader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadComplete",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadInit",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#getProgress()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#loadClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#unloadClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#PrintJob()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#addPage()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#orientation",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:PrintJob.html#start()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#flush()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getLocal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getSize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#attachSound()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#duration",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#event:onID3",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#event:onLoad",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#event:onSoundComplete",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesLoaded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesTotal()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#getPan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#getTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#getVolume()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#id3",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#loadSound()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#position",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#setPan()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#setTransform()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#setVolume()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#start()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Sound.html#stop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#align",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#displayState",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#event:onFullScreen",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#event:onResize",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenSourceRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#fullScreenWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#scaleMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#showMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Stage.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#allowDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#allowInsecureDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#loadPolicyFile()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#sandboxType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#getTextFormat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#htmlText",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#setTextFormat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#align",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:TextFormat.html#tabStops",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_rotation",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_x",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_xmouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_xscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_y",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_ymouse",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#_yscale",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#attachVideo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#smoothing",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:Video.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#XMLSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onClose",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onConnect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onXML",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#timeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#addCallback()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#available",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#alpha",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapBitmap",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapPoint",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleX",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleY",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#FileReference()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#browse()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#cancel()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#download()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onCancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onComplete",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onHTTPError",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onIOError",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onOpen",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onProgress",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSecurityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSelect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onUploadCompleteData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#modificationDate",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#postData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#size",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#type",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#upload()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#FileReferenceList()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#addListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#browse()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onCancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onSelect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#fileList",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#removeListener()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#MMExecute()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#duplicateMovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#getVersion()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#gotoAndPlay()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#gotoAndStop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovie()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariables()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariablesNum()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#nextFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#nextScene()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#play()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#prevFrame()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#prevScene()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#removeMovieClip()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#startDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#stop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#stopDrag()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#targetPath()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovie()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_root",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:statements.html#for..in",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

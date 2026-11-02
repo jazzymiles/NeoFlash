@@ -1737,12 +1737,12 @@
         {
           "id": "timers",
           "title": "Timers, intervals and timeouts",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "broadcaster",
           "title": "AS2 AsBroadcaster listeners",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "fullscreen",
@@ -2318,7 +2318,7 @@
       "id": "imports-script-retention",
       "category": "imports",
       "title": "Imported source preservation",
-      "status": "partial",
+      "status": "implemented",
       "scope": "Supported XFL and binary FLA retain source language and exact frame/object source. The existing CS6 AS2 trace remains verified; Clock retains AS1 with bounded case-insensitive dynamic timeline/property lookup, and the CS4 banner retains AS2 frame and release handlers.",
       "limitations": "Retention is distinct from runtime coverage. AS1 is a bounded dynamic AVM1 profile, not full lexical/class conformance. Translated legacy commands follow NeoFlash `with` semantics for tellTarget; untranslated commands remain marked comments. External variables such as banner link1 remain host inputs.",
       "items": [
@@ -2335,7 +2335,7 @@
         {
           "id": "as1-runtime",
           "title": "Run imported AS1 code with dynamic timeline lookup",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "historical-actions",

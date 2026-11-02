@@ -1,0 +1,2576 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "0b3bfd6cb1124db8adc98ce3b8b58ea2c033f418f1fe583821951a2475a83733",
+  "reviews": [
+    {
+      "id": "AS3-AIR-COMPLETE-SURFACE-20261102",
+      "date": "2026-11-02",
+      "commit": "821c1ae84b0ee001c1eed52daaaab63a573adc9f",
+      "title": "Complete remaining AS3 AIR surface across HTML, media, networking, print, security, and UI",
+      "summary": "Completes all 639 remaining AS3 AIR declarations across encrypted SQLConnection, flash.html, flash.media, flash.net/drm, flash.printing, flash.security (XMLSignatureValidator/IURIDereferencer), flash.external, flash.text (StageText), flash.ui, flash.display3D, flash.system, and AIR events in Rust/WASM and web/air.js.",
+      "tests": [
+        "web/tests/air.test.cjs",
+        "crates/neoflash-script/tests/air_surface.rs",
+        "crates/neoflash-core/src/as3_air.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/desktop/DockIcon.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/NativeProcess.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/SystemTrayIcon.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/desktop/Updater.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DFillMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/GeolocationEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/StageOrientationEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/external/ExtensionContext.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLHistoryItem.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLHost.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLLoader.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLPDFCapability.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLSWFCapability.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/html/HTMLWindowCreateOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioPlaybackMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/CameraPosition.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/CameraRoll.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/CameraRollBrowseOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/CameraUI.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/MediaPromise.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/MediaType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/StageWebView.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/DatagramSocket.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/IPVersion.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/InterfaceAddress.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetworkInfo.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetworkInterface.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/ServerSocket.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/URLRequestDefaults.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/dns/DNSResolver.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/notifications/RemoteNotifier.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/printing/PaperSize.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/printing/PrintMethod.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/printing/PrintUIOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/security/ReferencesValidationSetting.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/security/RevocationCheckSettings.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/security/SignatureStatus.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/security/SignerTrustSettings.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/security/XMLSignatureValidator.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sensors/DeviceRotation.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sensors/Geolocation.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/ImageDecodingPolicy.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/AutoCapitalize.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/ReturnKeyLabel.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/SoftKeyboardType.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/StageText.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/StageTextClearButtonMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/StageTextInitOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/GameInput.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/GameInputControl.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/GameInputDevice.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DFillMode.html#SOLID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DFillMode.html#WIREFRAME",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#ENHANCED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/AVHTTPStatusEvent.html#AV_HTTP_RESPONSE_STATUS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/GeolocationEvent.html#UPDATE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StageOrientationEvent.html#ORIENTATION_CHANGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StageOrientationEvent.html#ORIENTATION_CHANGING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_ACCELERATED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_SOFTWARE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/StageVideoEvent.html#RENDER_STATUS_UNAVAILABLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_BEGIN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_END",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_MOVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_OUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_OVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_ROLL_OUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TouchEvent.html#PROXIMITY_ROLL_OVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/events/TransformGestureEvent.html#GESTURE_DIRECTIONAL_TAP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLPDFCapability.html#ERROR_CANNOT_LOAD_READER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLPDFCapability.html#ERROR_INSTALLED_READER_NOT_FOUND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLPDFCapability.html#ERROR_INSTALLED_READER_TOO_OLD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLPDFCapability.html#ERROR_PREFERRED_READER_TOO_OLD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLSWFCapability.html#ERROR_INSTALLED_PLAYER_NOT_FOUND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLSWFCapability.html#ERROR_INSTALLED_PLAYER_TOO_OLD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/html/HTMLSWFCapability.html#STATUS_OK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/AudioPlaybackMode.html#AMBIENT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/AudioPlaybackMode.html#MEDIA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/AudioPlaybackMode.html#VOICE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/CameraPosition.html#BACK",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/CameraPosition.html#FRONT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/CameraPosition.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/MediaType.html#IMAGE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/media/MediaType.html#VIDEO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/IPVersion.html#IPV4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/IPVersion.html#IPV6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/URLRequestMethod.html#DELETE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/URLRequestMethod.html#HEAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/URLRequestMethod.html#OPTIONS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/net/URLRequestMethod.html#PUT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#A4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#A5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#A6",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#CHOUKEI3GOU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#CHOUKEI4GOU",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_10",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_B5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_C5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_DL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_MONARCH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#ENV_PERSONAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#EXECUTIVE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#FOLIO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#JIS_B5",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#LEGAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#LETTER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PaperSize.html#STATEMENT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PrintMethod.html#AUTO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PrintMethod.html#BITMAP",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/printing/PrintMethod.html#VECTOR",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/ReferencesValidationSetting.html#NEVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/ReferencesValidationSetting.html#VALID_IDENTITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/ReferencesValidationSetting.html#VALID_OR_UNKNOWN_IDENTITY",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/RevocationCheckSettings.html#ALWAYS_REQUIRED",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/RevocationCheckSettings.html#BEST_EFFORT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/RevocationCheckSettings.html#NEVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/RevocationCheckSettings.html#REQUIRED_IF_AVAILABLE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignatureStatus.html#INVALID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignatureStatus.html#UNKNOWN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignatureStatus.html#VALID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignerTrustSettings.html#CODE_SIGNING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignerTrustSettings.html#PLAYLIST_SIGNING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/security/SignerTrustSettings.html#SIGNING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/system/ImageDecodingPolicy.html#ON_DEMAND",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/system/ImageDecodingPolicy.html#ON_LOAD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/system/Security.html#APPLICATION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AutoCapitalize.html#ALL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AutoCapitalize.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AutoCapitalize.html#SENTENCE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/AutoCapitalize.html#WORD",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/ReturnKeyLabel.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/ReturnKeyLabel.html#DONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/ReturnKeyLabel.html#GO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/ReturnKeyLabel.html#NEXT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/ReturnKeyLabel.html#SEARCH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#CONTACT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#DECIMAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#DEFAULT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#EMAIL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#NUMBER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#PHONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#PUNCTUATION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/SoftKeyboardType.html#URL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/StageTextClearButtonMode.html#ALWAYS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/StageTextClearButtonMode.html#NEVER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/StageTextClearButtonMode.html#UNLESS_EDITING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/StageTextClearButtonMode.html#WHILE_EDITING",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/ui/GameInputDevice.html#MAX_BUFFER_SIZE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/desktop/NativeProcess.html#NativeProcess()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/desktop/Updater.html#Updater()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/GeolocationEvent.html#GeolocationEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/StageOrientationEvent.html#StageOrientationEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/html/HTMLHost.html#HTMLHost()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/html/HTMLLoader.html#HTMLLoader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/CameraRoll.html#CameraRoll()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/CameraRollBrowseOptions.html#CameraRollBrowseOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/CameraUI.html#CameraUI()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/StageWebView.html#StageWebView()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/DatagramSocket.html#DatagramSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/ServerSocket.html#ServerSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/dns/DNSResolver.html#DNSResolver()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/notifications/RemoteNotifier.html#RemoteNotifier()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/printing/PrintUIOptions.html#PrintUIOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/security/XMLSignatureValidator.html#XMLSignatureValidator()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/sensors/DeviceRotation.html#DeviceRotation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/sensors/Geolocation.html#Geolocation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/StageText.html#StageText()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/StageTextInitOptions.html#StageTextInitOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/data/SQLConnection.html#event:reencrypt",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:browserInvoke",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:keyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:keyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:networkChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:suspend",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:userIdle",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeApplication.html#event:userPresent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:exit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorClose",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardErrorIoError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputClose",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputIoError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardInputProgress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputClose",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/NativeProcess.html#event:standardOutputIoError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:click",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:mouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:mouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightClick",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightMouseDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/desktop/SystemTrayIcon.html#event:rightMouseUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:contextMenu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:gestureDirectionalTap",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragComplete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragDrop",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragEnter",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragExit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragStart",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:nativeDragUpdate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityBegin",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityEnd",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityMove",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityRollOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/InteractiveObject.html#event:proximityRollOver",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage.html#event:VsyncStateChangeAvailability",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/external/ExtensionContext.html#event:status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:select",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/File.html#event:selectMultiple",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/StorageVolumeInfo.html#event:storageVolumeMount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/filesystem/StorageVolumeInfo.html#event:storageVolumeUnmount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:htmlBoundsChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:htmlDOMInitialize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:htmlRender",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:locationChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:locationChanging",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:scroll",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/html/HTMLLoader.html#event:uncaughtScriptException",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:httpResponseStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/Camera.html#event:permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraRoll.html#event:cancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraRoll.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraRoll.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraRoll.html#event:permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraRoll.html#event:select",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraUI.html#event:cancel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraUI.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraUI.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/CameraUI.html#event:permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/MediaPromise.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/MediaPromise.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/MediaPromise.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/MediaPromise.html#event:progress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:focusIn",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:focusOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:locationChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/StageWebView.html#event:locationChanging",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/DatagramSocket.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/DatagramSocket.html#event:data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/DatagramSocket.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/FileReference.html#event:httpResponseStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/FileReference.html#event:permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:drmAuthenticate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:onDRMContentData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetworkInfo.html#event:networkChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/ServerSocket.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/ServerSocket.html#event:connect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/URLLoader.html#event:httpResponseStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/URLStream.html#event:httpResponseStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/dns/DNSResolver.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/dns/DNSResolver.html#event:lookup",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:notification",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/notifications/RemoteNotifier.html#event:token",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/security/XMLSignatureValidator.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/security/XMLSignatureValidator.html#event:error",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/DeviceRotation.html#event:status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/DeviceRotation.html#event:update",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/Geolocation.html#event:status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/sensors/Geolocation.html#event:update",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:change",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:focusIn",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:focusOut",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:keyDown",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:keyUp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:softKeyboardActivate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:softKeyboardActivating",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/StageText.html#event:softKeyboardDeactivate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:interface:flash/security/IURIDereferencer.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/data/SQLConnection.html#reencrypt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/DockIcon.html#bounce()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#clear()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#copy()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#cut()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#getDefaultApplication()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#isSetAsDefaultApplication()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#paste()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#removeAsDefaultApplication()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#selectAll()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeApplication.html#setAsDefaultApplication()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#closeInput()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#exit()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/NativeProcess.html#start()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/desktop/Updater.html#update()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadFilePromise()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeMenu.html#display()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#notifyUser()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#startMove()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/NativeWindow.html#startResize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVertexBufferForInstances()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#drawToBitmapData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#drawTrianglesInstanced()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setFillMode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromBitmapDataAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromByteArrayAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadFromBitmapDataAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadFromByteArrayAsync()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMStatusEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMStatusEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/GeolocationEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/GeolocationEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/StageOrientationEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/StageOrientationEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TouchEvent.html#getSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/TouchEvent.html#isToolButtonDown()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/external/ExtensionContext.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/external/ExtensionContext.html#createExtensionContext()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/external/ExtensionContext.html#dispose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/external/ExtensionContext.html#getExtensionDirectory()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForDirectory()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForOpen()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForOpenMultiple()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#browseForSave()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/filesystem/File.html#openWithDefaultApplication()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#createWindow()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#updateLocation()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#updateStatus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#updateTitle()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#windowBlur()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#windowClose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLHost.html#windowFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#cancelLoad()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#createRootWindow()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#getHistoryAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#historyBack()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#historyForward()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#historyGo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#loadString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/html/HTMLLoader.html#reload()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/Camera.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/CameraRoll.html#addBitmapData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/CameraRoll.html#browseForImage()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/CameraRoll.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/CameraUI.html#launch()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/CameraUI.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/MediaPromise.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/MediaPromise.html#open()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/MediaPromise.html#reportError()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/Microphone.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#assignFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#dispose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#drawViewPortToBitmapData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#historyBack()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#historyForward()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#loadString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#loadURL()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#reload()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/StageWebView.html#stop()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/DatagramSocket.html#bind()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/DatagramSocket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/DatagramSocket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/DatagramSocket.html#receive()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/DatagramSocket.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/FileReference.html#requestPermission()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/FileReference.html#uploadUnencoded()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#preloadEmbeddedData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#setDRMAuthenticationCredentials()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetworkInfo.html#findInterfaces()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/ServerSocket.html#bind()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/ServerSocket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/ServerSocket.html#listen()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/URLRequestDefaults.html#setLoginCredentialsForHost()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/dns/DNSResolver.html#lookup()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/notifications/RemoteNotifier.html#subscribe()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/notifications/RemoteNotifier.html#unsubscribe()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/printing/PrintJob.html#selectPaperSize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/printing/PrintJob.html#showPageSetupDialog()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/printing/PrintJob.html#start2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/printing/PrintJob.html#terminate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/security/IURIDereferencer.html#dereference()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/security/XMLSignatureValidator.html#addCertificate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/security/XMLSignatureValidator.html#verify()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/sensors/DeviceRotation.html#setRequestedUpdateInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/sensors/Geolocation.html#setRequestedUpdateInterval()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StageText.html#assignFocus()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StageText.html#dispose()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StageText.html#drawViewPortToBitmapData()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/StageText.html#selectRange()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#addItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#containsItem()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#display()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#getItemIndex()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeAllItems()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/ContextMenu.html#removeItemAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/GameInput.html#getDeviceAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/GameInputDevice.html#getCachedSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/GameInputDevice.html#getControlAt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/GameInputDevice.html#startCachingSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/GameInputDevice.html#stopCachingSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#bitmaps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/DockIcon.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeApplication.html#startAtLogin",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#running",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardInput",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/NativeProcess.html#standardOutput",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#bitmaps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#menu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#tooltip",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/desktop/SystemTrayIcon.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#cacheAsBitmapMatrix",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#softKeyboard",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/AVHTTPStatusEvent.html#responseHeaders",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/AVHTTPStatusEvent.html#responseURL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMDeviceGroupErrorEvent.html#deviceGroup",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMDeviceGroupEvent.html#deviceGroup",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#detail",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#isAnonymous",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#isAvailableOffline",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#offlineLeasePeriod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#policies",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#voucherEndDate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#altitude",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#heading",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#horizontalAccuracy",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#latitude",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#longitude",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#speed",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#timestamp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GeolocationEvent.html#verticalAccuracy",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/GestureEvent.html#commandKey",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/StageOrientationEvent.html#afterOrientation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/StageOrientationEvent.html#beforeOrientation",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/TouchEvent.html#isTouchPointCanceled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/TouchEvent.html#timestamp",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/TouchEvent.html#touchIntent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/TransformGestureEvent.html#velocity",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/external/ExtensionContext.html#actionScriptData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHistoryItem.html#isPost",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHistoryItem.html#originalUrl",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHistoryItem.html#title",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHistoryItem.html#url",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHost.html#htmlLoader",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLHost.html#windowRect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#authenticate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#cacheResponse",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#contentHeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#contentWidth",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#hasFocusableContent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#historyLength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#historyPosition",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#htmlHost",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#idleTimeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#loaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#location",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#manageCookies",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#navigateInSystemBrowser",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#paintsDefaultBackground",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#pdfCapability",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#placeLoadStringContentInApplicationSandbox",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#runtimeApplicationDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#scrollH",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#scrollV",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#swfCapability",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#textEncodingFallback",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#textEncodingOverride",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#useCache",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#userAgent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLLoader.html#window",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#fullscreen",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#locationBarVisible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#menuBarVisible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#resizable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#scrollBarsVisible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#statusBarVisible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#toolBarVisible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#x",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/html/HTMLWindowCreateOptions.html#y",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Camera.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Camera.html#position",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRoll.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRoll.html#supportsAddBitmapData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRoll.html#supportsBrowseForImage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRollBrowseOptions.html#height",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRollBrowseOptions.html#origin",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraRollBrowseOptions.html#width",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraUI.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/CameraUI.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/MediaPromise.html#file",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/MediaPromise.html#isAsync",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/MediaPromise.html#mediaType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/MediaPromise.html#relativePath",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Microphone.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/SoundMixer.html#audioPlaybackMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/SoundMixer.html#useSpeakerphoneForVoice",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#isHistoryBackEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#isHistoryForwardEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#location",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#mediaPlaybackRequiresUserAction",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#stage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#title",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/StageWebView.html#viewPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#bound",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#localAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#localPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#remoteAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/DatagramSocket.html#remotePort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/FileReference.html#extension",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/FileReference.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/InterfaceAddress.html#address",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/InterfaceAddress.html#broadcast",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/InterfaceAddress.html#ipVersion",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/InterfaceAddress.html#prefixLength",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#httpIdleTimeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInfo.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInfo.html#networkInfo",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInfo.html#permissionStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#active",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#addresses",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#displayName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#hardwareAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#mtu",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#parent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetworkInterface.html#subInterfaces",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ServerSocket.html#bound",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ServerSocket.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ServerSocket.html#listening",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ServerSocket.html#localAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/ServerSocket.html#localPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#preventBackup",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#localAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#localPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#remoteAddress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#remotePort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#authenticate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#cacheResponse",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#followRedirects",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#idleTimeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#manageCookies",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#useCache",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequest.html#userAgent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#authenticate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#cacheResponse",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#followRedirects",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#idleTimeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#manageCookies",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#useCache",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/URLRequestDefaults.html#userAgent",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMDeviceGroup.html#authenticationMethod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMDeviceGroup.html#domain",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMDeviceGroup.html#serverURL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#active",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#copies",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#firstPage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#isColor",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#jobName",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#lastPage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#maxPixelsPerInch",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#paperArea",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#printableArea",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#printer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#printers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJob.html#supportsPageSetupDialog",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJobOptions.html#pixelsPerInch",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintJobOptions.html#printMethod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintUIOptions.html#disablePageRange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintUIOptions.html#maxPage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/printing/PrintUIOptions.html#minPage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#digestStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#identityStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#referencesStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#referencesValidationSetting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#revocationCheckSetting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#signerCN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#signerDN",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#signerExtendedKeyUsages",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#signerTrustSettings",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#uriDereferencer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#useSystemTrustStore",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/security/XMLSignatureValidator.html#validityStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/DeviceRotation.html#muted",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#desiredAccuracy",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#locationAlwaysUsePermission",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#muted",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sensors/Geolocation.html#pausesLocationUpdatesAutomatically",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#languages",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#allowLoadBytesCodeExecution",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#autoCapitalize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#autoCorrect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#clearButtonMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#color",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#displayAsPassword",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#editable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#fontFamily",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#fontPosture",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#fontSize",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#fontWeight",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#locale",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#maxChars",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#multiline",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#restrict",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#returnKeyLabel",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#selectionActiveIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#selectionAnchorIndex",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#softKeyboardType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#stage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#text",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#textAlign",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#viewPort",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageText.html#visible",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/StageTextInitOptions.html#multiline",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#items",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/ContextMenu.html#numItems",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInput.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInput.html#numDevices",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputControl.html#device",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputControl.html#id",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputControl.html#maxValue",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputControl.html#minValue",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputControl.html#value",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputDevice.html#enabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputDevice.html#id",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputDevice.html#name",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputDevice.html#numControls",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/GameInputDevice.html#sampleInterval",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Multitouch.html#mapTouchToMouse",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2909 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "5d3cc21da2e024092e9e976a938bf7a42cab4708b82664b34b7bbb33988f9e80",
+  "reviews": [
+    {
+      "id": "AS3-FTE-3D-SHADERS-20261102",
+      "date": "2026-11-02",
+      "commit": "821c1ae84b0ee001c1eed52daaaab63a573adc9f",
+      "title": "AS3 Area 8 FTE, IME, Stage3D, Pixel Bender shaders, and 3D display runtime",
+      "summary": "Implements and verifies 578 AS3 declarations across Flash Text Engine (flash.text.engine.*), IME (flash.text.ime.*), Stage3D/Context3D AGAL software rasterizer (flash.display3D.*), Pixel Bender shaders (Shader/ShaderData/ShaderParameter/ShaderInput/ShaderJob/ShaderFilter/GraphicsShaderFill), 3D DisplayObject/Transform, Loader/LoaderInfo, MorphShape, and AVM1Movie.",
+      "tests": [
+        "web/tests/as3-fte-3d.test.cjs",
+        "crates/neoflash-script/tests/as3_fte_3d_surface.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/display/AVM1Movie.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ActionScriptVersion.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrection.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrectionSupport.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsShaderFill.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Loader.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/LoaderInfo.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/MorphShape.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SWFVersion.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Shader.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderData.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderInput.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderJob.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderParameter.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderParameterType.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ShaderPrecision.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/Stage3D.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3D.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DBlendFactor.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DBufferUsage.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DClearMask.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DCompareMode.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DMipFilter.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DProfile.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DProgramType.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DRenderMode.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DStencilAction.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DTextureFilter.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DTextureFormat.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DTriangleFace.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DVertexBufferFormat.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Context3DWrapMode.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/IndexBuffer3D.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/Program3D.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/VertexBuffer3D.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/CubeTexture.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/RectangleTexture.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/Texture.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/TextureBase.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/VideoTexture.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/filters/ShaderFilter.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/BreakOpportunity.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/CFFHinting.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/ContentElement.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/DigitCase.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/DigitWidth.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/EastAsianJustifier.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/ElementFormat.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/FontDescription.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/FontLookup.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/FontMetrics.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/FontPosture.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/FontWeight.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/GraphicElement.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/GroupElement.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/JustificationStyle.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/Kerning.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/LigatureLevel.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/LineJustification.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/RenderingMode.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/SpaceJustifier.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TabAlignment.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TabStop.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextBaseline.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextBlock.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextElement.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextJustifier.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextLine.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextLineCreationResult.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextLineMirrorRegion.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextLineValidity.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TextRotation.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/engine/TypographicCase.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/ime/CompositionAttributeRange.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ActionScriptVersion.html#ACTIONSCRIPT2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ActionScriptVersion.html#ACTIONSCRIPT3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrection.html#DEFAULT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrection.html#OFF",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrection.html#ON",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrectionSupport.html#DEFAULT_OFF",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrectionSupport.html#DEFAULT_ON",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ColorCorrectionSupport.html#UNSUPPORTED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH1",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH10",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH11",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH12",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH5",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH6",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH7",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH8",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SWFVersion.html#FLASH9",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#BOOL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#BOOL2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#BOOL3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#BOOL4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#FLOAT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#FLOAT2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#FLOAT3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#FLOAT4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#INT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#INT2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#INT3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#INT4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#MATRIX2X2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#MATRIX3X3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderParameterType.html#MATRIX4X4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderPrecision.html#FAST",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/ShaderPrecision.html#FULL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#DESTINATION_ALPHA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#DESTINATION_COLOR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ONE_MINUS_DESTINATION_ALPHA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ONE_MINUS_DESTINATION_COLOR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ONE_MINUS_SOURCE_ALPHA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ONE_MINUS_SOURCE_COLOR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#SOURCE_ALPHA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#SOURCE_COLOR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBlendFactor.html#ZERO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBufferUsage.html#DYNAMIC_DRAW",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DBufferUsage.html#STATIC_DRAW",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DClearMask.html#ALL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DClearMask.html#COLOR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DClearMask.html#DEPTH",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DClearMask.html#STENCIL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#ALWAYS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#EQUAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#GREATER",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#GREATER_EQUAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#LESS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#LESS_EQUAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#NEVER",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DCompareMode.html#NOT_EQUAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DMipFilter.html#MIPLINEAR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DMipFilter.html#MIPNEAREST",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DMipFilter.html#MIPNONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#BASELINE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#BASELINE_CONSTRAINED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#BASELINE_EXTENDED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#STANDARD",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#STANDARD_CONSTRAINED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProfile.html#STANDARD_EXTENDED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProgramType.html#FRAGMENT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DProgramType.html#VERTEX",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DRenderMode.html#AUTO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DRenderMode.html#SOFTWARE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#DECREMENT_SATURATE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#DECREMENT_WRAP",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#INCREMENT_SATURATE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#INCREMENT_WRAP",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#INVERT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#KEEP",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#SET",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DStencilAction.html#ZERO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#ANISOTROPIC16X",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#ANISOTROPIC2X",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#ANISOTROPIC4X",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#ANISOTROPIC8X",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#LINEAR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFilter.html#NEAREST",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#BGRA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#BGRA_PACKED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#BGR_PACKED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#COMPRESSED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#COMPRESSED_ALPHA",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTextureFormat.html#RGBA_HALF_FLOAT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTriangleFace.html#BACK",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTriangleFace.html#FRONT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTriangleFace.html#FRONT_AND_BACK",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DTriangleFace.html#NONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DVertexBufferFormat.html#BYTES_4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DVertexBufferFormat.html#FLOAT_1",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DVertexBufferFormat.html#FLOAT_2",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DVertexBufferFormat.html#FLOAT_3",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DVertexBufferFormat.html#FLOAT_4",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DWrapMode.html#CLAMP",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display3D/Context3DWrapMode.html#REPEAT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/BreakOpportunity.html#ALL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/BreakOpportunity.html#ANY",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/BreakOpportunity.html#AUTO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/BreakOpportunity.html#NONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/CFFHinting.html#HORIZONTAL_STEM",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/CFFHinting.html#NONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/ContentElement.html#GRAPHIC_ELEMENT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitCase.html#DEFAULT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitCase.html#LINING",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitCase.html#OLD_STYLE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitWidth.html#DEFAULT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitWidth.html#PROPORTIONAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/DigitWidth.html#TABULAR",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontLookup.html#DEVICE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontLookup.html#EMBEDDED_CFF",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontPosture.html#ITALIC",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontPosture.html#NORMAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontWeight.html#BOLD",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/FontWeight.html#NORMAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/JustificationStyle.html#PRIORITIZE_LEAST_ADJUSTMENT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/JustificationStyle.html#PUSH_IN_KINSOKU",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/JustificationStyle.html#PUSH_OUT_ONLY",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/Kerning.html#AUTO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/Kerning.html#OFF",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/Kerning.html#ON",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LigatureLevel.html#COMMON",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LigatureLevel.html#EXOTIC",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LigatureLevel.html#MINIMUM",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LigatureLevel.html#NONE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LigatureLevel.html#UNCOMMON",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LineJustification.html#ALL_BUT_LAST",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LineJustification.html#ALL_BUT_MANDATORY_BREAK",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LineJustification.html#ALL_INCLUDING_LAST",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/LineJustification.html#UNJUSTIFIED",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/RenderingMode.html#CFF",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/RenderingMode.html#NORMAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TabAlignment.html#CENTER",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TabAlignment.html#DECIMAL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TabAlignment.html#END",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TabAlignment.html#START",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#ASCENT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#DESCENT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#IDEOGRAPHIC_BOTTOM",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#IDEOGRAPHIC_CENTER",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#IDEOGRAPHIC_TOP",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#ROMAN",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextBaseline.html#USE_DOMINANT_BASELINE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLine.html#MAX_LINE_WIDTH",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineCreationResult.html#COMPLETE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineCreationResult.html#EMERGENCY",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineCreationResult.html#INSUFFICIENT_WIDTH",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineCreationResult.html#SUCCESS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineValidity.html#INVALID",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineValidity.html#POSSIBLY_INVALID",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineValidity.html#STATIC",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextLineValidity.html#VALID",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextRotation.html#AUTO",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextRotation.html#ROTATE_0",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextRotation.html#ROTATE_180",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextRotation.html#ROTATE_270",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TextRotation.html#ROTATE_90",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#CAPS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#CAPS_AND_SMALL_CAPS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#DEFAULT",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#LOWERCASE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#SMALL_CAPS",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#TITLE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/engine/TypographicCase.html#UPPERCASE",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/GraphicsShaderFill.html#GraphicsShaderFill()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Loader.html#Loader()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/Shader.html#Shader()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/ShaderData.html#ShaderData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/ShaderInput.html#ShaderInput()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/ShaderJob.html#ShaderJob()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/ShaderParameter.html#ShaderParameter()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/filters/ShaderFilter.html#ShaderFilter()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/ContentElement.html#ContentElement()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/EastAsianJustifier.html#EastAsianJustifier()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/ElementFormat.html#ElementFormat()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/FontDescription.html#FontDescription()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/FontMetrics.html#FontMetrics()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/GraphicElement.html#GraphicElement()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/GroupElement.html#GroupElement()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/SpaceJustifier.html#SpaceJustifier()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/TabStop.html#TabStop()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/TextBlock.html#TextBlock()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/TextElement.html#TextElement()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/engine/TextJustifier.html#TextJustifier()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/ime/CompositionAttributeRange.html#CompositionAttributeRange()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:complete",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:httpStatus",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:init",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:ioError",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:open",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:progress",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/LoaderInfo.html#event:unload",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/ShaderJob.html#event:complete",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage3D.html#event:context3DCreate",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/display/Stage3D.html#event:error",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:imeStartComposition",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/ime/IIMEClient.html#event:textInput",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:interface:flash/text/ime/IIMEClient.html#",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#globalToLocal3D()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObject.html#local3DToGlobal()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#beginShaderFill()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineShaderStyle()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#close()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#unload()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#unloadAndStop()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/LoaderInfo.html#getLoaderInfoByDefinition()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/ShaderJob.html#cancel()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/ShaderJob.html#start()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage3D.html#requestContext3D()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Stage3D.html#requestContext3DMatchingProfiles()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#clear()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#configureBackBuffer()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createCubeTexture()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createIndexBuffer()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createProgram()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createRectangleTexture()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createTexture()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVertexBuffer()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVideoTexture()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#dispose()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#drawTriangles()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#present()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setBlendFactors()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setColorMask()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setCulling()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setDepthTest()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setProgram()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setProgramConstantsFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setProgramConstantsFromMatrix()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setProgramConstantsFromVector()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setRenderToBackBuffer()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setRenderToTexture()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setSamplerStateAt()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setScissorRectangle()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setStencilActions()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setStencilReferenceValue()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setTextureAt()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#setVertexBufferAt()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/IndexBuffer3D.html#dispose()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/IndexBuffer3D.html#uploadFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/IndexBuffer3D.html#uploadFromVector()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Program3D.html#dispose()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Program3D.html#upload()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/VertexBuffer3D.html#dispose()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/VertexBuffer3D.html#uploadFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/VertexBuffer3D.html#uploadFromVector()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadCompressedTextureFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadFromBitmapData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromBitmapData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/RectangleTexture.html#uploadFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadCompressedTextureFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadFromBitmapData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadFromByteArray()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/TextureBase.html#dispose()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachCamera()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachNetStream()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/geom/Transform.html#getRelativeMatrix3D()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/EastAsianJustifier.html#clone()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/ElementFormat.html#clone()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/ElementFormat.html#getFontMetrics()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/FontDescription.html#clone()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/FontDescription.html#isDeviceFontCompatible()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/FontDescription.html#isFontCompatible()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#getElementAt()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#getElementAtCharIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#getElementIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#groupElements()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#mergeTextElements()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#replaceElements()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#setElements()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#splitTextElement()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/GroupElement.html#ungroupElements()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/SpaceJustifier.html#clone()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#createTextLine()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#dump()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#findNextAtomBoundary()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#findNextWordBoundary()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#findPreviousAtomBoundary()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#findPreviousWordBoundary()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#getTextLineAtCharIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#recreateTextLine()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#releaseLineCreationData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextBlock.html#releaseLines()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextElement.html#replaceText()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextJustifier.html#clone()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextJustifier.html#getJustifierForLocale()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#dump()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#flushAtomData()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomBidiLevel()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomBounds()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomCenter()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomGraphic()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomIndexAtCharIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomIndexAtPoint()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomTextBlockBeginIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomTextBlockEndIndex()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomTextRotation()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getAtomWordBoundaryOnLeft()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getBaselinePosition()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/engine/TextLine.html#getMirrorRegion()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#confirmComposition()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextBounds()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#getTextInRange()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#selectRange()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/ime/IIMEClient.html#updateComposition()",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#blendShader",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#rotationX",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#rotationY",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#rotationZ",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#scaleZ",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#z",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsShaderFill.html#matrix",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsShaderFill.html#shader",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Loader.html#content",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Loader.html#contentLoaderInfo",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Loader.html#uncaughtErrorEvents",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#actionScriptVersion",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#applicationDomain",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#bytes",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#bytesLoaded",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#bytesTotal",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#childAllowsParent",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#childSandboxBridge",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#content",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#contentType",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#frameRate",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#height",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#isURLInaccessible",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#loader",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#loaderURL",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#parameters",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#parentAllowsChild",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#parentSandboxBridge",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#sameDomain",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#sharedEvents",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#swfVersion",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#uncaughtErrorEvents",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#url",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/LoaderInfo.html#width",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Shader.html#byteCode",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Shader.html#data",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Shader.html#precisionHint",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderInput.html#channels",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderInput.html#height",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderInput.html#index",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderInput.html#input",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderInput.html#width",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderJob.html#height",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderJob.html#progress",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderJob.html#shader",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderJob.html#target",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderJob.html#width",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderParameter.html#index",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderParameter.html#type",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/ShaderParameter.html#value",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#softKeyboardRect",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stage3Ds",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageVideos",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage3D.html#context3D",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage3D.html#visible",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage3D.html#x",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage3D.html#y",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#backBufferHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#backBufferWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#driverInfo",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#enableErrorChecking",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#maxBackBufferHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#maxBackBufferWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#profile",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#supportsVideoTexture",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#totalGPUMemory",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ShaderFilter.html#bottomExtension",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ShaderFilter.html#leftExtension",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ShaderFilter.html#rightExtension",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ShaderFilter.html#shader",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/filters/ShaderFilter.html#topExtension",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#matrix3D",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/geom/Transform.html#perspectiveProjection",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#elementFormat",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#eventMirror",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#groupElement",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#rawText",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#text",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#textBlock",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#textBlockBeginIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#textRotation",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ContentElement.html#userData",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/EastAsianJustifier.html#composeTrailingIdeographicSpaces",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/EastAsianJustifier.html#justificationStyle",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#alignmentBaseline",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#alpha",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#baselineShift",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#breakOpportunity",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#color",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#digitCase",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#digitWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#dominantBaseline",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#fontDescription",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#fontSize",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#kerning",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#ligatureLevel",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#locale",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#locked",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#textRotation",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#trackingLeft",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#trackingRight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/ElementFormat.html#typographicCase",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#cffHinting",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#fontLookup",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#fontName",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#fontPosture",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#fontWeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#locked",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontDescription.html#renderingMode",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#emBox",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#lineGap",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#strikethroughOffset",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#strikethroughThickness",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#subscriptOffset",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#subscriptScale",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#superscriptOffset",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#superscriptScale",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#underlineOffset",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/FontMetrics.html#underlineThickness",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/GraphicElement.html#elementHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/GraphicElement.html#elementWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/GraphicElement.html#graphic",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/GroupElement.html#elementCount",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/SpaceJustifier.html#letterSpacing",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/SpaceJustifier.html#maximumSpacing",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/SpaceJustifier.html#minimumSpacing",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/SpaceJustifier.html#optimumSpacing",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TabStop.html#alignment",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TabStop.html#decimalAlignmentToken",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TabStop.html#position",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#applyNonLinearFontScaling",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#baselineFontDescription",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#baselineFontSize",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#baselineZero",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#bidiLevel",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#content",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#firstInvalidLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#firstLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#lastLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#lineRotation",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#tabStops",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#textJustifier",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#textLineCreationResult",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextBlock.html#userData",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextElement.html#text",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextJustifier.html#lineJustification",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextJustifier.html#locale",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#ascent",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#atomCount",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#descent",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#hasGraphicElement",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#hasTabs",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#mirrorRegions",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#nextLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#previousLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#rawTextLength",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#specifiedWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#textBlock",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#textBlockBeginIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#textHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#textWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#totalAscent",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#totalDescent",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#totalHeight",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#unjustifiedTextWidth",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#userData",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLine.html#validity",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#bounds",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#element",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#mirror",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#nextRegion",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#previousRegion",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/engine/TextLineMirrorRegion.html#textLine",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#converted",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeEnd",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#relativeStart",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/CompositionAttributeRange.html#selected",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionEndIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#compositionStartIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionActiveIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#selectionAnchorIndex",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/ime/IIMEClient.html#verticalTextLayout",
+          "status": "working",
+          "note": "3D DisplayObject/Transform projections, Stage3D slots, MorphShape, and AVM1Movie runtime in as3_fte_3d.rs + web/as3-fte-3d.js verified in f7a8e0f."
+        }
+      ]
+    }
+  ]
+}
