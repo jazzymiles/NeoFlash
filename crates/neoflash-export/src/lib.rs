@@ -62,6 +62,7 @@ const AMF: &str = include_str!("../../../web/amf.js");
 const STORAGE: &str = include_str!("../../../web/storage.js");
 const AIR: &str = include_str!("../../../web/air.js");
 const AS3_NET_SYS: &str = include_str!("../../../web/as3-net-sys.js");
+const AS3_MEDIA_EVENTS: &str = include_str!("../../../web/as3-media-events.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
@@ -719,6 +720,7 @@ pub fn export_project(
         ("storage.js", STORAGE),
         ("air.js", AIR),
         ("as3-net-sys.js", AS3_NET_SYS),
+        ("as3-media-events.js", AS3_MEDIA_EVENTS),
         ("display.js", DISPLAY),
         ("bundle.js", bundle_js.as_str()),
         ("README.txt", readme.as_str()),
@@ -836,6 +838,7 @@ fn html_document(title: &str) -> String {
   <script defer src="storage.js"></script>
   <script defer src="air.js"></script>
   <script defer src="as3-net-sys.js"></script>
+  <script defer src="as3-media-events.js"></script>
   <script defer src="display.js"></script>
   <script defer src="runtime.js"></script>
 </head>
@@ -925,9 +928,18 @@ mod tests {
             html.find("src=\"as3-net-sys.js\"").unwrap() < html.find("src=\"runtime.js\"").unwrap()
         );
         assert!(
+            html.find("src=\"as3-media-events.js\"").unwrap()
+                < html.find("src=\"runtime.js\"").unwrap()
+        );
+        assert!(
             fs::read_to_string(output.join("air.js"))
                 .unwrap()
                 .contains("NeoFlashAIR")
+        );
+        assert!(
+            fs::read_to_string(output.join("as3-media-events.js"))
+                .unwrap()
+                .contains("NeoFlashAS3MediaEvents")
         );
         let bundle = fs::read_to_string(output.join("bundle.js")).unwrap();
         assert!(bundle.contains("PC9zY3JpcHQ+cG9ydGFibGUgZGF0YQ=="));

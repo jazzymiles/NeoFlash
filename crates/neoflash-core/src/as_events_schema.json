@@ -296,7 +296,8 @@
     ],
     "params": [
       "mouseTarget",
-      "contextMenuOwner"
+      "contextMenuOwner",
+      "isMouseTargetInaccessible"
     ],
     "constants": {
       "MENU_SELECT": "menuSelect",
@@ -306,7 +307,8 @@
     "cancelable": false,
     "format": [
       "mouseTarget",
-      "contextMenuOwner"
+      "contextMenuOwner",
+      "isMouseTargetInaccessible"
     ]
   },
   {
@@ -668,6 +670,12 @@
         "kind": "number",
         "default": 0,
         "readonly": false
+      },
+      {
+        "name": "velocity",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
       }
     ],
     "ownFields": [
@@ -675,7 +683,8 @@
       "scaleY",
       "rotation",
       "offsetX",
-      "offsetY"
+      "offsetY",
+      "velocity"
     ],
     "params": [
       "phase",
@@ -688,9 +697,13 @@
       "offsetY",
       "ctrlKey",
       "altKey",
-      "shiftKey"
+      "shiftKey",
+      "commandKey",
+      "controlKey",
+      "velocity"
     ],
     "constants": {
+      "GESTURE_DIRECTIONAL_TAP": "gestureDirectionalTap",
       "GESTURE_PAN": "gesturePan",
       "GESTURE_ROTATE": "gestureRotate",
       "GESTURE_SWIPE": "gestureSwipe",
@@ -812,7 +825,9 @@
       "tapLocalY",
       "ctrlKey",
       "altKey",
-      "shiftKey"
+      "shiftKey",
+      "commandKey",
+      "controlKey"
     ],
     "constants": {
       "GESTURE_PRESS_AND_TAP": "gesturePressAndTap"
@@ -897,6 +912,42 @@
         "readonly": false
       },
       {
+        "name": "commandKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "controlKey",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
+        "name": "timestamp",
+        "kind": "number",
+        "default": 0,
+        "readonly": false
+      },
+      {
+        "name": "touchIntent",
+        "kind": "string",
+        "default": "unknown",
+        "readonly": false
+      },
+      {
+        "name": "samples",
+        "kind": "byteArray",
+        "default": null,
+        "readonly": false
+      },
+      {
+        "name": "isTouchPointCanceled",
+        "kind": "bool",
+        "default": false,
+        "readonly": false
+      },
+      {
         "name": "isRelatedObjectInaccessible",
         "kind": "bool",
         "default": false,
@@ -927,6 +978,12 @@
       "ctrlKey",
       "altKey",
       "shiftKey",
+      "commandKey",
+      "controlKey",
+      "timestamp",
+      "touchIntent",
+      "samples",
+      "isTouchPointCanceled",
       "isRelatedObjectInaccessible",
       "stageX",
       "stageY"
@@ -942,7 +999,13 @@
       "relatedObject",
       "ctrlKey",
       "altKey",
-      "shiftKey"
+      "shiftKey",
+      "commandKey",
+      "controlKey",
+      "timestamp",
+      "touchIntent",
+      "samples",
+      "isTouchPointCanceled"
     ],
     "constants": {
       "PROXIMITY_BEGIN": "proximityBegin",
@@ -975,6 +1038,8 @@
       "ctrlKey",
       "altKey",
       "shiftKey",
+      "commandKey",
+      "controlKey",
       "isRelatedObjectInaccessible",
       "stageX",
       "stageY"

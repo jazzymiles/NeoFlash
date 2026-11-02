@@ -110,21 +110,39 @@
     }
     noBase(URLRequest,'URLRequest',value=>requests.has(value));noBase(URLRequestHeader,'URLRequestHeader',value=>headers.has(value));noBase(URLVariables,'URLVariables',value=>variables.has(value));
     const progressEvents=new WeakSet(),ioEvents=new WeakSet(),statusEvents=new WeakSet();
-    class ProgressEvent extends events.Event {
-      constructor(type,bubbles=false,cancelable=false,bytesLoaded=0,bytesTotal=0){super(type,bubbles,cancelable);this.bytesLoaded=bytesLoaded;this.bytesTotal=bytesTotal;progressEvents.add(this);}
-      clone(){return new ProgressEvent(this.type,this.bubbles,this.cancelable,this.bytesLoaded,this.bytesTotal);}
+    function formatNetEvent(ev,name,...fields){
+      try{return ev.formatToString(name,'type','bubbles','cancelable','eventPhase',...fields);}
+      catch(_){
+        const all=['type','bubbles','cancelable','eventPhase',...fields];
+        return `[${name} ${all.map(k=>{const v=ev[k];return `${k}=${typeof v==='string'?`"${v}"`:String(v)}`;}).join(' ')}]`;
+      }
     }
-    ProgressEvent.PROGRESS='progress';noBase(ProgressEvent,'ProgressEvent',value=>progressEvents.has(value));
+    class ProgressEvent extends events.Event {
+      constructor(type,bubbles=false,cancelable=false,bytesLoaded=0,bytesTotal=0){super(type,bubbles,cancelable);this.bytesLoaded=Number(bytesLoaded);this.bytesTotal=Number(bytesTotal);progressEvents.add(this);}
+      clone(){return new ProgressEvent(this.type,this.bubbles,this.cancelable,this.bytesLoaded,this.bytesTotal);}
+      toString(){return formatNetEvent(this,'ProgressEvent','bytesLoaded','bytesTotal');}
+    }
+    Object.assign(ProgressEvent,{PROGRESS:'progress',SOCKET_DATA:'socketData'});noBase(ProgressEvent,'ProgressEvent',value=>progressEvents.has(value));
     class IOErrorEvent extends (events.ErrorEvent || events.Event) {
       constructor(type,bubbles=false,cancelable=false,message='',id=0){super(type,bubbles,cancelable,message,id);this.text=text(message,'IOErrorEvent text');if(!events.ErrorEvent)Object.defineProperty(this,'errorID',{value:id,enumerable:true});ioEvents.add(this);}
       clone(){return new IOErrorEvent(this.type,this.bubbles,this.cancelable,this.text,this.errorID);}
+      toString(){return formatNetEvent(this,'IOErrorEvent','text','errorID');}
     }
-    IOErrorEvent.IO_ERROR='ioError';noBase(IOErrorEvent,'IOErrorEvent',value=>ioEvents.has(value));
+    Object.assign(IOErrorEvent,{IO_ERROR:'ioError',DISK_ERROR:'diskError',NETWORK_ERROR:'networkError',VERIFY_ERROR:'verifyError'});noBase(IOErrorEvent,'IOErrorEvent',value=>ioEvents.has(value));
     class HTTPStatusEvent extends events.Event {
-      constructor(type,bubbles=false,cancelable=false,status=0,redirected=false){super(type,bubbles,cancelable);Object.defineProperties(this,{status:{value:status,enumerable:true},redirected:{value:Boolean(redirected),enumerable:true}});this.responseURL='';this.responseHeaders=[];statusEvents.add(this);}
-      clone(){const event=new HTTPStatusEvent(this.type,this.bubbles,this.cancelable,this.status,this.redirected);event.responseURL=this.responseURL;event.responseHeaders=this.responseHeaders.slice();return event;}
+      constructor(type,bubbles=false,cancelable=false,status=0,redirected=false){
+        super(type,bubbles,cancelable);
+        let redirectedFlag=Boolean(redirected);
+        Object.defineProperties(this,{
+          status:{value:Number(status)|0,enumerable:true},
+          redirected:{enumerable:true,get:()=>redirectedFlag,set(v){redirectedFlag=Boolean(v);}},
+        });
+        this.responseURL='';this.responseHeaders=[];statusEvents.add(this);
+      }
+      clone(){const event=new HTTPStatusEvent(this.type,this.bubbles,this.cancelable,this.status,this.redirected);event.responseURL=this.responseURL;event.responseHeaders=Array.isArray(this.responseHeaders)?this.responseHeaders.slice():[];return event;}
+      toString(){return formatNetEvent(this,'HTTPStatusEvent','status','redirected','responseURL');}
     }
-    HTTPStatusEvent.HTTP_STATUS='httpStatus';noBase(HTTPStatusEvent,'HTTPStatusEvent',value=>statusEvents.has(value));
+    Object.assign(HTTPStatusEvent,{HTTP_STATUS:'httpStatus',HTTP_RESPONSE_STATUS:'httpResponseStatus'});noBase(HTTPStatusEvent,'HTTPStatusEvent',value=>statusEvents.has(value));
     function headerPairs(input){
       if(!Array.isArray(input)||input.length>64)throw new TypeError('requestHeaders requires an Array of at most 64 URLRequestHeader objects.');
       const result=[];

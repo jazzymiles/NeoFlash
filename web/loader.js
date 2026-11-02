@@ -74,7 +74,7 @@
         width:isRoot?550:0,height:isRoot?400:0,contentType:isRoot?'application/x-shockwave-flash':null,
         rawBytes:isRoot?defaultBytes:new Uint8Array(0),
         parameters:{},sharedEvents:!as2?new events.EventDispatcher():null,
-        uncaughtErrorEvents:!as2?createUncaughtErrorEvents():null,
+        uncaughtErrorEvents:null,
         applicationDomain:null,childSandboxBridge:null,parentSandboxBridge:null};
       if(!as2)record.info=new LoaderInfo(token,record);
       records.add(record);if(record.ref)targets.set(key(record.ref),record);return record;

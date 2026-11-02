@@ -554,6 +554,57 @@ const BUILTINS: &[&str] = &[
     "flash.text.engine.TypographicCase",
     "flash.text.ime.CompositionAttributeRange",
     "flash.text.ime.IIMEClient",
+    // AS3 Area 8: Accessibility, Media, UI, and Media/AV/DRM Events
+    "flash.accessibility.Accessibility",
+    "flash.accessibility.AccessibilityImplementation",
+    "flash.accessibility.ISearchableText",
+    "flash.accessibility.ISimpleTextSelection",
+    "flash.events.AVDictionaryDataEvent",
+    "flash.events.AVHTTPStatusEvent",
+    "flash.events.AudioOutputChangeEvent",
+    "flash.events.DRMAuthenticationCompleteEvent",
+    "flash.events.DRMAuthenticationErrorEvent",
+    "flash.events.DRMDeviceGroupErrorEvent",
+    "flash.events.DRMDeviceGroupEvent",
+    "flash.events.DRMErrorEvent",
+    "flash.events.DRMLicenseRequestEvent",
+    "flash.events.DRMMetadataEvent",
+    "flash.events.DRMReturnVoucherCompleteEvent",
+    "flash.events.DRMReturnVoucherErrorEvent",
+    "flash.events.DRMStatusEvent",
+    "flash.events.NetFilterEvent",
+    "flash.events.NetMonitorEvent",
+    "flash.events.ShaderEvent",
+    "flash.events.StageVideoEvent",
+    "flash.events.UncaughtErrorEvents",
+    "flash.events.VideoEvent",
+    "flash.events.VideoTextureEvent",
+    "flash.media.AVTagData",
+    "flash.media.AVURLLoader",
+    "flash.media.AVURLStream",
+    "flash.media.AudioDecoder",
+    "flash.media.AudioDeviceManager",
+    "flash.media.AudioOutputChangeReason",
+    "flash.media.Camera",
+    "flash.media.CameraPosition",
+    "flash.media.H264Level",
+    "flash.media.H264Profile",
+    "flash.media.H264VideoStreamSettings",
+    "flash.media.Microphone",
+    "flash.media.MicrophoneEnhancedMode",
+    "flash.media.MicrophoneEnhancedOptions",
+    "flash.media.SoundCodec",
+    "flash.media.StageVideo",
+    "flash.media.StageVideoAvailability",
+    "flash.media.StageVideoAvailabilityReason",
+    "flash.media.VP6VideoStreamSettings",
+    "flash.media.VideoCodec",
+    "flash.media.VideoStreamSettings",
+    "flash.ui.GameInput",
+    "flash.ui.GameInputControl",
+    "flash.ui.GameInputDevice",
+    "flash.ui.Multitouch",
+    "flash.ui.MultitouchInputMode",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -1087,7 +1138,6 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "appendBytes"
                 | "appendBytesAction"
                 | "attachAudio"
-                | "attachCamera"
                 | "onPeerConnect"
                 | "play2"
                 | "publish"
@@ -1212,6 +1262,51 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "uploadFromVector"
                 | "uploadCompressedTextureFromByteArray"
                 | "uploadFromBitmapData"
+                | "getSamples"
+                | "isToolButtonDown"
+                | "getCamera"
+                | "getMicrophone"
+                | "getEnhancedMicrophone"
+                | "setMode"
+                | "setQuality"
+                | "setKeyFrameInterval"
+                | "setLoopback"
+                | "setLoopBack"
+                | "setMotionLevel"
+                | "setCursor"
+                | "copyToByteArray"
+                | "copyToVector"
+                | "setSilenceLevel"
+                | "setUseEchoSuppression"
+                | "setProfileLevel"
+                | "hideBuiltInItems"
+                | "systemClearMenuItem"
+                | "systemCopyLinkMenuItem"
+                | "systemCopyMenuItem"
+                | "systemCutMenuItem"
+                | "systemOpenLinkMenuItem"
+                | "systemPasteMenuItem"
+                | "systemSelectAllMenuItem"
+                | "getDeviceAt"
+                | "getControlAt"
+                | "startCachingSamples"
+                | "stopCachingSamples"
+                | "getCachedSamples"
+                | "sendEvent"
+                | "accDoDefaultAction"
+                | "accLocation"
+                | "accSelect"
+                | "getChildIDArray"
+                | "get_accDefaultAction"
+                | "get_accFocus"
+                | "get_accName"
+                | "get_accRole"
+                | "get_accSelection"
+                | "get_accState"
+                | "get_accValue"
+                | "isLabeledBy"
+                | "get_selectionActiveIndex"
+                | "get_selectionAnchorIndex"
         )
 }
 
@@ -2210,7 +2305,27 @@ fn parse_class(
                 | "flash.events.RemoteNotificationEvent"
                 | "flash.events.GameInputEvent"
                 | "flash.events.VsyncStateChangeAvailabilityEvent"
+                | "flash.events.AVDictionaryDataEvent"
+                | "flash.events.AVHTTPStatusEvent"
+                | "flash.events.AudioOutputChangeEvent"
+                | "flash.events.DRMAuthenticationCompleteEvent"
+                | "flash.events.DRMAuthenticationErrorEvent"
+                | "flash.events.DRMDeviceGroupErrorEvent"
+                | "flash.events.DRMDeviceGroupEvent"
+                | "flash.events.DRMErrorEvent"
+                | "flash.events.DRMLicenseRequestEvent"
+                | "flash.events.DRMMetadataEvent"
+                | "flash.events.DRMReturnVoucherCompleteEvent"
+                | "flash.events.DRMReturnVoucherErrorEvent"
+                | "flash.events.DRMStatusEvent"
+                | "flash.events.NetFilterEvent"
+                | "flash.events.NetMonitorEvent"
+                | "flash.events.ShaderEvent"
                 | "flash.events.StageVideoAvailabilityEvent"
+                | "flash.events.StageVideoEvent"
+                | "flash.events.UncaughtErrorEvents"
+                | "flash.events.VideoEvent"
+                | "flash.events.VideoTextureEvent"
         )
     ) {
         return Err(Diagnostic::at(
@@ -2234,9 +2349,12 @@ fn parse_class(
             || base.starts_with("flash.security.")
             || base.starts_with("flash.system.")
             || base.starts_with("flash.display3D.")
+            || base.starts_with("flash.ui.")
             || matches!(
                 base.as_str(),
-                "flash.display.FocusDirection"
+                "flash.accessibility.Accessibility"
+                    | "flash.accessibility.AccessibilityProperties"
+                    | "flash.display.FocusDirection"
                     | "flash.display.StageAspectRatio"
                     | "flash.display.StageOrientation"
                     | "flash.display.ScreenMode"
@@ -3167,6 +3285,36 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                 ),
             ]),
         ),
+        (
+            "flash.accessibility.ISearchableText".to_owned(),
+            BTreeMap::from([entry(
+                "flash.accessibility.ISearchableText",
+                "searchText",
+                MethodKind::Get,
+                &[],
+                "String",
+            )]),
+        ),
+        (
+            "flash.accessibility.ISimpleTextSelection".to_owned(),
+            BTreeMap::from([
+                entry(
+                    "flash.accessibility.ISimpleTextSelection",
+                    "selectionActiveIndex",
+                    MethodKind::Get,
+                    &[],
+                    "int",
+                ),
+                entry(
+                    "flash.accessibility.ISimpleTextSelection",
+                    "selectionAnchorIndex",
+                    MethodKind::Get,
+                    &[],
+                    "int",
+                ),
+                ),
+            ]),
+        ),
     ])
 }
 
@@ -3324,6 +3472,68 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let mut resolved = BTreeMap::<String, Vec<MemberRecord>>::new();
     let mut class_contracts =
         BTreeMap::<String, Vec<((String, MethodKind), MethodContract)>>::new();
+    {
+        let acc_owner = "flash.accessibility.AccessibilityImplementation";
+        let acc_method = |name: &str, params: &[(&str, bool)], returns: &str| {
+            (
+                (name.to_owned(), MethodKind::Method),
+                MethodContract {
+                    signature: Signature {
+                        params: params.iter().map(|(ty, _)| (*ty).to_owned()).collect(),
+                        optional: params.iter().map(|(_, opt)| *opt).collect(),
+                        rest: false,
+                        returns: returns.to_owned(),
+                    },
+                    access: Access::Public,
+                    owner: acc_owner.to_owned(),
+                    final_: false,
+                },
+            )
+        };
+        let acc_contracts = vec![
+            acc_method("accDoDefaultAction", &[("uint", false)], "void"),
+            acc_method("accLocation", &[("uint", false)], "*"),
+            acc_method("accSelect", &[("uint", false), ("uint", false)], "void"),
+            acc_method("getChildIDArray", &[], "Array"),
+            acc_method("get_accDefaultAction", &[("uint", false)], "String"),
+            acc_method("get_accFocus", &[], "uint"),
+            acc_method("get_accName", &[("uint", false)], "String"),
+            acc_method("get_accRole", &[("uint", false)], "uint"),
+            acc_method("get_accSelection", &[], "Array"),
+            acc_method("get_accState", &[("uint", false)], "uint"),
+            acc_method("get_accValue", &[("uint", false)], "String"),
+            acc_method("isLabeledBy", &[("flash.geom.Rectangle", false)], "Boolean"),
+            acc_method("get_selectionActiveIndex", &[], "*"),
+            acc_method("get_selectionAnchorIndex", &[], "*"),
+        ];
+        let mut acc_members = vec![
+            MemberRecord {
+                name: "errno".into(),
+                ty: Some("uint".into()),
+                access: Access::Public,
+                owner: acc_owner.into(),
+                is_static: false,
+            },
+            MemberRecord {
+                name: "stub".into(),
+                ty: Some("Boolean".into()),
+                access: Access::Public,
+                owner: acc_owner.into(),
+                is_static: false,
+            },
+        ];
+        for ((mname, _), _) in &acc_contracts {
+            acc_members.push(MemberRecord {
+                name: mname.clone(),
+                ty: Some("Function".into()),
+                access: Access::Public,
+                owner: acc_owner.into(),
+                is_static: false,
+            });
+        }
+        resolved.insert(acc_owner.into(), acc_members);
+        class_contracts.insert(acc_owner.into(), acc_contracts);
+    }
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut contracts = builtin_interfaces.clone();
     let mut interface_closures: BTreeMap<String, BTreeSet<String>> = builtin_interfaces
@@ -3896,7 +4106,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfAs3NetSysVectorFactory==='function')__nfBuiltins.__nfAs3NetSysVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfFte3dVectorFactory==='function')__nfBuiltins.__nfFte3dVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfAs3NetSysVectorFactory==='function')__nfBuiltins.__nfAs3NetSysVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfFte3dVectorFactory==='function')__nfBuiltins.__nfFte3dVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfMediaEventsVectorFactory==='function')__nfBuiltins.__nfMediaEventsVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

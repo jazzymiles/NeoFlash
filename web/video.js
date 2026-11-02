@@ -46,6 +46,10 @@
     class NetStatusEvent extends events.Event{
       constructor(type,bubbles=false,cancelable=false,info=null){super(type,bubbles,cancelable);this.info=info;statusTypes.add(this);}
       clone(){return new NetStatusEvent(this.type,this.bubbles,this.cancelable,this.info);}
+      toString(){
+        try{return this.formatToString('NetStatusEvent','type','bubbles','cancelable','eventPhase','info');}
+        catch(_){return `[NetStatusEvent type="${this.type}" bubbles=${this.bubbles} cancelable=${this.cancelable} eventPhase=${this.eventPhase} info=${String(this.info)}]`;}
+      }
     }
     NetStatusEvent.NET_STATUS='netStatus';
     function emit(r,code,level='status',extra={}){
@@ -216,19 +220,21 @@
       const old=b.stream;b.frozen=old?freeze(old):b.frozen;b.stream=null;
       if(next){for(const other of bindings.values())if(other!==b&&other.stream===next){other.frozen=freeze(next);other.stream=null;other.revision=++serial;}b.stream=next;b.frozen=null;b.clearSerial=-1;}b.revision=++serial;collectFrames();after(generation);
     }
-    function freezeCapture(b){const source=b.capture?.read();if(!source)return b.frozen;const output=frame(source.width,source.height),ctx=output.canvas.getContext('2d');if(!ctx)throw new Error('Camera retained frame requires Canvas 2D.');ctx.drawImage(source.image,0,0,source.width,source.height);return output;}
-    function legacyAttachVideo(target,value){
-      const capture=options.getCapture?.();if(!capture?.isCamera(value)){attach(target,value);return;}
-      const b=binding(target),lease=capture.attachVideo(value,repaint);
-      b.capture?.release();b.capture=lease;b.captureClearId=null;b.stream=null;b.frozen=null;b.clearSerial=-1;b.revision=++serial;collectFrames();after(generation);
-    }
-    function clear(target){const b=binding(target);b.frozen=null;b.captureClearId=b.capture?.read()?.id??null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
-    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
-    function attachCamera(target,value){
+    function freezeCapture(b){const source=b.capture?.read();if(!source||!source.image)return b.frozen;const output=frame(source.width,source.height),ctx=output.canvas.getContext('2d');if(!ctx)throw new Error('Camera retained frame requires Canvas 2D.');ctx.drawImage(source.image,0,0,source.width,source.height);return output;}
+    function attachAs3Camera(target,value){
       const b=binding(target);
       if(value===null||value===undefined){
         if(b.capture){b.frozen=freezeCapture(b);b.capture.release();b.capture=null;b.captureClearId=null;}
-        b.attachedCamera=null;b.revision=++serial;collectFrames();after(generation);return;
+        b.attachedCamera=null;b.revision=++serial;collectFrames();after(generation);
+        return;
+      }
+      const as3Cam=options.getAs3Camera?.();
+      if(as3Cam){
+        if(!as3Cam.isCamera(value))throw new TypeError('Video.attachCamera requires a flash.media.Camera or null.');
+        const lease=as3Cam.attachVideo(value,repaint);
+        if(b.stream){b.frozen=freeze(b.stream);b.stream=null;}
+        b.capture?.release();b.capture=lease;b.captureClearId=null;b.frozen=null;b.clearSerial=-1;b.attachedCamera=value;b.revision=++serial;collectFrames();after(generation);
+        return;
       }
       const capture=options.getCapture?.();
       if(capture?.isCamera?.(value)){legacyAttachVideo(target,value);return;}
@@ -236,7 +242,14 @@
       if(b.stream){b.frozen=freeze(b.stream);b.stream=null;}
       b.attachedCamera=value;b.revision=++serial;collectFrames();after(generation);
     }
-    function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:value=>attachCamera(target,value)};}
+    function legacyAttachVideo(target,value){
+      const capture=options.getCapture?.();if(!capture?.isCamera(value)){attach(target,value);return;}
+      const b=binding(target),lease=capture.attachVideo(value,repaint);
+      b.capture?.release();b.capture=lease;b.captureClearId=null;b.stream=null;b.frozen=null;b.clearSerial=-1;b.revision=++serial;collectFrames();after(generation);
+    }
+    function clear(target){const b=binding(target);b.frozen=null;b.captureClearId=b.capture?.read()?.id??null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
+    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
+    function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:value=>attachAs3Camera(target,value)};}
     function get(target,name){if(name==='smoothing')return videoRef(target).info.smoothing;if(name==='deblocking')return videoRef(target).info.deblocking??0;if(name==='videoWidth'||name==='videoHeight'){const b=binding(target),r=b.stream,f=source(b);return r?(name==='videoWidth'?r.width:r.height):f?(name==='videoWidth'?f.width:f.height):0;}return UNHANDLED;}
     function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,smoothing:value}));return true;}if(name==='deblocking'){if(!Number.isInteger(value)||value<0||value>5)throw new RangeError('Video.deblocking requires an integer from 0 through 5.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,deblocking:value}));return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
     class Video{

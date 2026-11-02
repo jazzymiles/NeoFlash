@@ -564,8 +564,13 @@
         } },
       wmodeGPU: { enumerable: true, get: () => false },
       softKeyboardRect: { enumerable: true, get: () => options.getSoftKeyboardRect ? options.getSoftKeyboardRect() : makeRectangle(0, 0, 0, 0) },
-      stage3Ds: { enumerable: true, get: () => options.getStage3Ds ? options.getStage3Ds() : cursorVectorFactory([]) },
-      stageVideos: { enumerable: true, get: () => options.getStageVideos ? options.getStageVideos() : cursorVectorFactory([]) },
+      stage3Ds: { enumerable: true, configurable: true, get: () => options.getStage3Ds ? options.getStage3Ds() : cursorVectorFactory([]) },
+      stageVideos: { enumerable: true, configurable: true, get: () => {
+        const store = Stage.prototype[Symbol.for('neoflash.mediaEvents.stageHooks')];
+        const fn = store?.byStage?.get(stage) || store?.fallback;
+        if (fn) return fn(stage);
+        return options.getStageVideos ? options.getStageVideos() : cursorVectorFactory([]);
+      } },
       browserZoomFactor: { enumerable: true, get: () => {
         const zoom = Number(options.browserZoomFactor ?? global.devicePixelRatio ?? 1);
         return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
@@ -598,12 +603,12 @@
         set() { throw illegalOperationError(); } },
       accessibilityImplementation: { enumerable: true, get: () => null,
         set() { throw illegalOperationError(); } },
+      accessibilityProperties: { enumerable: true, get: () => null,
+        set() { throw illegalOperationError(); } },
       showDefaultContextMenu: { enumerable: true, get: () => showDefaultContextMenu,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.showDefaultContextMenu requires a Boolean.'); showDefaultContextMenu = value; } },
       stageFocusRect: { enumerable: true, get: () => stageFocusRect,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.stageFocusRect requires a Boolean.'); stageFocusRect = value; } },
-      stageVideos: { enumerable: true, get: () => cursorVectorFactory([]) },
-      stage3Ds: { enumerable: true, get: () => cursorVectorFactory([]) },
       mouseX: { enumerable: true, get: () => mouseX }, mouseY: { enumerable: true, get: () => mouseY },
       focus: { enumerable: true, get() { if (focus && !alive(focus)) changeFocus(null); return focus; },
         set(value) {changeFocus(value);} },

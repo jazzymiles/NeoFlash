@@ -23,6 +23,7 @@ pub mod as3_air;
 pub mod as3_collections;
 pub mod as3_fte_3d;
 pub mod as3_geom;
+pub mod as3_media_events;
 pub mod as3_net_sys;
 pub mod as3_object;
 pub mod as3_sound_media;
