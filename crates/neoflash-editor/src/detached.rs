@@ -642,10 +642,22 @@ impl Editor {
             .menu_target
             .as_ref()
             .is_some_and(|t| t.is_text());
-        for (name, shortcut, command) in [
-            ("Cut", "⌘X", ClipboardCommand::Cut),
-            ("Copy", "⌘C", ClipboardCommand::Copy),
-            ("Paste", "⌘V", ClipboardCommand::Paste),
+        for (name, cmd_id, command) in [
+            (
+                "Cut",
+                crate::commands::CommandId::EditCut,
+                ClipboardCommand::Cut,
+            ),
+            (
+                "Copy",
+                crate::commands::CommandId::EditCopy,
+                ClipboardCommand::Copy,
+            ),
+            (
+                "Paste",
+                crate::commands::CommandId::EditPaste,
+                ClipboardCommand::Paste,
+            ),
         ] {
             let enabled = text
                 || if command == ClipboardCommand::Paste {
@@ -653,7 +665,7 @@ impl Editor {
                 } else {
                     !self.selection.is_empty()
                 };
-            if crate::ui_icons::menu_item_enabled(ui, enabled, name, shortcut).clicked() {
+            if crate::ui_icons::menu_item_enabled(ui, enabled, name, &self.sc(cmd_id)).clicked() {
                 self.request_clipboard(&ctx, command);
                 ui.close();
             }

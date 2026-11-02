@@ -229,14 +229,25 @@ impl Editor {
 
     /// Transport and loop: first, step back, Play (primary MD 40), step forward, last.
     fn timeline_transport(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::{CommandId as C, transport_step_label};
         let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        let show_sc = self.workspace.general.tooltip_shortcuts;
+        let prev_sc = show_sc
+            .then(|| transport_step_label(&self.workspace.shortcuts, C::ControlStepBack))
+            .filter(|s| !s.is_empty());
+        let play_sc = self.tooltip_sc(C::ControlPlay);
+        let next_sc = show_sc
+            .then(|| transport_step_label(&self.workspace.shortcuts, C::ControlStepForward))
+            .filter(|s| !s.is_empty());
+
         if ui.add(IconButton::new(i16::FIRST, "Rewind")).clicked() {
             self.timeline_seek(0);
         }
-        if ui
-            .add(IconButton::new(i16::STEPBACK, "Previous frame").shortcut("←"))
-            .clicked()
-        {
+        let mut prev_btn = IconButton::new(i16::STEPBACK, "Previous frame");
+        if let Some(sc) = prev_sc.as_deref() {
+            prev_btn = prev_btn.shortcut(sc);
+        }
+        if ui.add(prev_btn).clicked() {
             self.timeline_seek(self.frame.saturating_sub(1));
         }
         let (icon, label) = if self.playing {
@@ -244,21 +255,20 @@ impl Editor {
         } else {
             (i16::PLAY, "Play preview")
         };
-        if ui
-            .add(
-                IconButton::new(icon, label)
-                    .kind(IconButtonType::Primary)
-                    .size(IconButtonSize::MD)
-                    .shortcut("↵"),
-            )
-            .clicked()
-        {
+        let mut play_btn = IconButton::new(icon, label)
+            .kind(IconButtonType::Primary)
+            .size(IconButtonSize::MD);
+        if let Some(sc) = play_sc.as_deref() {
+            play_btn = play_btn.shortcut(sc);
+        }
+        if ui.add(play_btn).clicked() {
             self.set_playing(!self.playing);
         }
-        if ui
-            .add(IconButton::new(i16::STEPFWD, "Next frame").shortcut("→"))
-            .clicked()
-        {
+        let mut next_btn = IconButton::new(i16::STEPFWD, "Next frame");
+        if let Some(sc) = next_sc.as_deref() {
+            next_btn = next_btn.shortcut(sc);
+        }
+        if ui.add(next_btn).clicked() {
             self.timeline_seek(self.frame + 1);
         }
         if ui
@@ -533,16 +543,15 @@ impl Editor {
                 });
                 ui.horizontal(|ui| {
                     ui.label(typography::rich("Opacity", TextStyle::Small).color(p.text_secondary));
-                    let mut opacity = self.onion_opacity as f64;
+                    let mut opacity = f64::from(self.workspace.timeline_prefs.onion_falloff);
                     if ui
                         .add(
-                            nf::Slider::new(&mut opacity, 0.05..=0.7, "Onion opacity")
-                                .step(0.01)
+                            nf::Slider::new(&mut opacity, 15.0..=100.0, "Onion opacity")
                                 .width(SLIDER),
                         )
                         .changed()
                     {
-                        self.onion_opacity = opacity as f32;
+                        self.workspace.timeline_prefs.onion_falloff = opacity as f32;
                     }
                 });
             });

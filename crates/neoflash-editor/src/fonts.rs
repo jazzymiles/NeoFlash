@@ -10,6 +10,7 @@ pub struct Fonts {
     pub families: Vec<String>,
     definitions: FontDefinitions,
     loaded: HashSet<(String, bool, bool)>,
+    failed: HashSet<(String, bool, bool)>,
 }
 
 pub(crate) fn styled_family(family: &str, bold: bool, italic: bool) -> FontFamily {
@@ -30,6 +31,23 @@ impl Fonts {
             families,
             definitions: FontDefinitions::default(),
             loaded: HashSet::new(),
+            failed: HashSet::new(),
+        }
+    }
+
+    /// Ensure `family` is installed in `ctx` once if it is a custom system font, caching failures
+    /// so unavailable families are not retried every frame.
+    pub(crate) fn ensure_loaded(&mut self, ctx: &egui::Context, family: &str) {
+        let trimmed = family.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("Roboto Mono") {
+            return;
+        }
+        let key = (trimmed.to_owned(), false, false);
+        if self.loaded.contains(&key) || self.failed.contains(&key) {
+            return;
+        }
+        if self.load(ctx, trimmed).is_err() {
+            self.failed.insert(key);
         }
     }
 

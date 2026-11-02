@@ -103,11 +103,30 @@ pub(crate) fn world_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
     bounds
 }
 pub(crate) fn hit_item(item: &DrawItem, painter: &egui::Painter, point: Pos2, zoom: f32) -> bool {
+    hit_item_with_slop(item, painter, point, zoom, 0.0)
+}
+pub(crate) fn hit_item_with_slop(
+    item: &DrawItem,
+    painter: &egui::Painter,
+    point: Pos2,
+    zoom: f32,
+    slop_px: f32,
+) -> bool {
     let Some(local) = inverse(item.transform, point) else {
         return false;
     };
     let bounds = local_bounds(item, painter);
-    if !bounds.contains(local) {
+    if bounds.is_negative() {
+        return false;
+    }
+    let zoom = zoom.max(1e-3);
+    let sx = item.transform[0].hypot(item.transform[1]).max(0.001);
+    let sy = item.transform[2].hypot(item.transform[3]).max(0.001);
+    let max_scale = sx.max(sy);
+    let slop = slop_px.max(0.0);
+    let slop_x = slop / (sx as f32 * zoom);
+    let slop_y = slop / (sy as f32 * zoom);
+    if !bounds.expand2(Vec2::new(slop_x, slop_y)).contains(local) {
         return false;
     }
     match &item.kind {
@@ -125,26 +144,48 @@ pub(crate) fn hit_item(item: &DrawItem, painter: &egui::Painter, point: Pos2, zo
             stroke,
             stroke_width,
             ..
-        } => hit_test_path(
-            commands,
-            *fill_rule,
-            [local.x as f64, local.y as f64],
-            fill[3] > 0 || matches!(&item.kind, ElementKind::PaintedPath { fill_gradient: Some(g), .. } if g.stops.iter().any(|s|s.color[3] > 0)),
-            if stroke[3] > 0 || matches!(&item.kind, ElementKind::PaintedPath { stroke_gradient: Some(g), .. } if g.stops.iter().any(|s|s.color[3] > 0)) { *stroke_width } else { 0. },
-            FlattenOptions {
-                tolerance: 0.25
-                    / (item.transform[0]
-                        .hypot(item.transform[1])
-                        .max(item.transform[2].hypot(item.transform[3]))
-                        .max(0.001)
-                        * zoom as f64),
-                ..Default::default()
-            },
-        )
-        .unwrap_or(false),
+        } => {
+            let has_fill = fill[3] > 0
+                || matches!(
+                    &item.kind,
+                    ElementKind::PaintedPath {
+                        fill_gradient: Some(g),
+                        ..
+                    } if g.stops.iter().any(|s| s.color[3] > 0)
+                );
+            let has_stroke = stroke[3] > 0
+                || matches!(
+                    &item.kind,
+                    ElementKind::PaintedPath {
+                        stroke_gradient: Some(g),
+                        ..
+                    } if g.stops.iter().any(|s| s.color[3] > 0)
+                );
+            let local_slop = f64::from(slop) / (max_scale * f64::from(zoom));
+            let base_stroke = if has_stroke { *stroke_width } else { 0. };
+            let effective_stroke = if has_stroke || (has_fill && local_slop > 0.) {
+                base_stroke + 2. * local_slop
+            } else {
+                0.
+            };
+            hit_test_path(
+                commands,
+                *fill_rule,
+                [local.x as f64, local.y as f64],
+                has_fill,
+                effective_stroke,
+                FlattenOptions {
+                    tolerance: 0.25 / (max_scale * zoom as f64),
+                    ..Default::default()
+                },
+            )
+            .unwrap_or(false)
+        }
         ElementKind::Ellipse { .. } => {
-            let nx = (local.x - bounds.center().x) / (bounds.width() / 2.);
-            let ny = (local.y - bounds.center().y) / (bounds.height() / 2.);
+            let rx = (bounds.width() / 2. + slop_x).max(1e-6);
+            let ry = (bounds.height() / 2. + slop_y).max(1e-6);
+            let nx = (local.x - bounds.center().x) / rx;
+            let ny = (local.y - bounds.center().y) / ry;
             nx * nx + ny * ny <= 1.
         }
         _ => true,
@@ -503,7 +544,10 @@ impl Editor {
                         .clamp(0.1, 2.);
                 }
                 // Tools and hover targets refine this during the frame; `show_stage_cursor` paints it.
-                self.stage_cursor = Some(crate::stage_cursor::tool_cursor(self.tool));
+                self.stage_cursor = Some(crate::stage_cursor::tool_cursor_precise(
+                    self.tool,
+                    self.workspace.drawing.precise_cursors,
+                ));
                 if response.hovered() {
                     let delta = ctx.input(|input| input.smooth_scroll_delta);
                     if delta != Vec2::ZERO {
@@ -568,12 +612,7 @@ impl Editor {
                         if frame == self.frame {
                             continue;
                         }
-                        let distance = frame.abs_diff(self.frame).max(1);
-                        let opacity = if multiple {
-                            1.
-                        } else {
-                            self.onion_opacity as f64 / (distance as f64).sqrt()
-                        };
+                        let opacity = self.onion_frame_opacity(frame);
                         let tint = if multiple {
                             None
                         } else if frame < self.frame {
@@ -769,27 +808,34 @@ impl Editor {
 
     fn stage_object_commands(&mut self, ui: &mut egui::Ui) {
         use crate::clipboard::ClipboardCommand;
+        use crate::commands::CommandId as C;
         use crate::ui_icons::menu_item_enabled;
         use neoflash_ui::components as nf;
         let ctx = ui.ctx().clone();
         let selected = !self.selection.is_empty();
-        for (label, shortcut, command, enabled) in [
-            ("Cut", "⌘X", ClipboardCommand::Cut, selected),
-            ("Copy", "⌘C", ClipboardCommand::Copy, selected),
+        for (label, cmd_id, command, enabled) in [
+            ("Cut", C::EditCut, ClipboardCommand::Cut, selected),
+            ("Copy", C::EditCopy, ClipboardCommand::Copy, selected),
             (
                 "Paste in place",
-                "⇧⌘V",
+                C::EditPasteInPlace,
                 ClipboardCommand::PasteInPlace,
                 self.layer_editable(),
             ),
         ] {
-            if menu_item_enabled(ui, enabled, label, shortcut).clicked() {
+            if menu_item_enabled(ui, enabled, label, &self.sc(cmd_id)).clicked() {
                 self.request_clipboard(&ctx, command);
                 ui.close();
             }
         }
         nf::menu_separator(ui);
-        if menu_item_enabled(ui, self.can_convert_selection(), "Convert to symbol…", "F8").clicked()
+        if menu_item_enabled(
+            ui,
+            self.can_convert_selection(),
+            "Convert to symbol…",
+            &self.sc(C::ModifyConvertToSymbol),
+        )
+        .clicked()
         {
             self.convert_to_symbol();
             ui.close();
@@ -809,7 +855,7 @@ impl Editor {
             ui,
             self.can_create_tween(),
             "Create motion tween",
-            "",
+            &self.sc(C::InsertMotionTween),
         )
         .clicked()
         {
@@ -960,4 +1006,42 @@ impl Editor {
             },
         );
     }
+
+    pub(crate) fn onion_frame_opacity(&self, frame: u32) -> f64 {
+        if self.timeline_edit.edit_multiple || frame == self.frame {
+            return 1.0;
+        }
+        let (start, end) = self.onion_range();
+        let clamped_end = end.min(self.symbol().timeline.frame_count.saturating_sub(1));
+        let distance = frame.abs_diff(self.frame).max(1);
+        let range_len = if self.onion_anchor {
+            if frame < self.frame {
+                self.frame.saturating_sub(start)
+            } else {
+                clamped_end.saturating_sub(self.frame)
+            }
+        } else if frame < self.frame {
+            self.onion_before
+        } else {
+            self.onion_after
+        };
+        onion_ghost_opacity(
+            self.workspace.timeline_prefs.onion_falloff,
+            distance,
+            range_len,
+        )
+    }
+}
+
+/// Linear onion-skin ghost opacity from `falloff_percent`% at `distance == 1` to `15`% at
+/// `range_len` (when `range_len <= 1`, the single ghost uses `falloff_percent`%).
+pub(crate) fn onion_ghost_opacity(falloff_percent: f32, distance: u32, range_len: u32) -> f64 {
+    let near = (f64::from(falloff_percent) / 100.0).clamp(0.15, 1.0);
+    let far = 0.15;
+    let d = distance.max(1);
+    if range_len <= 1 {
+        return near;
+    }
+    let t = (f64::from(d - 1) / f64::from(range_len - 1)).clamp(0.0, 1.0);
+    near + (far - near) * t
 }

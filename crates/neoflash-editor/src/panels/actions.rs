@@ -103,10 +103,12 @@ impl Editor {
             ui.spacing_mut().item_spacing.x = space::S2;
             let search = (ui.available_width() - 2. * (CONTROL + space::S2)).max(80.);
             ui.add(nf::Search::new(&mut filter, "Filter output").width(search));
-            let copy = ui.add_enabled_semantic(
-                !visible.is_empty(),
-                nf::IconButton::new(i16::COPY, "Copy output").shortcut("⌘C"),
-            );
+            let copy_sc = self.tooltip_sc(crate::commands::CommandId::EditCopy);
+            let mut copy_btn = nf::IconButton::new(i16::COPY, "Copy output");
+            if let Some(sc) = copy_sc.as_deref() {
+                copy_btn = copy_btn.shortcut(sc);
+            }
+            let copy = ui.add_enabled_semantic(!visible.is_empty(), copy_btn);
             if copy.clicked() {
                 let text = visible
                     .iter()

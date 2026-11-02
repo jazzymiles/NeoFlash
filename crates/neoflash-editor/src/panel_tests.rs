@@ -1095,7 +1095,7 @@ fn detached_timeline_minimum_width_opens_working_opacity_control() {
     let bounds = named_bounds(&output, "Onion opacity")
         .expect("Opacity is available through the onion options popover");
     assert!(viewport.contains_rect(bounds), "{bounds:?}");
-    let opacity = editor.onion_opacity;
+    let opacity = editor.workspace.timeline_prefs.onion_falloff;
     // Click the NF2/Slider rail itself (140 pt wide, 7 pt knob inset).
     let point = Pos2::new(bounds.left() + 72., bounds.center().y);
     detached_timeline_frame(
@@ -1113,7 +1113,7 @@ fn detached_timeline_minimum_width_opens_working_opacity_control() {
         vec![primary_button(point, false)],
     );
     assert_ne!(
-        editor.onion_opacity, opacity,
+        editor.workspace.timeline_prefs.onion_falloff, opacity,
         "popup slider must accept pointer input"
     );
     assert_eq!(editor.project, before);
@@ -2294,4 +2294,1244 @@ fn preference_defaults_reach_tweens_text_and_paste() {
         _ => None,
     });
     assert_eq!(text_size, Some(48.));
+}
+
+#[test]
+fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_through_ui() {
+    use crate::workspace::OnLaunch;
+
+    let temp_root =
+        std::env::temp_dir().join(format!("neoflash-panel-recovery-ui-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_root);
+    let docs_dir = temp_root.join("docs");
+    let rec_dir = temp_root.join("recovery");
+    std::fs::create_dir_all(&docs_dir).unwrap();
+    std::fs::create_dir_all(&rec_dir).unwrap();
+    let docs_dir = std::fs::canonicalize(&docs_dir).unwrap();
+    let rec_dir = std::fs::canonicalize(&rec_dir).unwrap();
+
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.editor.recovery.set_dir(Some(rec_dir.clone()));
+    d.settle();
+
+    // Save two projects so `recent_files` records `[Beta.nflash, Alpha.nflash]`.
+    let alpha_path = docs_dir.join("Alpha.nflash");
+    let beta_path = docs_dir.join("Beta.nflash");
+    d.editor.project.name = "AlphaProject".into();
+    assert!(d.editor.save_to_path(alpha_path.clone()));
+    d.editor.project.name = "BetaProject".into();
+    assert!(d.editor.save_to_path(beta_path.clone()));
+    assert_eq!(d.editor.workspace.general.existing_recent_files().len(), 2);
+
+    // Preferences ▸ General: wire On launch select + Autosave switch & minutes stepper.
+    d.click("Edit");
+    d.click("Preferences… (⌘U)");
+    assert!(d.editor.preferences.is_some());
+    assert!(d.find("Autosave minutes").is_some());
+    d.click("Example");
+    d.click("Last document");
+    assert_eq!(
+        d.editor.preferences.as_ref().unwrap().general.on_launch,
+        OnLaunch::LastDocument
+    );
+    d.click("Every");
+    assert!(!d.editor.preferences.as_ref().unwrap().general.autosave);
+    d.editor
+        .preferences
+        .as_mut()
+        .unwrap()
+        .general
+        .autosave_minutes = 12;
+    d.settle();
+
+    // `Reset to defaults` restores General defaults while preserving `recent_files`.
+    d.click("Reset to defaults");
+    {
+        let draft = d.editor.preferences.as_ref().unwrap();
+        assert_eq!(draft.general.on_launch, OnLaunch::Example);
+        assert!(draft.general.autosave);
+        assert_eq!(draft.general.autosave_minutes, 5);
+        assert_eq!(draft.general.recent_files.len(), 2);
+    }
+
+    // Re-select `New document` and toggle autosave minutes to 2, then Save.
+    d.click("Example");
+    d.click("New document");
+    d.editor
+        .preferences
+        .as_mut()
+        .unwrap()
+        .general
+        .autosave_minutes = 2;
+    d.click("Save");
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(d.editor.workspace.general.on_launch, OnLaunch::NewDocument);
+    assert_eq!(d.editor.workspace.general.autosave_minutes, 2);
+
+    // File ▸ Open recent opens `Alpha.nflash` when clicked.
+    d.click("File");
+    let open_recent = d
+        .find("Open recent")
+        .expect("Open recent submenu row")
+        .center();
+    d.step(vec![Event::PointerMoved(open_recent)]);
+    d.settle();
+    d.click("Alpha.nflash");
+    assert_eq!(d.editor.project.name, "AlphaProject");
+    assert_eq!(d.editor.path.as_deref(), Some(alpha_path.as_path()));
+    assert!(!d.editor.dirty());
+
+    // Dirty `Alpha` + autosave snapshot -> File ▸ Open recent ▸ `Beta.nflash` -> Discard deletes snapshot.
+    d.editor
+        .transact(|e| e.project.name = "AlphaUnsaved".into());
+    d.editor.tick_autosave(10.0, 1_700_020_000);
+    d.editor.tick_autosave(130.0, 1_700_020_120);
+    assert_eq!(std::fs::read_dir(&rec_dir).unwrap().count(), 2);
+    d.click("File");
+    let open_recent = d.find("Open recent").unwrap().center();
+    d.step(vec![Event::PointerMoved(open_recent)]);
+    d.settle();
+    d.click("Beta.nflash");
+    assert!(d.editor.confirm.is_some(), "unsaved changes confirm opens");
+    d.click("Discard");
+    assert!(d.editor.confirm.is_none());
+    assert_eq!(d.editor.project.name, "BetaProject");
+    assert_eq!(
+        std::fs::read_dir(&rec_dir).unwrap().count(),
+        0,
+        "Discard in unsaved-changes dialog deletes active recovery snapshot"
+    );
+
+    // Seed two crash-recovery snapshots and test Restore and Discard buttons in `Recover unsaved work?`.
+    let mut crashed_newer = Project::blank();
+    crashed_newer.name = "RecoveredAlpha".into();
+    std::fs::write(
+        rec_dir.join("snap-a.nflash"),
+        crashed_newer.to_json().unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        rec_dir.join("snap-a.json"),
+        serde_json::to_string(&crate::recovery::RecoverySidecar {
+            original_path: Some(alpha_path.clone()),
+            document_name: "Alpha.nflash".into(),
+            timestamp_unix_secs: 1_700_030_500,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut crashed_older = Project::blank();
+    crashed_older.name = "RecoveredUntitled".into();
+    std::fs::write(
+        rec_dir.join("snap-b.nflash"),
+        crashed_older.to_json().unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        rec_dir.join("snap-b.json"),
+        serde_json::to_string(&crate::recovery::RecoverySidecar {
+            original_path: None,
+            document_name: "Untitled".into(),
+            timestamp_unix_secs: 1_700_030_100,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    d.editor.check_recovery_on_launch();
+    d.settle();
+    assert!(
+        d.texts().iter().any(|t| t == "Recover unsaved work?"),
+        "recovery dialog visible: {:?}",
+        d.texts()
+    );
+
+    // Click Restore on the newer snapshot (`Alpha.nflash`).
+    d.click("Restore");
+    assert_eq!(d.editor.project.name, "RecoveredAlpha");
+    assert!(d.editor.dirty());
+    assert_eq!(d.editor.path.as_deref(), Some(alpha_path.as_path()));
+
+    // Next prompt offers the older snapshot (`Untitled`); click Discard to delete `snap-b`.
+    assert!(d.texts().iter().any(|t| t == "Recover unsaved work?"));
+    d.click("Discard");
+    assert!(!d.editor.recovery.has_prompt());
+    assert!(!rec_dir.join("snap-b.nflash").exists());
+    assert!(!rec_dir.join("snap-b.json").exists());
+    // Saving the restored `Alpha.nflash` writes to `alpha_path` and cleans up `snap-a`.
+    assert!(d.editor.save(false));
+    assert!(!rec_dir.join("snap-a.nflash").exists());
+    assert!(!rec_dir.join("snap-a.json").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
+    use crate::panels::preferences::PAGE_CODE_EDITOR;
+    use crate::workspace::{CodeEditorPrefs, WorkspacePrefs};
+
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    let untouched_project = d.editor.project.clone();
+    d.settle();
+
+    // Open Edit ▸ Preferences… and switch to the Code editor page via the category tree.
+    d.click("Edit");
+    d.click("Preferences… (⌘U)");
+    d.click("Code editor");
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(PAGE_CODE_EDITOR)
+    );
+
+    // Colour scheme controls remain disabled while Font and Editing controls are active.
+    let node_disabled = |out: &egui::FullOutput, label: &str| {
+        out.platform_output.accesskit_update.as_ref().and_then(|u| {
+            u.nodes
+                .iter()
+                .find(|(_, n)| n.label() == Some(label))
+                .map(|(_, n)| n.is_disabled())
+        })
+    };
+    assert_eq!(node_disabled(&d.out, "Line numbers"), Some(false));
+    assert_eq!(node_disabled(&d.out, "Font size"), Some(false));
+    assert_eq!(node_disabled(&d.out, "Line height"), Some(false));
+    assert_eq!(node_disabled(&d.out, "Code hint delay"), Some(false));
+    assert_eq!(node_disabled(&d.out, "Duplicate"), Some(true));
+    assert_eq!(node_disabled(&d.out, "Import…"), Some(true));
+
+    // Toggle every switch and pick Tab: 2 spaces through the real dialog UI.
+    d.click("Line numbers");
+    d.click("Word wrap");
+    d.click("Auto-close brackets");
+    d.click("Code hints");
+    d.click("Format on save");
+    d.click("Highlight current line");
+    d.click("Tab: 4 spaces");
+    d.click("Tab: 2 spaces");
+    {
+        let ce = &d.editor.preferences.as_ref().unwrap().code_editor;
+        assert!(!ce.line_numbers);
+        assert!(ce.word_wrap);
+        assert!(!ce.auto_close_brackets);
+        assert!(!ce.code_hints);
+        assert!(!ce.format_on_save);
+        assert!(!ce.highlight_current_line);
+        assert_eq!(ce.tab_size, 2);
+    }
+
+    // Reset to defaults restores CodeEditorPrefs::default() without closing the dialog.
+    d.click("Reset to defaults");
+    assert_eq!(
+        d.editor.preferences.as_ref().unwrap().code_editor,
+        CodeEditorPrefs::default()
+    );
+
+    // Configure custom settings and click Save; verify WorkspacePrefs persistence & clean project.
+    d.click("Tab: 4 spaces");
+    d.click("Tab: 2 spaces");
+    d.click("Line numbers");
+    d.click("Highlight current line");
+    {
+        let ce = &mut d.editor.preferences.as_mut().unwrap().code_editor;
+        ce.font_size = 18.0;
+        ce.line_height = 2.0;
+        ce.hint_delay_ms = 300;
+    }
+    d.click("Save");
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(d.editor.project, untouched_project);
+    assert_eq!(d.editor.workspace.code_editor.tab_size, 2);
+    assert!(!d.editor.workspace.code_editor.line_numbers);
+    assert!(!d.editor.workspace.code_editor.highlight_current_line);
+    assert_eq!(d.editor.workspace.code_editor.font_size, 18.0);
+    assert_eq!(d.editor.workspace.code_editor.line_height, 2.0);
+    let restored = WorkspacePrefs::from_json(&serde_json::to_string(&d.editor.workspace).unwrap());
+    assert_eq!(restored.code_editor, d.editor.workspace.code_editor);
+
+    // Layout checks: font_size/line_height scale row height, and word_wrap toggles wrapping.
+    let long_line = "var orbitVelocity = 1234567890 + 1234567890 + 1234567890 + 1234567890;";
+    let mut wrap_off = d.editor.workspace.code_editor.clone();
+    wrap_off.word_wrap = false;
+    let mut wrap_on = wrap_off.clone();
+    wrap_on.word_wrap = true;
+    let default_ce = CodeEditorPrefs::default();
+    let mut rows_default = (0usize, 0.0f32);
+    let mut rows_large_unwrapped = (0usize, 0.0f32);
+    let mut rows_large_wrapped = (0usize, 0.0f32);
+    let _ = d.ctx.run(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let g0 = crate::sources::code_layout_with_prefs(ui, &long_line, 180.0, &default_ce);
+            let g1 = crate::sources::code_layout_with_prefs(ui, &long_line, 180.0, &wrap_off);
+            let g2 = crate::sources::code_layout_with_prefs(ui, &long_line, 180.0, &wrap_on);
+            rows_default = (g0.rows.len(), g0.rows[0].rect().height());
+            rows_large_unwrapped = (g1.rows.len(), g1.rows[0].rect().height());
+            rows_large_wrapped = (g2.rows.len(), g2.rows[0].rect().height());
+        });
+    });
+    assert!(
+        rows_large_unwrapped.1 > rows_default.1 + 8.0,
+        "18px * 2.0 row height ({}) exceeds 13px * 1.6 ({})",
+        rows_large_unwrapped.1,
+        rows_default.1
+    );
+    assert_eq!(rows_large_unwrapped.0, 1, "word_wrap=false never wraps");
+    assert!(
+        rows_large_wrapped.0 > 1,
+        "word_wrap=true wraps at wrap_width"
+    );
+
+    // Open Actions on an AS3 frame script to verify highlight_current_line, Tab, auto-close, and hints.
+    d.editor.project.symbols[0]
+        .timeline
+        .scripts
+        .push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: String::new(),
+            },
+        });
+    d.editor.show_panel(PanelId::Actions);
+    d.settle();
+    let editor_id = d.editor.actions_editor_id();
+    let focus_and_caret = |d: &mut Driver, pos: usize| {
+        let mut state = egui::text_edit::TextEditState::load(&d.ctx, editor_id).unwrap_or_default();
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(
+                egui::text::CCursor::new(pos),
+            )));
+        state.store(&d.ctx, editor_id);
+        d.ctx.memory_mut(|m| m.request_focus(editor_id));
+        d.step(vec![]);
+    };
+    let has_current_line_shape = |out: &egui::FullOutput, ctx: &egui::Context| {
+        let target = neoflash_ui::palette(ctx).syntax_current_line;
+        out.shapes.iter().any(|cs| match &cs.shape {
+            egui::Shape::Rect(r) => r.fill == target && r.rect.width() > 100.0,
+            _ => false,
+        })
+    };
+    focus_and_caret(&mut d, 0);
+    d.step(vec![]);
+    assert!(
+        !has_current_line_shape(&d.out, &d.ctx),
+        "highlight_current_line=false omits current-line band"
+    );
+    d.editor.workspace.code_editor.highlight_current_line = true;
+    focus_and_caret(&mut d, 0);
+    d.step(vec![]);
+    assert!(
+        has_current_line_shape(&d.out, &d.ctx),
+        "highlight_current_line=true paints current-line band"
+    );
+
+    // Line numbers off uses the narrow 24 pt marker-only gutter; turning it back on widens to >= 48 pt.
+    let bg_panel = neoflash_ui::palette(&d.ctx).bg_panel;
+    let has_gutter_width = |out: &egui::FullOutput, expected_min: f32, expected_max: f32| {
+        out.shapes.iter().any(|cs| match &cs.shape {
+            egui::Shape::Rect(r) => {
+                r.fill == bg_panel
+                    && r.rect.height() >= 60.0
+                    && (expected_min..=expected_max).contains(&r.rect.width())
+            }
+            _ => false,
+        })
+    };
+    assert!(
+        has_gutter_width(&d.out, 23.5, 24.5),
+        "line_numbers=false paints 24 pt marker gutter"
+    );
+    d.editor.workspace.code_editor.line_numbers = true;
+    d.step(vec![]);
+    assert!(
+        has_gutter_width(&d.out, 48.0, 80.0),
+        "line_numbers=true paints full line-number gutter"
+    );
+
+    // Tab inserts 2 spaces (`tab_size = 2`) and Shift+Tab removes them.
+    focus_and_caret(&mut d, 0);
+    d.step(vec![Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "  ");
+    d.step(vec![Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::SHIFT,
+    }]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "");
+
+    // Auto-close brackets: `(` -> `()`, `)` skips over closing `)`, Backspace inside `()` deletes both.
+    focus_and_caret(&mut d, 0);
+    d.step(vec![Event::Text("(".into())]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "()");
+    let caret_after_open = egui::text_edit::TextEditState::load(&d.ctx, editor_id)
+        .unwrap()
+        .cursor
+        .char_range()
+        .unwrap()
+        .primary
+        .index;
+    assert_eq!(caret_after_open, 1);
+    d.step(vec![Event::Text(")".into())]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "()");
+    let caret_after_skip = egui::text_edit::TextEditState::load(&d.ctx, editor_id)
+        .unwrap()
+        .cursor
+        .char_range()
+        .unwrap()
+        .primary
+        .index;
+    assert_eq!(caret_after_skip, 2);
+    focus_and_caret(&mut d, 1);
+    d.step(vec![Event::Key {
+        key: egui::Key::Backspace,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "");
+    d.editor.workspace.code_editor.auto_close_brackets = false;
+    focus_and_caret(&mut d, 0);
+    d.step(vec![Event::Text("(".into())]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "(");
+    d.editor.workspace.code_editor.auto_close_brackets = true;
+
+    // Code hint delay (300 ms): typing `this.` waits for the delay before opening the hint popover.
+    d.editor.project.symbols[0].timeline.scripts[0]
+        .script
+        .source = "this".into();
+    d.settle();
+    focus_and_caret(&mut d, 4);
+    d.step(vec![Event::Text(".".into())]);
+    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "this.");
+    assert!(
+        !d.labels().iter().any(|l| l == "gotoAndPlay()"),
+        "hint popover must wait for hint_delay_ms (300 ms)"
+    );
+    // Advance +0.1s (total 100 ms < 300 ms): still waiting.
+    d.step(vec![]);
+    assert!(!d.labels().iter().any(|l| l == "gotoAndPlay()"));
+    // Advance past 300 ms total: popover opens automatically.
+    d.time += 0.25;
+    d.step(vec![]);
+    assert!(
+        d.labels().iter().any(|l| l == "gotoAndPlay()"),
+        "hint popover opens after hint_delay_ms: {:?}",
+        d.labels()
+    );
+
+    // When `code_hints = false`, automatic `.` hints do not open, but ⌃Space still opens immediately.
+    d.editor.workspace.code_editor.code_hints = false;
+    d.editor.project.symbols[0].timeline.scripts[0]
+        .script
+        .source = "this".into();
+    d.settle();
+    focus_and_caret(&mut d, 4);
+    d.step(vec![Event::Text(".".into())]);
+    d.time += 0.5;
+    d.step(vec![]);
+    assert!(
+        !d.labels().iter().any(|l| l == "gotoAndPlay()"),
+        "automatic hints suppressed when code_hints=false"
+    );
+    d.step(vec![Event::Key {
+        key: egui::Key::Space,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::CTRL,
+    }]);
+    d.step(vec![]);
+    assert!(
+        d.labels().iter().any(|l| l == "gotoAndPlay()"),
+        "⌃Space opens hints on demand even when code_hints=false"
+    );
+
+    // Format on save: formats frame scripts, object scripts and project source units with tab_size (2)
+    // without creating extra Undo entries.
+    d.editor.project.symbols[0].timeline.scripts[0]
+        .script
+        .source = "function f() {\nstop();\n}".into();
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 40.,
+            height: 40.,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+        10.,
+        10.,
+    );
+    d.editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0]
+        .scripts
+        .push(ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "if (ok) {\nplay();\n}".into(),
+            },
+        });
+    d.editor.project.enable_program();
+    d.editor.project.sources.push(SourceUnit {
+        id: new_id("source"),
+        path: "Main.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package {\npublic class Main {\n}\n}".into(),
+    });
+    let undo_before_save = d.editor.history.undo_len();
+    let temp_path = std::env::temp_dir().join(format!(
+        "neoflash-code-prefs-test-{}.nflash",
+        std::process::id()
+    ));
+
+    d.editor.workspace.code_editor.format_on_save = false;
+    assert!(d.editor.save_to_path(temp_path.clone()));
+    assert_eq!(
+        d.editor.symbol().timeline.scripts[0].script.source,
+        "function f() {\nstop();\n}"
+    );
+
+    d.editor.workspace.code_editor.format_on_save = true;
+    d.editor.workspace.code_editor.tab_size = 2;
+    assert!(d.editor.save_to_path(temp_path.clone()));
+    let _ = std::fs::remove_file(&temp_path);
+    assert_eq!(d.editor.history.undo_len(), undo_before_save);
+    assert!(!d.editor.dirty());
+    assert_eq!(
+        d.editor.symbol().timeline.scripts[0].script.source,
+        "function f() {\n  stop();\n}"
+    );
+    assert_eq!(
+        d.editor.symbol().timeline.layers[0].keyframes[0].elements[0].scripts[0]
+            .script
+            .source,
+        "if (ok) {\n  play();\n}"
+    );
+    assert_eq!(
+        d.editor.project.sources[0].source,
+        "package {\n  public class Main {\n  }\n}"
+    );
+}
+
+#[test]
+fn preferences_drawing_page_binds_controls_resets_and_saves() {
+    use crate::panels::preferences::PAGE_DRAWING;
+    use crate::workspace::{DrawingPrefs, Tolerance};
+
+    let mut d = Driver::new();
+    let project_before = d.editor.project.clone();
+    d.editor.stage_view.prefs.pixels_snap = false;
+    d.editor.open_preferences(PAGE_DRAWING);
+    d.settle();
+
+    let is_disabled = |d: &Driver, label: &str| {
+        d.out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some(label))
+            .unwrap_or_else(|| panic!("missing node {label:?}"))
+            .1
+            .is_disabled()
+    };
+
+    // Unwired engine/design-blocked controls stay disabled; wired controls are interactive.
+    assert!(is_disabled(&d, "Merge drawing"));
+    assert!(is_disabled(&d, "Object drawing"));
+    assert!(is_disabled(&d, "Show solid points"));
+    assert!(is_disabled(&d, "Snap align"));
+    for enabled_label in [
+        "Show pen preview",
+        "Precise cursors",
+        "Snap tolerance",
+        "Snap to pixels",
+    ] {
+        assert!(
+            !is_disabled(&d, enabled_label),
+            "{enabled_label} must be enabled"
+        );
+    }
+
+    // Toggle switches through the real dialog UI.
+    d.click("Show pen preview");
+    d.click("Precise cursors");
+    d.click("Snap to pixels");
+    {
+        let draft = d.editor.preferences.as_ref().unwrap();
+        assert!(!draft.drawing.pen_preview);
+        assert!(draft.drawing.precise_cursors);
+        assert!(draft.pixels_snap);
+    }
+
+    // Reset to defaults restores DrawingPrefs::default() and pixels_snap = false.
+    d.click("Reset to defaults");
+    {
+        let draft = d.editor.preferences.as_ref().unwrap();
+        assert_eq!(draft.drawing, DrawingPrefs::default());
+        assert!(!draft.pixels_snap);
+    }
+
+    // Edit controls again (switches + recognition tolerances + snap tolerance) and Save.
+    d.click("Show pen preview");
+    d.click("Precise cursors");
+    d.click("Snap to pixels");
+    {
+        let draft = d.editor.preferences.as_mut().unwrap();
+        draft.drawing.connect_lines = Tolerance::CanBeDistant;
+        draft.drawing.smooth_curves = Tolerance::MustBeClose;
+        draft.drawing.recognise_lines = Tolerance::MustBeClose;
+        draft.drawing.recognise_shapes = Tolerance::Off;
+        draft.drawing.click_accuracy = Tolerance::CanBeDistant;
+        draft.drawing.snap_tolerance = 18.0;
+    }
+    d.settle();
+    d.click("Save");
+
+    assert!(d.editor.preferences.is_none());
+    assert!(!d.editor.workspace.drawing.pen_preview);
+    assert!(d.editor.workspace.drawing.precise_cursors);
+    assert_eq!(
+        d.editor.workspace.drawing.connect_lines,
+        Tolerance::CanBeDistant
+    );
+    assert_eq!(
+        d.editor.workspace.drawing.smooth_curves,
+        Tolerance::MustBeClose
+    );
+    assert_eq!(
+        d.editor.workspace.drawing.recognise_lines,
+        Tolerance::MustBeClose
+    );
+    assert_eq!(d.editor.workspace.drawing.recognise_shapes, Tolerance::Off);
+    assert_eq!(
+        d.editor.workspace.drawing.click_accuracy,
+        Tolerance::CanBeDistant
+    );
+    assert_eq!(d.editor.workspace.drawing.snap_tolerance, 18.0);
+    assert!(d.editor.stage_view.prefs.pixels_snap);
+    assert_eq!(
+        d.editor
+            .workspace
+            .view_defaults
+            .as_ref()
+            .map(|v| v.pixels_snap),
+        Some(true)
+    );
+    assert_eq!(
+        d.editor.project, project_before,
+        "preferences never mutate the document"
+    );
+}
+
+#[test]
+fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_dispatch() {
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.settle();
+
+    // Open directly on the Shortcuts page via Edit ▸ Keyboard shortcuts… (⌥⇧⌘K).
+    d.click("Edit");
+    d.click("Keyboard shortcuts… (⌥⇧⌘K)");
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(crate::panels::preferences::PAGE_SHORTCUTS)
+    );
+
+    // Search for "keyframe" so Insert ▸ Keyframe and Convert to keyframes are visible together.
+    d.click("Search commands");
+    d.step(vec![Event::Text("keyframe".into())]);
+    d.settle();
+    assert!(d.find("Insert ▸ Keyframe").is_some());
+    assert!(d.find("Convert to keyframes").is_some());
+
+    // Clicking a row enters recording ("Press keys…"); Esc cancels recording without closing Preferences.
+    d.click("Convert to keyframes");
+    assert!(d.find("Press keys…").is_some());
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: Some(egui::Key::Escape),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        d.editor.preferences.is_some(),
+        "Esc cancels recording instead of closing Preferences"
+    );
+    assert!(d.find("Press keys…").is_none());
+
+    // Recording F6 on Convert to keyframes flags a conflict with Insert ▸ Keyframe.
+    d.click("Convert to keyframes");
+    d.step(vec![Event::Key {
+        key: egui::Key::F6,
+        physical_key: Some(egui::Key::F6),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        d.texts()
+            .iter()
+            .any(|t| t == "Conflicts with Insert ▸ Keyframe")
+    );
+    assert!(
+        d.texts()
+            .iter()
+            .any(|t| t == "Conflicts with Convert to keyframes")
+    );
+
+    // Backspace while recording clears Insert ▸ Keyframe and resolves the conflict; Reset command restores Convert to keyframes.
+    d.click("Insert ▸ Keyframe");
+    d.step(vec![Event::Key {
+        key: egui::Key::Backspace,
+        physical_key: Some(egui::Key::Backspace),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        !d.texts()
+            .iter()
+            .any(|t| t == "Conflicts with Insert ▸ Keyframe")
+    );
+
+    d.click("Convert to keyframes");
+    d.click("Reset command");
+    assert!(d.find("Press keys…").is_none());
+
+    // Bind Insert ▸ Keyframe to ⌥F6.
+    d.click("Insert ▸ Keyframe");
+    assert!(d.find("Press keys…").is_some());
+    d.step(vec![Event::Key {
+        key: egui::Key::F6,
+        physical_key: Some(egui::Key::F6),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::ALT,
+    }]);
+    d.settle();
+    assert_eq!(
+        d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .shortcuts
+            .overrides
+            .get("insert.keyframe"),
+        Some(&vec!["⌥F6".to_owned()])
+    );
+
+    // Duplicate creates a named user set, switching sets swaps overrides, and Delete removes the active copy.
+    d.click("Duplicate");
+    assert!(d.find("NeoFlash default copy").is_some());
+    d.click("NeoFlash default copy");
+    d.click("NeoFlash default");
+    assert!(
+        d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .shortcuts
+            .is_default_set()
+    );
+    d.click("NeoFlash default");
+    d.click("NeoFlash default copy");
+    d.click("Duplicate");
+    assert!(d.find("NeoFlash default copy copy").is_some());
+    d.click("Delete");
+    assert!(d.find("NeoFlash default").is_some());
+    d.click("NeoFlash default");
+    d.click("NeoFlash default copy");
+
+    // Clear search via the NF2/Search clear ✕ button, filter by Tools category + "pencil", and rebind Tools ▸ Pencil from Y to ⇧Y.
+    let search_rect = d.find("Search commands").unwrap();
+    d.press(
+        Pos2::new(search_rect.right() - 20.0, search_rect.center().y),
+        egui::PointerButton::Primary,
+    );
+    let cat_rect = d.find("All commands").unwrap();
+    d.click("All commands");
+    let tools_item = named_bounds_in(
+        &d.out,
+        "Tools",
+        Rect::from_min_size(
+            Pos2::new(cat_rect.left() - 16.0, cat_rect.bottom()),
+            Vec2::new(240.0, 320.0),
+        ),
+    )
+    .expect("Tools category option in popup");
+    d.press(tools_item.center(), egui::PointerButton::Primary);
+    assert!(d.find("Insert ▸ Frame").is_none());
+    assert!(d.find("Tools ▸ Selection").is_some());
+
+    d.click("Search commands");
+    d.step(vec![Event::Text("pencil".into())]);
+    d.settle();
+    d.click("Tools ▸ Pencil");
+    d.step(vec![Event::Key {
+        key: egui::Key::Y,
+        physical_key: Some(egui::Key::Y),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::SHIFT,
+    }]);
+    d.settle();
+
+    // Save Preferences and verify live shortcut dispatch + dynamic menu/tool labels.
+    d.click("Save");
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(d.editor.workspace.shortcuts.set, "NeoFlash default copy");
+
+    // Extend timeline to 5 frames, step to frame 3: old F6 does nothing, new ⌥F6 inserts a keyframe.
+    d.editor.symbol_mut().timeline.frame_count = 5;
+    d.editor.frame = 3;
+    d.step(vec![Event::Key {
+        key: egui::Key::F6,
+        physical_key: Some(egui::Key::F6),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert_eq!(d.editor.symbol().timeline.layers[0].keyframes.len(), 1);
+
+    d.step(vec![Event::Key {
+        key: egui::Key::F6,
+        physical_key: Some(egui::Key::F6),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::ALT,
+    }]);
+    d.settle();
+    assert_eq!(d.editor.symbol().timeline.layers[0].keyframes.len(), 2);
+
+    // Tool shortcut: old Y does nothing, new ⇧Y selects Pencil.
+    assert_eq!(d.editor.tool, crate::app::Tool::Select);
+    d.step(vec![Event::Key {
+        key: egui::Key::Y,
+        physical_key: Some(egui::Key::Y),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert_eq!(d.editor.tool, crate::app::Tool::Select);
+
+    d.step(vec![Event::Key {
+        key: egui::Key::Y,
+        physical_key: Some(egui::Key::Y),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::SHIFT,
+    }]);
+    d.settle();
+    assert_eq!(d.editor.tool, crate::app::Tool::Pencil);
+
+    // Dynamic shortcut strings update in the Tools rail and application menus.
+    assert!(d.find("Pencil (⇧Y)").is_some());
+    d.click("Insert");
+    assert!(d.find("Keyframe (⌥F6)").is_some());
+}
+
+#[test]
+fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
+    let mut d = Driver::new();
+    let temp_root = std::env::temp_dir().join(format!(
+        "neoflash-prefs-publish-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    let runtime_dir = temp_root.join("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::write(runtime_dir.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
+    std::fs::write(runtime_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+    let publish_dir = temp_root.join("publish-out");
+
+    // 1. Exercise real Preferences UI controls on Text, Clipboard, and Publish pages via Driver.
+    d.click("Edit");
+    d.click("Preferences… (⌘U)");
+    assert!(d.editor.preferences.is_some());
+
+    // Text ▸ Font substitution select + Reset to defaults.
+    d.click("Text");
+    d.click("Show warning");
+    d.click("Substitute silently");
+    assert!(
+        !d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .text_prefs
+            .substitution_warning
+    );
+    d.click("Reset to defaults");
+    assert!(
+        d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .text_prefs
+            .substitution_warning
+    );
+    d.click("Show warning");
+    d.click("Substitute silently");
+
+    // Clipboard ▸ Import vector paste as editable paths switch + Reset to defaults.
+    d.click("Clipboard");
+    d.click("Import vector paste as editable paths");
+    assert!(
+        !d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .clipboard_prefs
+            .editable_vector_paste
+    );
+    d.click("Reset to defaults");
+    assert!(
+        d.editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .clipboard_prefs
+            .editable_vector_paste
+    );
+    d.click("Import vector paste as editable paths");
+
+    // Publish ▸ Output folder text field, Browse… button presence, switches, Reset to defaults, Save.
+    // ("Publish" also exists in the top bar and Project panel behind the modal, so match the sidebar column.)
+    let sidebar_x = d.find("Clipboard").expect("Clipboard category").min.x;
+    let publish_nav = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .and_then(|u| {
+            u.nodes.iter().find_map(|(_, node)| {
+                let r = node.bounds()?;
+                (node.label() == Some("Publish") && (r.x0 as f32 - sidebar_x).abs() < 4.0).then(
+                    || {
+                        Rect::from_min_max(
+                            Pos2::new(r.x0 as f32, r.y0 as f32),
+                            Pos2::new(r.x1 as f32, r.y1 as f32),
+                        )
+                        .center()
+                    },
+                )
+            })
+        })
+        .expect("Preferences Publish category");
+    d.press(publish_nav, egui::PointerButton::Primary);
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(crate::panels::preferences::PAGE_PUBLISH)
+    );
+    assert!(d.find("Browse…").is_some());
+    let find_text_input = |driver: &Driver, label: &str| -> Pos2 {
+        driver
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .and_then(|u| {
+                u.nodes.iter().find_map(|(_, node)| {
+                    (node.label() == Some(label) && node.role() == egui::accesskit::Role::TextInput)
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(|r| {
+                            Rect::from_min_max(
+                                Pos2::new(r.x0 as f32, r.y0 as f32),
+                                Pos2::new(r.x1 as f32, r.y1 as f32),
+                            )
+                            .center()
+                        })
+                })
+            })
+            .expect("Output folder TextInput node")
+    };
+    let field_center = find_text_input(&d, "Output folder");
+    d.press(field_center, egui::PointerButton::Primary);
+    d.step(vec![Event::Text(
+        publish_dir.to_string_lossy().into_owned(),
+    )]);
+    d.settle();
+    d.click("Treat warnings as errors");
+    d.click("Publish on save");
+    {
+        let draft = d.editor.preferences.as_ref().unwrap();
+        assert_eq!(
+            draft.publish.output_folder.as_deref(),
+            Some(publish_dir.to_string_lossy().as_ref())
+        );
+        assert!(draft.publish.warnings_as_errors);
+        assert!(draft.publish.publish_on_save);
+    }
+
+    // Reset to defaults on Publish resets Publish only (Text and Clipboard draft edits remain).
+    d.click("Reset to defaults");
+    {
+        let draft = d.editor.preferences.as_ref().unwrap();
+        assert_eq!(draft.publish.output_folder, None);
+        assert!(!draft.publish.warnings_as_errors);
+        assert!(!draft.publish.publish_on_save);
+        assert!(!draft.text_prefs.substitution_warning);
+        assert!(!draft.clipboard_prefs.editable_vector_paste);
+    }
+
+    // Re-enter Publish settings and Save.
+    let field_center = find_text_input(&d, "Output folder");
+    d.press(field_center, egui::PointerButton::Primary);
+    d.step(vec![Event::Text(
+        publish_dir.to_string_lossy().into_owned(),
+    )]);
+    d.settle();
+    d.click("Treat warnings as errors");
+    d.click("Publish on save");
+    d.click("Save");
+    assert!(d.editor.preferences.is_none());
+    assert!(!d.editor.workspace.text_prefs.substitution_warning);
+    assert!(!d.editor.workspace.clipboard_prefs.editable_vector_paste);
+    assert_eq!(
+        d.editor.configured_publish_folder().as_deref(),
+        Some(publish_dir.as_path())
+    );
+    assert!(d.editor.workspace.publish.warnings_as_errors);
+    assert!(d.editor.workspace.publish.publish_on_save);
+
+    // 2. Font substitution warning suppression (`TextPrefs::substitution_warning`).
+    d.editor.perform(crate::app::Pending::New, &d.ctx);
+    d.editor.add_element(
+        ElementKind::TextBox {
+            text: "Hello".into(),
+            width: 120.,
+            height: 40.,
+            multiline: false,
+            word_wrap: false,
+            format: TextFormat {
+                font: "NeoFlashMissingFontXYZ_999".into(),
+                ..Default::default()
+            },
+        },
+        20.,
+        20.,
+    );
+    d.editor.output.clear();
+    d.editor.workspace.text_prefs.substitution_warning = false;
+    d.editor.load_project_fonts(&d.ctx);
+    assert!(
+        d.editor.output.is_empty(),
+        "Substitute silently suppresses missing-font status/output warnings"
+    );
+    d.editor.workspace.text_prefs.substitution_warning = true;
+    d.editor.load_project_fonts(&d.ctx);
+    assert!(
+        d.editor
+            .output
+            .iter()
+            .any(|msg| msg.contains("NeoFlashMissingFontXYZ_999")),
+        "Show warning logs missing-font warning"
+    );
+
+    // 3. `warnings_as_errors` blocks HTML5 publish before writing any files when warnings exist.
+    assert!(!neoflash_export::export_warnings(&d.editor.project).is_empty());
+    assert!(!d.editor.publish_html5_to(&publish_dir, &runtime_dir));
+    assert!(!publish_dir.exists(), "blocked publish writes no files");
+    assert!(d.editor.status.starts_with("Publish failed:"));
+    assert!(d.editor.status.contains("NeoFlashMissingFontXYZ_999"));
+
+    // 4. Configured output folder reuse (two publishes into the same folder succeed via marker)
+    // and non-empty unrelated folder refusal.
+    d.editor.workspace.publish.warnings_as_errors = false;
+    d.editor.perform(crate::app::Pending::New, &d.ctx);
+    d.editor.project.name = "First Publish".into();
+    assert!(d.editor.publish_html5_to(&publish_dir, &runtime_dir));
+    assert!(publish_dir.join("neoflash-export.json").is_file());
+    assert!(
+        std::fs::read_to_string(publish_dir.join("index.html"))
+            .unwrap()
+            .contains("First Publish")
+    );
+    d.editor.project.name = "Second Publish".into();
+    assert!(
+        d.editor.publish_html5_to(&publish_dir, &runtime_dir),
+        "second publish reuses marker-owned output_folder"
+    );
+    assert!(
+        std::fs::read_to_string(publish_dir.join("index.html"))
+            .unwrap()
+            .contains("Second Publish")
+    );
+
+    let unrelated_dir = temp_root.join("unrelated-non-empty");
+    std::fs::create_dir_all(&unrelated_dir).unwrap();
+    std::fs::write(unrelated_dir.join("keep.txt"), "do not clobber").unwrap();
+    assert!(!d.editor.publish_html5_to(&unrelated_dir, &runtime_dir));
+    assert!(d.editor.status.starts_with("Export failed:"));
+    assert_eq!(
+        std::fs::read_to_string(unrelated_dir.join("keep.txt")).unwrap(),
+        "do not clobber"
+    );
+
+    // 5. `publish_on_save`: saving `.nflash` publishes to configured output_folder (not for `.fla`),
+    // and reminds when output_folder is unset.
+    let on_save_dir = temp_root.join("on-save-out");
+    d.editor.workspace.publish.output_folder = Some(on_save_dir.to_string_lossy().into_owned());
+    d.editor.workspace.publish.publish_on_save = true;
+    let fla_path = temp_root.join("archive.fla");
+    assert!(d.editor.save_to_path_with_runtime(fla_path, &runtime_dir));
+    assert!(
+        !on_save_dir.exists(),
+        ".fla export does not trigger .nflash publish_on_save"
+    );
+    let nflash_path = temp_root.join("movie.nflash");
+    assert!(
+        d.editor
+            .save_to_path_with_runtime(nflash_path.clone(), &runtime_dir)
+    );
+    assert!(on_save_dir.join("index.html").is_file());
+
+    d.editor.workspace.publish.output_folder = None;
+    d.editor.output.clear();
+    assert!(
+        d.editor
+            .save_to_path_with_runtime(nflash_path, &runtime_dir)
+    );
+    assert!(
+        d.editor
+            .output
+            .iter()
+            .any(|msg| msg.contains("Preferences ▸ Publish")),
+        "missing output_folder logs reminder on save"
+    );
+
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() {
+    use crate::panels::preferences::PAGE_TIMELINE;
+    use crate::workspace::{TweenOnDrag, WorkspacePrefs};
+
+    let mut d = Driver::new();
+    let project = d.editor.project.clone();
+
+    // Session onion popover and Preferences share the single persisted onion_falloff state.
+    d.editor.workspace.timeline_prefs.onion_falloff = 45.0;
+    d.editor.open_preferences(PAGE_TIMELINE);
+    d.settle();
+    assert!(
+        d.texts().iter().any(|t| t == "45 → 15 %"),
+        "caption reflects live onion_falloff: {:?}",
+        d.texts()
+    );
+
+    // Toggle switches, move Opacity falloff slider, and pick Tween type on drag.
+    d.click("Span-based selection");
+    d.click("Create keyframe on transform");
+    let slider = d
+        .find("Opacity falloff")
+        .expect("Opacity falloff slider is enabled on Timeline page");
+    let target = Pos2::new(slider.right() - 12.0, slider.center().y);
+    d.step(vec![
+        Event::PointerMoved(target),
+        primary_button(target, true),
+    ]);
+    d.step(vec![primary_button(target, false)]);
+    d.settle();
+    let updated_falloff = d
+        .editor
+        .preferences
+        .as_ref()
+        .unwrap()
+        .timeline_prefs
+        .onion_falloff;
+    assert!(
+        updated_falloff > 90.0,
+        "slider updated draft falloff: {updated_falloff}"
+    );
+    let expected_caption = format!("{updated_falloff:.0} → 15 %");
+    assert!(
+        d.texts().iter().any(|t| t == &expected_caption),
+        "live caption updated to {expected_caption}"
+    );
+
+    let default_ease_select = d
+        .find("Ease In-Out")
+        .expect("Default ease select is shown above Tween type on drag");
+    let tween_select = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .and_then(|u| {
+            u.nodes.iter().find_map(|(_, node)| {
+                let r = node.bounds()?;
+                (node.label() == Some("None")
+                    && (r.x0 as f32 - default_ease_select.left()).abs() < 8.0
+                    && r.y0 as f32 > default_ease_select.bottom())
+                .then(|| {
+                    Rect::from_min_max(
+                        Pos2::new(r.x0 as f32, r.y0 as f32),
+                        Pos2::new(r.x1 as f32, r.y1 as f32),
+                    )
+                })
+            })
+        })
+        .expect("Tween type on drag select shows None");
+    d.press(tween_select.center(), egui::PointerButton::Primary);
+    d.click("Classic tween");
+    d.click("Save");
+
+    assert!(d.editor.preferences.is_none());
+    assert!(!d.editor.workspace.timeline_prefs.span_selection);
+    assert!(!d.editor.workspace.timeline_prefs.auto_keyframe);
+    assert_eq!(
+        d.editor.workspace.timeline_prefs.tween_on_drag,
+        TweenOnDrag::Classic
+    );
+    assert_eq!(
+        d.editor.workspace.timeline_prefs.onion_falloff,
+        updated_falloff
+    );
+
+    let json = serde_json::to_string(&d.editor.workspace).unwrap();
+    let restored = WorkspacePrefs::from_json(&json);
+    assert_eq!(restored.timeline_prefs, d.editor.workspace.timeline_prefs);
+
+    // Reset to defaults on Timeline page restores defaults without touching document history.
+    d.editor.open_preferences(PAGE_TIMELINE);
+    d.settle();
+    d.click("Reset to defaults");
+    d.click("Save");
+    assert!(d.editor.workspace.timeline_prefs.span_selection);
+    assert!(d.editor.workspace.timeline_prefs.auto_keyframe);
+    assert_eq!(
+        d.editor.workspace.timeline_prefs.tween_on_drag,
+        TweenOnDrag::None
+    );
+    assert_eq!(d.editor.workspace.timeline_prefs.onion_falloff, 70.0);
+    assert_eq!(d.editor.project, project);
 }

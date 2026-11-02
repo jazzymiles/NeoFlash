@@ -8,6 +8,24 @@ use std::sync::{Arc, OnceLock};
 pub(crate) fn prepare_svg(source: ResourceUnit) -> Result<PreparedGraphic, String> {
     let bytes = source.decoded_bytes().map_err(|e| e.to_string())?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "SVG must be UTF-8 XML.")?;
+    let name = source.path.clone();
+    prepare_svg_str(text, name, Some(source), true)
+}
+
+pub(crate) fn prepare_svg_clipboard(
+    text: &str,
+    editable_paths: bool,
+) -> Result<PreparedGraphic, String> {
+    let trimmed = text.trim_start_matches('\u{feff}');
+    prepare_svg_str(trimmed, "Pasted SVG".into(), None, editable_paths)
+}
+
+fn prepare_svg_str(
+    text: &str,
+    name: String,
+    source: Option<ResourceUnit>,
+    editable_paths: bool,
+) -> Result<PreparedGraphic, String> {
     let xml = usvg::roxmltree::Document::parse(text).map_err(|e| format!("SVG XML: {e}"))?;
     if xml.root_element().tag_name().name() != "svg" {
         return Err("The file has no SVG root element.".into());
@@ -57,32 +75,33 @@ pub(crate) fn prepare_svg(source: ResourceUnit) -> Result<PreparedGraphic, Strin
     if tree.root().children().is_empty() {
         return Err("The SVG contains no supported visible artwork.".into());
     }
-    let mut elements = Vec::new();
-    let vector = collect_group(tree.root(), &mut elements, 0).is_ok()
-        && !elements.is_empty()
-        && elements.iter().all(|element| match &element.kind {
-            ElementKind::Path { commands, .. } => {
-                path_bounds(commands).ok().flatten().is_some_and(|b| {
-                    b.x_min >= -0.001
-                        && b.y_min >= -0.001
-                        && b.x_max <= width + 0.001
-                        && b.y_max <= height + 0.001
-                })
-            }
-            _ => false,
-        });
-    let name = source.path.clone();
-    if vector {
-        return Ok(PreparedGraphic {
-            name,
-            width,
-            height,
-            elements,
-            resources: vec![source],
-            notice: has_text.then(|| {
-                "SVG text was converted to editable outlines using installed fonts.".into()
-            }),
-        });
+    if editable_paths {
+        let mut elements = Vec::new();
+        let vector = collect_group(tree.root(), &mut elements, 0).is_ok()
+            && !elements.is_empty()
+            && elements.iter().all(|element| match &element.kind {
+                ElementKind::Path { commands, .. } => {
+                    path_bounds(commands).ok().flatten().is_some_and(|b| {
+                        b.x_min >= -0.001
+                            && b.y_min >= -0.001
+                            && b.x_max <= width + 0.001
+                            && b.y_max <= height + 0.001
+                    })
+                }
+                _ => false,
+            });
+        if vector {
+            return Ok(PreparedGraphic {
+                name,
+                width,
+                height,
+                elements,
+                resources: source.into_iter().collect(),
+                notice: has_text.then(|| {
+                    "SVG text was converted to editable outlines using installed fonts.".into()
+                }),
+            });
+        }
     }
     let scale = (4096. / width).min(4096. / height).min(1.);
     let pixels_w = (width * scale).ceil().max(1.) as u32;
@@ -100,13 +119,12 @@ pub(crate) fn prepare_svg(source: ResourceUnit) -> Result<PreparedGraphic, Strin
     let png = pixels
         .encode_png()
         .map_err(|e| format!("SVG raster image: {e}"))?;
-    let resource = ResourceUnit::from_bytes(
-        new_id("resource"),
-        format!("{}.png", source.path),
-        "image/png",
-        &png,
-    )
-    .map_err(|e| e.to_string())?;
+    let png_path = match &source {
+        Some(src) => format!("{}.png", src.path),
+        None => "pasted-svg.png".into(),
+    };
+    let resource = ResourceUnit::from_bytes(new_id("resource"), png_path, "image/png", &png)
+        .map_err(|e| e.to_string())?;
     let element = Element {
         id: new_id("object"),
         name: name.clone(),
@@ -124,8 +142,23 @@ pub(crate) fn prepare_svg(source: ResourceUnit) -> Result<PreparedGraphic, Strin
         scripts: vec![],
         accessibility: None,
     };
-    Ok(PreparedGraphic {name,width,height,elements:vec![element],resources:vec![source,resource],
-        notice:Some("SVG gradients, images, clipping or effects were imported as a rendered image; the original SVG is retained in Resource files.".into())})
+    let notice = if !editable_paths {
+        None
+    } else if source.is_some() {
+        Some("SVG gradients, images, clipping or effects were imported as a rendered image; the original SVG is retained in Resource files.".into())
+    } else {
+        Some("SVG gradients, images, clipping or effects were pasted as a rendered image.".into())
+    };
+    let mut resources: Vec<ResourceUnit> = source.into_iter().collect();
+    resources.push(resource);
+    Ok(PreparedGraphic {
+        name,
+        width,
+        height,
+        elements: vec![element],
+        resources,
+        notice,
+    })
 }
 
 fn collect_group(group: &usvg::Group, output: &mut Vec<Element>, depth: usize) -> Result<(), ()> {

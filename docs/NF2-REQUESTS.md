@@ -134,7 +134,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `panel-properties-movie-clip.png`, `panels/properties.rs`, `panels/planned_*.rs` (no Swap symbol dialog preview exists).
 - **Answer:**
 
-### R-012 · Preferences ▸ General ▸ "follow system" control
+### R-013 · Preferences ▸ General ▸ "follow system" control
 - **Status:** open
 - **Requested by / for:** Antigravity · DL-01
 - **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_general`), reference `dialog-preferences-*.png`
@@ -142,6 +142,88 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   "or follow system", which is not a control; a third segment ("System") or a checkbox would make it selectable.
 - **Why:** the editor can follow the system theme (egui reports it); without a control the caption stays disabled.
 - **Checked:** `dialog-preferences-*.png`, `Segmented` component, design doc Preferences section.
+- **Answer:**
+
+### R-014 · Preferences ▸ General ▸ Accent colour, Language and Selection highlight
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_general`)
+- **Need:** (1) Confirmation on whether `Accent` swatches override `accent_default`/`accent_hover` tokens in `neoflash-ui`
+  or stay disabled; (2) localisation policy for `Language` (`English` is the only interface language today); (3) token/role
+  for `Selection ▸ Highlight` (`Layer colour` vs accent).
+- **Why:** palette accent tokens live in locked `neoflash-ui`, only English strings exist, and stage selection chrome
+  currently uses `accent_default` (R-011).
+- **Checked:** `panels-dialog-preferences-general.txt`, `dialog-preferences-general.png`, `docs/DESIGN-SYSTEM.md`.
+- **Answer:**
+
+### R-015 · Preferences ▸ General ▸ Welcome screen (On launch) and Crash recovery dialog
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6 (`platform-recovery`)
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_general`, `On launch`) and `crates/neoflash-editor/src/app.rs` (`"Recover unsaved work?"` prompt on launch)
+- **Need:** (1) A Welcome / Start screen frame if `"Welcome screen"` should be offered in `On launch` (today `On launch`
+  offers `"New document"`, `"Last document"` and `"Example"`); (2) confirmation or a dedicated layout for the launch crash
+  recovery dialog (currently reuses the exact 480 pt `Surface::Dialog` + warning badge + `Discard` / `Restore` footer of
+  `"Save changes before continuing?"`).
+- **Why:** `panels-dialog-preferences-general.txt` shows `"Welcome screen"` as a sample label with no screen frame in
+  exports, and `interface-editor-unsaved-changes-dialog.txt` is the only confirmation modal in NF2.
+- **Checked:** `panels-dialog-preferences-general.txt`, `interface-editor-unsaved-changes-dialog.txt`, `exports/panels`.
+- **Answer:**
+
+### R-016 · Preferences ▸ General ▸ Show tooltips with shortcuts inside locked NF2 components
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6
+- **Where:** `crates/neoflash-ui/src/components/display.rs` (`tooltip`), `headers.rs`, `view_settings.rs`, `swatches.rs`
+- **Need:** a `ctx` flag or helper option read by `neoflash_ui::components::display::tooltip` so setting `Show tooltips
+  with shortcuts` to off suppresses the shortcut suffix inside the 6 locked `neoflash-ui` call sites (and on `nf::Button`,
+  which currently only shows a tooltip when `.shortcut(...)` is non-empty) as well as editor-supplied tooltips.
+- **Why:** editor toolbars and panels already gate `.shortcut(...)` via `Editor::tooltip_sc`, but 6 shortcuts (`⌘W`, `Esc`,
+  `I`) are passed inside locked `neoflash-ui` components.
+- **Checked:** `crates/neoflash-ui/src/components/display.rs`, `button.rs`, `headers.rs`, `view_settings.rs`, `swatches.rs`.
+- **Answer:**
+
+### R-017 · Preferences ▸ Code editor ▸ Custom syntax colour schemes
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6 (`prefs_code_editor`)
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_code_editor`) and `crates/neoflash-ui/src/components/code.rs`
+- **Need:** (1) An entry point in `neoflash_ui::components::code` accepting custom token colour overrides while enforcing
+  the NF2 rule that red is reserved for errors; (2) an interaction spec for clicking a `prefs-syntax` swatch row, naming a
+  `Duplicate` scheme, and the JSON schema for `Import…`.
+- **Why:** `nf::code::highlight` reads fixed `Palette` `syntax_*` tokens in locked `neoflash-ui`, and the reference shows
+  read-only swatches without a picker/rename popover.
+- **Checked:** `panels-dialog-preferences-code-editor.txt`, `crates/neoflash-ui/src/components/code.rs`.
+- **Answer:**
+
+### R-018 · Preferences ▸ Timeline ▸ Custom Onion skin Before / After tints
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6 (`prefs_timeline`)
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_timeline`) and `crates/neoflash-editor/src/stage.rs`
+- **Need:** interaction for the `Before` and `After` `SwatchCell` controls (colour picker popover vs cycling NF2 layer
+  tokens) and how custom tints adapt between Dark and Light themes in place of `StageOverlay::onion_before` / `onion_after`.
+- **Why:** each `SwatchCell` in `prefs_timeline` is a single cell with no picker attached in the reference.
+- **Checked:** `panels-dialog-preferences-timeline.txt`, `crates/neoflash-editor/src/theme.rs`.
+- **Answer:**
+
+### R-019 · Preferences ▸ Drawing ▸ Pen solid anchor points and Snap align guides
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.6 (`prefs_drawing`)
+- **Where:** `crates/neoflash-ui/src/components/canvas.rs` (`paint_anchor`, stage alignment overlay)
+- **Need:** (1) A solid-unselected state on `NF2/Anchor Point` (`paint_anchor`) for `Show solid points` that remains
+  visually distinct from `AnchorState::Selected`; (2) an NF2 canvas painter/token for transient smart-alignment guide lines
+  (`Snap align`).
+- **Why:** `AnchorState` only has `Unselected` (hollow), `Selected` (filled) and `Hover`, and NF2 forbids hand-styled stage
+  overlay strokes.
+- **Checked:** `panels-dialog-preferences-drawing.txt`, `crates/neoflash-ui/src/components/canvas.rs`.
+- **Answer:**
+
+### R-020 · Preferences ▸ Shortcuts ▸ Rename shortcut set inline or modal prompt
+- **Status:** open
+- **Requested by / for:** Antigravity · DL-01 / W3.7 (`prefs_shortcuts`)
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_shortcuts`, `Shortcut set` row)
+- **Need:** an inline `TextField` state or small rename popover/modal for the `Rename` button next to the `Shortcut set`
+  select (`Duplicate` and `Delete` are wired).
+- **Why:** `panels-dialog-preferences-shortcuts.txt` shows only the closed `NF2/Select` and the `Rename` ghost button with
+  no editable text field state.
+- **Checked:** `panels-dialog-preferences-shortcuts.txt`, `dialog-preferences-shortcuts.png`.
 - **Answer:**
 
 ## Resolved requests

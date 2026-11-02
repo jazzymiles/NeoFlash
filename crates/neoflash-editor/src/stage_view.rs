@@ -320,25 +320,6 @@ fn guide_position(axis: GuideAxis, pointer: Pos2, origin: Pos2, zoom: f32) -> f6
     }
 }
 
-/// Remove a matching key press (logical or physical key, exact modifiers). Option and Shift change
-/// the logical key on macOS (⌥R = ®, ⇧; = :), so the physical key is checked too.
-fn take_shortcut(ctx: &egui::Context, modifiers: egui::Modifiers, keys: &[egui::Key]) -> bool {
-    ctx.input_mut(|i| {
-        let before = i.events.len();
-        let mut found = false;
-        i.events.retain(|event| {
-            let hit = !found
-                && matches!(event, egui::Event::Key {
-                    key, physical_key, pressed: true, modifiers: m, ..
-                } if m.matches_exact(modifiers)
-                    && (keys.contains(key) || physical_key.is_some_and(|k| keys.contains(&k))));
-            found |= hit;
-            !hit
-        });
-        i.events.len() != before
-    })
-}
-
 impl Editor {
     /// Guides of the timeline being edited.
     pub(crate) fn guides(&self) -> &[Guide] {
@@ -369,9 +350,10 @@ impl Editor {
         let v = &self.stage_view.prefs;
         let zoom = self.zoom.max(1e-3) as f64;
         let normal_tol = SnapAccuracy::Normal.screen_tolerance() as f64 / zoom;
+        let object_tol = f64::from(self.workspace.drawing.snap_tolerance.clamp(1.0, 32.0)) / zoom;
         let mut snapper = Snapper {
             guide_tolerance: v.guide_accuracy.screen_tolerance() as f64 / zoom,
-            object_tolerance: normal_tol,
+            object_tolerance: object_tol,
             ..Default::default()
         };
         if v.guides_show && v.guides_snap {
@@ -1028,38 +1010,34 @@ impl Editor {
     /// Shortcuts of View ▸ Rulers / Grid / Guides (design §8, spec ST-01…ST-03), skipped while typing.
     /// Delete removes the selected guide; Escape deselects it.
     pub(crate) fn stage_view_shortcuts(&mut self, ctx: &egui::Context) {
+        use crate::commands::CommandId;
         use egui::{Key, Modifiers as M};
         if ctx.wants_keyboard_input() {
             return;
         }
-        let cmd = M::COMMAND;
-        let shift = M::COMMAND | M::SHIFT;
-        let alt = M::COMMAND | M::ALT;
-        let semicolon = [Key::Semicolon, Key::Colon];
-        let quote = [Key::Quote];
-        if take_shortcut(ctx, M::COMMAND | M::ALT | M::SHIFT, &[Key::R]) {
+        if self.take_command_shortcut(ctx, CommandId::ViewRulers) {
             self.toggle_rulers();
         }
-        if take_shortcut(ctx, shift, &semicolon) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGuidesSnap) {
             self.toggle_guide_snap();
         }
-        if take_shortcut(ctx, alt, &semicolon) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGuidesLock) {
             self.toggle_guide_lock();
         }
-        if take_shortcut(ctx, cmd, &semicolon) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGuidesShow) {
             self.toggle_guides();
         }
-        if take_shortcut(ctx, shift, &quote) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGridSnap) {
             self.toggle_grid_snap();
         }
-        if take_shortcut(ctx, cmd, &quote) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGridShow) {
             self.toggle_grid();
         }
-        if take_shortcut(ctx, alt, &[Key::G]) {
+        if self.take_command_shortcut(ctx, CommandId::ViewGridEdit) {
             self.open_view_settings();
         }
         if let Some(index) = self.selected_guide_index() {
-            if take_shortcut(ctx, M::NONE, &[Key::Delete, Key::Backspace]) {
+            if self.take_command_shortcut(ctx, CommandId::EditClear) {
                 self.remove_guide(index);
             } else if ctx.input_mut(|i| i.consume_key(M::NONE, Key::Escape)) {
                 self.stage_view.selected_guide = None;

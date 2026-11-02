@@ -209,6 +209,97 @@ impl Editor {
             }
         }
     }
+    /// Ensure a keyframe on `layer_id` at `self.frame` for a stage drag/transform (respecting
+    /// `auto_keyframe`), and when a new keyframe is created on an untweened in-between frame,
+    /// apply `timeline_prefs.tween_on_drag` to the span starting at the previous keyframe.
+    fn split_layer_for_stage_transform(&mut self, layer_id: &str) {
+        use crate::workspace::TweenOnDrag;
+        let frame = self.frame;
+        let tween_pref = self.workspace.timeline_prefs.tween_on_drag;
+        let prev_untweened = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.id == layer_id)
+            .and_then(|layer| {
+                if layer.keyframes.iter().any(|k| k.frame == frame)
+                    || motion_span(layer, frame).is_some()
+                    || layer.properties.end_frame.is_some_and(|end| frame >= end)
+                {
+                    return None;
+                }
+                let prev = layer.key_at(frame)?;
+                (prev.frame < frame && prev.tween.is_none()).then(|| {
+                    let motion_ok = prev.elements.len() == 1
+                        && matches!(
+                            prev.elements[0].kind,
+                            ElementKind::Instance { .. }
+                                | ElementKind::Text { .. }
+                                | ElementKind::TextBox { .. }
+                        );
+                    (prev.frame, motion_ok)
+                })
+            });
+
+        if tween_pref == TweenOnDrag::Motion
+            && self.workspace.timeline_prefs.auto_keyframe
+            && let Some((prev_frame, motion_ok)) = prev_untweened
+        {
+            if motion_ok {
+                if let Some(prev) = self
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == layer_id)
+                    .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == prev_frame))
+                {
+                    prev.tween = Some(Easing::Linear);
+                    prev.tween_kind = TweenKind::Motion;
+                }
+                self.ensure_key_for(layer_id, false);
+                self.project.upgrade_format_for_features();
+                return;
+            }
+            self.message("A motion tween needs exactly one symbol instance or text block on its keyframe. Convert the artwork to a symbol (F8) first.");
+        }
+
+        self.ensure_key_for(layer_id, false);
+
+        if tween_pref == TweenOnDrag::Classic
+            && let Some((prev_frame, _)) = prev_untweened
+        {
+            let ease = self.workspace.default_ease;
+            let created = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == layer_id)
+                .is_some_and(|l| l.keyframes.iter().any(|k| k.frame == frame));
+            if created {
+                if let Some(prev) = self
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == layer_id)
+                    .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == prev_frame))
+                {
+                    prev.tween = Some(ease);
+                    prev.tween_kind = TweenKind::Classic;
+                    prev.property_eases.clear();
+                    prev.sync_symbols = false;
+                    prev.snap_to_guide = false;
+                }
+                if matches!(ease, Easing::Flash { .. }) {
+                    self.project.format_version = self.project.format_version.max(5);
+                }
+                self.project.upgrade_format_for_features();
+            }
+        }
+    }
     pub(crate) fn cancel_selection_gesture(&mut self) {
         if let Some(gesture) = self.object_gesture.take() {
             if gesture.began {
@@ -338,12 +429,19 @@ impl Editor {
             .map(|target| (target.element.clone(), target))
             .collect();
         let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
-        scene.iter().rev().find_map(|item| {
-            let target = eligible.get(item.instance_path.first()?)?;
-            (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
-                && crate::stage::hit_item(item, p, point, self.zoom))
-            .then(|| target.clone())
-        })
+        let pick_with_slop = |slop: f32| {
+            scene.iter().rev().find_map(|item| {
+                let target = eligible.get(item.instance_path.first()?)?;
+                (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+                    && crate::stage::hit_item_with_slop(item, p, point, self.zoom, slop))
+                .then(|| target.clone())
+            })
+        };
+        if let Some(exact) = pick_with_slop(0.0) {
+            return Some(exact);
+        }
+        let slop = self.workspace.drawing.click_accuracy.click_slop_px();
+        (slop > 0.0).then(|| pick_with_slop(slop)).flatten()
     }
 
     fn update_selection_gesture(
@@ -681,8 +779,13 @@ impl Editor {
                             layers_to_split.push(target.layer.clone());
                         }
                     }
+                    let apply_tween = !matches!(gesture.kind, GestureKind::Pivot { .. });
                     for layer_id in &layers_to_split {
-                        self.ensure_key_for(layer_id, false);
+                        if apply_tween {
+                            self.split_layer_for_stage_transform(layer_id);
+                        } else {
+                            self.ensure_key_for(layer_id, false);
+                        }
                     }
                     gesture.began = true;
                 }
@@ -710,9 +813,23 @@ impl Editor {
                         .map(|((target, _), transform)| (target.element.as_str(), transform))
                         .collect();
                     let multiple = self.timeline_edit.edit_multiple;
+                    let (edit_start, edit_end) = if multiple {
+                        self.onion_range()
+                    } else {
+                        (frame, frame)
+                    };
                     for layer in &mut self.symbol_mut().timeline.layers {
                         let key_opt = if multiple {
-                            layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                            if layer.keyframes.iter().any(|k| k.frame == frame) {
+                                layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                            } else if layer
+                                .key_at(frame)
+                                .is_some_and(|k| !(edit_start..=edit_end).contains(&k.frame))
+                            {
+                                layer.key_at_mut(frame)
+                            } else {
+                                None
+                            }
                         } else {
                             layer.key_at_mut(frame)
                         };

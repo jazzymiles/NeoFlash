@@ -27,8 +27,11 @@ pub(crate) struct TimelineSelection {
 #[derive(Clone)]
 enum Gesture {
     Select {
-        row: usize,
-        frame: u32,
+        anchor_row: usize,
+        anchor_frame: u32,
+        press_row: usize,
+        press_frame: u32,
+        moved: bool,
     },
     Move {
         range: FrameRange,
@@ -285,6 +288,7 @@ impl Editor {
     }
 
     pub(crate) fn timeline_shortcuts(&mut self, ctx: &egui::Context) {
+        use crate::commands::CommandId;
         if !self.timeline_edit.focused
             || self.frame_range().is_none()
             || ctx.wants_keyboard_input()
@@ -318,9 +322,9 @@ impl Editor {
                 _ => true,
             })
         });
-        copy |= ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
-        cut |= ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::X));
-        paste |= ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::V));
+        copy |= self.take_command_shortcut(ctx, CommandId::EditCopy);
+        cut |= self.take_command_shortcut(ctx, CommandId::EditCut);
+        paste |= self.take_command_shortcut(ctx, CommandId::EditPaste);
         if cut {
             self.copy_frames_to_system_clipboard(ctx, true);
         } else if copy {
@@ -329,16 +333,13 @@ impl Editor {
         if paste {
             self.paste_frames_from_system_clipboard(paste_payload);
         }
-        if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
-                | i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
-        }) {
+        if self.take_command_shortcut(ctx, CommandId::EditClear) {
             self.clear_frame_range(false);
         }
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F5)) {
+        if self.take_command_shortcut(ctx, CommandId::InsertFrame) {
             self.insert_frame_range();
         }
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A)) {
+        if self.take_command_shortcut(ctx, CommandId::EditSelectAll) {
             self.select_all_frames();
         }
     }
@@ -378,6 +379,53 @@ impl Editor {
             start: 0,
             end: self.symbol().timeline.frame_count.saturating_sub(1),
         });
+    }
+
+    /// Inclusive `(start, end)` frame span containing `frame` on `layer_index`.
+    /// ◆ property keys inside a motion tween belong to the enclosing motion span; frames outside
+    /// the layer's exposure or before its first keyframe select only `(frame, frame)`.
+    pub(crate) fn layer_span_range(
+        &self,
+        layer_index: usize,
+        frame: u32,
+        count: u32,
+    ) -> (u32, u32) {
+        let Some(layer) = self.symbol().timeline.layers.get(layer_index) else {
+            return (frame, frame);
+        };
+        let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+        if frame >= layer_end || layer.properties.role == LayerRole::Folder {
+            return (frame, frame);
+        }
+        if let Some((start, _, end)) = neoflash_core::motion_span(layer, frame) {
+            let exclusive_end = end.unwrap_or(layer_end).min(layer_end);
+            return if exclusive_end > start.frame {
+                (start.frame, exclusive_end - 1)
+            } else {
+                (frame, frame)
+            };
+        }
+        let Some(start) = layer
+            .keyframes
+            .iter()
+            .filter(|k| k.frame <= frame && k.keyed_properties.is_none())
+            .map(|k| k.frame)
+            .max()
+        else {
+            return (frame, frame);
+        };
+        let next = layer
+            .keyframes
+            .iter()
+            .filter(|k| k.frame > start && k.keyed_properties.is_none())
+            .map(|k| k.frame)
+            .min();
+        let exclusive_end = next.unwrap_or(layer_end).min(layer_end);
+        if exclusive_end > start {
+            (start, exclusive_end - 1)
+        } else {
+            (frame, frame)
+        }
     }
 
     // Shared viewport geometry is passed directly by the timeline painter.
@@ -474,9 +522,14 @@ impl Editor {
                 self.timeline_edit.gesture = Some(Gesture::End { layer, end });
             } else if let Some((frame, row)) = hit {
                 let layer_id = self.symbol().timeline.layers[rows[row]].id.clone();
-                let existing = self
-                    .frame_range()
-                    .filter(|r| r.start <= frame && frame <= r.end && r.layers.contains(&layer_id));
+                let span_mode = self.workspace.timeline_prefs.span_selection && !modifiers.command;
+                let existing = (!modifiers.command)
+                    .then(|| {
+                        self.frame_range().filter(|r| {
+                            r.start <= frame && frame <= r.end && r.layers.contains(&layer_id)
+                        })
+                    })
+                    .flatten();
                 self.frame = frame;
                 self.layer = rows[row];
                 if modifiers.shift {
@@ -490,16 +543,22 @@ impl Editor {
                                 .map(|row| (row, *frame))
                         })
                         .unwrap_or((row, frame));
-                    self.select_frame_range(self.frame_rectangle(
-                        rows,
-                        anchor_row,
-                        row,
-                        anchor_frame,
-                        frame,
-                    ));
+                    let (sel_start, sel_end) = if span_mode {
+                        let (a0, a1) = self.layer_span_range(rows[anchor_row], anchor_frame, count);
+                        let (b0, b1) = self.layer_span_range(rows[row], frame, count);
+                        (a0.min(b0), a1.max(b1))
+                    } else {
+                        (anchor_frame, frame)
+                    };
+                    self.select_frame_range(
+                        self.frame_rectangle(rows, anchor_row, row, sel_start, sel_end),
+                    );
                     self.timeline_edit.gesture = Some(Gesture::Select {
-                        row: anchor_row,
-                        frame: anchor_frame,
+                        anchor_row,
+                        anchor_frame,
+                        press_row: row,
+                        press_frame: frame,
+                        moved: false,
                     });
                 } else if let Some(range) = existing {
                     self.timeline_edit.gesture = Some(Gesture::Move {
@@ -514,7 +573,14 @@ impl Editor {
                         .keyframes
                         .iter()
                         .any(|key| key.frame == frame);
-                    self.select_frame_range(self.frame_rectangle(rows, row, row, frame, frame));
+                    let (sel_start, sel_end) = if span_mode {
+                        self.layer_span_range(rows[row], frame, count)
+                    } else {
+                        (frame, frame)
+                    };
+                    self.select_frame_range(
+                        self.frame_rectangle(rows, row, row, sel_start, sel_end),
+                    );
                     self.timeline_edit.anchor = Some((layer_id.clone(), frame));
                     self.timeline_edit.gesture = Some(if key {
                         self.timeline_key_drag =
@@ -524,7 +590,13 @@ impl Editor {
                             frame,
                         }
                     } else {
-                        Gesture::Select { row, frame }
+                        Gesture::Select {
+                            anchor_row: row,
+                            anchor_frame: frame,
+                            press_row: row,
+                            press_frame: frame,
+                            moved: false,
+                        }
                     });
                 }
             }
@@ -542,7 +614,12 @@ impl Editor {
                 .frame_range()
                 .is_some_and(|r| r.start <= frame && frame <= r.end && r.layers.contains(layer_id))
             {
-                self.select_frame_range(self.frame_rectangle(rows, row, row, frame, frame));
+                let (sel_start, sel_end) = if self.workspace.timeline_prefs.span_selection {
+                    self.layer_span_range(rows[row], frame, count)
+                } else {
+                    (frame, frame)
+                };
+                self.select_frame_range(self.frame_rectangle(rows, row, row, sel_start, sel_end));
             }
             self.timeline_edit.focused = true;
             self.timeline_edit.viewport = Some(ui.ctx().viewport_id());
@@ -563,12 +640,29 @@ impl Editor {
             if dragging || released.is_some() {
                 match gesture {
                     Gesture::Select {
-                        row: anchor,
-                        frame: start,
+                        anchor_row,
+                        anchor_frame,
+                        press_row,
+                        press_frame,
+                        moved,
                     } => {
-                        self.select_frame_range(
-                            self.frame_rectangle(rows, anchor, row, start, frame),
-                        );
+                        let moved = moved || row != press_row || frame != press_frame;
+                        self.timeline_edit.gesture = Some(Gesture::Select {
+                            anchor_row,
+                            anchor_frame,
+                            press_row,
+                            press_frame,
+                            moved,
+                        });
+                        if moved {
+                            self.select_frame_range(self.frame_rectangle(
+                                rows,
+                                anchor_row,
+                                row,
+                                anchor_frame,
+                                frame,
+                            ));
+                        }
                         self.frame = frame;
                         self.layer = rows[row];
                     }
@@ -624,35 +718,49 @@ impl Editor {
                     frame,
                     target_row,
                     target_frame,
-                }) if row != target_row || frame != target_frame => {
-                    let delta = target_frame as i64 - frame as i64;
-                    let start = (range.start as i64 + delta).max(0) as u32;
-                    let first = rows
-                        .iter()
-                        .position(|i| {
-                            Some(&self.symbol().timeline.layers[*i].id) == range.layers.first()
-                        })
-                        .unwrap_or(row);
-                    let destination =
-                        (first as isize + target_row as isize - row as isize).max(0) as usize;
-                    let layers: Vec<_> = rows
-                        .iter()
-                        .skip(destination)
-                        .map(|&i| &self.symbol().timeline.layers[i])
-                        .filter(|l| l.properties.role != LayerRole::Folder)
-                        .take(range.layers.len())
-                        .map(|l| l.id.clone())
-                        .collect();
-                    let end = start + range.end - range.start;
-                    if self.apply_frame_edit(TimelineEdit::Move {
-                        range,
-                        layers: layers.clone(),
-                        at: start,
-                        copy: modifiers.alt,
-                        include_scripts: self.timeline_edit.include_scripts,
-                    }) {
-                        self.select_frame_range(FrameRange { layers, start, end });
-                        self.frame = start;
+                }) => {
+                    if row != target_row || frame != target_frame {
+                        let delta = target_frame as i64 - frame as i64;
+                        let start = (range.start as i64 + delta).max(0) as u32;
+                        let first = rows
+                            .iter()
+                            .position(|i| {
+                                Some(&self.symbol().timeline.layers[*i].id) == range.layers.first()
+                            })
+                            .unwrap_or(row);
+                        let destination =
+                            (first as isize + target_row as isize - row as isize).max(0) as usize;
+                        let layers: Vec<_> = rows
+                            .iter()
+                            .skip(destination)
+                            .map(|&i| &self.symbol().timeline.layers[i])
+                            .filter(|l| l.properties.role != LayerRole::Folder)
+                            .take(range.layers.len())
+                            .map(|l| l.id.clone())
+                            .collect();
+                        let end = start + range.end - range.start;
+                        if self.apply_frame_edit(TimelineEdit::Move {
+                            range,
+                            layers: layers.clone(),
+                            at: start,
+                            copy: modifiers.alt,
+                            include_scripts: self.timeline_edit.include_scripts,
+                        }) {
+                            self.select_frame_range(FrameRange { layers, start, end });
+                            self.frame = start;
+                        }
+                    } else if let Some(&layer_index) = rows.get(row) {
+                        let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
+                        let (sel_start, sel_end) =
+                            if self.workspace.timeline_prefs.span_selection && !modifiers.command {
+                                self.layer_span_range(layer_index, frame, count)
+                            } else {
+                                (frame, frame)
+                            };
+                        self.select_frame_range(
+                            self.frame_rectangle(rows, row, row, sel_start, sel_end),
+                        );
+                        self.timeline_edit.anchor = Some((layer_id, frame));
                     }
                 }
                 Some(Gesture::End { layer, end }) => {

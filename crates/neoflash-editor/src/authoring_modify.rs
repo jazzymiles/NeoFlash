@@ -660,17 +660,25 @@ impl Editor {
 
     /// Modify (§8).
     pub(crate) fn modify_menu_ui(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         use crate::ui_icons::{menu_item_enabled, menu_popup};
         menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
             let selected = !self.selection.is_empty();
-            Self::planned_menu_item(ui, "Modify ▸ Document…", "⌘J");
-            if menu_item_enabled(ui, self.can_convert_selection(), "Convert to symbol…", "F8")
-                .clicked()
+            Self::planned_menu_item(ui, "Modify ▸ Document…", &self.sc(C::ModifyDocument));
+            if menu_item_enabled(
+                ui,
+                self.can_convert_selection(),
+                "Convert to symbol…",
+                &self.sc(C::ModifyConvertToSymbol),
+            )
+            .clicked()
             {
                 self.convert_to_symbol();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Break apart", "⌘B").clicked() {
+            if menu_item_enabled(ui, selected, "Break apart", &self.sc(C::ModifyBreakApart))
+                .clicked()
+            {
                 self.break_apart_selection();
                 ui.close();
             }
@@ -686,33 +694,70 @@ impl Editor {
                 "⇧⌘D",
                 |ui| {
                     Self::unavailable_item(ui, "Distribute to layers", "⇧⌘D");
-                    if crate::ui_icons::menu_item(ui, "Layer properties…", "").clicked() {
+                    if crate::ui_icons::menu_item(
+                        ui,
+                        "Layer properties…",
+                        &self.sc(C::ModifyTimelineLayerProperties),
+                    )
+                    .clicked()
+                    {
                         self.open_layer_properties(ui.ctx(), self.layer);
                         ui.close();
                     }
                     let editable = self.layer_editable();
-                    if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "")
-                        .clicked()
+                    if menu_item_enabled(
+                        ui,
+                        self.can_reverse_frames(),
+                        "Reverse frames",
+                        &self.sc(C::EditTimelineReverseFrames),
+                    )
+                    .clicked()
                     {
                         self.reverse_frames();
                         ui.close();
                     }
-                    if menu_item_enabled(ui, self.can_sync_symbols(), "Synchronise symbols", "")
-                        .clicked()
+                    if menu_item_enabled(
+                        ui,
+                        self.can_sync_symbols(),
+                        "Synchronise symbols",
+                        &self.sc(C::EditTimelineSyncSymbols),
+                    )
+                    .clicked()
                     {
                         self.sync_symbols();
                         ui.close();
                     }
                     neoflash_ui::components::menu_separator(ui);
-                    if menu_item_enabled(ui, editable, "Convert to keyframes", "").clicked() {
+                    if menu_item_enabled(
+                        ui,
+                        editable,
+                        "Convert to keyframes",
+                        &self.sc(C::ModifyTimelineConvertToKeyframes),
+                    )
+                    .clicked()
+                    {
                         self.convert_to_keyframes(false);
                         ui.close();
                     }
-                    if menu_item_enabled(ui, editable, "Clear keyframe", "⇧F6").clicked() {
+                    if menu_item_enabled(
+                        ui,
+                        editable,
+                        "Clear keyframe",
+                        &self.sc(C::ModifyTimelineClearKeyframe),
+                    )
+                    .clicked()
+                    {
                         self.clear_keyframe();
                         ui.close();
                     }
-                    if menu_item_enabled(ui, editable, "Convert to blank keyframes", "").clicked() {
+                    if menu_item_enabled(
+                        ui,
+                        editable,
+                        "Convert to blank keyframes",
+                        &self.sc(C::ModifyTimelineConvertToBlankKeyframes),
+                    )
+                    .clicked()
+                    {
                         self.convert_to_keyframes(true);
                         ui.close();
                     }
@@ -722,11 +767,18 @@ impl Editor {
             self.arrange_menu(ui);
             self.align_menu(ui);
             neoflash_ui::components::menu_separator(ui);
-            if menu_item_enabled(ui, self.selection.len() >= 2, "Group", "⌘G").clicked() {
+            if menu_item_enabled(
+                ui,
+                self.selection.len() >= 2,
+                "Group",
+                &self.sc(C::ModifyGroup),
+            )
+            .clicked()
+            {
                 self.group_selection();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Ungroup", "⇧⌘G").clicked() {
+            if menu_item_enabled(ui, selected, "Ungroup", &self.sc(C::ModifyUngroup)).clicked() {
                 self.ungroup_selection();
                 ui.close();
             }
@@ -735,9 +787,12 @@ impl Editor {
 
     /// Transform ▸ (Modify and the stage object menu).
     pub(crate) fn transform_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         let selected = !self.selection.is_empty();
         crate::ui_icons::menu_popup(ui, "Transform", "Remove Transform", "", |ui| {
-            if crate::ui_icons::menu_item(ui, "Transform panel", "⌘T").clicked() {
+            if crate::ui_icons::menu_item(ui, "Transform panel", &self.sc(C::WindowTransform))
+                .clicked()
+            {
                 self.show_panel(PanelId::Transform);
                 ui.close();
             }
@@ -747,15 +802,18 @@ impl Editor {
 
     /// Arrange ▸ (Modify and the stage object menu).
     pub(crate) fn arrange_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         let selected = !self.selection.is_empty();
         crate::ui_icons::menu_popup(ui, "Arrange", "Bring Forward", "", |ui| {
-            for (label, direction) in [
-                ("Bring to front", Arrange::Front),
-                ("Bring forward", Arrange::Forward),
-                ("Send backward", Arrange::Backward),
-                ("Send to back", Arrange::Back),
+            for (label, cmd_id, direction) in [
+                ("Bring to front", C::ModifyArrangeFront, Arrange::Front),
+                ("Bring forward", C::ModifyArrangeForward, Arrange::Forward),
+                ("Send backward", C::ModifyArrangeBackward, Arrange::Backward),
+                ("Send to back", C::ModifyArrangeBack, Arrange::Back),
             ] {
-                if crate::ui_icons::menu_item_enabled(ui, selected, label, "").clicked() {
+                if crate::ui_icons::menu_item_enabled(ui, selected, label, &self.sc(cmd_id))
+                    .clicked()
+                {
                     self.arrange_selection(direction);
                     ui.close();
                 }
@@ -765,6 +823,7 @@ impl Editor {
 
     /// Align ▸ (Modify and the stage object menu): the Align panel's edge commands.
     pub(crate) fn align_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         crate::ui_icons::menu_popup(ui, "Align", "Vertical middle", "", |ui| {
             let ctx = ui.ctx().clone();
             let count = self.modify_layout_units(&ctx).len();
@@ -785,7 +844,7 @@ impl Editor {
                 neoflash_ui::components::menu_separator(ui);
             }
             crate::ui_icons::menu_toggle(ui, &mut self.authoring_modify.to_stage, "To stage", "");
-            if crate::ui_icons::menu_item(ui, "Align panel", "⌘K").clicked() {
+            if crate::ui_icons::menu_item(ui, "Align panel", &self.sc(C::WindowAlign)).clicked() {
                 self.show_panel(PanelId::Align);
                 ui.close();
             }

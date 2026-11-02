@@ -805,3 +805,101 @@ fn detached_text_command_waits_for_its_own_viewport_and_never_reaches_stage() {
         assert_eq!(editor.project, before);
     }
 }
+
+#[test]
+fn svg_clipboard_paste_respects_editable_paths_toggle_position_and_undo() {
+    let svg = concat!(
+        "\u{feff}<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+        "<!-- vector tool clipboard -->\n",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"40\">",
+        "<path fill=\"#2288dd\" d=\"M10 10H70V30H10Z\"/>",
+        "</svg>",
+    );
+
+    // 1. editable_vector_paste = true (default): pastes editable Path at paste_center, one Undo.
+    let (mut editor, ctx) = fixture();
+    assert!(editor.workspace.clipboard_prefs.editable_vector_paste);
+    let before = editor.project.clone();
+    editor.remember_paste_view([500., 300.]);
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![Event::Paste(svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert!(editor.project.resources.is_empty());
+    let pasted = editor.selected_element().expect("pasted SVG path selected");
+    assert!(matches!(pasted.kind, ElementKind::Path { .. }));
+    assert_eq!((pasted.transform.x, pasted.transform.y), (460., 280.));
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 2. paste_in_place = true: keeps SVG coordinates (0, 0).
+    editor.workspace.paste_in_place = true;
+    frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![Event::Paste(svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    let in_place = editor.selected_element().unwrap();
+    assert!(matches!(in_place.kind, ElementKind::Path { .. }));
+    assert_eq!((in_place.transform.x, in_place.transform.y), (0., 0.));
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 3. editable_vector_paste = false: rasterizes SVG to one PNG resource + Bitmap element, one Undo.
+    editor.workspace.paste_in_place = false;
+    editor.workspace.clipboard_prefs.editable_vector_paste = false;
+    editor.remember_paste_view([500., 300.]);
+    frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![Event::Paste(svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.project.resources.len(), 1);
+    assert_eq!(editor.project.resources[0].media_type, "image/png");
+    let bitmap = editor
+        .selected_element()
+        .expect("pasted SVG bitmap selected");
+    match &bitmap.kind {
+        ElementKind::Bitmap {
+            resource_id,
+            width,
+            height,
+            ..
+        } => {
+            assert_eq!(resource_id, &editor.project.resources[0].id);
+            assert_eq!((*width, *height), (80, 40));
+        }
+        other => panic!("expected Bitmap, got {other:?}"),
+    }
+    assert_eq!((bitmap.transform.x, bitmap.transform.y), (460., 280.));
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 4. Unsafe SVG or locked destination layer fails atomically without adding Undo entries.
+    let unsafe_svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><script>alert(1)</script></svg>";
+    editor.history.clear();
+    frame(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![Event::Paste(unsafe_svg.to_owned())],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.starts_with("Paste failed:"));
+}

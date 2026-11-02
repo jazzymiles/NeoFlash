@@ -390,33 +390,39 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.3 Export video | DL-05 | `planned_dialogs::export_video` | E-23 | — |
 | W3.4 Export audio, Sound properties, Edit envelope | DL-06, DL-08, DL-09 | `panels/edit_envelope.rs` (DL-09 done), `panels/sound_properties.rs` (DL-08 partial; re-encoding open), `planned_dialogs::export_audio` (DL-06 open) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
 | W3.5 Import video, Import PSD | DL-07, DL-10 | `planned_dialogs::import_video` | E-19, E-24 | `web-media-assets`, `imports-*` |
-| W3.6 Preferences persistence (all pages) — partial, see card below | DL-01 | `panels/preferences.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
-| W3.7 Shortcut editor | DL-01 Shortcuts | `prefs_shortcuts` | E-25 (command registry) | `editor-workspace` |
+| W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
+| W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
 | W3.8 Font embedding + text embed rows | DL-11, PR-01 | absent → request | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK | TO-03…05 | tools rail → request for panels | E-27, E-28 | `editor-advanced-drawing` |
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill | DL-15, DL-17, AC-07, CO-02 | various | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
-**W3.6 · Preferences (DL-01)** — partial. Done: real modal dialog with a draft, live theme preview, Save / Cancel /
-page reset; General ▸ Theme, UI scale, Undo levels, Shift-select; Timeline ▸ frame view / row, Show seconds, Snap
-playhead, Onion range, Default ease; Text ▸ Font and size; Clipboard ▸ Default paste. Tests:
-`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`, `preference_defaults_reach_tweens_text_and_paste`.
-Remaining controls, by size (S = one setting on existing engine, M = new editor behaviour, L = new subsystem):
+**W3.6 · Preferences (DL-01) & W3.7 · Shortcut editor** — **done** across all 8 active pages (`panels/preferences.rs`,
+`commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`, live theme preview,
+`Save` / `Cancel`; **General** (Theme, UI scale, On launch + `File ▸ Open recent`, Undo levels, Autosave every N min to
+`<app_support>/Recovery` + launch crash-recovery prompt, Show tooltips with shortcuts, Shift-select); **Code editor**
+(font family, size, line height, line numbers, word wrap, auto-close brackets/quotes, code hints + delay, tab size,
+format on save, highlight current line, live preview); **Timeline** (span-based selection, frame view / row height, Show
+seconds, Snap playhead, Onion range, linear Onion opacity falloff shared with the popover, Create keyframe on transform,
+Default ease, Tween type on drag); **Drawing** (pen preview, precise cursors, connect lines, smooth curves, recognise
+lines, recognise shapes, click accuracy, snap tolerance, snap to pixels); **Text** (font, size, substitution warning);
+**Clipboard** (default paste, SVG vector paste as editable paths vs raster bitmap); **Shortcuts** (98-command registry
+in `commands.rs` driving dispatch and UI labels, user sets with `Duplicate` / `Delete`, search + category filter, key
+recording, conflict badges, `Reset command`, `Export as HTML…`); **Publish** (output folder + `Browse…`, warnings as
+errors, publish on save). Tests in `panel_tests.rs`, `selection_tests.rs`, `vector_gesture_tests.rs`,
+`clipboard_tests.rs`, `code_tools.rs`, `commands.rs`, and `recovery.rs`.
 
-| Control | Size | What is missing |
+Controls kept disabled with explicit design requests (`R-013`–`R-020`) or separate subsystem cards:
+
+| Control | Status | Reason |
 | --- | --- | --- |
-| General ▸ follow system | S + design | `ThemeMode::System` + egui system theme; the design has a caption, not a control (R-012) |
-| General ▸ Autosave every N min | L | `platform-recovery`: recovery folder, periodic dirty write, restore prompt on launch (E-25) |
-| General ▸ On launch | M | No welcome screen; offer New document / Reopen last first |
-| General ▸ Tooltips with shortcuts | M + design | `components::tooltip` always shows the shortcut; needs a flag in the locked component (request) |
-| General ▸ Accent, Language, Highlight | design | One accent token, no localisation, highlight colour role (§4 W3.6 row) |
-| Code editor page | M | Check which options `components::code` / the Actions editor support (line numbers, wrap, tab size, highlight line); bind those; custom schemes need a request |
-| Timeline ▸ Span-based selection, Named anchors, Auto keyframe, Tween type on drag | M each | New timeline behaviours (selection mode, export of scene anchors, keyframe-on-transform switch, drag-to-tween) |
-| Timeline ▸ Onion tints, Opacity falloff | S + design | Onion colours are StageOverlay roles; custom colours need a palette role |
-| Drawing page | M–L | Merge drawing model, pen preview / solid points / precise cursors (S–M), recognition (L), snap tolerance → `ViewPrefs` accuracies (S), snap to pixels (exists in the Tools toggle) |
-| Text ▸ Anti-alias, substitution warning, embed glyphs, spell check, vertical text, input method | M–L | Font embedding is E-26; spell check / vertical text are new subsystems |
-| Clipboard ▸ Copying options, editable vector paste, large bitmap prompt | M | Native clipboard formats (SVG/bitmap) beyond the NeoFlash JSON payload |
-| Shortcuts page | L | Command registry + shortcut sets + conflict detection (E-25, W3.7) |
-| Publish page | M | After Publish settings (W1.10, DL-03) |
+| General ▸ follow system, Accent, Language, Highlight; Welcome screen (`On launch`); locked tooltip call sites | design (`R-013`–`R-016`) | Needs selectable control, token override policy, localisation, or locked `neoflash-ui` flag |
+| Code editor ▸ Colour scheme (`NF2 Night`, `Duplicate`, `Import…`, syntax swatch table) | design (`R-017`) | Syntax tokens are fixed in locked `neoflash-ui::components::code` |
+| Timeline ▸ Onion tints (`Before` / `After`), Named anchor on each scene | design (`R-018`) / model + web | Swatches have no picker state; scene anchors need label-kind format + browser hash history |
+| Drawing ▸ Merge drawing, Show solid points, Snap align | L subsystem / design (`R-019`) | Planar merge model not implemented; solid unselected anchor & align guide painter need NF2 components |
+| Text ▸ Anti-alias, Embed used glyphs (W3.8 / E-26), Spell check, Vertical text, Input method | L subsystems | Require authored text anti-alias/vertical model, font subsetter (E-26), and spell-check engine |
+| Clipboard ▸ Copy as SVG, Keep layer names, Bitmaps ppi, Gradient quality, Large bitmap prompt | L subsystem | Requires native OS SVG/bitmap pasteboard writer (`arboard` is text-only today) |
+| Shortcuts ▸ Rename set | design (`R-020`) | No inline field or modal prompt in `panels-dialog-preferences-shortcuts.txt` |
+| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Audio / Acceleration / Strict | W1.10 (DL-03) | Awaits `PublishSettings` export pipeline options and media re-encoders; JS is always strict |
 | Updates page | — | Stays disabled (no update service, no telemetry) |
 
 Preferences ▸ Updates must stay disabled (no update service, no telemetry) until `platform-release` /

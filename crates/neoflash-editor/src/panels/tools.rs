@@ -298,10 +298,13 @@ impl Editor {
                                 RailEntry::Divider => nf::menu_separator(ui),
                                 RailEntry::Group(index, group) => {
                                     for spec in group {
-                                        let item = nf::MenuItem::new(spec.name)
+                                        let key = self.tool_display_key(*spec);
+                                        let mut item = nf::MenuItem::new(spec.name)
                                             .icon(spec.icon.nf2(false))
-                                            .shortcut(spec.key)
                                             .checked(self.tool == spec.tool);
+                                        if !key.is_empty() {
+                                            item = item.shortcut(&key);
+                                        }
                                         if ui.add(item).clicked() {
                                             self.set_tool(spec.tool);
                                             remember_group_tool(ui.ctx(), index, group, spec.tool);
@@ -394,7 +397,7 @@ impl Editor {
     }
 
     fn single_tool_button(&mut self, ui: &mut egui::Ui, spec: ToolSpec) {
-        let response = tool_button(ui, spec, self.tool == spec.tool, false);
+        let response = self.tool_button(ui, spec, self.tool == spec.tool, false);
         if response.clicked() {
             self.set_tool(spec.tool);
         }
@@ -411,7 +414,7 @@ impl Editor {
         }
         let shown = group[current.min(group.len() - 1)];
         let flyout = group.len() > 1;
-        let response = tool_button(ui, shown, self.tool == shown.tool, flyout);
+        let response = self.tool_button(ui, shown, self.tool == shown.tool, flyout);
         if response.clicked() {
             self.set_tool(shown.tool);
         }
@@ -431,10 +434,13 @@ impl Editor {
         let keep = rail_popover(ui, response.rect, |ui| {
             ui.set_min_width(200.);
             for (i, spec) in group.iter().enumerate() {
-                let item = nf::MenuItem::new(spec.name)
+                let key = self.tool_display_key(*spec);
+                let mut item = nf::MenuItem::new(spec.name)
                     .icon(spec.icon.nf2(false))
-                    .shortcut(spec.key)
                     .checked(self.tool == spec.tool);
+                if !key.is_empty() {
+                    item = item.shortcut(&key);
+                }
                 if ui.add(item).clicked() {
                     chosen = Some(i);
                 }
@@ -758,22 +764,61 @@ fn set_popover(ctx: &egui::Context, value: Option<RailPopover>) {
     ctx.data_mut(|d| d.insert_temp(popover_id(), value));
 }
 
-/// `NF2/Tool Button` keeping the panel's accessible name ("Selection (V)") while the tooltip
-/// shows "Selection  V".
-fn tool_button(ui: &mut egui::Ui, spec: ToolSpec, selected: bool, flyout: bool) -> egui::Response {
-    let response = ui.add(
-        nf::ToolButton::new(spec.icon.nf2(true), spec.name)
-            .key(spec.key)
+impl Editor {
+    fn tool_display_key(&self, spec: ToolSpec) -> String {
+        let cmd = crate::commands::CommandId::for_tool(spec.tool);
+        if crate::commands::has_override(&self.workspace.shortcuts, cmd) {
+            self.sc(cmd)
+        } else {
+            spec.key.to_owned()
+        }
+    }
+
+    fn tool_accessible_label(&self, spec: ToolSpec, key: &str) -> String {
+        let cmd = crate::commands::CommandId::for_tool(spec.tool);
+        if !crate::commands::has_override(&self.workspace.shortcuts, cmd) {
+            return spec.label.to_owned();
+        }
+        if spec.tool == Tool::Hand {
+            if key.is_empty() {
+                "Hand (hold Space)".to_owned()
+            } else {
+                format!("Hand ({key} / hold Space)")
+            }
+        } else if key.is_empty() {
+            spec.name.to_owned()
+        } else {
+            format!("{} ({key})", spec.name)
+        }
+    }
+
+    /// `NF2/Tool Button` keeping the panel's accessible name ("Selection (V)") while the tooltip
+    /// shows "Selection  V" when tooltip shortcuts are enabled.
+    fn tool_button(
+        &self,
+        ui: &mut egui::Ui,
+        spec: ToolSpec,
+        selected: bool,
+        flyout: bool,
+    ) -> egui::Response {
+        let key = self.tool_display_key(spec);
+        let a11y_label = self.tool_accessible_label(spec, &key);
+        let mut btn = nf::ToolButton::new(spec.icon.nf2(true), spec.name)
             .selected(selected)
-            .flyout(flyout),
-    );
-    let enabled = response.enabled();
-    response.widget_info(|| {
-        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, spec.label);
-        info.selected = Some(selected);
-        info
-    });
-    response
+            .flyout(flyout);
+        if self.workspace.general.tooltip_shortcuts && !key.is_empty() {
+            btn = btn.key(&key);
+        }
+        let response = ui.add(btn);
+        let enabled = response.enabled();
+        response.widget_info(move || {
+            let mut info =
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &a11y_label);
+            info.selected = Some(selected);
+            info
+        });
+        response
+    }
 }
 
 /// Two tool buttons side by side, centred in the panel.

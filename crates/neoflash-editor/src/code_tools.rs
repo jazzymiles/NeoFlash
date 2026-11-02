@@ -30,16 +30,27 @@ pub(crate) enum CodeCommand {
     },
 }
 
-/// Apply a text command. `ShowHints` changes no text and returns `None`.
+/// Apply a text command using the default 4-space tab size. `ShowHints` changes no text and returns `None`.
+#[cfg(test)]
 pub(crate) fn apply(command: &CodeCommand, text: &str, selection: (usize, usize)) -> Option<Edit> {
+    apply_with_tab_size(command, text, selection, 4)
+}
+
+/// Apply a text command using `tab_size` spaces (`1..=8`). `ShowHints` changes no text and returns `None`.
+pub(crate) fn apply_with_tab_size(
+    command: &CodeCommand,
+    text: &str,
+    selection: (usize, usize),
+    tab_size: u8,
+) -> Option<Edit> {
     let selection = (selection.0.min(selection.1), selection.0.max(selection.1));
     match command {
-        CodeCommand::LineComment => line_comment(text, selection),
+        CodeCommand::LineComment => line_comment_with_tab_size(text, selection, tab_size),
         CodeCommand::BlockComment => block_comment(text, selection),
         CodeCommand::Uncomment => uncomment(text, selection),
         CodeCommand::AutoFormat => {
             // Keep the caret on the same line, at the same distance from the line end.
-            let formatted = auto_format(text)?;
+            let formatted = auto_format_with_tab_size(text, tab_size)?;
             let line = text
                 .chars()
                 .take(selection.1)
@@ -94,12 +105,22 @@ pub(crate) fn apply(command: &CodeCommand, text: &str, selection: (usize, usize)
     }
 }
 
-const INDENT: &str = "    ";
-
 fn char_to_byte(text: &str, index: usize) -> usize {
     text.char_indices()
         .nth(index)
         .map_or(text.len(), |(i, _)| i)
+}
+
+fn visual_indent(line: &str, step: usize) -> usize {
+    let mut col = 0;
+    for ch in line.chars() {
+        match ch {
+            ' ' => col += 1,
+            '\t' => col = (col / step + 1) * step,
+            _ => break,
+        }
+    }
+    col
 }
 
 /// Byte ranges of the whole lines touched by a char selection.
@@ -126,22 +147,71 @@ fn replace_lines(text: &str, span: (usize, usize), lines: &[String]) -> Option<E
 }
 
 /// "Apply line comment": prefix every selected line with `// ` at the block's indentation.
+#[cfg(test)]
 pub(crate) fn line_comment(text: &str, selection: (usize, usize)) -> Option<Edit> {
+    line_comment_with_tab_size(text, selection, 4)
+}
+
+/// "Apply line comment" accounting for `tab_size` visual columns when leading tabs and spaces mix.
+pub(crate) fn line_comment_with_tab_size(
+    text: &str,
+    selection: (usize, usize),
+    tab_size: u8,
+) -> Option<Edit> {
+    let step = usize::from(tab_size.clamp(1, 8));
     let span = line_span(text, selection);
     let block = &text[span.0..span.1];
-    let indent = block
+    let min_col = block
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
+        .map(|l| visual_indent(l, step))
         .min()
         .unwrap_or(0);
     let lines: Vec<String> = block
         .split('\n')
         .map(|line| {
             if line.trim().is_empty() {
-                line.to_owned()
+                return line.to_owned();
+            }
+            let mut col = 0;
+            let mut split_byte = 0;
+            let mut split_tab_excess = None;
+            for (i, ch) in line.char_indices() {
+                if col == min_col {
+                    split_byte = i;
+                    break;
+                }
+                match ch {
+                    ' ' => {
+                        col += 1;
+                        split_byte = i + 1;
+                    }
+                    '\t' => {
+                        let next_col = (col / step + 1) * step;
+                        if next_col <= min_col {
+                            col = next_col;
+                            split_byte = i + 1;
+                        } else {
+                            split_tab_excess = Some((i, min_col - col, next_col - min_col));
+                            break;
+                        }
+                    }
+                    _ => {
+                        split_byte = i;
+                        break;
+                    }
+                }
+            }
+            if let Some((tab_byte, before, after)) = split_tab_excess {
+                format!(
+                    "{}{}// {}{}",
+                    &line[..tab_byte],
+                    " ".repeat(before),
+                    " ".repeat(after),
+                    &line[tab_byte + 1..]
+                )
             } else {
-                format!("{}// {}", &line[..indent], &line[indent..])
+                format!("{}// {}", &line[..split_byte], &line[split_byte..])
             }
         })
         .collect();
@@ -201,8 +271,16 @@ pub(crate) fn uncomment(text: &str, selection: (usize, usize)) -> Option<Edit> {
     replace_lines(text, span, &lines)
 }
 
-/// "Auto-format": re-indent the whole script. Returns `None` when it is already formatted.
+/// "Auto-format": re-indent the whole script with 4 spaces. Returns `None` when it is already formatted.
+#[cfg(test)]
 pub(crate) fn auto_format(text: &str) -> Option<String> {
+    auto_format_with_tab_size(text, 4)
+}
+
+/// "Auto-format": re-indent the whole script using `tab_size` spaces per level (`1..=8`).
+/// Returns `None` when it is already formatted.
+pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<String> {
+    let indent = " ".repeat(usize::from(tab_size.clamp(1, 8)));
     // Classify each line start: inside a multi-line comment/string (keep verbatim) and the
     // structural depth contributed by braces/parens outside strings, comments and XML.
     let toks = tokens(text);
@@ -272,7 +350,7 @@ pub(crate) fn auto_format(text: &str) -> Option<String> {
         } else if body.is_empty() {
             out_lines.push(String::new());
         } else {
-            out_lines.push(format!("{}{}", INDENT.repeat(level as usize), body));
+            out_lines.push(format!("{}{}", indent.repeat(level as usize), body));
         }
         if !keep && is_case(body) {
             case_depths.push(depth);
@@ -285,6 +363,170 @@ pub(crate) fn auto_format(text: &str) -> Option<String> {
 
 fn is_case(body: &str) -> bool {
     (body.starts_with("case ") || body.starts_with("default")) && body.ends_with(':')
+}
+
+/// Insert `tab_size` spaces at the caret, replace a single-line selection with `tab_size` spaces,
+/// or indent every non-empty line of a multi-line selection by `tab_size` spaces.
+pub(crate) fn indent_tab(text: &str, selection: (usize, usize), tab_size: u8) -> Edit {
+    let (start, end) = (selection.0.min(selection.1), selection.0.max(selection.1));
+    let step = usize::from(tab_size.clamp(1, 8));
+    let pad = " ".repeat(step);
+    let from = char_to_byte(text, start);
+    let to = char_to_byte(text, end);
+    if start < end && text[from..to].contains('\n') {
+        let span = line_span(text, (start, end));
+        let lines: Vec<String> = text[span.0..span.1]
+            .split('\n')
+            .map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{line}")
+                }
+            })
+            .collect();
+        let joined = lines.join("\n");
+        let out = format!("{}{}{}", &text[..span.0], joined, &text[span.1..]);
+        let span_start = text[..span.0].chars().count();
+        return (out, (span_start, span_start + joined.chars().count()));
+    }
+    let out = format!("{}{}{}", &text[..from], pad, &text[to..]);
+    let caret = start + step;
+    (out, (caret, caret))
+}
+
+/// Remove one leading tab or up to `tab_size` leading spaces from each selected line (`⇧Tab`).
+pub(crate) fn outdent_tab(text: &str, selection: (usize, usize), tab_size: u8) -> Option<Edit> {
+    let (start, end) = (selection.0.min(selection.1), selection.0.max(selection.1));
+    let step = usize::from(tab_size.clamp(1, 8));
+    let span = line_span(text, (start, end));
+    let block = &text[span.0..span.1];
+    let mut stripped_counts = Vec::new();
+    let lines: Vec<String> = block
+        .split('\n')
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix('\t') {
+                stripped_counts.push(1usize);
+                rest.to_owned()
+            } else {
+                let spaces = line.chars().take_while(|&c| c == ' ').count().min(step);
+                stripped_counts.push(spaces);
+                line[spaces..].to_owned()
+            }
+        })
+        .collect();
+    if stripped_counts.iter().all(|&n| n == 0) {
+        return None;
+    }
+    let joined = lines.join("\n");
+    let out = format!("{}{}{}", &text[..span.0], joined, &text[span.1..]);
+    let span_start = text[..span.0].chars().count();
+    if stripped_counts.len() == 1 {
+        let removed = stripped_counts[0];
+        let new_start = span_start + (start - span_start).saturating_sub(removed);
+        let new_end = span_start + (end - span_start).saturating_sub(removed);
+        Some((out, (new_start, new_end)))
+    } else {
+        Some((out, (span_start, span_start + joined.chars().count())))
+    }
+}
+
+pub(crate) fn is_auto_close_trigger(ch: char) -> bool {
+    matches!(ch, '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`')
+}
+
+fn is_escaped_at(text: &str, byte_pos: usize) -> bool {
+    text[..byte_pos]
+        .chars()
+        .rev()
+        .take_while(|&c| c == '\\')
+        .count()
+        % 2
+        == 1
+}
+
+/// Auto-close `()`, `[]`, `{}`, `"`, `'`, `` ` `` or skip over an existing closing delimiter.
+/// Returns `None` when `ch` should be inserted literally.
+pub(crate) fn auto_close_char(text: &str, caret: usize, ch: char) -> Option<Edit> {
+    if !is_auto_close_trigger(ch) || caret > text.chars().count() {
+        return None;
+    }
+    let byte_pos = char_to_byte(text, caret);
+    if is_escaped_at(text, byte_pos) {
+        return None;
+    }
+    let prev = text[..byte_pos].chars().next_back();
+    let next = text[byte_pos..].chars().next();
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+
+    match ch {
+        ')' | ']' | '}' => {
+            if next == Some(ch) {
+                return Some((text.to_owned(), (caret + 1, caret + 1)));
+            }
+            None
+        }
+        '"' | '\'' | '`' => {
+            if next == Some(ch) {
+                return Some((text.to_owned(), (caret + 1, caret + 1)));
+            }
+            if prev.is_some_and(is_word) || next.is_some_and(is_word) {
+                return None;
+            }
+            // If an odd number of unescaped `ch` already appear on this line before the caret,
+            // the user is closing an open quote rather than starting a new pair.
+            let line_start = text[..byte_pos].rfind('\n').map_or(0, |i| i + 1);
+            let mut unescaped = 0usize;
+            for (offset, c) in text[line_start..byte_pos].char_indices() {
+                if c == ch && !is_escaped_at(text, line_start + offset) {
+                    unescaped += 1;
+                }
+            }
+            if unescaped % 2 == 1 {
+                return None;
+            }
+            let out = format!("{}{ch}{ch}{}", &text[..byte_pos], &text[byte_pos..]);
+            Some((out, (caret + 1, caret + 1)))
+        }
+        '(' | '[' | '{' => {
+            if next.is_some_and(is_word) {
+                return None;
+            }
+            let close = match ch {
+                '(' => ')',
+                '[' => ']',
+                '{' => '}',
+                _ => unreachable!(),
+            };
+            let out = format!("{}{ch}{close}{}", &text[..byte_pos], &text[byte_pos..]);
+            Some((out, (caret + 1, caret + 1)))
+        }
+        _ => None,
+    }
+}
+
+/// Delete both characters of an empty `()`, `[]`, `{}`, `""`, `''`, or `` `` `` pair on Backspace.
+pub(crate) fn auto_delete_pair(text: &str, caret: usize) -> Option<Edit> {
+    if caret == 0 || caret > text.chars().count() {
+        return None;
+    }
+    let byte_pos = char_to_byte(text, caret);
+    let prev = text[..byte_pos].chars().next_back()?;
+    let next = text[byte_pos..].chars().next()?;
+    let is_pair = matches!(
+        (prev, next),
+        ('(', ')') | ('[', ']') | ('{', '}') | ('"', '"') | ('\'', '\'') | ('`', '`')
+    );
+    if !is_pair {
+        return None;
+    }
+    let prev_byte = byte_pos - prev.len_utf8();
+    if is_escaped_at(text, prev_byte) {
+        return None;
+    }
+    let next_end = byte_pos + next.len_utf8();
+    let out = format!("{}{}", &text[..prev_byte], &text[next_end..]);
+    Some((out, (caret - 1, caret - 1)))
 }
 
 #[cfg(test)]
@@ -347,5 +589,81 @@ mod tests {
         assert!(formatted.contains("      this */"));
         assert!(formatted.contains("\n      <b/>\n"));
         assert!(formatted.ends_with("if (x) {\n    stop();\n}"));
+    }
+
+    #[test]
+    fn tab_size_controls_auto_format_line_comment_and_tab_indent_outdent() {
+        let src = "function f() {\nif (ok) {\nstop();\n}\n}";
+        assert_eq!(
+            auto_format_with_tab_size(src, 2).unwrap(),
+            "function f() {\n  if (ok) {\n    stop();\n  }\n}"
+        );
+        assert_eq!(
+            auto_format_with_tab_size(src, 8).unwrap(),
+            "function f() {\n        if (ok) {\n                stop();\n        }\n}"
+        );
+
+        // Single caret Tab / Shift+Tab with 2 and 4 spaces.
+        let (indented, sel) = indent_tab("stop();", (0, 0), 2);
+        assert_eq!(indented, "  stop();");
+        assert_eq!(sel, (2, 2));
+        let (outdented, sel) = outdent_tab(&indented, (9, 9), 2).unwrap();
+        assert_eq!(outdented, "stop();");
+        assert_eq!(sel, (7, 7));
+        assert!(outdent_tab("stop();", (0, 0), 4).is_none());
+
+        // Multi-line block indent & outdent preserves empty lines and selection span.
+        let block = "a();\n\nb();";
+        let (ind2, sel2) = indent_tab(block, (0, block.chars().count()), 4);
+        assert_eq!(ind2, "    a();\n\n    b();");
+        let (back, _) = outdent_tab(&ind2, sel2, 4).unwrap();
+        assert_eq!(back, block);
+
+        // Mixed leading tab and spaces in line comment uses visual tab_size columns.
+        let mixed = "\ta();\n    b();";
+        let (commented, _) =
+            line_comment_with_tab_size(mixed, (0, mixed.chars().count()), 4).unwrap();
+        assert_eq!(commented, "\t// a();\n    // b();");
+    }
+
+    #[test]
+    fn auto_close_and_backspace_pair_handle_brackets_quotes_escapes_and_skip_over() {
+        // Opening brackets pair when not before identifier char, then closing bracket skips over.
+        let (s, sel) = auto_close_char("trace", 5, '(').unwrap();
+        assert_eq!(s, "trace()");
+        assert_eq!(sel, (6, 6));
+        let (s, sel) = auto_close_char(&s, sel.0, ')').unwrap();
+        assert_eq!(s, "trace()");
+        assert_eq!(sel, (7, 7));
+
+        // Do not auto-close directly before an identifier character.
+        assert!(auto_close_char("foo", 0, '(').is_none());
+        assert!(auto_close_char("foo", 0, '"').is_none());
+
+        // Quotes pair, skip over closing quote, ignore escaped quotes, and close unclosed strings.
+        let (q, qsel) = auto_close_char("x = ", 4, '"').unwrap();
+        assert_eq!(q, "x = \"\"");
+        assert_eq!(qsel, (5, 5));
+        let (q2, qsel2) = auto_close_char(&q, qsel.0, '"').unwrap();
+        assert_eq!(q2, "x = \"\"");
+        assert_eq!(qsel2, (6, 6));
+        assert!(auto_close_char("x = \"hello", 10, '"').is_none());
+        assert!(auto_close_char("x = \"hello\\", 11, '"').is_none());
+
+        // Backspace between an empty pair deletes both delimiters; non-empty or escaped pairs do not.
+        for (pair, caret) in [
+            ("()", 1),
+            ("[]", 1),
+            ("{}", 1),
+            ("\"\"", 1),
+            ("''", 1),
+            ("``", 1),
+        ] {
+            let (deleted, dsel) = auto_delete_pair(pair, caret).unwrap();
+            assert_eq!(deleted, "");
+            assert_eq!(dsel, (0, 0));
+        }
+        assert!(auto_delete_pair("(a)", 1).is_none());
+        assert!(auto_delete_pair("\\\"\"", 2).is_none());
     }
 }

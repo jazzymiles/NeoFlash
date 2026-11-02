@@ -586,7 +586,10 @@ impl Editor {
                 Tool::Zoom if ui.input(|i| i.modifiers.alt) || self.authoring_tools.zoom_out => {
                     nf::ZOOM_OUT
                 }
-                _ => crate::stage_cursor::tool_cursor(tool),
+                _ => crate::stage_cursor::tool_cursor_precise(
+                    tool,
+                    self.workspace.drawing.precise_cursors,
+                ),
             });
             if matches!(tool, Tool::Brush | Tool::Eraser) {
                 let radius = if tool == Tool::Brush {

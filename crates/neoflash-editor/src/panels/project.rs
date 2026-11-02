@@ -344,11 +344,21 @@ impl Editor {
             .show(ui, |ui| {
                 let _ = ui.add(c::MenuItem::new(&self.project.name).checked(true));
                 c::menu_separator(ui);
-                if ui.add(c::MenuItem::new("New").shortcut("⌘N")).clicked() {
+                let new_sc = self.sc(crate::commands::CommandId::FileNew);
+                let mut new_item = c::MenuItem::new("New");
+                if !new_sc.is_empty() {
+                    new_item = new_item.shortcut(&new_sc);
+                }
+                if ui.add(new_item).clicked() {
                     self.request(Pending::New, &ctx);
                     ui.close();
                 }
-                if ui.add(c::MenuItem::new("Open…").shortcut("⌘O")).clicked() {
+                let open_sc = self.sc(crate::commands::CommandId::FileOpen);
+                let mut open_item = c::MenuItem::new("Open…");
+                if !open_sc.is_empty() {
+                    open_item = open_item.shortcut(&open_sc);
+                }
+                if ui.add(open_item).clicked() {
                     self.request(Pending::Open, &ctx);
                     ui.close();
                 }

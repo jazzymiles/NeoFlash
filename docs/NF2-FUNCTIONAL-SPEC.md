@@ -111,7 +111,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
-| DL-01 | Preferences (9 pages) | Dialog | partial: General, Timeline, Text, Clipboard basics wired | editor | P1–P3 per page |
+| DL-01 | Preferences (9 pages) | Dialog | done (8 pages wired; Updates + design/subsystem items disabled) | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | done | editor | P1 |
 | DL-03 | Publish settings | Planned dialog | preview | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
@@ -724,12 +724,33 @@ persists; Cancel discards; Reset restores defaults for the current page only.
 
 Done (`panels/preferences.rs`, modal like Document settings; Edit ▸ Preferences… ⌘U, Edit ▸ Keyboard shortcuts…
 opens the Shortcuts page): edits live on a draft; the theme previews live and Cancel / Esc / ✕ restores it; Save /
-Enter applies and persists. Wired: General ▸ Theme, UI scale (80–150 %, egui zoom), Undo levels (10–1000, history
-capacity), Shift-select (off = clicking an object adds it); Timeline ▸ Default frame view and row, Show seconds, Snap
-playhead, Onion range (session default), Default ease (new classic tweens); Text ▸ Font and size of new text;
-Clipboard ▸ Default paste (In centre / In place). Reset to defaults is enabled on those four pages. Everything else
-stays disabled; plan and requests in `NF2-WIRING-PLAN.md` W3.6 and `NF2-REQUESTS.md` R-012. Screenshot aid:
-`NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
+Enter applies and persists; Reset to defaults resets the active page's group. Wired across all 8 working pages:
+- **General:** Theme Dark / Light, UI scale (80–150 %, egui zoom), On launch (`New document` / `Last document` /
+  `Example`, plus `File ▸ Open recent` up to 10 existing files), Undo levels (10–1000, history capacity), Autosave
+  (`Every` switch + `1–120 Min` stepper writing atomic snapshots to `<app_support>/Recovery` and offering `Recover
+  unsaved work?` on launch via `recovery.rs`), Show tooltips with shortcuts, Shift-select.
+- **Code editor:** Font family (`Roboto Mono` + installed system families), font size (`8–32 px`), line height
+  (`1.0–3.0`), Line numbers (with marker-only gutter strip when off), Word wrap, Auto-close brackets/quotes, Code hints
+  + delay (`0–1000 ms`; `⌃Space` always immediate), Tab size (`2` / `4` / `8` spaces for `Tab`/`⇧Tab`, Auto-format and
+  line comments), Format on save, Highlight current line, plus live 5-line preview.
+- **Timeline:** Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
+  Snap playhead to keyframes, Onion range, linear Onion opacity falloff (`15–100 % → 15 %`, unified with the Timeline
+  onion popover), Create keyframe on transform (when off, in-between transforms edit the span keyframe), Default ease,
+  Tween type on drag (`None` / `Classic tween` / `Motion tween` in one Undo step).
+- **Drawing:** Show pen preview, Precise cursors (`CROSSHAIR`), Connect lines, Smooth curves (Pencil RDP tolerance),
+  Recognise lines, Recognise shapes (`Rectangle` / `Ellipse`), Click accuracy (`Off` / `1` / `4` / `8 px` slop with
+  exact-hit priority), Snap tolerance (`1–32 px`), Snap to pixels (`StageView::prefs.pixels_snap` + `view_defaults`).
+- **Text:** Default font and size of new text, Font substitution (`Show warning` / `Substitute silently`).
+- **Clipboard:** Default paste (`In centre` / `In place`), Import vector paste as editable paths (SVG clipboard text
+  imports as editable `Path` elements when on or a rasterized `Bitmap` when off, in one Undo step).
+- **Shortcuts (`commands.rs`):** 98-command registry driving all editor shortcut dispatch, menu labels and tool/panel
+  tooltips; shortcut set selector (`NeoFlash default` + user sets with `Duplicate` / `Delete`), live Search and
+  category filter, click-to-record `"Press keys…"` (`Esc` cancels, `Backspace`/`Delete` clears), `Conflicts with …`
+  warning badge, `Reset command`, and `Export as HTML…`.
+- **Publish:** Output folder + `Browse…` (reused by HTML5 Publish), Treat warnings as errors, Publish on save.
+- **Updates** and controls waiting on NF2 design tokens (`R-013`–`R-020`) or standalone subsystems (merge drawing, font
+  embedding `E-26`, spell check, vertical text, native OS bitmap/SVG clipboard, asset re-encoding, WebGL) stay disabled.
+Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 
 | Page | Controls (from the preview) | Effect when wired | Model / engine | Prio |
 | --- | --- | --- | --- | --- |

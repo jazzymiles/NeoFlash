@@ -768,20 +768,29 @@ impl Editor {
 
     /// Frame (right-click) menu, design §8.
     fn frame_context_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         use crate::timeline_edit::FrameCommand as F;
         use crate::ui_icons::{menu_item, menu_item_enabled, menu_toggle};
         let editable = self.layer_editable();
         let tweenable = self.can_create_tween();
-        for (label, kind) in [
-            ("Create motion tween", TweenKind::Motion),
-            ("Create shape tween", TweenKind::Shape),
-            ("Create classic tween", TweenKind::Classic),
+        for (label, cmd_id, kind) in [
+            (
+                "Create motion tween",
+                C::InsertMotionTween,
+                TweenKind::Motion,
+            ),
+            ("Create shape tween", C::InsertShapeTween, TweenKind::Shape),
+            (
+                "Create classic tween",
+                C::InsertClassicTween,
+                TweenKind::Classic,
+            ),
         ] {
             if menu_item_enabled(
                 ui,
                 tweenable && self.current_tween() != Some(kind),
                 label,
-                "",
+                &self.sc(cmd_id),
             )
             .clicked()
             {
@@ -790,60 +799,123 @@ impl Editor {
             }
         }
         nf::menu_separator(ui);
-        if menu_item_enabled(ui, editable, "Insert frame", "F5").clicked() {
+        if menu_item_enabled(ui, editable, "Insert frame", &self.sc(C::InsertFrame)).clicked() {
             self.insert_frame();
             ui.close();
         }
-        self.frame_command_item(ui, "Remove frames", "⇧F5", F::Remove);
-        if menu_item_enabled(ui, editable, "Insert keyframe", "F6").clicked() {
+        let remove_sc = self.sc(C::EditTimelineRemoveFrames);
+        self.frame_command_item(ui, "Remove frames", &remove_sc, F::Remove);
+        if menu_item_enabled(ui, editable, "Insert keyframe", &self.sc(C::InsertKeyframe)).clicked()
+        {
             self.finish_edits();
             self.make_key(false);
             ui.close();
         }
-        if menu_item_enabled(ui, editable, "Insert blank keyframe", "F7").clicked() {
+        if menu_item_enabled(
+            ui,
+            editable,
+            "Insert blank keyframe",
+            &self.sc(C::InsertBlankKeyframe),
+        )
+        .clicked()
+        {
             self.finish_edits();
             self.make_key(true);
             ui.close();
         }
-        if menu_item_enabled(ui, editable, "Clear keyframe", "⇧F6").clicked() {
+        if menu_item_enabled(
+            ui,
+            editable,
+            "Clear keyframe",
+            &self.sc(C::ModifyTimelineClearKeyframe),
+        )
+        .clicked()
+        {
             self.clear_keyframe();
             ui.close();
         }
-        if menu_item_enabled(ui, editable, "Convert to keyframes", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            editable,
+            "Convert to keyframes",
+            &self.sc(C::ModifyTimelineConvertToKeyframes),
+        )
+        .clicked()
+        {
             self.convert_to_keyframes(false);
             ui.close();
         }
-        if menu_item_enabled(ui, editable, "Convert to blank keyframes", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            editable,
+            "Convert to blank keyframes",
+            &self.sc(C::ModifyTimelineConvertToBlankKeyframes),
+        )
+        .clicked()
+        {
             self.convert_to_keyframes(true);
             ui.close();
         }
         nf::menu_separator(ui);
-        self.frame_command_item(ui, "Cut frames", "⌥⌘X", F::Cut);
-        self.frame_command_item(ui, "Copy frames", "⌥⌘C", F::Copy);
-        self.frame_command_item(ui, "Paste frames", "⌥⌘V", F::Paste);
-        self.frame_command_item(ui, "Clear frames", "⌥⌫", F::Clear);
-        self.frame_command_item(ui, "Select all frames", "⌥⌘A", F::SelectAll);
+        for (label, cmd) in [
+            ("Cut frames", F::Cut),
+            ("Copy frames", F::Copy),
+            ("Paste frames", F::Paste),
+            ("Clear frames", F::Clear),
+            ("Select all frames", F::SelectAll),
+        ] {
+            let sc = self.sc(C::for_frame_command(cmd));
+            self.frame_command_item(ui, label, &sc, cmd);
+        }
         nf::menu_separator(ui);
-        if menu_item_enabled(ui, self.can_copy_motion(), "Copy motion", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            self.can_copy_motion(),
+            "Copy motion",
+            &self.sc(C::EditTimelineCopyMotion),
+        )
+        .clicked()
+        {
             self.copy_motion();
             ui.close();
         }
-        if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            self.can_paste_motion(),
+            "Paste motion",
+            &self.sc(C::EditTimelinePasteMotion),
+        )
+        .clicked()
+        {
             self.paste_motion();
             ui.close();
         }
         Self::unavailable_item(ui, "Paste motion special…", "");
         nf::menu_separator(ui);
-        if menu_item_enabled(ui, self.can_reverse_frames(), "Reverse frames", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            self.can_reverse_frames(),
+            "Reverse frames",
+            &self.sc(C::EditTimelineReverseFrames),
+        )
+        .clicked()
+        {
             self.reverse_frames();
             ui.close();
         }
-        if menu_item_enabled(ui, self.can_sync_symbols(), "Synchronise symbols", "").clicked() {
+        if menu_item_enabled(
+            ui,
+            self.can_sync_symbols(),
+            "Synchronise symbols",
+            &self.sc(C::EditTimelineSyncSymbols),
+        )
+        .clicked()
+        {
             self.sync_symbols();
             ui.close();
         }
         nf::menu_separator(ui);
-        if menu_item(ui, "Actions", "F9").clicked() {
+        if menu_item(ui, "Actions", &self.sc(C::WindowActions)).clicked() {
             self.open_frame_actions();
             ui.close();
         }

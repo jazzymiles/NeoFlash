@@ -137,7 +137,12 @@ impl Editor {
                             changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));
                             changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
                             changes.note(select_row(ui, "Fill rule", "fill_rule", fill_rule, &[(FillRule::NonZero, "Nonzero"), (FillRule::EvenOdd, "Even–odd")]));
-                            if ui.add(nf::Button::new("Edit points").shortcut("A")).clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
+                            let edit_pts_sc = self.tooltip_sc(crate::commands::CommandId::ToolSubselect);
+                            let mut edit_pts_btn = nf::Button::new("Edit points");
+                            if let Some(sc) = edit_pts_sc.as_deref() {
+                                edit_pts_btn = edit_pts_btn.shortcut(sc);
+                            }
+                            if ui.add(edit_pts_btn).clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
                         }
                         ElementKind::Instance { symbol_id, playback } => {
                             let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
@@ -159,7 +164,12 @@ impl Editor {
                             }
                             if ui.add(nf::Button::new("Edit symbol")).clicked() { edit_symbol = Some(symbol_id.clone()); }
                         }
-                        if ui.add(nf::Button::new("Object actions…").shortcut("F9")).clicked() {
+                        let obj_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
+                        let mut obj_act_btn = nf::Button::new("Object actions…");
+                        if let Some(sc) = obj_act_sc.as_deref() {
+                            obj_act_btn = obj_act_btn.shortcut(sc);
+                        }
+                        if ui.add(obj_act_btn).clicked() {
                             self.script_target = crate::app::ScriptTarget::Object;
                             self.show_panel(crate::workspace::PanelId::Actions);
                         }
@@ -277,7 +287,12 @@ impl Editor {
                         ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) { changes.note(text_row(ui, "Frame label", &mut key.label)); }
                         });
-                        if ui.add(nf::Button::new("Frame script…").shortcut("F9")).clicked() { self.open_frame_actions(); }
+                        let frame_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
+                        let mut frame_act_btn = nf::Button::new("Frame script…");
+                        if let Some(sc) = frame_act_sc.as_deref() {
+                            frame_act_btn = frame_act_btn.shortcut(sc);
+                        }
+                        if ui.add(frame_act_btn).clicked() { self.open_frame_actions(); }
                     });
                     self.frame_sound_section(ui);
                 } else {

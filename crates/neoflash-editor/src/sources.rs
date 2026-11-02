@@ -6,10 +6,11 @@ use crate::app::{Editor, ScriptTarget};
 use crate::code_tools::CodeCommand;
 use crate::script_api::{HintContext, ThisKind};
 use crate::theme::{DesignUi as _, ScrollTheme as _};
+use crate::workspace::CodeEditorPrefs;
 use eframe::egui;
 use neoflash_core::{Script, ScriptLanguage, SourceUnit, SymbolKind, new_id};
 use neoflash_ui::components::{self as nf, code::Severity};
-use neoflash_ui::tokens::{TextStyle, radius, space};
+use neoflash_ui::tokens::{radius, space};
 use std::hash::{Hash, Hasher};
 
 pub(crate) struct CodeFeedback {
@@ -146,6 +147,9 @@ impl Editor {
         tab: &str,
     ) -> egui::Response {
         let editor_id = self.actions_editor_id();
+        self.fonts
+            .ensure_loaded(ui.ctx(), &self.workspace.code_editor.font);
+        let code_prefs = self.workspace.code_editor.clone();
         let show_hints = self.apply_code_command(ui.ctx(), editor_id, source);
         let feedback = self
             .current_feedback(&Script {
@@ -189,6 +193,7 @@ impl Editor {
                     &markers,
                     &hint_context,
                     show_hints,
+                    &code_prefs,
                 )
             })
             .inner;
@@ -280,7 +285,12 @@ impl Editor {
             .cursor
             .char_range()
             .map_or((end, end), |r| (r.secondary.index, r.primary.index));
-        if let Some((text, (start, stop))) = crate::code_tools::apply(&command, source, selection) {
+        if let Some((text, (start, stop))) = crate::code_tools::apply_with_tab_size(
+            &command,
+            source,
+            selection,
+            self.workspace.code_editor.tab_size,
+        ) {
             *source = text;
             state
                 .cursor
@@ -550,11 +560,13 @@ impl Editor {
             index += 1;
         }
         let name = format!("Class{index}");
+        let indent = " ".repeat(usize::from(self.workspace.code_editor.tab_size.clamp(1, 8)));
+        let indent2 = indent.repeat(2);
         let source = if language == ScriptLanguage::ActionScript2 {
-            format!("class {name} {{\n    public function {name}() {{\n    }}\n}}\n")
+            format!("class {name} {{\n{indent}public function {name}() {{\n{indent}}}\n}}\n")
         } else {
             format!(
-                "package {{\n    public class {name} {{\n        public function {name}() {{\n        }}\n    }}\n}}\n"
+                "package {{\n{indent}public class {name} {{\n{indent2}public function {name}() {{\n{indent2}}}\n{indent}}}\n}}\n"
             )
         };
         let unit = SourceUnit {
@@ -652,15 +664,93 @@ pub(crate) fn language_select(
     changed
 }
 
-/// Syntax-coloured code layout (NF2 Night tokens, `NF2/Mono`) without replacing TextEdit IDs or input state.
-pub(crate) fn code_layout(
+const MARKER_GUTTER: f32 = space::S1 + 16.0 + space::S1;
+
+/// Resolved `egui::FontId` for `CodeEditorPrefs`: empty or `"Roboto Mono"` uses the bundled NF2
+/// monospace font; installed custom families fall back to monospace if unavailable in `ctx`.
+pub(crate) fn code_font_id(ctx: &egui::Context, prefs: &CodeEditorPrefs) -> egui::FontId {
+    let size = prefs.font_size.clamp(8.0, 32.0);
+    let trimmed = prefs.font.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("Roboto Mono") {
+        return egui::FontId::new(size, egui::FontFamily::Monospace);
+    }
+    let named = crate::fonts::styled_family(trimmed, false, false);
+    let family = if ctx.fonts_mut(|fonts| fonts.families().contains(&named)) {
+        named
+    } else {
+        egui::FontFamily::Monospace
+    };
+    egui::FontId::new(size, family)
+}
+
+/// Syntax-coloured code layout (NF2 Night tokens) applying `CodeEditorPrefs` font, size, line
+/// height, and word wrap without replacing TextEdit IDs or input state.
+pub(crate) fn code_layout_with_prefs(
     ui: &egui::Ui,
     text: &dyn egui::TextBuffer,
     wrap_width: f32,
+    prefs: &CodeEditorPrefs,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = nf::code::highlight(ui.ctx(), text.as_str());
-    job.wrap.max_width = wrap_width;
+    let ctx = ui.ctx();
+    let font_id = code_font_id(ctx, prefs);
+    let line_px = font_id.size * prefs.line_height.clamp(1.0, 3.0);
+    let mut job = nf::code::highlight(ctx, text.as_str());
+    for section in &mut job.sections {
+        section.format.font_id = font_id.clone();
+        section.format.line_height = Some(line_px);
+    }
+    job.wrap.max_width = if prefs.word_wrap {
+        wrap_width
+    } else {
+        f32::INFINITY
+    };
     ui.fonts_mut(|fonts| fonts.layout_job(job))
+}
+
+fn paint_marker_gutter(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    markers: &[(usize, Severity)],
+    code: &egui::Galley,
+    galley_pos: egui::Pos2,
+) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    painter.rect_filled(rect, 0.0, p.bg_panel);
+    painter.vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        egui::Stroke::new(1.0_f32, p.border_subtle),
+    );
+    let mut line = 1;
+    let mut first_row = true;
+    for row in &code.rows {
+        let r = row.rect().translate(galley_pos.to_vec2());
+        if first_row && r.bottom() >= rect.top() && r.top() <= rect.bottom() {
+            let marker = markers
+                .iter()
+                .filter(|(l, _)| *l == line)
+                .map(|(_, s)| *s)
+                .max_by_key(|s| *s as u8);
+            if let Some(severity) = marker {
+                let icon = egui::Rect::from_center_size(
+                    egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
+                    egui::vec2(16.0, 16.0),
+                );
+                neoflash_ui::icons::paint(
+                    &painter,
+                    ui.ctx(),
+                    icon,
+                    severity.icon(),
+                    severity.color(p),
+                );
+            }
+        }
+        first_row = row.ends_with_newline;
+        if row.ends_with_newline {
+            line += 1;
+        }
+    }
 }
 
 /// `NF2/Code Editor`: `bg/field` frame, gutter with line numbers and markers, current-line band,
@@ -671,6 +761,8 @@ struct HintState {
     open: bool,
     /// Opened by ⌃Space / toolbar: also lists scope names before anything is typed.
     explicit: bool,
+    /// Timestamp (`input.time`) when an automatic `.` hint was triggered and is waiting for `hint_delay_ms`.
+    pending_at: Option<f64>,
     selected: usize,
     count: usize,
     /// Char index where the hinted word starts; moving to another word closes the popover.
@@ -766,6 +858,7 @@ fn hint_popover(
     clicked
 }
 
+#[allow(clippy::too_many_arguments)]
 fn code_editor(
     ui: &mut egui::Ui,
     id: egui::Id,
@@ -774,11 +867,17 @@ fn code_editor(
     markers: &[(usize, Severity)],
     hints: &dyn Fn() -> Option<HintContext<'static>>,
     show_hints: bool,
+    prefs: &CodeEditorPrefs,
 ) -> (egui::Response, (usize, usize)) {
     let ctx = ui.ctx().clone();
     let state_id = id.with("code-hint-state");
     let mut hint_state: HintState = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
     let focused = ctx.memory(|memory| memory.has_focus(id));
+    let frame_typed_dot = ctx.input(|i| {
+        i.events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('.')))
+    });
     let explicit_key =
         focused && ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Space));
     if show_hints || explicit_key {
@@ -787,7 +886,10 @@ fn code_editor(
             explicit: true,
             ..Default::default()
         };
+    } else if !prefs.code_hints && !hint_state.explicit {
+        hint_state = HintState::default();
     }
+    let mut pre_edited = false;
     if hint_state.open && hint_state.count > 0 && focused {
         let count = hint_state.count;
         let mut accept = None;
@@ -804,6 +906,8 @@ fn code_editor(
                 || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
             {
                 accept = Some(hint_state.selected);
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t == "\t"));
             }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 hint_state.open = false;
@@ -812,121 +916,348 @@ fn code_editor(
         if let Some(index) = accept {
             if let Some(context) = hints() {
                 accept_hint(&ctx, id, source, &context, hint_state.explicit, index);
+                pre_edited = true;
             }
             hint_state = HintState::default();
         }
     }
+    if focused {
+        let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+        let plain_tab =
+            !shift_tab && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+        if shift_tab || plain_tab {
+            ctx.input_mut(|i| {
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t == "\t"));
+            });
+            ctx.memory_mut(|m| {
+                m.request_focus(id);
+                m.set_focus_lock_filter(
+                    id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: false,
+                    },
+                );
+            });
+            let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+            let end = source.chars().count();
+            let selection = state.cursor.char_range().map_or((end, end), |r| {
+                (r.secondary.index.min(end), r.primary.index.min(end))
+            });
+            let edit = if shift_tab {
+                crate::code_tools::outdent_tab(source, selection, prefs.tab_size)
+            } else {
+                Some(crate::code_tools::indent_tab(
+                    source,
+                    selection,
+                    prefs.tab_size,
+                ))
+            };
+            if let Some((new_text, (start, stop))) = edit {
+                if new_text != *source {
+                    *source = new_text;
+                    pre_edited = true;
+                }
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(start),
+                        egui::text::CCursor::new(stop),
+                    )));
+                state.store(&ctx, id);
+            }
+        }
+        if prefs.auto_close_brackets {
+            let has_plain_backspace = ctx.input(|i| {
+                i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::Backspace,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } if modifiers.is_none()
+                    )
+                })
+            });
+            if has_plain_backspace {
+                let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+                let end = source.chars().count();
+                if let Some(range) = state.cursor.char_range()
+                    && range.primary.index == range.secondary.index
+                    && let Some((new_text, (start, stop))) =
+                        crate::code_tools::auto_delete_pair(source, range.primary.index.min(end))
+                {
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace));
+                    *source = new_text;
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(start),
+                            egui::text::CCursor::new(stop),
+                        )));
+                    state.store(&ctx, id);
+                    pre_edited = true;
+                }
+            }
+            let has_trigger = ctx.input(|i| {
+                !i.modifiers.command
+                    && !i.modifiers.ctrl
+                    && i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Text(t)
+                                if t.chars().count() == 1
+                                    && crate::code_tools::is_auto_close_trigger(
+                                        t.chars().next().unwrap()
+                                    )
+                        )
+                    })
+            });
+            if has_trigger {
+                let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+                let end = source.chars().count();
+                let (mut sel_start, mut sel_end) =
+                    state.cursor.char_range().map_or((end, end), |r| {
+                        (r.secondary.index.min(end), r.primary.index.min(end))
+                    });
+                let before = source.clone();
+                let char_byte =
+                    |s: &str, idx: usize| s.char_indices().nth(idx).map_or(s.len(), |(b, _)| b);
+                ctx.input_mut(|i| {
+                    i.events.retain(|event| {
+                        let egui::Event::Text(t) = event else {
+                            return true;
+                        };
+                        if t.chars().count() != 1 {
+                            return true;
+                        }
+                        let ch = t.chars().next().unwrap();
+                        if matches!(ch, '\t' | '\n' | '\r') {
+                            return true;
+                        }
+                        let (lo, hi) = (sel_start.min(sel_end), sel_start.max(sel_end));
+                        if lo == hi
+                            && let Some((new_text, (s, e))) =
+                                crate::code_tools::auto_close_char(source, lo, ch)
+                        {
+                            *source = new_text;
+                            sel_start = s;
+                            sel_end = e;
+                        } else {
+                            let (b0, b1) = (char_byte(source, lo), char_byte(source, hi));
+                            let mut buf = [0u8; 4];
+                            source.replace_range(b0..b1, ch.encode_utf8(&mut buf));
+                            sel_start = lo + 1;
+                            sel_end = sel_start;
+                        }
+                        false
+                    });
+                });
+                if *source != before {
+                    pre_edited = true;
+                }
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(sel_start),
+                        egui::text::CCursor::new(sel_end),
+                    )));
+                state.store(&ctx, id);
+            }
+        }
+    }
     let p = neoflash_ui::palette(&ctx);
     let lines = source.chars().filter(|c| *c == '\n').count() + 1;
-    let gutter = nf::code::gutter_width(ui, lines);
+    let gutter = if prefs.line_numbers {
+        nf::code::gutter_width(ui, lines)
+    } else {
+        MARKER_GUTTER
+    };
+    let font_id = code_font_id(&ctx, prefs);
     let mut caret = (1, 1);
-    let mut layouter = code_layout;
+    let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+        code_layout_with_prefs(ui, text, wrap_width, prefs)
+    };
     let response = egui::Frame::new()
         .fill(p.bg_field)
         .stroke(egui::Stroke::new(1.0_f32, p.border_subtle))
         .corner_radius(radius::MD)
         .inner_margin(egui::Margin::same(1))
         .show(ui, |ui| {
-            ui.set_min_size(ui.available_size());
-            egui::ScrollArea::vertical()
+            let viewport_size = ui.available_size();
+            let viewport_w = if viewport_size.x.is_finite() {
+                viewport_size.x
+            } else {
+                400.0
+            };
+            let viewport_h = if viewport_size.y.is_finite() {
+                viewport_size.y.max(60.0)
+            } else {
+                60.0
+            };
+            ui.set_min_size(egui::vec2(viewport_w, viewport_h));
+            let scroll = if prefs.word_wrap {
+                egui::ScrollArea::vertical()
+            } else {
+                egui::ScrollArea::both()
+            };
+            scroll
                 .id_salt(("actions_source_scroll", id))
                 .auto_shrink([false, false])
                 .themed()
                 .show(ui, |ui| {
                     let band = ui.painter().add(egui::Shape::Noop);
-                    let output = egui::TextEdit::multiline(source)
+                    let mut output = egui::TextEdit::multiline(source)
                         .id(id)
                         .code_editor()
-                        .font(neoflash_ui::typography::font(TextStyle::Mono))
+                        .lock_focus(true)
+                        .font(font_id.clone())
                         .layouter(&mut layouter)
                         .frame(false)
                         .margin(egui::Margin {
-                            left: (gutter + space::S3) as i8,
+                            left: (gutter + space::S3).min(120.0) as i8,
                             right: space::S2 as i8,
                             top: space::S1 as i8,
                             bottom: space::S1 as i8,
                         })
                         .desired_width(f32::INFINITY)
-                        .min_size(egui::vec2(
-                            ui.available_width(),
-                            ui.available_height().max(60.),
-                        ))
+                        .min_size(egui::vec2(viewport_w, viewport_h))
                         .hint_text(
-                            neoflash_ui::typography::rich(hint, TextStyle::Mono)
+                            egui::RichText::new(hint)
+                                .font(font_id.clone())
                                 .color(p.text_tertiary),
                         )
                         .show(ui);
+                    if pre_edited {
+                        output.response.mark_changed();
+                    }
                     let rect = output.response.rect;
+                    let gutter_left = rect.left().max(ui.clip_rect().left());
+                    let gutter_rect = egui::Rect::from_min_max(
+                        egui::pos2(gutter_left, rect.top()),
+                        egui::pos2(gutter_left + gutter, rect.bottom()),
+                    );
                     let cursor = output.state.cursor.char_range().map(|range| range.primary);
                     if let Some(cursor) = cursor {
                         caret = nf::code::line_col(source, cursor.index);
-                        ui.painter().set(
-                            band,
-                            nf::code::current_line(
-                                &ctx,
-                                &output.galley,
-                                output.galley_pos,
-                                cursor,
-                                egui::Rangef::new(rect.left() + gutter, rect.right()),
-                            ),
+                        if prefs.highlight_current_line {
+                            ui.painter().set(
+                                band,
+                                nf::code::current_line(
+                                    &ctx,
+                                    &output.galley,
+                                    output.galley_pos,
+                                    cursor,
+                                    egui::Rangef::new(gutter_rect.right(), rect.right()),
+                                ),
+                            );
+                        }
+                    }
+                    if prefs.line_numbers {
+                        nf::Gutter {
+                            markers,
+                            current_line: if prefs.highlight_current_line {
+                                cursor.map(|_| caret.0)
+                            } else {
+                                None
+                            },
+                        }
+                        .paint(
+                            ui,
+                            gutter_rect,
+                            &output.galley,
+                            output.galley_pos,
+                        );
+                    } else {
+                        paint_marker_gutter(
+                            ui,
+                            gutter_rect,
+                            markers,
+                            &output.galley,
+                            output.galley_pos,
                         );
                     }
-                    nf::Gutter {
-                        markers,
-                        current_line: cursor.map(|_| caret.0),
+                    if prefs.code_hints && output.response.changed() && frame_typed_dot {
+                        if prefs.hint_delay_ms == 0 {
+                            hint_state = HintState {
+                                open: true,
+                                ..Default::default()
+                            };
+                        } else {
+                            let now = ctx.input(|i| i.time);
+                            hint_state = HintState {
+                                pending_at: Some(now),
+                                ..Default::default()
+                            };
+                        }
                     }
-                    .paint(
-                        ui,
-                        egui::Rect::from_min_max(
-                            rect.min,
-                            egui::pos2(rect.left() + gutter, rect.bottom()),
-                        ),
-                        &output.galley,
-                        output.galley_pos,
-                    );
-                    let typed_dot = output.response.changed()
-                        && ui.input(|i| {
-                            i.events
-                                .iter()
-                                .any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('.')))
-                        });
-                    if typed_dot {
-                        hint_state = HintState {
-                            open: true,
-                            ..Default::default()
-                        };
+                    if let Some(at) = hint_state.pending_at {
+                        let valid_pending = output.response.has_focus()
+                            && cursor
+                                .and_then(|c| hints().and_then(|h| h.hints(source, c.index, false)))
+                                .is_some();
+                        if !valid_pending {
+                            hint_state = HintState::default();
+                        } else {
+                            let now = ctx.input(|i| i.time);
+                            let remaining = at + f64::from(prefs.hint_delay_ms) / 1000.0 - now;
+                            if remaining <= 1e-6 {
+                                hint_state.pending_at = None;
+                                hint_state.open = true;
+                            } else {
+                                ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                                    remaining,
+                                ));
+                            }
+                        }
                     }
                     if hint_state.open && !output.response.has_focus() && !hint_state.hovered {
                         hint_state = HintState::default();
                     }
-                    let found = match (hint_state.open, cursor) {
-                        (true, Some(cursor)) => hints().and_then(|context| {
-                            let found = context.hints(source, cursor.index, hint_state.explicit)?;
-                            Some((context, found, cursor))
-                        }),
-                        _ => None,
-                    };
-                    match found {
-                        Some((_, found, _))
-                            if hint_state.anchor.is_some_and(|a| a != found.start) =>
-                        {
-                            hint_state = HintState::default();
-                        }
-                        Some((context, found, cursor)) => {
-                            hint_state.anchor = Some(found.start);
-                            hint_state.count = found.items.len();
-                            hint_state.selected = hint_state.selected.min(found.items.len() - 1);
-                            let at = output.galley.pos_from_cursor(cursor);
-                            let anchor =
-                                output.galley_pos + at.left_bottom().to_vec2() + egui::vec2(0., 2.);
-                            if let Some(index) =
-                                hint_popover(ui, id, anchor, &found.items, &mut hint_state)
+                    if hint_state.open {
+                        let found = cursor.and_then(|cursor| {
+                            hints().and_then(|context| {
+                                let found =
+                                    context.hints(source, cursor.index, hint_state.explicit)?;
+                                Some((context, found, cursor))
+                            })
+                        });
+                        match found {
+                            Some((_, found, _))
+                                if hint_state.anchor.is_some_and(|a| a != found.start) =>
                             {
-                                accept_hint(&ctx, id, source, &context, hint_state.explicit, index);
                                 hint_state = HintState::default();
                             }
+                            Some((context, found, cursor)) => {
+                                hint_state.anchor = Some(found.start);
+                                hint_state.count = found.items.len();
+                                hint_state.selected =
+                                    hint_state.selected.min(found.items.len() - 1);
+                                let at = output.galley.pos_from_cursor(cursor);
+                                let anchor = output.galley_pos
+                                    + at.left_bottom().to_vec2()
+                                    + egui::vec2(0., 2.);
+                                if let Some(index) =
+                                    hint_popover(ui, id, anchor, &found.items, &mut hint_state)
+                                {
+                                    accept_hint(
+                                        &ctx,
+                                        id,
+                                        source,
+                                        &context,
+                                        hint_state.explicit,
+                                        index,
+                                    );
+                                    hint_state = HintState::default();
+                                }
+                            }
+                            None => hint_state = HintState::default(),
                         }
-                        None => hint_state = HintState::default(),
                     }
                     output.response
                 })

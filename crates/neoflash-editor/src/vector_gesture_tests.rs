@@ -763,3 +763,322 @@ fn pen_and_subselect_insert_and_delete_anchor_points_preserving_curve_and_undo()
     assert!(matches!(trimmed.first(), Some(PathCommand::MoveTo { .. })));
     assert!(matches!(trimmed.last(), Some(PathCommand::Close)));
 }
+
+#[test]
+fn pen_preview_and_precise_cursors_follow_drawing_preferences() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.precise_cursors = true;
+    for tool in [
+        Tool::Pen,
+        Tool::Pencil,
+        Tool::Brush,
+        Tool::Eraser,
+        Tool::Bucket,
+        Tool::Ink,
+        Tool::Eyedropper,
+    ] {
+        editor.set_tool(tool);
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            0.1,
+            vec![egui::Event::PointerMoved(page.center())],
+        );
+        assert_eq!(
+            editor.shown_stage_cursor.map(|c| c.name),
+            Some("crosshair"),
+            "drawing tool with Precise cursors"
+        );
+    }
+    editor.set_tool(Tool::Select);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![egui::Event::PointerMoved(page.center())],
+    );
+    assert_eq!(editor.shown_stage_cursor.map(|c| c.name), Some("arrow"));
+
+    // Pen rubber-band preview line from placed anchor to hover position.
+    let anchor = page.min + egui::vec2(120., 120.);
+    let hover = page.min + egui::vec2(230., 190.);
+    let has_preview_line = |out: &egui::FullOutput| {
+        out.shapes.iter().any(|s| match &s.shape {
+            egui::Shape::LineSegment { points, .. } => {
+                points[0].distance(anchor) < 1.0 && points[1].distance(hover) < 1.0
+            }
+            _ => false,
+        })
+    };
+    editor.set_tool(Tool::Pen);
+    editor.workspace.drawing.pen_preview = true;
+    pen_click(&mut editor, &ctx, 0.3, anchor, anchor);
+    let shown = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![egui::Event::PointerMoved(hover)],
+    );
+    assert!(
+        has_preview_line(&shown),
+        "pen preview line must paint when enabled"
+    );
+
+    editor.workspace.drawing.pen_preview = false;
+    let hidden = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![egui::Event::PointerMoved(hover)],
+    );
+    assert!(
+        !has_preview_line(&hidden),
+        "pen preview line must not paint when disabled"
+    );
+}
+
+#[test]
+fn pencil_recognition_smooth_curves_lines_shapes_and_connect_lines() {
+    use crate::workspace::Tolerance;
+
+    let stroke =
+        |editor: &mut Editor, ctx: &egui::Context, t: f64, page: egui::Rect, pts: &[egui::Pos2]| {
+            let mut events = Vec::with_capacity(pts.len() + 2);
+            let first = page.min + pts[0].to_vec2();
+            events.push(egui::Event::PointerMoved(first));
+            events.push(primary_button(first, true));
+            for p in &pts[1..] {
+                events.push(egui::Event::PointerMoved(page.min + p.to_vec2()));
+            }
+            let last = page.min + pts[pts.len() - 1].to_vec2();
+            events.push(primary_button(last, false));
+            stage_input_frame(editor, ctx, t, events);
+        };
+
+    // 1. Smooth curves: Off preserves raw samples; Rough -> Normal -> Smooth simplify progressively.
+    let mut wave = Vec::new();
+    for i in 0..=24 {
+        let x = 80.0 + i as f32 * 8.0;
+        let y = 120.0 + (i as f32 * 0.6).sin() * 14.0 + ((i % 2) as f32 - 0.5) * 1.4;
+        wave.push(egui::pos2(x, y));
+    }
+    let mut counts = Vec::new();
+    for mode in [
+        Tolerance::Off,
+        Tolerance::MustBeClose,
+        Tolerance::Normal,
+        Tolerance::CanBeDistant,
+    ] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.tool = Tool::Pencil;
+        editor.workspace.drawing.recognise_lines = Tolerance::Off;
+        editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+        editor.workspace.drawing.connect_lines = Tolerance::Off;
+        editor.workspace.drawing.smooth_curves = mode;
+        stroke(&mut editor, &ctx, 0.1, page, &wave);
+        counts.push(commands(&editor).len());
+    }
+    assert_eq!(
+        counts[0],
+        wave.len(),
+        "Smooth curves = Off keeps raw samples"
+    );
+    assert!(
+        counts[0] > counts[1]
+            && counts[1] >= counts[2]
+            && counts[2] >= counts[3]
+            && counts[1] > counts[3],
+        "expected progressive simplification across Off/Rough/Normal/Smooth, got {counts:?}"
+    );
+
+    // 2. Recognise lines: ±2.5 px jitter straightens at Normal (4 px), stays polyline at MustBeClose (1.5 px) and Off.
+    let nearly_straight = [
+        egui::pos2(100., 150.),
+        egui::pos2(140., 152.4),
+        egui::pos2(180., 147.8),
+        egui::pos2(220., 151.9),
+        egui::pos2(260., 150.),
+    ];
+    for (mode, expected_len) in [
+        (Tolerance::Off, 5),
+        (Tolerance::MustBeClose, 5),
+        (Tolerance::Normal, 2),
+    ] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.tool = Tool::Pencil;
+        editor.workspace.drawing.smooth_curves = Tolerance::Off;
+        editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+        editor.workspace.drawing.recognise_lines = mode;
+        stroke(&mut editor, &ctx, 0.1, page, &nearly_straight);
+        assert_eq!(commands(&editor).len(), expected_len, "{mode:?}");
+    }
+
+    // 3. Recognise shapes: closed/nearly-closed rectangle -> Rectangle, circle -> Ellipse,
+    // diamond -> stays Path, Off -> stays Path.
+    let mut rect_pts = Vec::new();
+    for i in 0..8 {
+        rect_pts.push(egui::pos2(100. + i as f32 * 15., 100.));
+    }
+    for i in 0..6 {
+        rect_pts.push(egui::pos2(220., 100. + i as f32 * 15.));
+    }
+    for i in 0..8 {
+        rect_pts.push(egui::pos2(220. - i as f32 * 15., 190.));
+    }
+    for i in 0..6 {
+        rect_pts.push(egui::pos2(100., 190. - i as f32 * 15.));
+    }
+    rect_pts.push(egui::pos2(100., 104.)); // 4 px closure gap
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    editor.fill = [50, 140, 240, 255];
+    let before = editor.project.clone();
+    stroke(&mut editor, &ctx, 0.1, page, &rect_pts);
+    let rec_el = editor.selected_element().unwrap();
+    assert!(
+        matches!(rec_el.kind, ElementKind::Rectangle { width, height, fill, .. }
+            if (width - 120.).abs() < 1. && (height - 90.).abs() < 1. && fill == [50, 140, 240, 255]),
+        "expected Rectangle, got {:?}",
+        rec_el.kind
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+    editor.workspace.drawing.connect_lines = Tolerance::Off;
+    stroke(&mut editor, &ctx, 0.2, page, &rect_pts);
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Path { .. }
+    ));
+
+    let circle_pts: Vec<egui::Pos2> = (0..=28)
+        .map(|i| {
+            let a = std::f32::consts::TAU * (i as f32) / 29.0;
+            egui::pos2(300. + 55. * a.cos(), 220. + 45. * a.sin())
+        })
+        .collect();
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    stroke(&mut editor, &ctx, 0.1, page, &circle_pts);
+    assert!(
+        matches!(editor.selected_element().unwrap().kind, ElementKind::Ellipse { width, height, .. }
+            if (width - 110.).abs() < 2. && (height - 90.).abs() < 2.),
+        "expected Ellipse"
+    );
+    editor.project.validate().unwrap();
+
+    // Diamond must NOT be misclassified as Rectangle or Ellipse.
+    let diamond = [
+        egui::pos2(200., 100.),
+        egui::pos2(260., 160.),
+        egui::pos2(200., 220.),
+        egui::pos2(140., 160.),
+        egui::pos2(200., 100.),
+    ];
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    stroke(&mut editor, &ctx, 0.1, page, &diamond);
+    assert!(
+        matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::Path { .. }
+        ),
+        "diamond must stay a Path"
+    );
+
+    // 4. Connect lines: self-closes triangle within 8 px at Normal (not at Off), and joins open strokes on the same layer.
+    let near_closed_triangle = [
+        egui::pos2(100., 100.),
+        egui::pos2(200., 100.),
+        egui::pos2(150., 190.),
+        egui::pos2(104., 103.), // 5 px from start
+    ];
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    editor.fill = [220, 80, 60, 255];
+    editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+    editor.workspace.drawing.connect_lines = Tolerance::Off;
+    stroke(&mut editor, &ctx, 0.1, page, &near_closed_triangle);
+    assert!(
+        !commands(&editor)
+            .iter()
+            .any(|c| matches!(c, PathCommand::Close))
+    );
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    editor.fill = [220, 80, 60, 255];
+    editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+    editor.workspace.drawing.connect_lines = Tolerance::Normal;
+    stroke(&mut editor, &ctx, 0.1, page, &near_closed_triangle);
+    assert!(
+        commands(&editor)
+            .iter()
+            .any(|c| matches!(c, PathCommand::Close))
+    );
+    if let ElementKind::Path { fill, .. } = editor.selected_element().unwrap().kind {
+        assert_eq!(fill, [220, 80, 60, 255]);
+    }
+
+    // Two open strokes sharing endpoints join into one path, and a third closing stroke closes & fills it.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.tool = Tool::Pencil;
+    editor.fill = [90, 200, 120, 255];
+    editor.workspace.drawing.recognise_shapes = Tolerance::Off;
+    editor.workspace.drawing.connect_lines = Tolerance::Normal;
+    stroke(
+        &mut editor,
+        &ctx,
+        0.1,
+        page,
+        &[egui::pos2(100., 100.), egui::pos2(200., 100.)],
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    stroke(
+        &mut editor,
+        &ctx,
+        0.2,
+        page,
+        &[egui::pos2(204., 102.), egui::pos2(150., 190.)],
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        1,
+        "second stroke joins into the first open path"
+    );
+    let before_third = editor.project.clone();
+    stroke(
+        &mut editor,
+        &ctx,
+        0.3,
+        page,
+        &[egui::pos2(152., 188.), egui::pos2(103., 102.)],
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    assert!(
+        commands(&editor)
+            .iter()
+            .any(|c| matches!(c, PathCommand::Close))
+    );
+    if let ElementKind::Path { fill, .. } = editor.selected_element().unwrap().kind {
+        assert_eq!(fill, [90, 200, 120, 255]);
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_third);
+}

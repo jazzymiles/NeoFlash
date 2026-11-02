@@ -356,6 +356,23 @@ impl Editor {
         sampled
     }
     pub(crate) fn ensure_key_for(&mut self, layer_id: &str, blank: bool) {
+        if !blank && !self.workspace.timeline_prefs.auto_keyframe {
+            let frame = self.frame;
+            let keep_span_key = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|layer| layer.id == layer_id)
+                .is_some_and(|layer| {
+                    motion_span(layer, frame).is_none()
+                        && layer.key_at(frame).is_some()
+                        && layer.properties.end_frame.is_none_or(|end| frame < end)
+                });
+            if keep_span_key {
+                return;
+            }
+        }
         self.ensure_key_at(layer_id, self.frame, blank);
     }
     /// Make `frame` a keyframe of the layer (a ◆ property key inside a motion tween).

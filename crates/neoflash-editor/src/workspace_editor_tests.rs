@@ -474,14 +474,13 @@ fn new_and_open_keep_workspace_preferences_and_save_only_preferences() {
     editor.set_theme(&ctx, ThemeMode::Dark);
     editor.set_panel_visible(PanelId::Library, false);
     editor.show_panel(PanelId::Actions);
-    let preferences = editor.workspace.clone();
+    let mut preferences = editor.workspace.clone();
     editor.perform(Pending::New, &ctx);
     assert_eq!(editor.workspace, preferences);
-    editor.open_path(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/script-recovery.nflash"),
-        &ctx,
-    );
+    let opened = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/script-recovery.nflash");
+    editor.open_path(opened.clone(), &ctx);
+    preferences.general.push_recent(&opened);
     assert_eq!(editor.workspace, preferences);
     assert!(ctx.style().visuals.dark_mode);
     assert!(!editor.dirty());

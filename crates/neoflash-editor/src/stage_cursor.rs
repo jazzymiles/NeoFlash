@@ -32,6 +32,27 @@ pub(crate) fn tool_cursor(tool: Tool) -> Cursor {
     }
 }
 
+/// Idle cursor respecting Preferences ▸ Drawing ▸ Precise cursors: drawing and paint tools show
+/// `crosshair` instead of their tool glyph while selection, navigation and text cursors stay as-is.
+pub(crate) fn tool_cursor_precise(tool: Tool, precise: bool) -> Cursor {
+    if precise
+        && matches!(
+            tool,
+            Tool::Pen
+                | Tool::Pencil
+                | Tool::Brush
+                | Tool::Eraser
+                | Tool::Bucket
+                | Tool::Ink
+                | Tool::Eyedropper
+        )
+    {
+        nf::CROSSHAIR
+    } else {
+        tool_cursor(tool)
+    }
+}
+
 /// Resize cursor for a handle at screen direction `dir` from the box centre (y grows downwards):
 /// horizontal → `resize-h`, vertical → `resize-v`, NW/SE → `resize-d1`, NE/SW → `resize-d2`.
 pub(crate) fn resize_cursor(dir: egui::Vec2) -> Cursor {
@@ -102,6 +123,21 @@ mod tests {
         ];
         for (dir, name) in cases {
             assert_eq!(resize_cursor(dir).name, name, "{dir:?}");
+        }
+    }
+
+    #[test]
+    fn precise_cursors_replace_drawing_and_paint_glyphs_with_crosshair() {
+        use Tool::*;
+        for tool in [Pen, Pencil, Brush, Eraser, Bucket, Ink, Eyedropper] {
+            assert_ne!(tool_cursor_precise(tool, false), nf::CROSSHAIR);
+            assert_eq!(tool_cursor_precise(tool, true), nf::CROSSHAIR);
+        }
+        for tool in [
+            Select, Transform, Subselect, Text, Lasso, Hand, Zoom, Rectangle, Ellipse, PolyStar,
+            Line, Gradient,
+        ] {
+            assert_eq!(tool_cursor_precise(tool, true), tool_cursor(tool));
         }
     }
 }

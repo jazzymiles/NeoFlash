@@ -474,7 +474,7 @@ impl Editor {
     }
 }
 
-fn merge_graphic_resources(
+pub(crate) fn merge_graphic_resources(
     project: &mut Project,
     graphic: &mut PreparedGraphic,
 ) -> Result<(), String> {

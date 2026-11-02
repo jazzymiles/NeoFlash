@@ -5,7 +5,7 @@ use eframe::egui::{self, Key, Modifiers, Vec2};
 use neoflash_core::*;
 use std::{path::PathBuf, time::Instant};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tool {
     Select,
     Transform,
@@ -67,7 +67,6 @@ pub struct Editor {
     pub onion_after: u32,
     pub onion_anchor: bool,
     pub anchored_range: (u32, u32),
-    pub onion_opacity: f32,
     pub zoom: f32,
     pub pan: Vec2,
     pub shape_draft: Option<crate::stage_selection::ShapeDraft>,
@@ -112,13 +111,16 @@ pub struct Editor {
     pub(crate) timeline_thumbnails: crate::timeline_preview::ThumbnailCache,
     /// Native preview of timeline sounds (Control ▸ Mute sounds).
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
+    /// Autosave timer and crash-recovery storage (`recovery.rs`).
+    pub(crate) recovery: crate::recovery::RecoveryManager,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pending {
     New,
     Demo,
     Open,
+    OpenPath(PathBuf),
     Import,
     Close,
 }
@@ -126,6 +128,10 @@ pub enum Pending {
 impl Editor {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut s = Self::from_project(&cc.egui_ctx, Project::demo());
+        let is_screenshot = std::env::vars_os().any(|(k, _)| {
+            k.to_str()
+                .is_some_and(|name| name.starts_with("NEOFLASH_SCREENSHOT"))
+        });
         // Screenshots ignore saved layouts so captures are reproducible (see shell::capture).
         let storage = if std::env::var_os("NEOFLASH_SCREENSHOT").is_some() {
             None
@@ -134,8 +140,10 @@ impl Editor {
         };
         s.workspace =
             WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
+        let env_open = std::env::var_os("NEOFLASH_OPEN");
+        let arg_open = std::env::args_os().nth(1);
         // `NEOFLASH_OPEN=path.nflash` opens a document at launch (screenshots of real documents).
-        if let Some(path) = std::env::var_os("NEOFLASH_OPEN") {
+        if let Some(path) = env_open.clone() {
             s.open_path(path.into(), &cc.egui_ctx);
         }
         crate::native_windows::install();
@@ -153,8 +161,16 @@ impl Editor {
         // Screenshot aid (editor-view-settings-open.png): open the View settings popover.
         s.stage_view.settings_open =
             std::env::var_os("NEOFLASH_SCREENSHOT_VIEW_SETTINGS").is_some();
-        if let Some(path) = std::env::args().nth(1) {
+        if let Some(path) = arg_open {
             s.open_path(PathBuf::from(path), &cc.egui_ctx);
+        } else if env_open.is_none() && !is_screenshot {
+            s.apply_on_launch(&cc.egui_ctx);
+        }
+        if !is_screenshot {
+            s.recovery.retarget(s.path.as_deref());
+            s.recovery
+                .set_dir(crate::recovery::RecoveryManager::default_recovery_dir());
+            s.check_recovery_on_launch();
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_FRAME=<layer row>,<frame>` selects that frame
         // (zero-based), so captures show frame Properties (e.g. Properties ▸ Sound).
@@ -236,7 +252,7 @@ impl Editor {
             editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, stage_cursor: None, shown_stage_cursor: None, tool: Tool::Select,
             playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
-            onion_anchor: false, anchored_range: (0, 6), onion_opacity: 0.3,
+            onion_anchor: false, anchored_range: (0, 6),
             zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
             fill: [50, 117, 184, 255], stroke: [30, 50, 70, 255], stroke_width: 1.0,
             property_edit: None, authoring_modify: crate::authoring_modify::AuthoringModify::default(), bottom: BottomTab::Properties,
@@ -260,18 +276,50 @@ impl Editor {
             timeline_motion: Default::default(),
             timeline_thumbnails: Default::default(),
             timeline_audio: Default::default(),
+            recovery: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
         s.normalize_selection();
         s
     }
-    /// Apply the Preferences stored in the workspace prefs: UI scale, undo levels, onion range.
+    /// Apply `Preferences ▸ General ▸ On launch` when no startup document path was given.
+    pub(crate) fn apply_on_launch(&mut self, ctx: &egui::Context) {
+        match self.workspace.general.on_launch {
+            crate::workspace::OnLaunch::NewDocument => {
+                self.perform(Pending::New, ctx);
+            }
+            crate::workspace::OnLaunch::Example => {
+                self.perform(Pending::Demo, ctx);
+            }
+            crate::workspace::OnLaunch::LastDocument => {
+                if let Some(path) = self
+                    .workspace
+                    .general
+                    .existing_recent_files()
+                    .into_iter()
+                    .next()
+                {
+                    if !self.try_open_path(path, ctx) {
+                        let err = self.status.clone();
+                        self.perform(Pending::Demo, ctx);
+                        self.message(format!("{err} Opened example document."));
+                    }
+                } else {
+                    self.perform(Pending::Demo, ctx);
+                    self.message("No recent document found; opened example document.");
+                }
+            }
+        }
+    }
+    /// Apply the Preferences stored in the workspace prefs: UI scale, undo levels, onion range, code font.
     pub(crate) fn apply_editor_preferences(&mut self, ctx: &egui::Context) {
         ctx.set_zoom_factor(self.workspace.ui_scale);
         self.history
             .set_capacity(self.workspace.undo_levels as usize);
         [self.onion_before, self.onion_after] = self.workspace.onion_range;
+        self.fonts
+            .ensure_loaded(ctx, &self.workspace.code_editor.font);
     }
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
         self.workspace.theme = theme;
@@ -363,7 +411,9 @@ impl Editor {
     pub(crate) fn has_modal_dialog(&self) -> bool {
         self.symbol_conversion.is_some()
             || self.document_settings.is_some()
+            || self.preferences.is_some()
             || self.edit_envelope.is_some()
+            || self.recovery.has_prompt()
     }
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog()
@@ -464,7 +514,8 @@ impl Editor {
         }
         let label = if blank { "Blank keyframe" } else { "Keyframe" };
         self.transact_named(label, |s| {
-            s.ensure_key(blank);
+            let id = s.symbol().timeline.layers[s.layer].id.clone();
+            s.ensure_key_at(&id, s.frame, blank);
             // F6 inside a motion tween keys every property at this frame (◆).
             let (l, f) = (s.layer, s.frame);
             if let Some(key) = s.symbol_mut().timeline.layers[l]
@@ -584,7 +635,9 @@ impl Editor {
             })
             .collect();
         for (family, bold, italic) in families {
-            if let Err(e) = self.fonts.load_style(ctx, &family, bold, italic) {
+            if let Err(e) = self.fonts.load_style(ctx, &family, bold, italic)
+                && self.workspace.text_prefs.substitution_warning
+            {
                 self.message(e);
             }
         }
@@ -632,6 +685,7 @@ impl Editor {
                 self.layer = 0;
                 self.clear_selection();
                 self.path = None;
+                self.clear_and_retarget_recovery();
                 self.history = History::new(self.workspace.undo_levels as usize);
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
@@ -650,6 +704,7 @@ impl Editor {
                     self.open_path(path, ctx)
                 }
             }
+            Pending::OpenPath(path) => self.open_path(path, ctx),
             Pending::Import => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Flash source or movie", &["fla", "xfl", "xml", "swf"])
@@ -659,6 +714,7 @@ impl Editor {
                 }
             }
             Pending::Close => {
+                self.clear_active_recovery();
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
@@ -694,9 +750,12 @@ impl Editor {
     }
 
     pub fn open_path(&mut self, path: PathBuf, ctx: &egui::Context) {
+        let _ = self.try_open_path(path, ctx);
+    }
+
+    pub(crate) fn try_open_path(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
         if Self::is_legacy_flash_path(&path) {
-            self.import_legacy(path, ctx);
-            return;
+            return self.try_import_legacy(path, ctx);
         }
         self.cancel_edits();
         match std::fs::read_to_string(&path)
@@ -721,19 +780,30 @@ impl Editor {
                 self.frame = 0;
                 self.layer = 0;
                 self.clear_selection();
+                self.workspace.general.push_recent(&path);
                 self.path = Some(path);
+                self.clear_and_retarget_recovery();
                 self.history = History::new(self.workspace.undo_levels as usize);
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
                 self.load_project_fonts(ctx);
                 self.message("Project opened.");
+                true
             }
-            Err(e) => self.message(format!("Open failed: {e}")),
+            Err(e) => {
+                self.message(format!("Open failed: {e}"));
+                false
+            }
         }
     }
 
     pub fn import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) {
+        let _ = self.try_import_legacy(path, ctx);
+    }
+
+    fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
         self.cancel_edits();
+        let mut imported = false;
         match neoflash_import::inspect(&path) {
             Ok(report) => {
                 self.message(format!(
@@ -764,7 +834,9 @@ impl Editor {
                             self.frame = 0;
                             self.layer = 0;
                             self.clear_selection();
+                            self.workspace.general.push_recent(&path);
                             self.path = None;
+                            self.clear_and_retarget_recovery();
                             self.saved_project = None;
                             self.history = History::new(self.workspace.undo_levels as usize);
                             self.playing = false;
@@ -781,6 +853,7 @@ impl Editor {
                             self.message(format!(
                                 "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
                             ));
+                            imported = true;
                         }
                         Err(e) => self.message(e.to_string()),
                     }
@@ -791,6 +864,7 @@ impl Editor {
             Err(e) => self.message(format!("Import failed: {e}")),
         }
         self.show_panel(PanelId::Output);
+        imported
     }
 
     pub fn save(&mut self, save_as: bool) -> bool {
@@ -828,8 +902,54 @@ impl Editor {
         self.save_to_path(path)
     }
 
+    fn format_project_scripts_in_place(&mut self) {
+        let tab_size = self.workspace.code_editor.tab_size;
+        for unit in &mut self.project.sources {
+            if let Some(formatted) =
+                crate::code_tools::auto_format_with_tab_size(&unit.source, tab_size)
+            {
+                unit.source = formatted;
+            }
+        }
+        for symbol in &mut self.project.symbols {
+            for frame_script in &mut symbol.timeline.scripts {
+                if let Some(formatted) = crate::code_tools::auto_format_with_tab_size(
+                    &frame_script.script.source,
+                    tab_size,
+                ) {
+                    frame_script.script.source = formatted;
+                }
+            }
+            for layer in &mut symbol.timeline.layers {
+                for keyframe in &mut layer.keyframes {
+                    for element in &mut keyframe.elements {
+                        for object_script in &mut element.scripts {
+                            if let Some(formatted) = crate::code_tools::auto_format_with_tab_size(
+                                &object_script.script.source,
+                                tab_size,
+                            ) {
+                                object_script.script.source = formatted;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn save_to_path(&mut self, path: PathBuf) -> bool {
+        self.save_to_path_with_runtime(path, &Self::runtime_dir())
+    }
+
+    pub(crate) fn save_to_path_with_runtime(
+        &mut self,
+        path: PathBuf,
+        runtime_dir: &std::path::Path,
+    ) -> bool {
         self.finish_edits();
+        if self.workspace.code_editor.format_on_save {
+            self.format_project_scripts_in_place();
+        }
         let is_fla = path
             .extension()
             .and_then(|s| s.to_str())
@@ -856,13 +976,24 @@ impl Editor {
         };
         match result {
             Ok(()) => {
+                self.workspace.general.push_recent(&path);
                 self.saved_project = Some(self.project.clone());
                 self.path = Some(path);
+                self.clear_and_retarget_recovery();
                 self.message(if is_fla {
                     "FLA archive saved."
                 } else {
                     "Project saved."
                 });
+                if !is_fla && self.workspace.publish.publish_on_save {
+                    if let Some(output) = self.configured_publish_folder() {
+                        self.publish_html5_to(&output, runtime_dir);
+                    } else {
+                        self.message(
+                            "Publish on save skipped: set an Output folder in Preferences ▸ Publish.",
+                        );
+                    }
+                }
                 true
             }
             Err(e) => {
@@ -885,11 +1016,81 @@ impl Editor {
         }
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime")
     }
+    pub(crate) fn configured_publish_folder(&self) -> Option<PathBuf> {
+        let raw = self.workspace.publish.output_folder.as_deref()?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        if raw == "~" {
+            if let Some(home) = std::env::var_os("HOME") {
+                return Some(PathBuf::from(home));
+            }
+        } else if let Some(rest) = raw.strip_prefix("~/")
+            && let Some(home) = std::env::var_os("HOME")
+        {
+            return Some(PathBuf::from(home).join(rest));
+        }
+        Some(PathBuf::from(raw))
+    }
+    pub(crate) fn publish_html5_to(
+        &mut self,
+        output: &std::path::Path,
+        runtime_dir: &std::path::Path,
+    ) -> bool {
+        self.finish_edits();
+        let warnings = neoflash_export::export_warnings(&self.project);
+        if self.workspace.publish.warnings_as_errors && !warnings.is_empty() {
+            for warning in &warnings {
+                self.message(warning.clone());
+            }
+            self.message(format!(
+                "Publish failed: {} warning(s) treated as errors ({})",
+                warnings.len(),
+                warnings.join("; ")
+            ));
+            self.show_panel(PanelId::Output);
+            return false;
+        }
+        match neoflash_export::export_project(&self.project, output, runtime_dir) {
+            Ok(index) => {
+                self.message(format!("HTML5 exported: {}", index.display()));
+                for warning in warnings {
+                    self.message(warning);
+                }
+                true
+            }
+            Err(e) => {
+                self.message(format!("Export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
     pub fn export(&mut self, test: bool) {
-        let output = if test {
-            std::env::temp_dir()
+        if test {
+            let output = std::env::temp_dir()
                 .join("neoflash-preview")
-                .join(std::process::id().to_string())
+                .join(std::process::id().to_string());
+            self.finish_edits();
+            match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
+                Ok(index) => {
+                    self.message(format!("HTML5 exported: {}", index.display()));
+                    for warning in neoflash_export::export_warnings(&self.project) {
+                        self.message(warning);
+                    }
+                    if let Err(e) = std::process::Command::new("open").arg(&index).spawn() {
+                        self.message(format!("Cannot open preview: {e}"));
+                    }
+                }
+                Err(e) => {
+                    self.message(format!("Export failed: {e}"));
+                    self.show_panel(PanelId::Output);
+                }
+            }
+            return;
+        }
+        let output = if let Some(configured) = self.configured_publish_folder() {
+            configured
         } else {
             let Some(base) = rfd::FileDialog::new()
                 .set_title("Choose HTML5 output parent folder")
@@ -905,22 +1106,7 @@ impl Editor {
                     .as_secs()
             ))
         };
-        self.finish_edits();
-        match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
-            Ok(index) => {
-                self.message(format!("HTML5 exported: {}", index.display()));
-                for warning in neoflash_export::export_warnings(&self.project) {
-                    self.message(warning);
-                }
-                if test && let Err(e) = std::process::Command::new("open").arg(&index).spawn() {
-                    self.message(format!("Cannot open preview: {e}"));
-                }
-            }
-            Err(e) => {
-                self.message(format!("Export failed: {e}"));
-                self.show_panel(PanelId::Output);
-            }
-        }
+        self.publish_html5_to(&output, &Self::runtime_dir());
     }
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
@@ -972,6 +1158,8 @@ impl Editor {
     }
 
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
+        use crate::clipboard::ClipboardCommand;
+        use crate::commands::{CommandId as C, modifiers_match};
         if self.has_modal_dialog_in(ctx)
             || crate::panels::symbols_popover::is_symbols_popover_open(ctx)
         {
@@ -981,53 +1169,72 @@ impl Editor {
         self.timeline_shortcuts(ctx);
         self.view_shortcuts(ctx);
         self.clipboard_events(ctx);
-        let typing = ctx.wants_keyboard_input();
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S)) {
+
+        // Global commands allowed even while a text field has focus (when bound to a non-typing chord).
+        if self.take_command_shortcut(ctx, C::FileSaveAs) {
             self.save(true);
-        } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
+        }
+        if self.take_command_shortcut(ctx, C::FileSave) {
             self.save(false);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
+        if self.take_command_shortcut(ctx, C::FileOpen) {
             self.request(Pending::Open, ctx);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::N)) {
+        if self.take_command_shortcut(ctx, C::FileNew) {
             self.request(Pending::New, ctx);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::ALT, Key::Enter)) {
+        if self.take_command_shortcut(ctx, C::ControlTestScene) {
             self.test_scene();
-        } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
+        }
+        if self.take_command_shortcut(ctx, C::ControlTestMovie) {
             self.export(true);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F9)) {
+        if self.take_command_shortcut(ctx, C::WindowActions) {
             self.open_actions();
         }
+
+        let typing = ctx.wants_keyboard_input();
         if !typing {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)) {
+            if self.take_command_shortcut(ctx, C::EditRedo) {
                 self.redo();
-            } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
+            }
+            if self.take_command_shortcut(ctx, C::EditUndo) {
                 self.undo();
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A)) {
+            if self.take_command_shortcut(ctx, C::EditCut) {
+                self.request_clipboard(ctx, ClipboardCommand::Cut);
+            }
+            if self.take_command_shortcut(ctx, C::EditCopy) {
+                self.request_clipboard(ctx, ClipboardCommand::Copy);
+            }
+            if self.take_command_shortcut(ctx, C::EditPasteInPlace) {
+                self.request_clipboard(ctx, ClipboardCommand::PasteInPlace);
+            }
+            if self.take_command_shortcut(ctx, C::EditPaste) {
+                self.request_clipboard(ctx, ClipboardCommand::Paste);
+            }
+            if self.take_command_shortcut(ctx, C::EditSelectAll) {
                 self.select_all();
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::D)) {
+            if self.take_command_shortcut(ctx, C::EditDuplicate) {
                 self.duplicate();
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) {
+            if self.take_command_shortcut(ctx, C::InsertKeyframe) {
                 self.make_key(false);
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) {
+            if self.take_command_shortcut(ctx, C::InsertBlankKeyframe) {
                 self.make_key(true);
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) {
+            if self.take_command_shortcut(ctx, C::InsertFrame) {
                 self.insert_frame();
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::F8)) {
+            if self.take_command_shortcut(ctx, C::InsertNewSymbol) {
                 self.begin_new_symbol();
-            } else if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F8)) {
+            }
+            if self.take_command_shortcut(ctx, C::ModifyConvertToSymbol) {
                 self.convert_to_symbol();
             }
-            if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
+            if self.take_command_shortcut(ctx, C::EditClear) {
                 self.delete_selected();
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -1041,211 +1248,279 @@ impl Editor {
                     self.clear_selection();
                 }
             }
-            if ctx.input(|i| i.key_pressed(Key::Enter)) && self.vector.draft.is_some() {
+            let finish_draft = self.vector.draft.is_some()
+                && ctx.input_mut(|i| {
+                    let before = i.events.len();
+                    let mut found = false;
+                    i.events.retain(|event| {
+                        let hit = !found
+                            && matches!(
+                                event,
+                                egui::Event::Key {
+                                    key: Key::Enter,
+                                    pressed: true,
+                                    modifiers,
+                                    ..
+                                } if modifiers_match(*modifiers, Modifiers::NONE)
+                            );
+                        found |= hit;
+                        !hit
+                    });
+                    i.events.len() != before
+                });
+            if finish_draft {
                 self.finish_path(false);
-            } else if ctx.input(|i| i.key_pressed(Key::Enter)) {
+            } else if self.take_command_shortcut(ctx, C::ControlPlay) {
                 self.set_playing(!self.playing);
             }
-            for (key, tool) in [
-                (Key::V, Tool::Select),
-                (Key::Q, Tool::Transform),
-                (Key::R, Tool::Rectangle),
-                (Key::O, Tool::Ellipse),
-                (Key::T, Tool::Text),
-                (Key::P, Tool::Pen),
-                (Key::Y, Tool::Pencil),
-                (Key::A, Tool::Subselect),
-                (Key::N, Tool::Line),
-                (Key::B, Tool::Brush),
-                (Key::K, Tool::Bucket),
-                (Key::S, Tool::Ink),
-                (Key::I, Tool::Eyedropper),
-                (Key::E, Tool::Eraser),
-                (Key::L, Tool::Lasso),
-                (Key::H, Tool::Hand),
-                (Key::Z, Tool::Zoom),
-                (Key::M, Tool::Zoom),
-                (Key::F, Tool::Gradient),
+            for tool in [
+                Tool::Select,
+                Tool::Transform,
+                Tool::Rectangle,
+                Tool::Ellipse,
+                Tool::PolyStar,
+                Tool::Text,
+                Tool::Pen,
+                Tool::Pencil,
+                Tool::Subselect,
+                Tool::Line,
+                Tool::Brush,
+                Tool::Bucket,
+                Tool::Ink,
+                Tool::Eyedropper,
+                Tool::Eraser,
+                Tool::Lasso,
+                Tool::Hand,
+                Tool::Zoom,
+                Tool::Gradient,
             ] {
-                if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key)) {
+                if self.take_command_shortcut(ctx, C::for_tool(tool)) {
                     self.set_tool(tool);
                 }
             }
-            if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {
-                self.finish_edits();
-                self.reset_authored_preview();
-                self.frame = self.frame.saturating_sub(1);
+            let last = self.symbol().timeline.frame_count.saturating_sub(1);
+            if self.take_command_shortcut(ctx, C::ControlStepBack) {
+                self.seek_frame(self.frame.saturating_sub(1));
             }
-            if ctx.input(|i| i.key_pressed(Key::ArrowRight)) {
-                self.finish_edits();
-                self.reset_authored_preview();
-                self.frame = (self.frame + 1).min(self.symbol().timeline.frame_count - 1);
+            if self.take_command_shortcut(ctx, C::ControlStepForward) {
+                self.seek_frame((self.frame + 1).min(last));
             }
         }
     }
 
-    /// Design §8 menu shortcuts not handled elsewhere. Modifiers match exactly, so ⇧F5 never runs F5
-    /// and ⌥⇧R never selects the Rectangle tool. Shortcuts of unavailable menu items are consumed and
-    /// do nothing.
+    /// Design §8 menu shortcuts routed through [`crate::commands`]. Modifiers match exactly, so ⇧F5
+    /// never runs F5 and ⌥⇧R never selects the Rectangle tool. Shortcuts of unavailable menu items are
+    /// consumed at the end if unbound to an active command.
     fn menu_shortcuts(&mut self, ctx: &egui::Context) {
+        use crate::authoring_modify::Arrange;
+        use crate::commands::{CommandId as C, has_override, modifiers_match};
         use crate::timeline_edit::FrameCommand as F;
         if ctx.wants_keyboard_input() {
             return;
         }
+        // ⌥⌘X / ⌥⌘C / ⌥⌘V arrive as Cut / Copy / Paste events on macOS when un-overridden.
+        let default_frame_clip = !has_override(&self.workspace.shortcuts, C::EditTimelineCutFrames)
+            && !has_override(&self.workspace.shortcuts, C::EditTimelineCopyFrames)
+            && !has_override(&self.workspace.shortcuts, C::EditTimelinePasteFrames);
+        if default_frame_clip {
+            let frame_clipboard = ctx.input_mut(|i| {
+                if !(i.modifiers.alt && i.modifiers.command) {
+                    return None;
+                }
+                let mut command = None;
+                i.events.retain(|event| {
+                    let found = match event {
+                        egui::Event::Cut => Some(F::Cut),
+                        egui::Event::Copy => Some(F::Copy),
+                        egui::Event::Paste(_) => Some(F::Paste),
+                        _ => None,
+                    };
+                    command = command.or(found);
+                    found.is_none()
+                });
+                command
+            });
+            if let Some(command) = frame_clipboard {
+                self.run_frame_command(ctx, command);
+            }
+        }
+        for command in [F::Cut, F::Copy, F::Paste, F::Clear, F::Remove, F::SelectAll] {
+            if self.take_command_shortcut(ctx, C::for_frame_command(command)) {
+                self.run_frame_command(ctx, command);
+            }
+        }
+        if self.take_command_shortcut(ctx, C::EditTimelineReverseFrames)
+            && self.can_reverse_frames()
+        {
+            self.reverse_frames();
+        }
+        if self.take_command_shortcut(ctx, C::EditTimelineSyncSymbols) && self.can_sync_symbols() {
+            self.sync_symbols();
+        }
+        if self.take_command_shortcut(ctx, C::EditTimelineCopyMotion) && self.can_copy_motion() {
+            self.copy_motion();
+        }
+        if self.take_command_shortcut(ctx, C::EditTimelinePasteMotion) && self.can_paste_motion() {
+            self.paste_motion();
+        }
+
+        // File.
+        if self.take_command_shortcut(ctx, C::FileImportGraphics) {
+            self.import_graphics_dialog();
+        }
+        if self.take_command_shortcut(ctx, C::FileImportLegacyFlash) {
+            self.request(Pending::Import, ctx);
+        }
+        if self.take_command_shortcut(ctx, C::FilePublishSettings) {
+            Self::open_planned(ctx, "File ▸ Publish settings…");
+        }
+        if self.take_command_shortcut(ctx, C::FilePublish) {
+            self.export(false);
+        }
+
+        // Edit.
+        if self.take_command_shortcut(ctx, C::EditDeselect) {
+            self.finish_edits();
+            self.clear_selection();
+        }
+        if self.take_command_shortcut(ctx, C::EditFindAndReplace) {
+            Self::open_planned(ctx, "Edit ▸ Find and replace");
+        }
+        if self.take_command_shortcut(ctx, C::EditSymbols) {
+            self.toggle_edit_symbols();
+        }
+        if self.take_command_shortcut(ctx, C::EditPreferences) {
+            Self::open_planned(ctx, "Edit ▸ Preferences…");
+        }
+        if self.take_command_shortcut(ctx, C::EditKeyboardShortcuts) {
+            Self::open_planned(ctx, "Edit ▸ Keyboard shortcuts…");
+        }
+
+        // Insert.
+        if self.take_command_shortcut(ctx, C::InsertLayer) {
+            self.insert_timeline_layer();
+        }
+        if self.take_command_shortcut(ctx, C::InsertLayerFolder) {
+            self.insert_layer_folder(self.layer);
+        }
+        if self.take_command_shortcut(ctx, C::InsertMotionGuide)
+            && self.can_add_motion_guide_to(self.layer)
+        {
+            self.add_motion_guide();
+        }
+        for (cmd, kind) in [
+            (C::InsertClassicTween, neoflash_core::TweenKind::Classic),
+            (C::InsertShapeTween, neoflash_core::TweenKind::Shape),
+            (C::InsertMotionTween, neoflash_core::TweenKind::Motion),
+        ] {
+            if self.take_command_shortcut(ctx, cmd)
+                && self.can_create_tween()
+                && self.current_tween() != Some(kind)
+            {
+                self.create_tween(kind);
+            }
+        }
+        if self.take_command_shortcut(ctx, C::InsertScene) {
+            self.new_scene();
+        }
+
+        // Modify.
+        if self.take_command_shortcut(ctx, C::ModifyDocument) {
+            self.open_document_settings();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyBreakApart) && !self.selection.is_empty() {
+            self.break_apart_selection();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineLayerProperties) {
+            self.open_layer_properties(ctx, self.layer);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineClearKeyframe) {
+            self.clear_keyframe();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineConvertToKeyframes)
+            && self.layer_editable()
+        {
+            self.convert_to_keyframes(false);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineConvertToBlankKeyframes)
+            && self.layer_editable()
+        {
+            self.convert_to_keyframes(true);
+        }
+        for (cmd, dir) in [
+            (C::ModifyArrangeFront, Arrange::Front),
+            (C::ModifyArrangeForward, Arrange::Forward),
+            (C::ModifyArrangeBackward, Arrange::Backward),
+            (C::ModifyArrangeBack, Arrange::Back),
+        ] {
+            if self.take_command_shortcut(ctx, cmd) && !self.selection.is_empty() {
+                self.arrange_selection(dir);
+            }
+        }
+        if self.take_command_shortcut(ctx, C::ModifyUngroup) && !self.selection.is_empty() {
+            self.ungroup_selection();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyGroup) && self.selection.len() >= 2 {
+            self.group_selection();
+        }
+
+        // Control.
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        if self.take_command_shortcut(ctx, C::ControlRewind) {
+            self.seek_frame(0);
+        }
+        if self.take_command_shortcut(ctx, C::ControlGoToEnd) {
+            self.seek_frame(last);
+        }
+        if self.take_command_shortcut(ctx, C::ControlLoopPlayback) {
+            self.workspace.timeline.loop_playback = !self.workspace.timeline.loop_playback;
+        }
+        if self.take_command_shortcut(ctx, C::ControlPlayAllScenes) {
+            self.timeline_edit.play_all_scenes = !self.timeline_edit.play_all_scenes;
+        }
+        if self.take_command_shortcut(ctx, C::ControlMuteSounds) {
+            self.toggle_mute_sounds();
+        }
+
+        // Window.
+        for panel in PanelId::DETACHABLE {
+            if panel == PanelId::Actions {
+                continue;
+            }
+            if self.take_command_shortcut(ctx, C::for_panel(panel)) {
+                let visible = self.workspace.is_panel_visible(panel);
+                self.set_panel_visible(panel, !visible);
+            }
+        }
+        if self.take_command_shortcut(ctx, C::WindowCompilerErrors) {
+            Self::toggle_planned(ctx, "Window ▸ Compiler errors");
+        }
+
+        // Unavailable items: consume only after active registry commands have had a chance to run,
+        // so a user can rebind an active command onto F4 / ⌥⌘K / etc. if desired.
         let (cmd, shift, alt, none) = (
             Modifiers::COMMAND,
             Modifiers::SHIFT,
             Modifiers::ALT,
             Modifiers::NONE,
         );
-        let exact = |m: Modifiers, key: Key| {
-            ctx.input_mut(|i| {
-                let held = i.modifiers;
-                held.alt == m.alt
-                    && held.shift == m.shift
-                    && held.command == m.command
-                    && i.consume_key(m, key)
-            })
-        };
-        // ⌥⌘X / ⌥⌘C / ⌥⌘V arrive as Cut / Copy / Paste events: frames, never objects.
-        let frame_clipboard = ctx.input_mut(|i| {
-            if !(i.modifiers.alt && i.modifiers.command) {
-                return None;
-            }
-            let mut command = None;
-            i.events.retain(|event| {
-                let found = match event {
-                    egui::Event::Cut => Some(F::Cut),
-                    egui::Event::Copy => Some(F::Copy),
-                    egui::Event::Paste(_) => Some(F::Paste),
-                    _ => None,
-                };
-                command = command.or(found);
-                found.is_none()
-            });
-            command
-        });
-        if let Some(command) = frame_clipboard {
-            self.run_frame_command(ctx, command);
-        }
-        for (m, key, command) in [
-            (alt | cmd, Key::X, F::Cut),
-            (alt | cmd, Key::C, F::Copy),
-            (alt | cmd, Key::V, F::Paste),
-            (alt, Key::Backspace, F::Clear),
-            (shift, Key::F5, F::Remove),
-            (alt | cmd, Key::A, F::SelectAll),
-        ] {
-            if exact(m, key) {
-                self.run_frame_command(ctx, command);
-            }
-        }
-        // File.
-        if exact(shift, Key::F12) {
-            Self::open_planned(ctx, "File ▸ Publish settings…");
-        }
-        if exact(shift | alt, Key::F12) {
-            self.export(false);
-        }
-        // Edit.
-        if exact(cmd | shift, Key::A) {
-            self.finish_edits();
-            self.clear_selection();
-        }
-        if exact(cmd, Key::F) {
-            Self::open_planned(ctx, "Edit ▸ Find and replace");
-        }
-        if exact(cmd, Key::E) {
-            self.toggle_edit_symbols();
-        }
-        if exact(cmd, Key::U) {
-            Self::open_planned(ctx, "Edit ▸ Preferences…");
-        }
-        if exact(alt | shift | cmd, Key::K) {
-            Self::open_planned(ctx, "Edit ▸ Keyboard shortcuts…");
-        }
-        // View.
-        if exact(alt | cmd, Key::G) {
-            Self::open_planned(ctx, "View ▸ Grid ▸ Edit grid…");
-        }
-        // Modify.
-        if exact(cmd, Key::J) {
-            self.open_document_settings();
-        }
-        if exact(cmd, Key::B) && !self.selection.is_empty() {
-            self.break_apart_selection();
-        }
-        if exact(cmd | shift, Key::G) && !self.selection.is_empty() {
-            self.ungroup_selection();
-        }
-        if exact(cmd, Key::G) && self.selection.len() >= 2 {
-            self.group_selection();
-        }
-        // Control.
-        let last = self.symbol().timeline.frame_count.saturating_sub(1);
-        if exact(alt | shift, Key::R) {
-            self.seek_frame(0);
-        }
-        if exact(alt | shift, Key::Period) {
-            self.seek_frame(last);
-        }
-        if exact(none, Key::Period) {
-            self.seek_frame((self.frame + 1).min(last));
-        }
-        if exact(none, Key::Comma) {
-            self.seek_frame(self.frame.saturating_sub(1));
-        }
-        if exact(alt | cmd, Key::Enter) {
-            self.test_scene();
-        }
-        // Window.
-        for (m, key, panel) in [
-            (alt | cmd, Key::T, PanelId::Timeline),
-            (cmd, Key::F2, PanelId::Tools),
-            (cmd, Key::F3, PanelId::Properties),
-            (cmd, Key::L, PanelId::Library),
-            (cmd, Key::K, PanelId::Align),
-            (cmd | shift, Key::F9, PanelId::Color),
-            (cmd, Key::F9, PanelId::Swatches),
-            (cmd, Key::T, PanelId::Transform),
-            (cmd, Key::I, PanelId::Info),
-            (cmd, Key::F10, PanelId::History),
-            (none, Key::F2, PanelId::Output),
-            (shift, Key::F11, PanelId::Accessibility),
-            (shift, Key::F2, PanelId::Scene),
-        ] {
-            if exact(m, key) {
-                let visible = self.workspace.is_panel_visible(panel);
-                self.set_panel_visible(panel, !visible);
-            }
-        }
-        if exact(alt, Key::F2) {
-            Self::toggle_planned(ctx, "Window ▸ Compiler errors");
-        }
-        if exact(shift, Key::F6) {
-            self.clear_keyframe();
-        }
-        if exact(alt | cmd, Key::M) {
-            self.toggle_mute_sounds();
-        }
-        // Unavailable items: consume so a shorter shortcut (F6, ⌘D, ⌘K …) does not run instead.
         for (m, key) in [
             (cmd, Key::W),
             (cmd, Key::P),
             (cmd | shift, Key::D),
             (cmd | shift, Key::W),
-            (alt | shift | cmd, Key::R),
-            (cmd, Key::Quote),
-            (cmd | shift, Key::Quote),
-            (cmd, Key::Semicolon),
-            (cmd | shift, Key::Semicolon),
             (alt | cmd, Key::H),
             (alt | cmd, Key::B),
             (alt | cmd, Key::K),
             (none, Key::F4),
             (none, Key::F1),
         ] {
-            let _ = exact(m, key);
+            ctx.input_mut(|i| {
+                let held = i.modifiers;
+                if modifiers_match(held, m) {
+                    let _ = i.consume_key(m, key);
+                }
+            });
         }
     }
 
@@ -1339,6 +1614,13 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        if let Some(font) = self
+            .preferences
+            .as_ref()
+            .map(|draft| draft.code_editor.font.clone())
+        {
+            self.fonts.ensure_loaded(ctx, &font);
+        }
         self.preferences_dialog(ctx);
         self.edit_envelope_dialog(ctx);
         self.sound_properties_dialog(ctx);
@@ -1405,7 +1687,7 @@ impl Editor {
                 self.show_about = false;
             }
         }
-        if let Some(pending) = self.confirm {
+        if let Some(pending) = self.confirm.clone() {
             // 0 = Save, 1 = Discard, 2 = Cancel.
             let mut action = None;
             let name = self.project.name.clone();
@@ -1478,9 +1760,84 @@ impl Editor {
             }
             if let Some(action) = action {
                 self.confirm = None;
-                if action == 1 || (action == 0 && self.save(false)) {
+                if action == 1 {
+                    self.clear_active_recovery();
+                    self.perform(pending, ctx);
+                } else if action == 0 && self.save(false) {
                     self.perform(pending, ctx);
                 }
+            }
+        }
+        if self.confirm.is_none()
+            && let Some(summary) = self
+                .recovery
+                .current_prompt_summary(crate::recovery::unix_now_secs())
+        {
+            // 0 = Restore, 1 = Discard.
+            let mut action = None;
+            let modal = egui::Modal::new(egui::Id::new("recovery-prompt"))
+                .frame(Surface::Dialog.frame(ctx))
+                .backdrop_color(p.overlay)
+                .show(ctx, |ui| {
+                    ui.set_width(480.);
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::same(space::S5 as i8))
+                        .show(ui, |ui| {
+                            ui.horizontal_top(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S4;
+                                let (badge, _) = ui.allocate_exact_size(
+                                    egui::vec2(40., 40.),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter()
+                                    .circle_filled(badge.center(), 20., p.warning_subtle);
+                                neoflash_ui::icons::paint(
+                                    ui.painter(),
+                                    ctx,
+                                    badge,
+                                    neoflash_ui::icons::i16::WARNING,
+                                    p.warning_default,
+                                );
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = space::S1;
+                                    ui.label(
+                                        rich("Recover unsaved work?", TextStyle::DialogTitle)
+                                            .color(p.text_primary),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            rich(summary, TextStyle::DialogBody)
+                                                .color(p.text_secondary),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                            });
+                        });
+                    let (mut discard, mut restore) = (false, false);
+                    dialog_footer(
+                        ui,
+                        |ui| discard = ui.add(Button::danger("Discard")).clicked(),
+                        |ui| {
+                            restore = ui.add(Button::primary("Restore").shortcut("↵")).clicked();
+                        },
+                    );
+                    if restore {
+                        action = Some(0);
+                    } else if discard {
+                        action = Some(1);
+                    }
+                });
+            let _ = modal;
+            if action.is_none()
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+            {
+                action = Some(0);
+            }
+            match action {
+                Some(0) => self.restore_recovery_prompt(ctx),
+                Some(1) => self.discard_recovery_prompt(),
+                _ => {}
             }
         }
     }
@@ -1496,13 +1853,25 @@ impl eframe::App for Editor {
         false
     }
 
+    fn on_exit(&mut self) {
+        if !self.dirty() || self.allow_close {
+            self.clear_active_recovery();
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
             self.finish_edits();
             if self.dirty() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.confirm = Some(Pending::Close);
+            } else {
+                self.clear_active_recovery();
             }
+        }
+        let now_secs = ctx.input(|i| i.time);
+        if let Some(wait) = self.tick_autosave(now_secs, crate::recovery::unix_now_secs()) {
+            ctx.request_repaint_after(wait);
         }
         self.shortcuts(ctx);
         self.sync_authored_preview();

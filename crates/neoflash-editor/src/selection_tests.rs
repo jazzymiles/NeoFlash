@@ -959,3 +959,456 @@ fn parametric_primitives_render_inspector_break_apart_to_paths_and_undo() {
     editor.undo();
     assert_eq!(editor.project, before_break);
 }
+
+#[test]
+fn click_accuracy_controls_selection_slop_and_exact_hit_takes_priority() {
+    use crate::workspace::Tolerance;
+    let (mut editor, ctx, page) = fixture(0);
+    // Replace layers with two touching 60×60 rectangles (`lower` at x=100..160, `upper` at x=160..220)
+    // plus an open horizontal vector stroke from (100, 300) to (200, 300) with stroke_width = 1.
+    let mut lower = object("lower", 100., 100.);
+    lower.kind = ElementKind::Rectangle {
+        width: 60.,
+        height: 60.,
+        fill: [40, 120, 220, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    let mut upper = object("upper", 160., 100.);
+    upper.kind = ElementKind::Rectangle {
+        width: 60.,
+        height: 60.,
+        fill: [220, 90, 40, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    let mut wire = object("wire", 0., 0.);
+    wire.kind = ElementKind::Path {
+        commands: vec![
+            PathCommand::MoveTo { x: 100., y: 300. },
+            PathCommand::LineTo { x: 200., y: 300. },
+        ],
+        fill_rule: FillRule::NonZero,
+        fill: [0; 4],
+        stroke: [20, 20, 20, 255],
+        stroke_width: 1.,
+    };
+    editor.symbol_mut().timeline.layers = vec![layer("l", vec![lower, upper, wire], false)];
+    editor.clear_selection();
+
+    let click_at = |editor: &mut Editor, t: f64, stage_pt: egui::Vec2| -> Vec<String> {
+        editor.clear_selection();
+        let pos = page.min + stage_pt;
+        drag(editor, &ctx, t, pos, pos, true, Modifiers::NONE);
+        ids(editor).into_iter().map(str::to_owned).collect()
+    };
+
+    // 3.5 px below the 1 px stroke center (3.0 px outside stroke edge):
+    editor.workspace.drawing.click_accuracy = Tolerance::Off;
+    assert!(click_at(&mut editor, 1.0, egui::vec2(150., 303.5)).is_empty());
+
+    editor.workspace.drawing.click_accuracy = Tolerance::MustBeClose;
+    assert!(click_at(&mut editor, 1.2, egui::vec2(150., 303.5)).is_empty());
+    assert_eq!(
+        click_at(&mut editor, 1.4, egui::vec2(150., 301.2)),
+        ["wire"]
+    );
+
+    editor.workspace.drawing.click_accuracy = Tolerance::Normal;
+    assert_eq!(
+        click_at(&mut editor, 1.6, egui::vec2(150., 303.5)),
+        ["wire"]
+    );
+    assert!(click_at(&mut editor, 1.8, egui::vec2(150., 306.5)).is_empty());
+
+    editor.workspace.drawing.click_accuracy = Tolerance::CanBeDistant;
+    assert_eq!(
+        click_at(&mut editor, 2.0, egui::vec2(150., 306.5)),
+        ["wire"]
+    );
+
+    // Adjacent shapes: clicking at x = 158 (inside `lower`, 2 px from `upper` on top) must pick
+    // `lower` by direct hit even when `CanBeDistant` (8 px) is active, while clicking empty space
+    // at x = 226 (6 px right of `upper`) picks `upper` via slop.
+    assert_eq!(
+        click_at(&mut editor, 2.2, egui::vec2(158., 130.)),
+        ["lower"]
+    );
+    assert_eq!(
+        click_at(&mut editor, 2.4, egui::vec2(226., 130.)),
+        ["upper"]
+    );
+}
+
+#[test]
+fn span_based_selection_clicks_spans_supports_drag_shift_command_and_single_frame_mode() {
+    let (mut editor, ctx, _) = fixture(0);
+    editor.symbol_mut().timeline.frame_count = 20;
+    let top_layer = crate::layer_controls::visible_layer_indices(&editor.symbol().timeline)[0];
+    // Untweened spans on top_layer: [0..=9] and [10..=19].
+    editor.symbol_mut().timeline.layers[top_layer].keyframes[0].tween = None;
+    editor.project.validate().unwrap();
+
+    fn timeline_input(
+        ctx: &egui::Context,
+        editor: &mut Editor,
+        time: f64,
+        events: Vec<Event>,
+        modifiers: Modifiers,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280., 900.))),
+                time: Some(time),
+                events,
+                modifiers,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.timeline(ctx);
+                editor.stage(ctx);
+            },
+        )
+    }
+    timeline_input(&ctx, &mut editor, 0.1, vec![], Modifiers::NONE);
+    let output = timeline_input(&ctx, &mut editor, 0.2, vec![], Modifiers::NONE);
+    let key0 = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Circle(circle)
+                if (1.5..=3.5).contains(&circle.radius)
+                    && circle.fill == neoflash_ui::palette(&ctx).timeline_marker
+                    && shape.clip_rect.contains(circle.center) =>
+            {
+                Some(circle.center)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)))
+        .expect("timeline must paint the first authored key");
+    let cell = neoflash_ui::metrics::FrameView::Normal.frame_width();
+    let cell_pos = |frame: u32| key0 + egui::vec2(cell * frame as f32, 0.);
+    let click_cell = |editor: &mut Editor, t: f64, frame: u32, mods: Modifiers| {
+        let p = cell_pos(frame);
+        timeline_input(
+            &ctx,
+            editor,
+            t,
+            vec![Event::PointerMoved(p), button(p, true, mods)],
+            mods,
+        );
+        timeline_input(&ctx, editor, t + 0.05, vec![button(p, false, mods)], mods);
+    };
+
+    // Default span_selection = true: clicking in-between frame 3 selects span 0..=9.
+    assert!(editor.workspace.timeline_prefs.span_selection);
+    click_cell(&mut editor, 1.0, 3, Modifiers::NONE);
+    assert_eq!(editor.frame, 3);
+    assert_eq!(editor.selected_frame_range(), Some((0, 9, 1)));
+
+    // Shift-clicking frame 14 extends to the union of both spans (0..=19).
+    click_cell(&mut editor, 1.2, 14, Modifiers::SHIFT);
+    assert_eq!(editor.selected_frame_range(), Some((0, 19, 1)));
+
+    // Plain click without dragging inside the selected multi-span range narrows to clicked span 10..=19.
+    click_cell(&mut editor, 1.4, 12, Modifiers::NONE);
+    assert_eq!(editor.selected_frame_range(), Some((10, 19, 1)));
+
+    // Command-click selects an individual frame even when span_selection is on.
+    click_cell(&mut editor, 1.6, 13, Modifiers::COMMAND);
+    assert_eq!(editor.selected_frame_range(), Some((13, 13, 1)));
+
+    // Drag-to-select across in-between frames selects the exact dragged sub-range (2..=6).
+    let p2 = cell_pos(2);
+    let p6 = cell_pos(6);
+    timeline_input(
+        &ctx,
+        &mut editor,
+        1.8,
+        vec![Event::PointerMoved(p2), button(p2, true, Modifiers::NONE)],
+        Modifiers::NONE,
+    );
+    timeline_input(
+        &ctx,
+        &mut editor,
+        1.85,
+        vec![Event::PointerMoved(p6)],
+        Modifiers::NONE,
+    );
+    timeline_input(
+        &ctx,
+        &mut editor,
+        1.9,
+        vec![Event::PointerMoved(p6), button(p6, false, Modifiers::NONE)],
+        Modifiers::NONE,
+    );
+    assert_eq!(editor.selected_frame_range(), Some((2, 6, 1)));
+
+    // span_selection = false: clicking in-between frame 3 selects only single cell 3..=3.
+    editor.workspace.timeline_prefs.span_selection = false;
+    click_cell(&mut editor, 2.1, 3, Modifiers::NONE);
+    assert_eq!(editor.selected_frame_range(), Some((3, 3, 1)));
+    click_cell(&mut editor, 2.3, 14, Modifiers::SHIFT);
+    assert_eq!(editor.selected_frame_range(), Some((3, 14, 1)));
+}
+
+#[test]
+fn auto_keyframe_off_edits_span_keyframe_keeps_motion_property_keys_and_f6_inserts() {
+    let (mut editor, ctx, page) = fixture(5);
+    for l in &mut editor.symbol_mut().timeline.layers {
+        l.keyframes[0].tween = None;
+    }
+    editor.history.clear();
+    editor.workspace.timeline_prefs.auto_keyframe = false;
+    select(&mut editor, &["first"]);
+    let before = editor.project.clone();
+    let orig = sampled(&editor, "first").transform;
+    let start = center(&editor, page, "first");
+    let end = start + egui::vec2(45., 25.);
+
+    // Dragging on in-between frame 5 with auto_keyframe = false edits keyframe 0 instead of splitting.
+    input(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![Event::PointerMoved(start), primary_button(start, true)],
+        Modifiers::NONE,
+    );
+    input(
+        &mut editor,
+        &ctx,
+        1.1,
+        vec![Event::PointerMoved(end), primary_button(end, false)],
+        Modifiers::NONE,
+    );
+    let first_layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(
+        first_layer
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 10],
+        "auto_keyframe = false must not create a keyframe on transform"
+    );
+    let moved_k0 = first_layer.keyframes[0]
+        .elements
+        .iter()
+        .find(|e| e.id == "first")
+        .unwrap()
+        .transform;
+    assert_eq!((moved_k0.x, moved_k0.y), (orig.x + 45., orig.y + 25.));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+
+    // F6 make_key is NOT gated by auto_keyframe = false.
+    editor.layer = 0;
+    editor.frame = 5;
+    editor.make_key(false);
+    assert_eq!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 5, 10]
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Inside a motion tween span, auto_keyframe = false still creates ◆ property keyframes.
+    let (mut motion_ed, mctx, mpage) = rectangle_stage();
+    motion_ed.symbol_mut().timeline.frame_count = 16;
+    motion_ed.add_element(
+        ElementKind::Text {
+            text: "Hero".into(),
+            font_size: 24.,
+            color: [255, 255, 255, 255],
+            font_family: String::new(),
+        },
+        120.,
+        100.,
+    );
+    motion_ed.frame = 0;
+    motion_ed.layer = 0;
+    motion_ed.create_tween(TweenKind::Motion);
+    motion_ed.history.clear();
+    motion_ed.workspace.timeline_prefs.auto_keyframe = false;
+    let before_motion = motion_ed.project.clone();
+    motion_ed.frame = 6;
+    let text_id = motion_ed.symbol().timeline.layers[0].keyframes[0].elements[0]
+        .id
+        .clone();
+    motion_ed.select_single_id(text_id);
+    stage_input_frame(&mut motion_ed, &mctx, 0.1, vec![]);
+    let p0 = mpage.min + egui::vec2(130., 105.);
+    let p1 = p0 + egui::vec2(60., 30.);
+    stage_input_frame(
+        &mut motion_ed,
+        &mctx,
+        0.2,
+        vec![
+            Event::PointerMoved(p0),
+            primary_button(p0, true),
+            Event::PointerMoved(p1),
+            primary_button(p1, false),
+        ],
+    );
+    let prop_key = motion_ed.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 6)
+        .expect("motion span must still record a ◆ property keyframe");
+    assert_eq!(
+        prop_key.keyed_properties,
+        Some(vec![TweenProperty::X, TweenProperty::Y])
+    );
+    // Motion span selection covers 0..=15 even across ◆ property key at frame 6.
+    assert_eq!(motion_ed.layer_span_range(0, 6, 16), (0, 15));
+    motion_ed.project.validate().unwrap();
+    motion_ed.undo();
+    assert_eq!(motion_ed.project, before_motion);
+    assert!(!motion_ed.history.can_undo());
+}
+
+#[test]
+fn tween_type_on_drag_creates_classic_or_motion_tween_in_one_undo_step() {
+    use crate::workspace::TweenOnDrag;
+
+    // 1. Classic tween on drag uses workspace.default_ease in a single Undo step.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.symbol_mut().timeline.frame_count = 20;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.,
+            height: 50.,
+            fill: [50, 130, 220, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        100.,
+        100.,
+    );
+    let rect_id = editor.selected_element().unwrap().id.clone();
+    editor.history.clear();
+    editor.workspace.timeline_prefs.tween_on_drag = TweenOnDrag::Classic;
+    editor.workspace.default_ease = Easing::Linear;
+    let before_classic = editor.project.clone();
+
+    editor.frame = 8;
+    editor.select_single_id(rect_id.clone());
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+    let p0 = page.min + egui::vec2(120., 120.);
+    let p1 = p0 + egui::vec2(80., 40.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            Event::PointerMoved(p0),
+            primary_button(p0, true),
+            Event::PointerMoved(p1),
+            primary_button(p1, false),
+        ],
+    );
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(
+        layer.keyframes.iter().map(|k| k.frame).collect::<Vec<_>>(),
+        vec![0, 8]
+    );
+    assert_eq!(layer.keyframes[0].tween, Some(Easing::Linear));
+    assert_eq!(layer.keyframes[0].tween_kind, TweenKind::Classic);
+    assert_eq!(layer.keyframes[1].tween, None);
+    let mid = sample_layer(layer, 4);
+    assert!((mid[0].transform.x - 140.).abs() < 1e-6);
+    assert!((mid[0].transform.y - 120.).abs() < 1e-6);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_classic);
+    assert!(!editor.history.can_undo());
+
+    // 2. Motion tween on drag creates a Motion tween on prev keyframe + ◆ property key in one Undo step.
+    let (mut motion_ed, mctx, mpage) = rectangle_stage();
+    motion_ed.symbol_mut().timeline.frame_count = 20;
+    motion_ed.add_element(
+        ElementKind::Text {
+            text: "Fly".into(),
+            font_size: 24.,
+            color: [255, 255, 255, 255],
+            font_family: String::new(),
+        },
+        100.,
+        100.,
+    );
+    let text_id = motion_ed.selected_element().unwrap().id.clone();
+    motion_ed.history.clear();
+    motion_ed.workspace.timeline_prefs.tween_on_drag = TweenOnDrag::Motion;
+    let before_motion = motion_ed.project.clone();
+
+    motion_ed.frame = 10;
+    motion_ed.select_single_id(text_id);
+    stage_input_frame(&mut motion_ed, &mctx, 0.1, vec![]);
+    let q0 = mpage.min + egui::vec2(110., 105.);
+    let q1 = q0 + egui::vec2(100., 60.);
+    stage_input_frame(
+        &mut motion_ed,
+        &mctx,
+        0.2,
+        vec![
+            Event::PointerMoved(q0),
+            primary_button(q0, true),
+            Event::PointerMoved(q1),
+            primary_button(q1, false),
+        ],
+    );
+    let mlayer = &motion_ed.symbol().timeline.layers[0];
+    assert_eq!(mlayer.keyframes[0].tween, Some(Easing::Linear));
+    assert_eq!(mlayer.keyframes[0].tween_kind, TweenKind::Motion);
+    assert_eq!(
+        mlayer.keyframes[1].frame, 10,
+        "drag frame becomes a ◆ property keyframe inside the new motion span"
+    );
+    assert_eq!(
+        mlayer.keyframes[1].keyed_properties,
+        Some(vec![TweenProperty::X, TweenProperty::Y])
+    );
+    assert!(motion_ed.project.format_version >= 6);
+    motion_ed.project.validate().unwrap();
+    motion_ed.undo();
+    assert_eq!(motion_ed.project, before_motion);
+    assert!(!motion_ed.history.can_undo());
+}
+
+#[test]
+fn onion_opacity_falloff_is_linear_to_fifteen_percent() {
+    use crate::stage::onion_ghost_opacity;
+
+    let approx = |a: f64, b: f64| assert!((a - b).abs() < 1e-6, "{a} != {b}");
+    approx(onion_ghost_opacity(70.0, 1, 3), 0.70);
+    approx(onion_ghost_opacity(70.0, 2, 3), 0.425);
+    approx(onion_ghost_opacity(70.0, 3, 3), 0.15);
+    approx(onion_ghost_opacity(85.0, 1, 1), 0.85);
+
+    let (mut editor, _, _) = fixture(6);
+    editor.symbol_mut().timeline.frame_count = 15;
+    editor.workspace.timeline_prefs.onion_falloff = 75.0;
+    editor.onion_before = 4;
+    editor.onion_after = 2;
+    approx(editor.onion_frame_opacity(5), 0.75);
+    approx(editor.onion_frame_opacity(4), 0.55);
+    approx(editor.onion_frame_opacity(3), 0.35);
+    approx(editor.onion_frame_opacity(2), 0.15);
+    approx(editor.onion_frame_opacity(7), 0.75);
+    approx(editor.onion_frame_opacity(8), 0.15);
+
+    editor.onion_anchor = true;
+    editor.anchored_range = (3, 9);
+    approx(editor.onion_frame_opacity(5), 0.75);
+    approx(editor.onion_frame_opacity(4), 0.45);
+    approx(editor.onion_frame_opacity(3), 0.15);
+    approx(editor.onion_frame_opacity(9), 0.15);
+}

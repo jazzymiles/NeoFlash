@@ -49,23 +49,24 @@ impl Editor {
 
     /// Right side of the top bar: workspace select, Test Movie (secondary), Publish (primary).
     pub(crate) fn top_bar_actions(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId;
         let ctx = ui.ctx().clone();
+        let publish_sc = self.tooltip_sc(CommandId::FilePublish);
+        let test_sc = self.tooltip_sc(CommandId::ControlTestMovie);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
-            if ui
-                .add(
-                    nf::Button::primary("Publish")
-                        .icon(i16::UPLOAD)
-                        .shortcut("⇧⌥F12"),
-                )
-                .clicked()
-            {
+            let mut publish = nf::Button::primary("Publish").icon(i16::UPLOAD);
+            if let Some(sc) = publish_sc.as_deref() {
+                publish = publish.shortcut(sc);
+            }
+            if ui.add(publish).clicked() {
                 self.export(false);
             }
-            if ui
-                .add(nf::Button::new("Test Movie").icon(i16::PLAY).shortcut("⌘↵"))
-                .clicked()
-            {
+            let mut test = nf::Button::new("Test Movie").icon(i16::PLAY);
+            if let Some(sc) = test_sc.as_deref() {
+                test = test.shortcut(sc);
+            }
+            if ui.add(test).clicked() {
                 self.export(true);
             }
             // The menu bar takes the row's remaining width, so decide by window width.
@@ -118,22 +119,36 @@ impl Editor {
             .to_owned();
         let ok =
             !message.to_lowercase().contains("error") && !message.to_lowercase().contains("fail");
+        let raw_hints = [
+            (self.sc(crate::commands::CommandId::InsertFrame), "frame"),
+            (
+                self.sc(crate::commands::CommandId::InsertKeyframe),
+                "keyframe",
+            ),
+            (
+                self.sc(crate::commands::CommandId::InsertBlankKeyframe),
+                "blank keyframe",
+            ),
+            (
+                self.sc(crate::commands::CommandId::ControlTestMovie),
+                "Test Movie",
+            ),
+        ];
         egui::TopBottomPanel::bottom("status-bar")
             .exact_height(metrics::STATUS_BAR)
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(p.bg_app))
             .show(ctx, |ui| {
-                let hints: &[(&str, &str)] = if ui.available_width() > 900. {
-                    &[
-                        ("F5", "frame"),
-                        ("F6", "keyframe"),
-                        ("F7", "blank keyframe"),
-                        ("⌘↵", "Test Movie"),
-                    ]
+                let hints: Vec<(&str, &str)> = if ui.available_width() > 900. {
+                    raw_hints
+                        .iter()
+                        .filter(|(k, _)| !k.is_empty())
+                        .map(|(k, label)| (k.as_str(), *label))
+                        .collect()
                 } else {
-                    &[]
+                    Vec::new()
                 };
-                nf::surface::status_bar(ui, ok, &message, &summary, hints);
+                nf::surface::status_bar(ui, ok, &message, &summary, &hints);
             });
     }
 
@@ -298,22 +313,21 @@ impl Editor {
 
     /// View shortcuts: ⌘= / ⌘− zoom, ⌘1 100 %, ⌘0 fit (skipped while typing).
     pub(crate) fn view_shortcuts(&mut self, ctx: &egui::Context) {
-        use egui::{Key, Modifiers};
+        use crate::commands::CommandId;
         if ctx.wants_keyboard_input() {
             return;
         }
         self.stage_view_shortcuts(ctx);
-        let pressed = |key| ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, key));
-        if pressed(Key::Equals) || pressed(Key::Plus) {
+        if self.take_command_shortcut(ctx, CommandId::ViewZoomIn) {
             self.zoom_in();
         }
-        if pressed(Key::Minus) {
+        if self.take_command_shortcut(ctx, CommandId::ViewZoomOut) {
             self.zoom_out();
         }
-        if pressed(Key::Num1) {
+        if self.take_command_shortcut(ctx, CommandId::ViewZoom100) {
             self.zoom_actual();
         }
-        if pressed(Key::Num0) {
+        if self.take_command_shortcut(ctx, CommandId::ViewFitInWindow) {
             self.fit_stage();
         }
     }

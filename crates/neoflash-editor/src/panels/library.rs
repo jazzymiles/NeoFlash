@@ -672,11 +672,13 @@ impl Editor {
                 "",
             );
         }
+        let conv_sc = self.sc(crate::commands::CommandId::ModifyConvertToSymbol);
+        let mut conv_item = nf::MenuItem::new("Convert to Symbol");
+        if !conv_sc.is_empty() {
+            conv_item = conv_item.shortcut(&conv_sc);
+        }
         if ui
-            .add_enabled(
-                self.can_convert_selection(),
-                nf::MenuItem::new("Convert to Symbol").shortcut("F8"),
-            )
+            .add_enabled(self.can_convert_selection(), conv_item)
             .clicked()
         {
             self.convert_to_symbol();

@@ -383,6 +383,434 @@ fn simplify(points: &[Anchor], tolerance: f32) -> Vec<Anchor> {
         .collect()
 }
 
+fn polyline_length(anchors: &[Anchor]) -> f32 {
+    anchors
+        .windows(2)
+        .map(|w| w[0].point.distance(w[1].point))
+        .sum()
+}
+
+/// Preferences ▸ Drawing ▸ Recognise lines: collapse a nearly straight open pencil stroke into a
+/// single segment when every sample stays within `mode.recognise_lines_px()` of the start–end chord.
+pub(crate) fn recognise_straight_line(
+    raw_anchors: &[Anchor],
+    zoom: f32,
+    mode: crate::workspace::Tolerance,
+) -> Option<[Pos2; 2]> {
+    let tol_px = mode.recognise_lines_px()?;
+    if raw_anchors.len() < 2 {
+        return None;
+    }
+    let zoom = zoom.max(1e-3);
+    let tol = tol_px / zoom;
+    let a = raw_anchors[0].point;
+    let b = raw_anchors[raw_anchors.len() - 1].point;
+    let line = b - a;
+    let chord_len = line.length();
+    if chord_len < 4.0 / zoom {
+        return None;
+    }
+    if polyline_length(raw_anchors) > chord_len * 1.15 + tol {
+        return None;
+    }
+    let line_sq = line.length_sq();
+    let max_sq = tol * tol;
+    for anchor in raw_anchors {
+        let t = ((anchor.point - a).dot(line) / line_sq).clamp(0.0, 1.0);
+        if anchor.point.distance_sq(a + line * t) > max_sq {
+            return None;
+        }
+    }
+    Some([a, b])
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum RecognisedShape {
+    Rectangle {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+    Ellipse {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+}
+
+fn sample_uniform_loop(points: &[Pos2], count: usize) -> Vec<Pos2> {
+    if points.len() < 2 || count == 0 {
+        return points.to_vec();
+    }
+    let mut cumulative = Vec::with_capacity(points.len());
+    cumulative.push(0.0_f32);
+    let mut total = 0.0_f32;
+    for w in points.windows(2) {
+        total += w[0].distance(w[1]);
+        cumulative.push(total);
+    }
+    if total <= 1e-5 {
+        return vec![points[0]; count];
+    }
+    let mut out = Vec::with_capacity(count);
+    let mut seg = 0_usize;
+    for i in 0..count {
+        let target = total * (i as f32) / (count as f32);
+        while seg + 2 < cumulative.len() && cumulative[seg + 1] < target {
+            seg += 1;
+        }
+        let seg_start = cumulative[seg];
+        let seg_len = (cumulative[seg + 1] - seg_start).max(1e-6);
+        let t = ((target - seg_start) / seg_len).clamp(0.0, 1.0);
+        out.push(points[seg].lerp(points[seg + 1], t));
+    }
+    out
+}
+
+/// Preferences ▸ Drawing ▸ Recognise shapes: classify a closed (or nearly closed) freehand pencil
+/// loop as an axis-aligned `Rectangle` or `Ellipse` when the fit is clean and unambiguous.
+pub(crate) fn recognise_primitive_shape(
+    raw_anchors: &[Anchor],
+    closed: bool,
+    zoom: f32,
+    mode: crate::workspace::Tolerance,
+) -> Option<RecognisedShape> {
+    use crate::workspace::Tolerance;
+    if mode == Tolerance::Off || raw_anchors.len() < 5 {
+        return None;
+    }
+    let zoom = zoom.max(1e-3);
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for anchor in raw_anchors {
+        min_x = min_x.min(anchor.point.x);
+        max_x = max_x.max(anchor.point.x);
+        min_y = min_y.min(anchor.point.y);
+        max_y = max_y.max(anchor.point.y);
+    }
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    if !width.is_finite() || !height.is_finite() || width * zoom < 12.0 || height * zoom < 12.0 {
+        return None;
+    }
+    let min_dim = width.min(height);
+    let max_dim = width.max(height);
+    if min_dim / max_dim < 0.1 {
+        return None;
+    }
+
+    let first = raw_anchors[0].point;
+    let last = raw_anchors[raw_anchors.len() - 1].point;
+    let gap = if closed { 0.0 } else { first.distance(last) };
+    let max_gap = match mode {
+        Tolerance::Off => return None,
+        Tolerance::MustBeClose => (8.0 / zoom).max(0.12 * min_dim),
+        Tolerance::Normal => (18.0 / zoom).max(0.25 * min_dim),
+        Tolerance::CanBeDistant => (32.0 / zoom).max(0.38 * min_dim),
+    };
+    if gap > max_gap {
+        return None;
+    }
+
+    let arc_len = polyline_length(raw_anchors);
+    let loop_len = arc_len + gap;
+    if arc_len <= 0.0 {
+        return None;
+    }
+
+    let mut loop_pts: Vec<Pos2> = raw_anchors.iter().map(|a| a.point).collect();
+    if first.distance(last) > 1e-4 {
+        loop_pts.push(first);
+    }
+    let samples = sample_uniform_loop(&loop_pts, 64);
+
+    // Candidate 1: Axis-aligned Rectangle.
+    let rect_perim = 2.0 * (width + height);
+    let px_floor = match mode {
+        Tolerance::Off => 0.0,
+        Tolerance::MustBeClose => 2.0,
+        Tolerance::Normal => 4.0,
+        Tolerance::CanBeDistant => 7.0,
+    } / (zoom * min_dim);
+    let (rect_rms_limit, rect_max_limit) = match mode {
+        Tolerance::Off => return None,
+        Tolerance::MustBeClose => (
+            0.035_f32.max(px_floor * 0.6).min(0.06),
+            0.085_f32.max(px_floor).min(0.13),
+        ),
+        Tolerance::Normal => (
+            0.065_f32.max(px_floor * 0.6).min(0.08),
+            0.145_f32.max(px_floor).min(0.18),
+        ),
+        Tolerance::CanBeDistant => (
+            0.095_f32.max(px_floor * 0.6).min(0.11),
+            0.21_f32.max(px_floor).min(0.23),
+        ),
+    };
+    let edge_band = rect_max_limit * min_dim;
+    let mut rect_sq_sum = 0.0_f32;
+    let mut rect_max = 0.0_f32;
+    let mut edge_hits = [0_u32; 4];
+    for p in &samples {
+        let dl = (p.x - min_x).abs();
+        let dr = (max_x - p.x).abs();
+        let dt = (p.y - min_y).abs();
+        let db = (max_y - p.y).abs();
+        if dl <= edge_band {
+            edge_hits[0] += 1;
+        }
+        if dr <= edge_band {
+            edge_hits[1] += 1;
+        }
+        if dt <= edge_band {
+            edge_hits[2] += 1;
+        }
+        if db <= edge_band {
+            edge_hits[3] += 1;
+        }
+        let err = dl.min(dr).min(dt).min(db) / min_dim;
+        rect_sq_sum += err * err;
+        rect_max = rect_max.max(err);
+    }
+    let rect_rms = (rect_sq_sum / samples.len() as f32).sqrt();
+    let rect_ok = arc_len >= 0.72 * rect_perim
+        && loop_len <= 1.35 * rect_perim
+        && edge_hits.iter().all(|&c| c >= 4)
+        && rect_rms <= rect_rms_limit
+        && rect_max <= rect_max_limit;
+
+    // Candidate 2: Axis-aligned Ellipse / Circle.
+    let rx = width * 0.5;
+    let ry = height * 0.5;
+    let cx = min_x + rx;
+    let cy = min_y + ry;
+    let ell_perim = std::f32::consts::PI
+        * (3.0 * (rx + ry) - ((3.0 * rx + ry) * (rx + 3.0 * ry)).max(0.0).sqrt());
+    let (ell_rms_limit, ell_max_limit) = match mode {
+        Tolerance::Off => return None,
+        Tolerance::MustBeClose => (0.025_f32, 0.055_f32),
+        Tolerance::Normal => (0.048_f32, 0.105_f32),
+        Tolerance::CanBeDistant => (0.072_f32, 0.138_f32),
+    };
+    let mut ell_sq_sum = 0.0_f32;
+    let mut ell_max = 0.0_f32;
+    let mut sectors = 0_u8;
+    for p in &samples {
+        let u = (p.x - cx) / rx;
+        let v = (p.y - cy) / ry;
+        let angle = v.atan2(u).rem_euclid(std::f32::consts::TAU);
+        let bucket = ((angle / std::f32::consts::TAU) * 8.0).floor() as u32;
+        sectors |= 1_u8 << bucket.min(7);
+        // Scale radial error by 0.5 so both candidates measure error in units of `min_dim`.
+        let err = 0.5 * (u.hypot(v) - 1.0).abs();
+        ell_sq_sum += err * err;
+        ell_max = ell_max.max(err);
+    }
+    let ell_rms = (ell_sq_sum / samples.len() as f32).sqrt();
+    let ell_ok = arc_len >= 0.72 * ell_perim
+        && loop_len <= 1.35 * ell_perim
+        && sectors.count_ones() >= 7
+        && ell_rms <= ell_rms_limit
+        && ell_max <= ell_max_limit;
+
+    if rect_ok && rect_rms < 0.75 * ell_rms {
+        Some(RecognisedShape::Rectangle {
+            x: f64::from(min_x),
+            y: f64::from(min_y),
+            width: f64::from(width),
+            height: f64::from(height),
+        })
+    } else if ell_ok && ell_rms < 0.75 * rect_rms {
+        Some(RecognisedShape::Ellipse {
+            x: f64::from(min_x),
+            y: f64::from(min_y),
+            width: f64::from(width),
+            height: f64::from(height),
+        })
+    } else {
+        None
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EndpointSide {
+    Start,
+    End,
+}
+
+#[derive(Clone, Debug)]
+struct OpenEndpointMatch {
+    element_id: Id,
+    side: EndpointSide,
+    world_point: Pos2,
+    matrix: [f64; 6],
+    same_style: bool,
+}
+
+fn open_contour_endpoints(commands: &[PathCommand]) -> Option<((f64, f64), (f64, f64))> {
+    if commands.len() < 2 {
+        return None;
+    }
+    let PathCommand::MoveTo { x: x0, y: y0 } = commands[0] else {
+        return None;
+    };
+    if commands[1..]
+        .iter()
+        .any(|c| matches!(c, PathCommand::MoveTo { .. } | PathCommand::Close))
+    {
+        return None;
+    }
+    let (x1, y1) = match *commands.last()? {
+        PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => (x, y),
+        PathCommand::MoveTo { .. } | PathCommand::Close => return None,
+    };
+    Some(((x0, y0), (x1, y1)))
+}
+
+fn inverse_f64(m: [f64; 6], px: f64, py: f64) -> Option<(f64, f64)> {
+    let d = m[0] * m[3] - m[1] * m[2];
+    if d.abs() < 1e-10 {
+        return None;
+    }
+    let x = px - m[4];
+    let y = py - m[5];
+    Some(((m[3] * x - m[2] * y) / d, (-m[1] * x + m[0] * y) / d))
+}
+
+fn map_commands_inverse(commands: &[PathCommand], m: [f64; 6]) -> Option<Vec<PathCommand>> {
+    let mut out = Vec::with_capacity(commands.len());
+    for cmd in commands {
+        let mapped = match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                let (x, y) = inverse_f64(m, x, y)?;
+                PathCommand::MoveTo { x, y }
+            }
+            PathCommand::LineTo { x, y } => {
+                let (x, y) = inverse_f64(m, x, y)?;
+                PathCommand::LineTo { x, y }
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let (cx, cy) = inverse_f64(m, cx, cy)?;
+                let (x, y) = inverse_f64(m, x, y)?;
+                PathCommand::QuadraticTo { cx, cy, x, y }
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let (cx1, cy1) = inverse_f64(m, cx1, cy1)?;
+                let (cx2, cy2) = inverse_f64(m, cx2, cy2)?;
+                let (x, y) = inverse_f64(m, x, y)?;
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                }
+            }
+            PathCommand::Close => PathCommand::Close,
+        };
+        out.push(mapped);
+    }
+    Some(out)
+}
+
+fn set_contour_start(commands: &mut [PathCommand], pt: (f64, f64)) {
+    if let Some(PathCommand::MoveTo { x, y }) = commands.first_mut() {
+        *x = pt.0;
+        *y = pt.1;
+    }
+}
+
+fn set_contour_end(commands: &mut [PathCommand], pt: (f64, f64)) {
+    if let Some(
+        PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. },
+    ) = commands.last_mut()
+    {
+        *x = pt.0;
+        *y = pt.1;
+    }
+}
+
+fn reverse_open_contour(commands: &[PathCommand]) -> Option<Vec<PathCommand>> {
+    let ((x0, y0), (xn, yn)) = open_contour_endpoints(commands)?;
+    let mut prev = (x0, y0);
+    let mut segments = Vec::with_capacity(commands.len() - 1);
+    for cmd in &commands[1..] {
+        match *cmd {
+            PathCommand::LineTo { x, y } => {
+                segments.push((prev, PathCommand::LineTo { x, y }));
+                prev = (x, y);
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                segments.push((prev, PathCommand::QuadraticTo { cx, cy, x, y }));
+                prev = (x, y);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                segments.push((
+                    prev,
+                    PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    },
+                ));
+                prev = (x, y);
+            }
+            PathCommand::MoveTo { .. } | PathCommand::Close => return None,
+        }
+    }
+    let mut out = Vec::with_capacity(commands.len());
+    out.push(PathCommand::MoveTo { x: xn, y: yn });
+    for ((px, py), cmd) in segments.into_iter().rev() {
+        out.push(match cmd {
+            PathCommand::LineTo { .. } => PathCommand::LineTo { x: px, y: py },
+            PathCommand::QuadraticTo { cx, cy, .. } => PathCommand::QuadraticTo {
+                cx,
+                cy,
+                x: px,
+                y: py,
+            },
+            PathCommand::CubicTo {
+                cx1, cy1, cx2, cy2, ..
+            } => PathCommand::CubicTo {
+                cx1: cx2,
+                cy1: cy2,
+                cx2: cx1,
+                cy2: cy1,
+                x: px,
+                y: py,
+            },
+            _ => return None,
+        });
+    }
+    Some(out)
+}
+
 impl Editor {
     /// End only the active pointer phase before changing the viewport. Pen
     /// keeps its existing anchors/controls for the next press; Pencil commits
@@ -460,6 +888,166 @@ impl Editor {
         }
         self.tool = tool;
     }
+    fn find_nearest_open_endpoint(&self, pt: Pos2, tol: f32) -> Option<OpenEndpointMatch> {
+        let layer = self.symbol().timeline.layers.get(self.layer)?;
+        let sampled = sample_layer(layer, self.frame);
+        let no_gradients = self.authoring_modify.drawing_fill_gradient.is_none()
+            && self.authoring_modify.drawing_stroke_gradient.is_none();
+        let mut best: Option<(f32, OpenEndpointMatch)> = None;
+        for el in sampled.iter().rev() {
+            let ElementKind::Path {
+                commands,
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } = &el.kind
+            else {
+                continue;
+            };
+            let Some((local_start, local_end)) = open_contour_endpoints(commands) else {
+                continue;
+            };
+            let matrix = transform_matrix(el.transform);
+            let same_style = no_gradients
+                && fill[3] == 0
+                && *stroke == self.stroke
+                && (*stroke_width - self.stroke_width).abs() < 1e-6;
+            for (side, local_pt) in [
+                (EndpointSide::Start, local_start),
+                (EndpointSide::End, local_end),
+            ] {
+                let world_point =
+                    crate::stage::affine(matrix, Pos2::new(local_pt.0 as f32, local_pt.1 as f32));
+                let dist = world_point.distance(pt);
+                if dist <= tol && best.as_ref().is_none_or(|(b, _)| dist < *b) {
+                    best = Some((
+                        dist,
+                        OpenEndpointMatch {
+                            element_id: el.id.clone(),
+                            side,
+                            world_point,
+                            matrix,
+                            same_style,
+                        },
+                    ));
+                }
+            }
+        }
+        best.map(|(_, m)| m)
+    }
+
+    fn build_joined_open_path(
+        &self,
+        new_world_commands: &[PathCommand],
+        start_match: Option<&OpenEndpointMatch>,
+        end_match: Option<&OpenEndpointMatch>,
+    ) -> Option<(Id, Vec<PathCommand>, bool)> {
+        let (primary, is_start_primary) = match (start_match, end_match) {
+            (Some(s), _) if s.same_style => (s, true),
+            (_, Some(e)) if e.same_style => (e, false),
+            _ => return None,
+        };
+        let layer = self.symbol().timeline.layers.get(self.layer)?;
+        let sampled = sample_layer(layer, self.frame);
+        let existing = sampled.iter().find(|e| e.id == primary.element_id)?;
+        let ElementKind::Path {
+            commands: existing_cmds,
+            ..
+        } = &existing.kind
+        else {
+            return None;
+        };
+        let (existing_start, existing_end) = open_contour_endpoints(existing_cmds)?;
+        let local_new = map_commands_inverse(new_world_commands, primary.matrix)?;
+        if local_new.len() < 2 {
+            return None;
+        }
+        let other_closes_same = if is_start_primary {
+            end_match.is_some_and(|e| e.element_id == primary.element_id && e.side != primary.side)
+        } else {
+            start_match
+                .is_some_and(|s| s.element_id == primary.element_id && s.side != primary.side)
+        };
+        let has_curve = existing_cmds.iter().chain(local_new.iter()).any(|c| {
+            matches!(
+                c,
+                PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
+            )
+        });
+        let can_close =
+            other_closes_same && (has_curve || existing_cmds.len() + local_new.len() >= 5);
+
+        let mut merged = Vec::with_capacity(existing_cmds.len() + local_new.len());
+        let mut closed_loop = false;
+        match (is_start_primary, primary.side) {
+            (true, EndpointSide::End) => {
+                // Existing start..end + new start..end
+                let mut tail = local_new;
+                set_contour_start(&mut tail, existing_end);
+                if can_close {
+                    set_contour_end(&mut tail, existing_start);
+                }
+                merged.extend_from_slice(existing_cmds);
+                merged.extend_from_slice(&tail[1..]);
+                if can_close {
+                    merged.push(PathCommand::Close);
+                    closed_loop = true;
+                }
+            }
+            (false, EndpointSide::End) => {
+                // Existing start..end + reversed(new)
+                let mut rev = reverse_open_contour(&local_new)?;
+                set_contour_start(&mut rev, existing_end);
+                if can_close {
+                    set_contour_end(&mut rev, existing_start);
+                }
+                merged.extend_from_slice(existing_cmds);
+                merged.extend_from_slice(&rev[1..]);
+                if can_close {
+                    merged.push(PathCommand::Close);
+                    closed_loop = true;
+                }
+            }
+            (false, EndpointSide::Start) => {
+                // New start..end + existing start..end
+                let mut head = local_new;
+                set_contour_end(&mut head, existing_start);
+                if can_close {
+                    let head_start = open_contour_endpoints(&head)?.0;
+                    let mut rest = existing_cmds.clone();
+                    set_contour_end(&mut rest, head_start);
+                    merged.extend_from_slice(&head);
+                    merged.extend_from_slice(&rest[1..]);
+                    merged.push(PathCommand::Close);
+                    closed_loop = true;
+                } else {
+                    merged.extend_from_slice(&head);
+                    merged.extend_from_slice(&existing_cmds[1..]);
+                }
+            }
+            (true, EndpointSide::Start) => {
+                // Reversed(new) + existing start..end
+                let mut head = reverse_open_contour(&local_new)?;
+                set_contour_end(&mut head, existing_start);
+                if can_close {
+                    let head_start = open_contour_endpoints(&head)?.0;
+                    let mut rest = existing_cmds.clone();
+                    set_contour_end(&mut rest, head_start);
+                    merged.extend_from_slice(&head);
+                    merged.extend_from_slice(&rest[1..]);
+                    merged.push(PathCommand::Close);
+                    closed_loop = true;
+                } else {
+                    merged.extend_from_slice(&head);
+                    merged.extend_from_slice(&existing_cmds[1..]);
+                }
+            }
+        }
+        validate_path_commands(&merged).ok()?;
+        Some((primary.element_id.clone(), merged, closed_loop))
+    }
+
     pub(crate) fn finish_path(&mut self, closed: bool) {
         let Some(mut draft) = self.vector.draft.take() else {
             return;
@@ -467,9 +1055,6 @@ impl Editor {
         if draft.limit_reached {
             self.message("Pencil stroke exceeds 16000 samples. Draw shorter strokes; this draft was discarded.");
             return;
-        }
-        if draft.pencil {
-            draft.anchors = simplify(&draft.anchors, 0.8 / draft.pointer_zoom);
         }
         if draft.anchors.len() < 2 {
             return;
@@ -487,6 +1072,79 @@ impl Editor {
             self.message("Cannot finish path: its original layer/frame is no longer editable. Draft cancelled.");
             return;
         };
+        let zoom = draft.pointer_zoom.max(1e-3);
+        let drawing = self.workspace.drawing.clone();
+        let raw_anchors = draft.anchors.clone();
+
+        // 1. Preferences ▸ Drawing ▸ Recognise shapes (Pencil only).
+        let recognised_shape = if draft.pencil {
+            recognise_primitive_shape(&raw_anchors, closed, zoom, drawing.recognise_shapes)
+        } else {
+            None
+        };
+
+        // 2. Preferences ▸ Drawing ▸ Connect lines (self-close check).
+        let connect_tol = drawing.connect_lines.connect_lines_px().map(|px| px / zoom);
+        let mut effective_closed = closed;
+        let mut self_closed = false;
+        if !effective_closed
+            && recognised_shape.is_none()
+            && let Some(tol) = connect_tol
+        {
+            let first = raw_anchors[0].point;
+            let last = raw_anchors[raw_anchors.len() - 1].point;
+            if raw_anchors.len() >= 3
+                && polyline_length(&raw_anchors) >= tol * 3.0
+                && first.distance(last) <= tol
+            {
+                effective_closed = true;
+                self_closed = true;
+            }
+        }
+
+        // 3. Preferences ▸ Drawing ▸ Recognise lines & Smooth curves (Pencil only).
+        if draft.pencil && recognised_shape.is_none() {
+            if !effective_closed
+                && let Some([a, b]) =
+                    recognise_straight_line(&raw_anchors, zoom, drawing.recognise_lines)
+            {
+                draft.anchors = vec![
+                    Anchor {
+                        point: a,
+                        tangent: Vec2::ZERO,
+                    },
+                    Anchor {
+                        point: b,
+                        tangent: Vec2::ZERO,
+                    },
+                ];
+            } else if let Some(rdp_px) = drawing.smooth_curves.smooth_rdp_px() {
+                draft.anchors = simplify(&draft.anchors, rdp_px / zoom);
+            }
+        }
+
+        // If self-closing left a trailing point right on top of the start anchor, drop it so
+        // `PathDraft::commands(true)` closes cleanly without a tiny hook segment, or cancel
+        // self-close if simplification reduced the stroke to a 2-point out-and-back line.
+        if self_closed && let Some(tol) = connect_tol {
+            if draft.anchors.len() > 3
+                && draft.anchors.last().is_some_and(|last| {
+                    last.tangent.length_sq() <= 0.01
+                        && last.point.distance(draft.anchors[0].point) <= tol
+                })
+            {
+                draft.anchors.pop();
+            } else if draft.anchors.len() == 3
+                && draft.anchors[2].tangent.length_sq() <= 0.01
+                && draft.anchors[2].point.distance(draft.anchors[0].point) <= tol
+            {
+                effective_closed = false;
+            }
+        }
+        if draft.anchors.len() < 2 && recognised_shape.is_none() {
+            return;
+        }
+
         let restore = (draft.symbol != self.symbol_id()
             || draft.frame != self.frame
             || target_layer != self.layer)
@@ -503,19 +1161,124 @@ impl Editor {
             self.frame = draft.frame;
             self.layer = target_layer;
         }
-        let commands = draft.commands(closed);
         let tool = self.tool;
-        self.add_element(
-            ElementKind::Path {
-                commands,
-                fill_rule: FillRule::NonZero,
-                fill: if closed { self.fill } else { [0, 0, 0, 0] },
-                stroke: self.stroke,
-                stroke_width: self.stroke_width,
-            },
-            0.,
-            0.,
-        );
+
+        if let Some(shape) = recognised_shape {
+            let (kind, x, y, msg) = match shape {
+                RecognisedShape::Rectangle {
+                    x,
+                    y,
+                    width,
+                    height,
+                } => (
+                    ElementKind::Rectangle {
+                        width,
+                        height,
+                        fill: self.fill,
+                        stroke: self.stroke,
+                        stroke_width: self.stroke_width,
+                    },
+                    x,
+                    y,
+                    "Rectangle recognised.",
+                ),
+                RecognisedShape::Ellipse {
+                    x,
+                    y,
+                    width,
+                    height,
+                } => (
+                    ElementKind::Ellipse {
+                        width,
+                        height,
+                        fill: self.fill,
+                        stroke: self.stroke,
+                        stroke_width: self.stroke_width,
+                    },
+                    x,
+                    y,
+                    "Oval recognised.",
+                ),
+            };
+            self.add_element(kind, x, y);
+            self.tool = tool;
+            if let Some((editing, frame, layer, selected)) = restore {
+                self.editing = editing;
+                self.frame = frame;
+                self.layer = layer;
+                self.selection = selected;
+            }
+            self.message(msg);
+            return;
+        }
+
+        // 4. Preferences ▸ Drawing ▸ Connect lines (snap / join open path endpoints on same layer).
+        let mut joined = None;
+        if !effective_closed && let Some(tol) = connect_tol {
+            let start_pt = draft.anchors[0].point;
+            let end_pt = draft.anchors[draft.anchors.len() - 1].point;
+            let start_match = self.find_nearest_open_endpoint(start_pt, tol);
+            let end_match = self.find_nearest_open_endpoint(end_pt, tol).filter(|e| {
+                start_match
+                    .as_ref()
+                    .is_none_or(|s| s.element_id != e.element_id || s.side != e.side)
+            });
+            if let Some(ref s) = start_match
+                && (draft.anchors.len() > 2 || s.world_point.distance(end_pt) > 1e-3)
+            {
+                draft.anchors[0].point = s.world_point;
+            }
+            if let Some(ref e) = end_match {
+                let current_start = draft.anchors[0].point;
+                if (draft.anchors.len() > 2 || e.world_point.distance(current_start) > 1e-3)
+                    && let Some(last) = draft.anchors.last_mut()
+                {
+                    last.point = e.world_point;
+                }
+            }
+            let world_cmds = draft.commands(false);
+            joined =
+                self.build_joined_open_path(&world_cmds, start_match.as_ref(), end_match.as_ref());
+        }
+
+        let final_closed = if let Some((target_id, merged_commands, closed_loop)) = joined {
+            let join_fill = self.fill;
+            self.transact_named("Path", |s| {
+                s.ensure_key(false);
+                let layer = s.layer;
+                let frame = s.frame;
+                if let Some(el) = s.symbol_mut().timeline.layers[layer]
+                    .key_at_mut(frame)
+                    .and_then(|k| k.elements.iter_mut().find(|e| e.id == target_id))
+                    && let ElementKind::Path { commands, fill, .. } = &mut el.kind
+                {
+                    *commands = merged_commands.clone();
+                    if closed_loop {
+                        *fill = join_fill;
+                    }
+                }
+                s.select_single_id(target_id.clone());
+            });
+            closed_loop
+        } else {
+            let commands = draft.commands(effective_closed);
+            self.add_element(
+                ElementKind::Path {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: if effective_closed {
+                        self.fill
+                    } else {
+                        [0, 0, 0, 0]
+                    },
+                    stroke: self.stroke,
+                    stroke_width: self.stroke_width,
+                },
+                0.,
+                0.,
+            );
+            effective_closed
+        };
         self.tool = tool;
         if let Some((editing, frame, layer, selected)) = restore {
             self.editing = editing;
@@ -523,7 +1286,7 @@ impl Editor {
             self.layer = layer;
             self.selection = selected;
         }
-        self.message(if closed {
+        self.message(if final_closed {
             "Closed vector path created."
         } else {
             "Open vector path created. Use A to edit its points."
@@ -750,7 +1513,9 @@ impl Editor {
                     self.stage_cursor = Some(neoflash_ui::cursors::PEN_CLOSE);
                 }
             }
-            if let (Some(last), Some(hover)) = (draft.anchors.last(), response.hover_pos())
+            if !draft.pencil
+                && self.workspace.drawing.pen_preview
+                && let (Some(last), Some(hover)) = (draft.anchors.last(), response.hover_pos())
                 && !draft.dragging
             {
                 p.line_segment(

@@ -7,14 +7,15 @@ use neoflash_core::{ClipboardPayload, Id, ObjectEvent, evaluate, new_id};
 
 /// The pinned native adapter puts the initiating key immediately before its
 /// Paste payload. Never infer intent from final frame modifiers or a release.
-fn paste_shortcut_mode(event: &Event) -> Option<bool> {
+fn paste_shortcut_mode(editor: &Editor, event: &Event) -> Option<bool> {
+    use crate::commands::CommandId;
+    if editor.command_matches_event(CommandId::EditPasteInPlace, event) {
+        return Some(true);
+    }
+    if editor.command_matches_event(CommandId::EditPaste, event) {
+        return Some(false);
+    }
     match event {
-        Event::Key {
-            key: Key::V,
-            pressed: true,
-            modifiers,
-            ..
-        } if modifiers.command => Some(modifiers.shift),
         Event::Key {
             key: Key::Paste,
             pressed: true,
@@ -239,7 +240,11 @@ impl Editor {
         let payload = match ClipboardPayload::from_text(text) {
             Ok(Some(payload)) => payload,
             Ok(None) => {
-                self.message("The clipboard does not contain NeoFlash objects.");
+                if is_svg_clipboard_text(text) {
+                    self.paste_svg(text, in_place);
+                } else {
+                    self.message("The clipboard does not contain NeoFlash objects.");
+                }
                 return;
             }
             Err(error) => {
@@ -286,6 +291,99 @@ impl Editor {
             }
             Err(error) => self.message(format!("Paste failed: {error}")),
         }
+    }
+    fn paste_svg(&mut self, text: &str, in_place: bool) {
+        self.finish_edits();
+        if !self.layer_editable() {
+            self.message("Paste failed: destination layer is locked or hidden.");
+            return;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        if self.frame >= self.symbol().timeline.frame_count {
+            self.message("Paste failed: destination frame is outside the timeline.");
+            return;
+        }
+        let mut graphic = match crate::svg_graphics::prepare_svg_clipboard(
+            text,
+            self.workspace.clipboard_prefs.editable_vector_paste,
+        ) {
+            Ok(graphic) => graphic,
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                return;
+            }
+        };
+        let mut candidate = self.project.clone();
+        if !graphic.resources.is_empty() {
+            if let Err(error) =
+                crate::graphic_import::merge_graphic_resources(&mut candidate, &mut graphic)
+            {
+                self.message(format!("Paste failed: {error}"));
+                return;
+            }
+            candidate.format_version = candidate.format_version.max(3);
+        }
+        let offset = if in_place {
+            [0., 0.]
+        } else {
+            let center = self.paste_center();
+            [
+                center[0] - graphic.width / 2.,
+                center[1] - graphic.height / 2.,
+            ]
+        };
+        let mut element_ids = Vec::with_capacity(graphic.elements.len());
+        for element in &mut graphic.elements {
+            element.transform.x += offset[0];
+            element.transform.y += offset[1];
+            element_ids.push(element.id.clone());
+        }
+        let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
+            .id
+            .clone();
+        {
+            let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
+            if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
+                let elements = neoflash_core::sample_layer(layer, self.frame);
+                let tween = layer.key_at(self.frame).and_then(|k| k.tween);
+                layer.keyframes.push(neoflash_core::Keyframe {
+                    frame: self.frame,
+                    elements,
+                    tween,
+                    label: String::new(),
+                    ..Default::default()
+                });
+                layer.keyframes.sort_by_key(|k| k.frame);
+            }
+            layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == self.frame)
+                .unwrap()
+                .elements
+                .extend(graphic.elements);
+            layer.normalize_motion_keys();
+        }
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Paste failed: {error}"));
+            return;
+        }
+        let count = element_ids.len();
+        self.playing = false;
+        self.transact_named("Paste", |editor| {
+            editor.project = candidate;
+            editor.set_selection(
+                element_ids
+                    .into_iter()
+                    .map(|element| SelectionTarget {
+                        layer: layer_id.clone(),
+                        element,
+                    })
+                    .collect(),
+            );
+        });
+        let suffix = graphic.notice.map(|n| format!(" {n}")).unwrap_or_default();
+        self.message(format!("Pasted {count} object(s).{suffix}"));
     }
     pub(crate) fn request_clipboard(&mut self, ctx: &egui::Context, command: ClipboardCommand) {
         self.request_clipboard_with(ctx, command, || {
@@ -381,7 +479,7 @@ impl Editor {
         }
         let mut retained = Vec::with_capacity(events.len());
         for (index, event) in events.iter().enumerate() {
-            if paste_shortcut_mode(event).is_some()
+            if paste_shortcut_mode(self, event).is_some()
                 && matches!(events.get(index + 1), Some(Event::Paste(_)))
             {
                 // Consume transport metadata before shortcut/TextEdit routing.
@@ -409,7 +507,7 @@ impl Editor {
                     // Paste. Explicit menu Paste in Place bypasses this route.
                     let in_place = index
                         .checked_sub(1)
-                        .and_then(|previous| paste_shortcut_mode(&events[previous]))
+                        .and_then(|previous| paste_shortcut_mode(self, &events[previous]))
                         .unwrap_or(false);
                     self.paste_objects(ctx, text, in_place);
                 }
@@ -418,4 +516,21 @@ impl Editor {
         }
         ctx.input_mut(|input| input.events = retained);
     }
+}
+
+fn is_svg_clipboard_text(text: &str) -> bool {
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    if !trimmed.starts_with('<') {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("<svg")
+        && lower
+            .as_bytes()
+            .get(4)
+            .is_some_and(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/')
+        || ((lower.starts_with("<?xml")
+            || lower.starts_with("<!doctype")
+            || lower.starts_with("<!--"))
+            && lower.contains("<svg"))
 }

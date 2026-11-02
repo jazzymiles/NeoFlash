@@ -525,3 +525,48 @@ fn object_and_pixel_snapping_respect_priority_visibility_and_command_suspend() {
     assert!(editor.stage_view.command_suspend);
     assert!(editor.snapper().is_none());
 }
+
+#[test]
+fn drawing_snap_tolerance_scales_object_snapping_with_zoom() {
+    let (mut editor, _ctx, _page) = select_stage();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.,
+            height: 60.,
+            fill: [40, 120, 200, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        200.,
+        100.,
+    );
+    editor.clear_selection();
+    editor.stage_view.prefs.guides_snap = false;
+    editor.stage_view.prefs.grid_snap = false;
+    editor.stage_view.prefs.pixels_snap = false;
+    editor.stage_view.prefs.objects_snap = true;
+    editor.zoom = 1.0;
+
+    // Reference edge at x = 200; probe 14 px away misses default 8 px tolerance.
+    assert_eq!(
+        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
+        186.0
+    );
+
+    // Raising Preferences ▸ Drawing ▸ Snap tolerance to 16 px captures 14 px at 100% zoom,
+    // and halves in stage coordinates to 8 stage px at 200% zoom.
+    editor.workspace.drawing.snap_tolerance = 16.0;
+    assert_eq!(
+        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
+        200.0
+    );
+    editor.zoom = 2.0;
+    assert_eq!(
+        editor.snapper().unwrap().point([186.0, 130.0]).point[0],
+        186.0
+    );
+    assert_eq!(
+        editor.snapper().unwrap().point([193.0, 130.0]).point[0],
+        200.0
+    );
+}

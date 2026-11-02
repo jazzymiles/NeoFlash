@@ -33,8 +33,8 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Ease, History, Scene, Motion editor and Project panels with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes. Preferences (⌘U) saves UI scale, undo levels, Shift-select, timeline view and onion defaults, default ease, text font/size and default paste.",
-      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Preferences pages for code editor, drawing, shortcuts and publish, follow-system theme and autosave are not wired yet.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Ease, History, Scene, Motion editor and Project panels with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs and native floating windows. Header drag supports docking, tab merging/reordering, splits and undocking. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (theme, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (98-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings.",
+      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions (R-013..R-020) or standalone subsystems stay disabled.",
       "items": [
         {
           "id": "docked-panels",
@@ -128,16 +128,19 @@
         },
         {
           "id": "preferences-dialog",
-          "title": "Preferences: UI scale, undo levels, Shift-select, timeline, text and paste defaults",
+          "title": "Preferences: General, Timeline, Text, Clipboard and Publish settings",
           "status": "working"
         },
         {
           "id": "preferences-full",
-          "title": "Remaining Preferences pages (code editor, drawing, shortcuts, publish)",
-          "status": "planned"
+          "title": "Preferences: Code editor, Drawing and Shortcuts command registry",
+          "status": "working"
         }
       ],
       "evidence": [
+        "crates/neoflash-editor/src/panels/preferences.rs",
+        "crates/neoflash-editor/src/commands.rs",
+        "crates/neoflash-editor/src/recovery.rs",
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/panels/info.rs",
         "crates/neoflash-editor/src/panels/symbols_popover.rs",
@@ -2864,8 +2867,8 @@
       "category": "platform",
       "title": "Work protection and recovery",
       "status": "partial",
-      "scope": "Unsaved projects offer Save/Discard/Cancel before New/Open/Import/Close.",
-      "limitations": "Autosave/crash recovery, file-change detection and multiple documents are not implemented yet.",
+      "scope": "Unsaved projects offer Save/Discard/Cancel before New/Open/Import/Close. Periodic autosave writes dirty documents atomically to `<app_support>/Recovery` every N minutes (configured in Preferences ▸ General), cleans up recovery files on save/discard/normal quit, and offers a Restore/Discard crash-recovery prompt on launch.",
+      "limitations": "External file-change detection and multiple open documents are not implemented yet.",
       "items": [
         {
           "id": "unsaved-prompt",
@@ -2875,12 +2878,12 @@
         {
           "id": "autosave",
           "title": "Autosave",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "crash-recovery",
           "title": "Crash recovery",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "file-change-detection",
@@ -2889,7 +2892,9 @@
         }
       ],
       "evidence": [
+        "crates/neoflash-editor/src/recovery.rs",
         "crates/neoflash-editor/src/app.rs",
+        "crates/neoflash-editor/src/panel_tests.rs",
         "docs/BACKLOG.md",
         "docs/ROADMAP.md"
       ]

@@ -1419,6 +1419,53 @@ impl Default for GeneralPrefs {
     }
 }
 
+impl GeneralPrefs {
+    pub const MAX_RECENT_FILES: usize = 10;
+
+    /// Record `path` as the most recently opened or saved document (deduped, max 10).
+    pub fn push_recent(&mut self, path: &std::path::Path) {
+        let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let entry = resolved.to_string_lossy().trim().to_owned();
+        if entry.is_empty() || entry.len() > 4096 {
+            return;
+        }
+        self.recent_files.retain(|existing| {
+            if existing == &entry {
+                return false;
+            }
+            std::fs::canonicalize(existing)
+                .ok()
+                .is_none_or(|canon| canon != resolved)
+        });
+        self.recent_files.insert(0, entry);
+        self.recent_files.truncate(Self::MAX_RECENT_FILES);
+    }
+
+    /// Existing recent document paths in most-recent-first order (missing files dropped, max 10).
+    pub fn existing_recent_files(&self) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        for raw in &self.recent_files {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let path = std::path::PathBuf::from(trimmed);
+            if path.exists() {
+                let resolved = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                if !out.iter().any(|p: &std::path::PathBuf| {
+                    std::fs::canonicalize(p).as_ref().ok() == Some(&resolved) || p == &path
+                }) {
+                    out.push(path);
+                    if out.len() >= Self::MAX_RECENT_FILES {
+                        break;
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
 /// Preferences ▸ General ▸ On launch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1428,6 +1475,14 @@ pub enum OnLaunch {
     /// The bundled example document (behaviour before the preference existed).
     #[default]
     Example,
+}
+
+impl OnLaunch {
+    pub const OPTIONS: [(Self, &'static str); 3] = [
+        (Self::NewDocument, "New document"),
+        (Self::LastDocument, "Last document"),
+        (Self::Example, "Example"),
+    ];
 }
 
 /// Preferences ▸ Code editor (Actions panel and project source files).
@@ -1512,6 +1567,67 @@ pub enum Tolerance {
     #[default]
     Normal,
     CanBeDistant,
+}
+
+impl Tolerance {
+    /// Distance options for `Connect lines`, `Recognise lines`, `Recognise shapes` and
+    /// `Click accuracy`.
+    pub const OPTIONS: [(Self, &'static str); 4] = [
+        (Self::Off, "Off"),
+        (Self::MustBeClose, "Must be close"),
+        (Self::Normal, "Normal"),
+        (Self::CanBeDistant, "Can be distant"),
+    ];
+
+    /// Smoothing options for `Smooth curves`, mapped onto the four [`Tolerance`] levels
+    /// (`Off` → `Off`, `Rough` → `MustBeClose`, `Normal` → `Normal`, `Smooth` → `CanBeDistant`).
+    pub const SMOOTH_OPTIONS: [(Self, &'static str); 4] = [
+        (Self::Off, "Off"),
+        (Self::MustBeClose, "Rough"),
+        (Self::Normal, "Normal"),
+        (Self::CanBeDistant, "Smooth"),
+    ];
+
+    /// Stage hit-testing slop in screen pixels for `Click accuracy`.
+    pub fn click_slop_px(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::MustBeClose => 1.0,
+            Self::Normal => 4.0,
+            Self::CanBeDistant => 8.0,
+        }
+    }
+
+    /// Pencil Ramer–Douglas–Peucker tolerance in screen pixels for `Smooth curves`.
+    /// `None` preserves raw sampled points without simplification.
+    pub fn smooth_rdp_px(self) -> Option<f32> {
+        match self {
+            Self::Off => None,
+            Self::MustBeClose => Some(0.35),
+            Self::Normal => Some(0.8),
+            Self::CanBeDistant => Some(2.4),
+        }
+    }
+
+    /// Endpoint connection radius in screen pixels for `Connect lines`.
+    pub fn connect_lines_px(self) -> Option<f32> {
+        match self {
+            Self::Off => None,
+            Self::MustBeClose => Some(4.0),
+            Self::Normal => Some(8.0),
+            Self::CanBeDistant => Some(16.0),
+        }
+    }
+
+    /// Maximum perpendicular deviation in screen pixels for `Recognise lines`.
+    pub fn recognise_lines_px(self) -> Option<f32> {
+        match self {
+            Self::Off => None,
+            Self::MustBeClose => Some(1.5),
+            Self::Normal => Some(4.0),
+            Self::CanBeDistant => Some(8.0),
+        }
+    }
 }
 
 /// Preferences ▸ Drawing.
@@ -1647,6 +1763,160 @@ pub struct ShortcutPrefs {
     /// Active set name; empty = "NeoFlash default".
     pub set: String,
     pub overrides: std::collections::BTreeMap<String, Vec<String>>,
+    /// Saved named user sets (set name → per-command overrides).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub sets: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Vec<String>>>,
+}
+
+fn truncate_utf8(s: &mut String, max_bytes: usize) {
+    if s.len() > max_bytes {
+        let mut end = max_bytes;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+    }
+}
+
+fn sanitize_shortcut_override_map(map: &mut std::collections::BTreeMap<String, Vec<String>>) {
+    let mut cleaned = std::collections::BTreeMap::new();
+    for (k, mut v) in std::mem::take(map) {
+        if cleaned.len() >= 256
+            || k.is_empty()
+            || k.len() > 128
+            || crate::commands::CommandId::from_id(&k).is_none()
+        {
+            continue;
+        }
+        v.truncate(4);
+        v.retain_mut(|chord| {
+            truncate_utf8(chord, 64);
+            if let Some(parsed) = crate::commands::Shortcut::parse(chord) {
+                *chord = parsed.format();
+                true
+            } else {
+                false
+            }
+        });
+        cleaned.insert(k, v);
+    }
+    *map = cleaned;
+}
+
+impl ShortcutPrefs {
+    pub const DEFAULT_SET_NAME: &'static str = "NeoFlash default";
+
+    pub fn is_default_set(&self) -> bool {
+        self.set.is_empty() || self.set == Self::DEFAULT_SET_NAME
+    }
+
+    pub fn active_set_label(&self) -> &str {
+        if self.is_default_set() {
+            Self::DEFAULT_SET_NAME
+        } else {
+            &self.set
+        }
+    }
+
+    fn sync_active_set(&mut self) {
+        if !self.is_default_set() {
+            self.sets.insert(self.set.clone(), self.overrides.clone());
+        }
+    }
+
+    /// Update the active set's binding for `cmd` (empty `chords` = unbound; matching defaults
+    /// removes the override entry).
+    pub fn set_shortcuts(
+        &mut self,
+        cmd: crate::commands::CommandId,
+        chords: Vec<crate::commands::Shortcut>,
+    ) {
+        if chords.as_slice() == cmd.default_shortcuts() {
+            self.overrides.remove(cmd.as_str());
+        } else {
+            let formatted = chords
+                .iter()
+                .map(crate::commands::Shortcut::format)
+                .collect();
+            self.overrides.insert(cmd.as_str().to_owned(), formatted);
+        }
+        self.sync_active_set();
+    }
+
+    /// Restore `cmd` to its built-in default shortcut in the active set.
+    pub fn reset_command(&mut self, cmd: crate::commands::CommandId) {
+        self.overrides.remove(cmd.as_str());
+        self.sync_active_set();
+    }
+
+    /// Switch the active shortcut set (`""` or `"NeoFlash default"` loads built-in defaults).
+    pub fn select_set(&mut self, name: &str) {
+        self.sync_active_set();
+        if name.is_empty() || name == Self::DEFAULT_SET_NAME {
+            self.set.clear();
+            self.overrides.clear();
+        } else {
+            self.set = name.to_owned();
+            self.overrides = self.sets.get(name).cloned().unwrap_or_default();
+            self.sets.entry(self.set.clone()).or_default();
+        }
+    }
+
+    /// Duplicate the active set under a unique `"<name> copy"` name and make it active.
+    pub fn duplicate_active_set(&mut self) -> String {
+        self.sync_active_set();
+        let base = format!("{} copy", self.active_set_label());
+        let mut candidate = base.clone();
+        let mut n = 2usize;
+        while self.sets.contains_key(&candidate) || candidate == Self::DEFAULT_SET_NAME {
+            candidate = format!("{base} {n}");
+            n += 1;
+        }
+        truncate_utf8(&mut candidate, 128);
+        self.sets.insert(candidate.clone(), self.overrides.clone());
+        self.set = candidate.clone();
+        candidate
+    }
+
+    /// Delete the active user set and return to `"NeoFlash default"`.
+    pub fn delete_active_set(&mut self) -> bool {
+        if self.is_default_set() {
+            return false;
+        }
+        self.sets.remove(&self.set);
+        self.set.clear();
+        self.overrides.clear();
+        true
+    }
+
+    pub fn sanitize(&mut self) {
+        truncate_utf8(&mut self.set, 128);
+        let trimmed = self.set.trim();
+        if trimmed.is_empty() || trimmed == Self::DEFAULT_SET_NAME {
+            self.set.clear();
+        } else if trimmed.len() != self.set.len() {
+            self.set = trimmed.to_owned();
+        }
+        sanitize_shortcut_override_map(&mut self.overrides);
+        let mut clean_sets = std::collections::BTreeMap::new();
+        for (mut name, mut map) in std::mem::take(&mut self.sets) {
+            truncate_utf8(&mut name, 128);
+            let name = name.trim().to_owned();
+            if name.is_empty() || name == Self::DEFAULT_SET_NAME || clean_sets.len() >= 32 {
+                continue;
+            }
+            sanitize_shortcut_override_map(&mut map);
+            clean_sets.insert(name, map);
+        }
+        if !self.set.is_empty() {
+            if clean_sets.contains_key(&self.set) || clean_sets.len() < 32 {
+                clean_sets.insert(self.set.clone(), self.overrides.clone());
+            } else {
+                self.set.clear();
+            }
+        }
+        self.sets = clean_sets;
+    }
 }
 
 impl WorkspacePrefs {
@@ -1673,11 +1943,9 @@ impl WorkspacePrefs {
         p.output_folder = p
             .output_folder
             .take()
+            .map(|f| f.trim().to_owned())
             .filter(|f| !f.is_empty() && f.len() <= 4096);
-        self.shortcuts.set.truncate(128);
-        self.shortcuts
-            .overrides
-            .retain(|k, v| k.len() <= 128 && v.len() <= 4);
+        self.shortcuts.sanitize();
     }
 
     pub const UI_SCALES: [(f32, &'static str); 6] = [
@@ -3169,5 +3437,70 @@ mod tests {
             tiny,
         );
         assert!(recovered.inner_size[0] < 120.1 && recovered.inner_size[1] < 120.1);
+    }
+
+    #[test]
+    fn shortcut_prefs_round_trips_manages_sets_and_sanitizes_invalid_chords() {
+        use crate::commands::{CommandId, Shortcut, effective_shortcuts};
+        use eframe::egui::Key;
+
+        let mut prefs = WorkspacePrefs::default();
+        prefs
+            .shortcuts
+            .set_shortcuts(CommandId::InsertKeyframe, vec![Shortcut::alt(Key::F6)]);
+        let copy_name = prefs.shortcuts.duplicate_active_set();
+        assert_eq!(copy_name, "NeoFlash default copy");
+        assert_eq!(prefs.shortcuts.active_set_label(), "NeoFlash default copy");
+
+        let copy2 = prefs.shortcuts.duplicate_active_set();
+        assert_eq!(copy2, "NeoFlash default copy copy");
+        assert!(prefs.shortcuts.delete_active_set());
+        assert!(prefs.shortcuts.is_default_set());
+        assert!(!prefs.shortcuts.delete_active_set());
+        assert_eq!(
+            effective_shortcuts(&prefs.shortcuts, CommandId::InsertKeyframe),
+            vec![Shortcut::none(Key::F6)]
+        );
+
+        prefs.shortcuts.select_set("NeoFlash default copy");
+        assert_eq!(
+            effective_shortcuts(&prefs.shortcuts, CommandId::InsertKeyframe),
+            vec![Shortcut::alt(Key::F6)]
+        );
+
+        let json = serde_json::to_string(&prefs).unwrap();
+        let restored = WorkspacePrefs::from_json(&json);
+        assert_eq!(restored.shortcuts, prefs.shortcuts);
+
+        let dirty = WorkspacePrefs::from_json(
+            r#"{
+                "shortcuts": {
+                    "set": "  Custom 🚀  ",
+                    "overrides": {
+                        "insert.keyframe": ["alt+f6", "not-a-key", ""],
+                        "tool.polystar": [],
+                        "unknown.command": ["F1"]
+                    },
+                    "sets": {
+                        "": {"insert.frame": ["F5"]},
+                        "NeoFlash default": {"insert.frame": ["F9"]}
+                    }
+                }
+            }"#,
+        );
+        assert_eq!(dirty.shortcuts.set, "Custom 🚀");
+        assert_eq!(
+            dirty.shortcuts.overrides.get("insert.keyframe"),
+            Some(&vec!["⌥F6".to_owned()])
+        );
+        // Empty vec override (explicitly unbound) survives sanitization; unknown IDs are dropped.
+        assert_eq!(
+            dirty.shortcuts.overrides.get("tool.polystar"),
+            Some(&vec![])
+        );
+        assert!(!dirty.shortcuts.overrides.contains_key("unknown.command"));
+        assert!(!dirty.shortcuts.sets.contains_key(""));
+        assert!(!dirty.shortcuts.sets.contains_key("NeoFlash default"));
+        assert!(dirty.shortcuts.sets.contains_key("Custom 🚀"));
     }
 }

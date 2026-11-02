@@ -62,23 +62,27 @@ impl Editor {
         }
 
         ui.add_space(space::S2);
+        let undo_sc = self.tooltip_sc(crate::commands::CommandId::EditUndo);
+        let redo_sc = self.tooltip_sc(crate::commands::CommandId::EditRedo);
         ui.horizontal(|ui| {
+            let mut undo_btn = c::IconButton::new(i16::UNDO, "Undo");
+            if let Some(sc) = undo_sc.as_deref() {
+                undo_btn = undo_btn.shortcut(sc);
+            }
             if ui
                 .add_enabled(
                     self.history.can_undo() || self.vector.draft.is_some(),
-                    c::IconButton::new(i16::UNDO, "Undo").shortcut("⌘Z"),
+                    undo_btn,
                 )
                 .clicked()
             {
                 self.undo();
             }
-            if ui
-                .add_enabled(
-                    self.history.can_redo(),
-                    c::IconButton::new(i16::REDO, "Redo").shortcut("⇧⌘Z"),
-                )
-                .clicked()
-            {
+            let mut redo_btn = c::IconButton::new(i16::REDO, "Redo");
+            if let Some(sc) = redo_sc.as_deref() {
+                redo_btn = redo_btn.shortcut(sc);
+            }
+            if ui.add_enabled(self.history.can_redo(), redo_btn).clicked() {
                 self.redo();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

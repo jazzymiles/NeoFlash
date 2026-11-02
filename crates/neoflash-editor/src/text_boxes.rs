@@ -138,6 +138,7 @@ impl crate::app::Editor {
         if let Err(error) = self
             .fonts
             .load_style(ctx, &format.font, format.bold, format.italic)
+            && self.workspace.text_prefs.substitution_warning
         {
             ui.colored_label(crate::theme::UiPalette::current(ctx).error_text, error);
         }
