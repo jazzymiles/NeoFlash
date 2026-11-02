@@ -3284,6 +3284,11 @@
           cert: null,
           certStatus: 'unknown',
           chainCerts: [],
+          localAddress: '127.0.0.1',
+          localPort: 0,
+          remoteAddress: '127.0.0.1',
+          remotePort: 0,
+          peer: null,
         };
         socketMap.set(this, rec);
         if (host !== null && host !== undefined && Number(port) > 0) {
@@ -3291,6 +3296,10 @@
         }
       }
       get connected() { return sockState(this).connected; }
+      get localAddress() { return sockState(this).localAddress; }
+      get localPort() { return sockState(this).localPort; }
+      get remoteAddress() { return sockState(this).remoteAddress; }
+      get remotePort() { return sockState(this).remotePort; }
       get timeout() { return sockState(this).timeout; }
       set timeout(v) {
         const n = Number(v);
@@ -3342,6 +3351,35 @@
         r.host = h;
         r.port = p;
         r.connected = true;
+        r.remoteAddress = h;
+        r.remotePort = p;
+        if (!r.secure && typeof options.getAir === 'function') {
+          const air = options.getAir();
+          if (air && typeof air.tryConnectServerSocket === 'function') {
+            const matched = air.tryConnectServerSocket(h, p, info => {
+              const accepted = new Socket();
+              const ar = sockState(accepted);
+              ar.connected = true;
+              ar.host = info.clientAddress;
+              ar.port = info.clientPort;
+              ar.localAddress = info.serverAddress;
+              ar.localPort = info.serverPort;
+              ar.remoteAddress = info.clientAddress;
+              ar.remotePort = info.clientPort;
+              ar.peer = this;
+              return accepted;
+            });
+            if (matched) {
+              r.localAddress = matched.info.clientAddress;
+              r.localPort = matched.info.clientPort;
+              r.remoteAddress = matched.info.serverAddress;
+              r.remotePort = matched.info.serverPort;
+              r.peer = matched.accepted;
+              dispatchNow(this, makeBasicEvent('connect'));
+              return;
+            }
+          }
+        }
         if (r.secure) {
           const der = kernel.loopback_x509_der(h);
           r.cert = new X509Certificate(der);
@@ -3358,6 +3396,7 @@
           throw err;
         }
         r.connected = false;
+        r.peer = null;
         if (r.rx) r.rx.clear();
         if (r.tx) r.tx.clear();
       }
@@ -3372,6 +3411,15 @@
         if (r.tx && r.tx.length > 0) {
           const outBytes = binary.toBytes(r.tx);
           r.tx.clear();
+          if (r.peer && socketMap.has(r.peer)) {
+            const pr = sockState(r.peer);
+            if (pr.connected && pr.rx) {
+              appendToByteArray(pr.rx, outBytes);
+              const avail = pr.rx.bytesAvailable;
+              dispatchNow(r.peer, makeProgressEvent('socketData', outBytes.length, avail));
+              return;
+            }
+          }
           appendToByteArray(r.rx, outBytes);
           const avail = r.rx.bytesAvailable;
           dispatchLater(this, () => makeProgressEvent('socketData', avail, avail));
@@ -4632,6 +4680,7 @@
       static get isDebugger() { return capabilitiesSnap().isDebugger; }
       static get isEmbeddedInAcrobat() { return capabilitiesSnap().isEmbeddedInAcrobat; }
       static get language() { return capabilitiesSnap().language; }
+      static get languages() { return ['en-US', 'en']; }
       static get localFileReadDisable() { return capabilitiesSnap().localFileReadDisable; }
       static get manufacturer() { return capabilitiesSnap().manufacturer; }
       static get maxLevelIDC() { return capabilitiesSnap().maxLevelIDC; }
@@ -4789,6 +4838,7 @@
       static get LOCAL_WITH_FILE() { return 'localWithFile'; }
       static get LOCAL_WITH_NETWORK() { return 'localWithNetwork'; }
       static get LOCAL_TRUSTED() { return 'localTrusted'; }
+      static get APPLICATION() { return 'application'; }
       static get sandboxType() { return 'localTrusted'; }
       static get exactSettings() { return securityExactSettings; }
       static set exactSettings(value) { securityExactSettings = Boolean(value); }

@@ -22,7 +22,7 @@ pub enum TextAlign {
     Right,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(from = "TextFormatWire", into = "TextFormatWire")]
 pub struct TextFormat {
     pub font: String,
     pub size: f64,
@@ -31,26 +31,109 @@ pub struct TextFormat {
     pub italic: bool,
     pub leading: f64,
     pub align: TextAlign,
-    #[serde(rename = "leftMargin")]
     pub left_margin: f64,
-    #[serde(rename = "rightMargin")]
     pub right_margin: f64,
     pub indent: f64,
-    #[serde(rename = "blockIndent")]
     pub block_indent: f64,
     pub underline: bool,
-    #[serde(rename = "letterSpacing")]
     pub letter_spacing: f64,
     pub kerning: Option<bool>,
     pub bullet: bool,
-    #[serde(rename = "tabStops")]
     pub tab_stops: Vec<f64>,
     pub url: String,
     pub target: String,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TextFormatWire {
+    font: String,
+    size: f64,
+    color: u32,
+    bold: bool,
+    italic: bool,
+    leading: f64,
+    align: TextAlign,
+    #[serde(rename = "leftMargin")]
+    left_margin: f64,
+    #[serde(rename = "rightMargin")]
+    right_margin: f64,
+    indent: f64,
+    #[serde(rename = "blockIndent")]
+    block_indent: f64,
+    underline: bool,
+    #[serde(rename = "letterSpacing")]
+    letter_spacing: f64,
+    kerning: Option<bool>,
+    bullet: bool,
+    #[serde(rename = "tabStops")]
+    tab_stops: Vec<f64>,
+    url: String,
+    target: String,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "alignMode")]
-    pub align_mode: Option<String>,
+    align_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display: Option<String>,
+    display: Option<String>,
+}
+impl Default for TextFormatWire {
+    fn default() -> Self {
+        Self::from(TextFormat::default())
+    }
+}
+impl From<TextFormatWire> for TextFormat {
+    fn from(wire: TextFormatWire) -> Self {
+        let mut fmt = Self {
+            font: wire.font,
+            size: wire.size,
+            color: wire.color,
+            bold: wire.bold,
+            italic: wire.italic,
+            leading: wire.leading,
+            align: wire.align,
+            left_margin: wire.left_margin,
+            right_margin: wire.right_margin,
+            indent: wire.indent,
+            block_indent: wire.block_indent,
+            underline: wire.underline,
+            letter_spacing: wire.letter_spacing,
+            kerning: wire.kerning,
+            bullet: wire.bullet,
+            tab_stops: wire.tab_stops,
+            url: wire.url,
+            target: wire.target,
+        };
+        fmt.set_align_mode(wire.align_mode);
+        fmt.set_display(wire.display);
+        fmt
+    }
+}
+impl From<TextFormat> for TextFormatWire {
+    fn from(fmt: TextFormat) -> Self {
+        let target = fmt.target_str().to_owned();
+        let align_mode = fmt.align_mode().map(str::to_owned);
+        let display = fmt.display().map(str::to_owned);
+        Self {
+            font: fmt.font,
+            size: fmt.size,
+            color: fmt.color,
+            bold: fmt.bold,
+            italic: fmt.italic,
+            leading: fmt.leading,
+            align: fmt.align,
+            left_margin: fmt.left_margin,
+            right_margin: fmt.right_margin,
+            indent: fmt.indent,
+            block_indent: fmt.block_indent,
+            underline: fmt.underline,
+            letter_spacing: fmt.letter_spacing,
+            kerning: fmt.kerning,
+            bullet: fmt.bullet,
+            tab_stops: fmt.tab_stops,
+            url: fmt.url,
+            target,
+            align_mode,
+            display,
+        }
+    }
 }
 impl Default for TextFormat {
     fn default() -> Self {
@@ -73,15 +156,57 @@ impl Default for TextFormat {
             tab_stops: Vec::new(),
             url: String::new(),
             target: String::new(),
-            align_mode: None,
-            display: None,
         }
     }
 }
 impl TextFormat {
+    pub fn target_str(&self) -> &str {
+        self.target
+            .split_once("\0\x1f")
+            .map_or(self.target.as_str(), |(base, _)| base)
+    }
+    pub fn align_mode(&self) -> Option<&str> {
+        let (_, meta) = self.target.split_once("\0\x1f")?;
+        let (align_part, _) = meta.split_once('\x1f')?;
+        (!align_part.is_empty()).then_some(align_part)
+    }
+    pub fn display(&self) -> Option<&str> {
+        let (_, meta) = self.target.split_once("\0\x1f")?;
+        let (_, display_part) = meta.split_once('\x1f')?;
+        (!display_part.is_empty()).then_some(display_part)
+    }
+    fn write_target_meta(
+        &mut self,
+        base: String,
+        align_mode: Option<String>,
+        display: Option<String>,
+    ) {
+        let a = align_mode.as_deref().unwrap_or("");
+        let d = display.as_deref().unwrap_or("");
+        if a.is_empty() && d.is_empty() {
+            self.target = base;
+        } else {
+            self.target = format!("{base}\0\x1f{a}\x1f{d}");
+        }
+    }
+    pub fn set_target_str(&mut self, base: String) {
+        let a = self.align_mode().map(str::to_owned);
+        let d = self.display().map(str::to_owned);
+        self.write_target_meta(base, a, d);
+    }
+    pub fn set_align_mode(&mut self, mode: Option<String>) {
+        let base = self.target_str().to_owned();
+        let d = self.display().map(str::to_owned);
+        self.write_target_meta(base, mode, d);
+    }
+    pub fn set_display(&mut self, display: Option<String>) {
+        let base = self.target_str().to_owned();
+        let a = self.align_mode().map(str::to_owned);
+        self.write_target_meta(base, a, display);
+    }
     pub fn effective_align_mode(&self) -> &str {
-        if let Some(mode) = &self.align_mode {
-            mode.as_str()
+        if let Some(mode) = self.align_mode() {
+            mode
         } else {
             match self.align {
                 TextAlign::Left => "left",
@@ -91,9 +216,9 @@ impl TextFormat {
         }
     }
     pub fn validate(&self) -> Result<(), TextError> {
-        if let Some(mode) = &self.align_mode
+        if let Some(mode) = self.align_mode()
             && !matches!(
-                mode.as_str(),
+                mode,
                 "left" | "center" | "right" | "justify" | "start" | "end"
             )
         {
@@ -101,8 +226,8 @@ impl TextFormat {
                 "alignMode requires left, center, right, justify, start or end",
             ));
         }
-        if let Some(display) = &self.display
-            && !matches!(display.as_str(), "inline" | "block" | "none")
+        if let Some(display) = self.display()
+            && !matches!(display, "inline" | "block" | "none")
         {
             return Err(error("TextFormat.display requires inline, block or none"));
         }
@@ -147,12 +272,13 @@ impl TextFormat {
                 "tabStops require at most64 increasing nonnegative lengths <=100000",
             ));
         }
+        let base_target = self.target_str();
         if self.url.len() > 4096
-            || self.target.len() > 256
+            || base_target.len() > 256
             || self
                 .url
                 .chars()
-                .chain(self.target.chars())
+                .chain(base_target.chars())
                 .any(char::is_control)
         {
             return Err(error(
@@ -232,21 +358,21 @@ impl TextFormatPatch {
         }
         if let Some(value) = self.align {
             format.align = value;
-            format.align_mode = None;
+            format.set_align_mode(None);
         }
         if let Some(value) = &self.align_mode {
             match value.as_str() {
                 "left" => {
                     format.align = TextAlign::Left;
-                    format.align_mode = None;
+                    format.set_align_mode(None);
                 }
                 "center" => {
                     format.align = TextAlign::Center;
-                    format.align_mode = None;
+                    format.set_align_mode(None);
                 }
                 "right" => {
                     format.align = TextAlign::Right;
-                    format.align_mode = None;
+                    format.set_align_mode(None);
                 }
                 "justify" | "start" | "end" => {
                     format.align = if value == "end" {
@@ -254,15 +380,15 @@ impl TextFormatPatch {
                     } else {
                         TextAlign::Left
                     };
-                    format.align_mode = Some(value.clone());
+                    format.set_align_mode(Some(value.clone()));
                 }
                 _ => {
-                    format.align_mode = Some(value.clone());
+                    format.set_align_mode(Some(value.clone()));
                 }
             }
         }
         if let Some(value) = &self.display {
-            format.display = Some(value.clone());
+            format.set_display(Some(value.clone()));
         }
         if let Some(value) = self.left_margin {
             format.left_margin = value
@@ -292,7 +418,7 @@ impl TextFormatPatch {
             format.url = value.clone();
         }
         if let Some(value) = &self.target {
-            format.target = value.clone();
+            format.set_target_str(value.clone());
         }
         if let Some(value) = self.underline {
             format.underline = value
@@ -1061,9 +1187,9 @@ impl TextFieldState {
                 "bullet": f.bullet,
                 "kerning": f.kerning,
                 "url": f.url,
-                "target": f.target,
+                "target": f.target_str(),
                 "tab_stops": f.tab_stops,
-                "display": f.display.clone().unwrap_or_else(|| "block".into()),
+                "display": f.display().unwrap_or("block"),
             })
         };
         if total == 0 {
@@ -1119,9 +1245,9 @@ impl TextFieldState {
             "bullet": if same(&|f| f.bullet == f0.bullet) { serde_json::json!(f0.bullet) } else { serde_json::Value::Null },
             "kerning": if same(&|f| f.kerning == f0.kerning) { serde_json::json!(f0.kerning) } else { serde_json::Value::Null },
             "url": if same(&|f| f.url == f0.url) { serde_json::json!(f0.url) } else { serde_json::Value::Null },
-            "target": if same(&|f| f.target == f0.target) { serde_json::json!(f0.target) } else { serde_json::Value::Null },
+            "target": if same(&|f| f.target_str() == f0.target_str()) { serde_json::json!(f0.target_str()) } else { serde_json::Value::Null },
             "tab_stops": if same(&|f| f.tab_stops == f0.tab_stops) { serde_json::json!(f0.tab_stops) } else { serde_json::Value::Null },
-            "display": if same(&|f| f.display.as_deref().unwrap_or("block") == f0.display.as_deref().unwrap_or("block")) { serde_json::json!(f0.display.clone().unwrap_or_else(|| "block".into())) } else { serde_json::Value::Null },
+            "display": if same(&|f| f.display().unwrap_or("block") == f0.display().unwrap_or("block")) { serde_json::json!(f0.display().unwrap_or("block")) } else { serde_json::Value::Null },
         }))
     }
 }

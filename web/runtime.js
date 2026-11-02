@@ -686,10 +686,10 @@
         legacyGlobals=Object.freeze({...legacyGlobals,XML:xmlHost.LegacyXML,XMLNode:xmlHost.XMLNode});
       }
       if(global.NeoFlashAIR&&typeof wasm?.AirKernel==='function'){
-        airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
+        airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getDisplay:()=>display||null,getBitmap:()=>bitmapHost||null,getLoader:()=>loaderHost||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashAS3NetSys&&typeof wasm?.As3NetSysKernel==='function'){
-        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
+        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,getAir:()=>airHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashFte3D&&typeof wasm?.As3Fte3dKernel==='function'){
         fte3dHost=global.NeoFlashFte3D.create({wasm,player,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,geometry3d:geometry3dHost,getBitmap:()=>bitmapHost,getDisplay:()=>display,getStage:()=>stageHost?.stage||null,getVideo:()=>videoHost,proxyForRef,referenceOf:target=>references.get(target),afterEvent:afterTimerEvent,onError:netFailure});
@@ -897,9 +897,10 @@
       }
       if(airHost){
         for(const [qname,type] of Object.entries(airHost.builtins)){
-          if(qname==='flash.desktop.IFilePromise')builtins[qname]=nativeInterface(qname,type);
+          if(qname==='flash.desktop.IFilePromise'||qname==='flash.security.IURIDereferencer')builtins[qname]=nativeInterface(qname,type);
           else if(!(qname in builtins))builtins[qname]=type;
         }
+        airHost.augmentBuiltins?.(builtins);
         builtins.__nfAirVectorFactory=airHost.setVectorFactory;
       }
       if(as3NetSysHost){
@@ -914,6 +915,7 @@
         for(const [qname,type] of Object.entries(as3NetSysHost.builtins)){
           if((qname==='flash.net.FileReference'||qname==='flash.net.FileReferenceList')&&isAs2Publication)continue;
           if(qname.startsWith('flash.desktop.Clipboard')&&(qname in builtins))continue;
+          if(qname.startsWith('flash.printing.')&&(qname in builtins))continue;
           builtins[qname]=type;
         }
         builtins.__nfAs3NetSysVectorFactory=as3NetSysHost.setVectorFactory;
@@ -921,7 +923,7 @@
       if(fte3dHost){
         for(const [qname,type] of Object.entries(fte3dHost.builtins)){
           if(qname==='flash.text.ime.IIMEClient')builtins[qname]=nativeInterface(qname,type);
-          else if(!(qname in builtins))builtins[qname]=type;
+          else builtins[qname]=type;
         }
         builtins.__nfFte3dVectorFactory=fte3dHost.setVectorFactory;
       }
@@ -1277,6 +1279,7 @@
         if(typeof name!=='string')return name===Symbol.toStringTag;
         if(ownsTimelineMetadata(name))return true;
         if(['toString','toJSON','root','_root','parent','_parent','currentFrame','_currentframe','totalFrames','_totalframes','visible','_visible'].includes(name)||Object.hasOwn(methods,name)||Object.hasOwn(propertyMap,name))return true;
+        if(airHost?.hasDisplayProperty?.(proxy,name))return true;
         return Boolean(display&&display.get(proxy,name)!==display.UNHANDLED);
       }
       const proxy = new Proxy(target, {
@@ -1298,6 +1301,7 @@
           if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
           if (ownsTimelineMetadata(name)) return timelineMetadata(name);
           if (Object.hasOwn(methods, name)) return methods[name];
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();return airHost.getDisplayProperty(proxy,name);}
           if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
           if (name === 'visible' || name === '_visible') {
             assertAlive();
@@ -1312,6 +1316,7 @@
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
           if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
           if (name === 'visible' || name === '_visible') {
             assertAlive();

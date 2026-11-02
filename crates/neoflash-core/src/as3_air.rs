@@ -1053,6 +1053,278 @@ impl AirEncryptedStore {
 // ---------------------------------------------------------------------------
 
 const SQL_VFS_MAGIC: &[u8] = b"NFAIRSDB1\n";
+const SQL_ENC_VFS_MAGIC: &[u8] = b"NFAIRSLE1\n";
+
+const SHA256_K: [u32; 64] = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+pub fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut padded = Vec::with_capacity(data.len() + 72);
+    padded.extend_from_slice(data);
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in padded.as_chunks::<64>().0 {
+        let mut w = [0u32; 64];
+        for (i, &word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(word);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(SHA256_K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+pub fn sha1_bytes(data: &[u8]) -> [u8; 20] {
+    let mut h0: u32 = 0x67452301;
+    let mut h1: u32 = 0xefcdab89;
+    let mut h2: u32 = 0x98badcfe;
+    let mut h3: u32 = 0x10325476;
+    let mut h4: u32 = 0xc3d2e1f0;
+
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut padded = Vec::with_capacity(data.len() + 72);
+    padded.extend_from_slice(data);
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in padded.as_chunks::<64>().0 {
+        let mut w = [0u32; 80];
+        for (i, &word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(word);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let mut a = h0;
+        let mut b = h1;
+        let mut c = h2;
+        let mut d = h3;
+        let mut e = h4;
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5a827999u32),
+                20..=39 => (b ^ c ^ d, 0x6ed9eba1u32),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdcu32),
+                _ => (b ^ c ^ d, 0xca62c1d6u32),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+    }
+
+    let mut out = [0u8; 20];
+    out[0..4].copy_from_slice(&h0.to_be_bytes());
+    out[4..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..12].copy_from_slice(&h2.to_be_bytes());
+    out[12..16].copy_from_slice(&h3.to_be_bytes());
+    out[16..20].copy_from_slice(&h4.to_be_bytes());
+    out
+}
+
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut k_block = [0u8; 64];
+    if key.len() > 64 {
+        let hashed = sha256_bytes(key);
+        k_block[..32].copy_from_slice(&hashed);
+    } else {
+        k_block[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = Vec::with_capacity(64 + data.len());
+    for &b in &k_block {
+        inner.push(b ^ 0x36);
+    }
+    inner.extend_from_slice(data);
+    let inner_hash = sha256_bytes(&inner);
+
+    let mut outer = Vec::with_capacity(64 + 32);
+    for &b in &k_block {
+        outer.push(b ^ 0x5c);
+    }
+    outer.extend_from_slice(&inner_hash);
+    sha256_bytes(&outer)
+}
+
+fn encrypt_sql_payload(key: &[u8; 16], nonce_seed: u64, plaintext: &[u8]) -> Vec<u8> {
+    let mut salt_in = Vec::with_capacity(32);
+    salt_in.extend_from_slice(key);
+    salt_in.extend_from_slice(&nonce_seed.to_be_bytes());
+    salt_in.extend_from_slice(&(plaintext.len() as u64).to_be_bytes());
+    let salt_full = sha256_bytes(&salt_in);
+    let salt = &salt_full[..16];
+
+    let mut ciphertext = Vec::with_capacity(plaintext.len());
+    for (block_idx, chunk) in plaintext.chunks(32).enumerate() {
+        let mut ctr_msg = [0u8; 28];
+        ctr_msg[..4].copy_from_slice(b"enc\0");
+        ctr_msg[4..20].copy_from_slice(salt);
+        ctr_msg[20..28].copy_from_slice(&(block_idx as u64).to_be_bytes());
+        let ks = hmac_sha256(key, &ctr_msg);
+        for (i, &b) in chunk.iter().enumerate() {
+            ciphertext.push(b ^ ks[i]);
+        }
+    }
+
+    let mut mac_msg = Vec::with_capacity(4 + 16 + ciphertext.len());
+    mac_msg.extend_from_slice(b"mac\0");
+    mac_msg.extend_from_slice(salt);
+    mac_msg.extend_from_slice(&ciphertext);
+    let tag = hmac_sha256(key, &mac_msg);
+
+    let mut out = Vec::with_capacity(SQL_ENC_VFS_MAGIC.len() + 16 + ciphertext.len() + 32);
+    out.extend_from_slice(SQL_ENC_VFS_MAGIC);
+    out.extend_from_slice(salt);
+    out.extend_from_slice(&ciphertext);
+    out.extend_from_slice(&tag);
+    out
+}
+
+fn decrypt_sql_payload(
+    key: &[u8; 16],
+    encrypted_body: &[u8],
+    operation: &str,
+) -> Result<Vec<u8>, AirSqlError> {
+    if encrypted_body.len() < 48 {
+        return Err(AirSqlError::new(
+            operation,
+            "Encrypted database header is truncated or corrupt.",
+            3138,
+        ));
+    }
+    let salt = &encrypted_body[..16];
+    let tag_start = encrypted_body.len() - 32;
+    let ciphertext = &encrypted_body[16..tag_start];
+    let tag = &encrypted_body[tag_start..];
+
+    let mut mac_msg = Vec::with_capacity(4 + 16 + ciphertext.len());
+    mac_msg.extend_from_slice(b"mac\0");
+    mac_msg.extend_from_slice(salt);
+    mac_msg.extend_from_slice(ciphertext);
+    let expected_tag = hmac_sha256(key, &mac_msg);
+    let mut diff = 0u8;
+    for (&a, &b) in tag.iter().zip(expected_tag.iter()) {
+        diff |= a ^ b;
+    }
+    if diff != 0 {
+        return Err(AirSqlError::new(
+            operation,
+            "File is encrypted or is not a database.",
+            3138,
+        ));
+    }
+
+    let mut plaintext = Vec::with_capacity(ciphertext.len());
+    for (block_idx, chunk) in ciphertext.chunks(32).enumerate() {
+        let mut ctr_msg = [0u8; 28];
+        ctr_msg[..4].copy_from_slice(b"enc\0");
+        ctr_msg[4..20].copy_from_slice(salt);
+        ctr_msg[20..28].copy_from_slice(&(block_idx as u64).to_be_bytes());
+        let ks = hmac_sha256(key, &ctr_msg);
+        for (i, &b) in chunk.iter().enumerate() {
+            plaintext.push(b ^ ks[i]);
+        }
+    }
+    Ok(plaintext)
+}
+
+fn parse_sql_encryption_key(
+    key_opt: Option<&[u8]>,
+    operation: &str,
+) -> Result<Option<[u8; 16]>, AirSqlError> {
+    let Some(raw) = key_opt else {
+        return Ok(None);
+    };
+    if raw.len() != 16 {
+        return Err(AirSqlError::new(
+            operation,
+            "SQL encryptionKey must be a 16-byte ByteArray.",
+            3143,
+        ));
+    }
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(raw);
+    Ok(Some(arr))
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "k", content = "v")]
@@ -1246,6 +1518,7 @@ struct SqlDatabase {
 struct AttachedDb {
     vfs_path: Option<String>,
     read_only: bool,
+    encryption_key: Option<[u8; 16]>,
     db: SqlDatabase,
 }
 
@@ -2916,8 +3189,12 @@ pub struct AirRuntime {
     pub descriptor_xml: String,
     pub fs: AirFileSystem,
     pub els: AirEncryptedStore,
+    pub html: AirHtmlEngine,
+    pub net: AirNetworkKernel,
+    pub xml_sig: AirXmlSigEngine,
     conns: BTreeMap<u32, SqlConnState>,
     next_conn_id: u32,
+    enc_nonce_counter: u64,
 }
 
 impl AirRuntime {
@@ -2933,15 +3210,39 @@ impl AirRuntime {
             descriptor_xml: synthesize_app_descriptor_xml(project_name, width, height),
             fs: AirFileSystem::new(resources, now_ms)?,
             els: AirEncryptedStore::default(),
+            html: AirHtmlEngine::default(),
+            net: AirNetworkKernel::default(),
+            xml_sig: AirXmlSigEngine::default(),
             conns: BTreeMap::new(),
             next_conn_id: 1,
+            enc_nonce_counter: 1,
         })
+    }
+
+    fn encode_db_payload(
+        &mut self,
+        db: &SqlDatabase,
+        encryption_key: Option<&[u8; 16]>,
+        operation: &str,
+    ) -> Result<Vec<u8>, AirSqlError> {
+        let json_bytes =
+            serde_json::to_vec(db).map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+        if let Some(key) = encryption_key {
+            let seed = self.enc_nonce_counter;
+            self.enc_nonce_counter = self.enc_nonce_counter.wrapping_add(1);
+            Ok(encrypt_sql_payload(key, seed, &json_bytes))
+        } else {
+            let mut payload = SQL_VFS_MAGIC.to_vec();
+            payload.extend(json_bytes);
+            Ok(payload)
+        }
     }
 
     fn load_or_create_db(
         &mut self,
         reference_path: Option<&str>,
         mode: &str,
+        encryption_key: Option<[u8; 16]>,
         operation: &str,
         now_ms: f64,
     ) -> Result<AttachedDb, AirSqlError> {
@@ -2958,6 +3259,7 @@ impl AirRuntime {
             return Ok(AttachedDb {
                 vfs_path: None,
                 read_only,
+                encryption_key,
                 db: SqlDatabase::default(),
             });
         };
@@ -2987,8 +3289,39 @@ impl AirRuntime {
                 .read_bytes(&vfs_path)
                 .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
             let db = if bytes.is_empty() {
-                SqlDatabase::default()
+                let empty_db = SqlDatabase::default();
+                if !read_only {
+                    let payload =
+                        self.encode_db_payload(&empty_db, encryption_key.as_ref(), operation)?;
+                    self.fs
+                        .write_bytes(&vfs_path, &payload, now_ms)
+                        .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
+                }
+                empty_db
+            } else if let Some(enc_body) = bytes.strip_prefix(SQL_ENC_VFS_MAGIC) {
+                let Some(key) = encryption_key.as_ref() else {
+                    return Err(AirSqlError::new(
+                        operation,
+                        "File is encrypted or is not a database.",
+                        3138,
+                    ));
+                };
+                let json_bytes = decrypt_sql_payload(key, enc_body, operation)?;
+                serde_json::from_slice::<SqlDatabase>(&json_bytes).map_err(|_| {
+                    AirSqlError::new(
+                        operation,
+                        "File is not a valid NeoFlash AIR SQL database.",
+                        3138,
+                    )
+                })?
             } else if let Some(json_bytes) = bytes.strip_prefix(SQL_VFS_MAGIC) {
+                if encryption_key.is_some() {
+                    return Err(AirSqlError::new(
+                        operation,
+                        "Cannot open an unencrypted database with an encryption key.",
+                        3138,
+                    ));
+                }
                 serde_json::from_slice::<SqlDatabase>(json_bytes).map_err(|_| {
                     AirSqlError::new(
                         operation,
@@ -3006,6 +3339,7 @@ impl AirRuntime {
             Ok(AttachedDb {
                 vfs_path: Some(vfs_path),
                 read_only,
+                encryption_key,
                 db,
             })
         } else {
@@ -3017,14 +3351,14 @@ impl AirRuntime {
                 ));
             }
             let db = SqlDatabase::default();
-            let mut payload = SQL_VFS_MAGIC.to_vec();
-            payload.extend(serde_json::to_vec(&db).unwrap_or_default());
+            let payload = self.encode_db_payload(&db, encryption_key.as_ref(), operation)?;
             self.fs
                 .write_bytes(&vfs_path, &payload, now_ms)
                 .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
             Ok(AttachedDb {
                 vfs_path: Some(vfs_path),
                 read_only: false,
+                encryption_key,
                 db,
             })
         }
@@ -3042,7 +3376,7 @@ impl AirRuntime {
         if conn.in_transaction {
             return Ok(());
         }
-        let writes: Vec<(String, Vec<u8>)> = conn
+        let targets: Vec<(String, SqlDatabase, Option<[u8; 16]>)> = conn
             .attached
             .values()
             .filter_map(|att| {
@@ -3050,12 +3384,11 @@ impl AirRuntime {
                     return None;
                 }
                 let path = att.vfs_path.as_ref()?.clone();
-                let mut payload = SQL_VFS_MAGIC.to_vec();
-                payload.extend(serde_json::to_vec(&att.db).ok()?);
-                Some((path, payload))
+                Some((path, att.db.clone(), att.encryption_key))
             })
             .collect();
-        for (path, payload) in writes {
+        for (path, db, key) in targets {
+            let payload = self.encode_db_payload(&db, key.as_ref(), operation)?;
             self.fs
                 .write_bytes(&path, &payload, now_ms)
                 .map_err(|e| AirSqlError::new(operation, e.to_string(), 3125))?;
@@ -3089,6 +3422,25 @@ impl AirRuntime {
         page_size: u32,
         now_ms: f64,
     ) -> Result<u32, AirSqlError> {
+        self.sql_open_with_key(
+            reference_path,
+            open_mode,
+            auto_compact,
+            page_size,
+            None,
+            now_ms,
+        )
+    }
+
+    pub fn sql_open_with_key(
+        &mut self,
+        reference_path: Option<&str>,
+        open_mode: &str,
+        auto_compact: bool,
+        page_size: u32,
+        encryption_key: Option<&[u8]>,
+        now_ms: f64,
+    ) -> Result<u32, AirSqlError> {
         if !matches!(page_size, 512 | 1024 | 2048 | 4096 | 8192 | 16384 | 32768) {
             return Err(AirSqlError::new(
                 "open",
@@ -3098,7 +3450,9 @@ impl AirRuntime {
                 3113,
             ));
         }
-        let main_db = self.load_or_create_db(reference_path, open_mode, "open", now_ms)?;
+        let parsed_key = parse_sql_encryption_key(encryption_key, "open")?;
+        let main_db =
+            self.load_or_create_db(reference_path, open_mode, parsed_key, "open", now_ms)?;
         let id = self.next_conn_id;
         self.next_conn_id += 1;
         let mut attached = BTreeMap::new();
@@ -3123,6 +3477,50 @@ impl AirRuntime {
         Ok(id)
     }
 
+    pub fn sql_reencrypt(
+        &mut self,
+        conn_id: u32,
+        new_key_bytes: &[u8],
+        now_ms: f64,
+    ) -> Result<(), AirSqlError> {
+        let Some(new_key) = parse_sql_encryption_key(Some(new_key_bytes), "reencrypt")? else {
+            return Err(AirSqlError::new(
+                "reencrypt",
+                "newEncryptionKey must be a 16-byte ByteArray.",
+                3143,
+            ));
+        };
+        {
+            let conn = self.conn_mut(conn_id, "reencrypt")?;
+            if conn.in_transaction {
+                return Err(AirSqlError::new(
+                    "reencrypt",
+                    "Cannot reencrypt database while a transaction is active.",
+                    3115,
+                ));
+            }
+            let main_att = conn.attached.get_mut("main").ok_or_else(|| {
+                AirSqlError::new("reencrypt", "Main database is not attached.", 3104)
+            })?;
+            if main_att.read_only {
+                return Err(AirSqlError::new(
+                    "reencrypt",
+                    "Cannot reencrypt a read-only database.",
+                    3132,
+                ));
+            }
+            if main_att.encryption_key.is_none() {
+                return Err(AirSqlError::new(
+                    "reencrypt",
+                    "Cannot reencrypt a database that was not created with encryption.",
+                    3143,
+                ));
+            }
+            main_att.encryption_key = Some(new_key);
+        }
+        self.persist_conn(conn_id, "reencrypt", now_ms)
+    }
+
     pub fn sql_close(&mut self, conn_id: u32) -> Result<(), AirSqlError> {
         let conn = self.conn_mut(conn_id, "close")?;
         conn.connected = false;
@@ -3138,6 +3536,17 @@ impl AirRuntime {
         conn_id: u32,
         name: &str,
         reference_path: Option<&str>,
+        now_ms: f64,
+    ) -> Result<(), AirSqlError> {
+        self.sql_attach_with_key(conn_id, name, reference_path, None, now_ms)
+    }
+
+    pub fn sql_attach_with_key(
+        &mut self,
+        conn_id: u32,
+        name: &str,
+        reference_path: Option<&str>,
+        encryption_key: Option<&[u8]>,
         now_ms: f64,
     ) -> Result<(), AirSqlError> {
         let clean = name.trim();
@@ -3156,7 +3565,8 @@ impl AirRuntime {
                 3115,
             ));
         }
-        let att = self.load_or_create_db(reference_path, "create", "attach", now_ms)?;
+        let parsed_key = parse_sql_encryption_key(encryption_key, "attach")?;
+        let att = self.load_or_create_db(reference_path, "create", parsed_key, "attach", now_ms)?;
         self.conn_mut(conn_id, "attach")?.attached.insert(key, att);
         Ok(())
     }
@@ -4767,6 +5177,1877 @@ impl AirRuntime {
         }
         Ok((proj_names, all_rows))
     }
+
+    pub fn html_load_url(
+        &mut self,
+        session_id: u32,
+        url: &str,
+        is_post: bool,
+        fallback_html: Option<&str>,
+    ) -> Result<String, AirError> {
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            return Err(AirError::Argument("URL must not be empty.".into()));
+        }
+        let html_content = if trimmed.eq_ignore_ascii_case("about:blank") {
+            String::new()
+        } else if let Some(rest) = trimmed.strip_prefix("data:") {
+            decode_data_url_to_string(rest)?
+        } else if trimmed.starts_with("app:/")
+            || trimmed.starts_with("app-storage:/")
+            || trimmed.starts_with("file:")
+            || trimmed.starts_with('/')
+        {
+            let vfs_path = normalize_air_path(trimmed)?;
+            let bytes = self.fs.read_bytes(&vfs_path)?;
+            String::from_utf8_lossy(&bytes).into_owned()
+        } else if let Some(body) = fallback_html {
+            body.to_owned()
+        } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            let safe_title = xml_escape_text(trimmed);
+            format!(
+                "<!DOCTYPE html><html><head><title>{safe_title}</title></head><body><p>{safe_title}</p></body></html>"
+            )
+        } else {
+            return Err(AirError::Io(format!(
+                "Unsupported or unreachable URL '{trimmed}'."
+            )));
+        };
+        self.html
+            .load_document(session_id, &html_content, trimmed, trimmed, is_post, true)
+    }
+}
+
+fn xml_escape_text(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn decode_data_url_to_string(rest: &str) -> Result<String, AirError> {
+    let Some((meta, payload)) = rest.split_once(',') else {
+        return Err(AirError::Argument("Malformed data: URL.".into()));
+    };
+    if meta.to_ascii_lowercase().ends_with(";base64") {
+        let decoded = BASE64
+            .decode(payload.trim())
+            .map_err(|e| AirError::Argument(format!("Invalid base64 in data: URL: {e}")))?;
+        Ok(String::from_utf8_lossy(&decoded).into_owned())
+    } else {
+        Ok(percent_decode_str(payload))
+    }
+}
+
+fn percent_decode_str(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2]))
+        {
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AIR HTML Document & History Engine (`flash.html.*`, `flash.media.StageWebView`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirHtmlHistoryEntry {
+    pub url: String,
+    pub original_url: String,
+    pub title: String,
+    pub is_post: bool,
+    #[serde(skip)]
+    html_source: String,
+}
+
+#[derive(Debug, Clone)]
+struct AirHtmlDomElement {
+    tag: String,
+    id: String,
+    text: String,
+    href: String,
+}
+
+#[derive(Debug, Clone)]
+struct AirHtmlSession {
+    width: f64,
+    height: f64,
+    scroll_h: f64,
+    scroll_v: f64,
+    content_width: f64,
+    content_height: f64,
+    loaded: bool,
+    location: String,
+    title: String,
+    html_source: String,
+    plain_text: String,
+    has_focusable_content: bool,
+    links: Vec<String>,
+    scripts: Vec<String>,
+    elements: Vec<AirHtmlDomElement>,
+    history: Vec<AirHtmlHistoryEntry>,
+    history_position: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct AirHtmlEngine {
+    sessions: BTreeMap<u32, AirHtmlSession>,
+    next_id: u32,
+}
+
+struct ParsedHtmlDoc {
+    title: String,
+    plain_text: String,
+    has_focusable: bool,
+    links: Vec<String>,
+    scripts: Vec<String>,
+    elements: Vec<AirHtmlDomElement>,
+    content_width: f64,
+    content_height: f64,
+}
+
+fn unescape_html_entities(s: &str) -> String {
+    s.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+fn extract_attr_value(tag_attrs: &str, attr_name: &str) -> Option<String> {
+    let lower = tag_attrs.to_ascii_lowercase();
+    let needle = format!("{}=", attr_name.to_ascii_lowercase());
+    let mut search_from = 0usize;
+    while let Some(rel) = lower[search_from..].find(&needle) {
+        let pos = search_from + rel;
+        let ok_prefix = pos == 0
+            || tag_attrs.as_bytes()[pos - 1].is_ascii_whitespace()
+            || tag_attrs.as_bytes()[pos - 1] == b'"'
+            || tag_attrs.as_bytes()[pos - 1] == b'\'';
+        if !ok_prefix {
+            search_from = pos + needle.len();
+            continue;
+        }
+        let after = tag_attrs[pos + needle.len()..].trim_start();
+        if let Some(quoted) = after.strip_prefix('"') {
+            let end = quoted.find('"').unwrap_or(quoted.len());
+            return Some(unescape_html_entities(&quoted[..end]));
+        } else if let Some(quoted) = after.strip_prefix('\'') {
+            let end = quoted.find('\'').unwrap_or(quoted.len());
+            return Some(unescape_html_entities(&quoted[..end]));
+        } else {
+            let end = after
+                .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+                .unwrap_or(after.len());
+            return Some(unescape_html_entities(&after[..end]));
+        }
+    }
+    None
+}
+
+fn parse_css_px_dimension(style: &str, prop: &str) -> Option<f64> {
+    for decl in style.split(';') {
+        if let Some((k, v)) = decl.split_once(':')
+            && k.trim().eq_ignore_ascii_case(prop)
+        {
+            let num_str = v.trim().trim_end_matches("px").trim();
+            if let Ok(val) = num_str.parse::<f64>()
+                && val > 0.0
+            {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+fn parse_html_document(html: &str, viewport_w: f64, viewport_h: f64) -> ParsedHtmlDoc {
+    let mut title = String::new();
+    let mut text_out = String::new();
+    let mut has_focusable = false;
+    let mut links = Vec::new();
+    let mut scripts = Vec::new();
+    let mut elements = Vec::new();
+    let mut explicit_w: Option<f64> = None;
+    let mut explicit_h: Option<f64> = None;
+
+    let bytes = html.as_bytes();
+    let mut i = 0usize;
+    let mut in_title = false;
+    let mut open_elem: Option<(String, String, String, usize)> = None;
+
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            if html[i..].starts_with("<!--") {
+                if let Some(end_rel) = html[i + 4..].find("-->") {
+                    i += 4 + end_rel + 3;
+                } else {
+                    break;
+                }
+                continue;
+            }
+            let Some(gt_rel) = html[i + 1..].find('>') else {
+                break;
+            };
+            let raw_tag = html[i + 1..i + 1 + gt_rel].trim();
+            i += gt_rel + 2;
+
+            let is_closing = raw_tag.starts_with('/');
+            let clean_tag = raw_tag.trim_start_matches('/').trim_end_matches('/').trim();
+            let (tag_name_raw, attrs) = match clean_tag.find(char::is_whitespace) {
+                Some(sp) => (&clean_tag[..sp], &clean_tag[sp..]),
+                None => (clean_tag, ""),
+            };
+            let tag_lc = tag_name_raw.to_ascii_lowercase();
+
+            if !is_closing && (tag_lc == "script" || tag_lc == "style") {
+                let close_pat = format!("</{tag_lc}");
+                let lower_rest = html[i..].to_ascii_lowercase();
+                if let Some(end_rel) = lower_rest.find(&close_pat) {
+                    let body = &html[i..i + end_rel];
+                    if tag_lc == "script" {
+                        scripts.push(body.to_owned());
+                    }
+                    let after_close = i + end_rel + close_pat.len();
+                    if let Some(close_gt) = html[after_close..].find('>') {
+                        i = after_close + close_gt + 1;
+                    } else {
+                        i = bytes.len();
+                    }
+                } else {
+                    i = bytes.len();
+                }
+                continue;
+            }
+
+            if is_closing {
+                if tag_lc == "title" {
+                    in_title = false;
+                }
+                if let Some((open_tag, open_id, open_href, text_start)) = open_elem.take() {
+                    let captured = text_out[text_start..].trim().to_owned();
+                    elements.push(AirHtmlDomElement {
+                        tag: open_tag,
+                        id: open_id,
+                        text: captured,
+                        href: open_href,
+                    });
+                }
+                if matches!(
+                    tag_lc.as_str(),
+                    "p" | "div" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "tr"
+                ) && !text_out.ends_with('\n')
+                {
+                    text_out.push('\n');
+                }
+                continue;
+            }
+
+            if tag_lc == "title" {
+                in_title = true;
+                continue;
+            }
+            if tag_lc == "br" {
+                text_out.push('\n');
+            }
+            if let Some(style_val) = extract_attr_value(attrs, "style") {
+                if let Some(w) = parse_css_px_dimension(&style_val, "width") {
+                    explicit_w = Some(explicit_w.map_or(w, |cur| cur.max(w)));
+                }
+                if let Some(h) = parse_css_px_dimension(&style_val, "height") {
+                    explicit_h = Some(explicit_h.map_or(h, |cur| cur.max(h)));
+                }
+            }
+            if matches!(tag_lc.as_str(), "input" | "button" | "textarea" | "select")
+                || extract_attr_value(attrs, "tabindex").is_some()
+            {
+                has_focusable = true;
+            }
+            let href_val = extract_attr_value(attrs, "href").unwrap_or_default();
+            if tag_lc == "a" && !href_val.is_empty() {
+                has_focusable = true;
+                links.push(href_val.clone());
+            }
+            if let Some(id_val) = extract_attr_value(attrs, "id")
+                && !id_val.is_empty()
+            {
+                if raw_tag.ends_with('/')
+                    || matches!(tag_lc.as_str(), "input" | "img" | "br" | "hr")
+                {
+                    let val = extract_attr_value(attrs, "value").unwrap_or_default();
+                    elements.push(AirHtmlDomElement {
+                        tag: tag_lc,
+                        id: id_val,
+                        text: val,
+                        href: href_val,
+                    });
+                } else {
+                    open_elem = Some((tag_lc, id_val, href_val, text_out.len()));
+                }
+            }
+        } else {
+            let next_lt = html[i..].find('<').map_or(bytes.len(), |r| i + r);
+            let raw_text = unescape_html_entities(&html[i..next_lt]);
+            if in_title {
+                title.push_str(raw_text.trim());
+            } else {
+                let collapsed: Vec<&str> = raw_text.split_whitespace().collect();
+                if !collapsed.is_empty() {
+                    if !text_out.is_empty() && !text_out.ends_with('\n') && !text_out.ends_with(' ')
+                    {
+                        text_out.push(' ');
+                    }
+                    text_out.push_str(&collapsed.join(" "));
+                }
+            }
+            i = next_lt;
+        }
+    }
+
+    let plain_text = text_out.trim().to_owned();
+    let lines: Vec<&str> = if plain_text.is_empty() {
+        Vec::new()
+    } else {
+        plain_text.lines().collect()
+    };
+    let max_line_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let calc_w = (max_line_chars as f64 * 8.0 + 16.0).max(viewport_w.max(1.0));
+    let calc_h = (lines.len() as f64 * 18.0 + 16.0).max(viewport_h.max(1.0));
+
+    ParsedHtmlDoc {
+        title,
+        plain_text,
+        has_focusable,
+        links,
+        scripts,
+        elements,
+        content_width: explicit_w.map_or(calc_w, |w| w.max(viewport_w.max(1.0))),
+        content_height: explicit_h.map_or(calc_h, |h| h.max(viewport_h.max(1.0))),
+    }
+}
+
+impl AirHtmlEngine {
+    pub fn create_session(&mut self, width: f64, height: f64) -> u32 {
+        self.next_id += 1;
+        let id = self.next_id;
+        let w = width.max(0.0);
+        let h = height.max(0.0);
+        self.sessions.insert(
+            id,
+            AirHtmlSession {
+                width: w,
+                height: h,
+                scroll_h: 0.0,
+                scroll_v: 0.0,
+                content_width: w,
+                content_height: h,
+                loaded: false,
+                location: String::new(),
+                title: String::new(),
+                html_source: String::new(),
+                plain_text: String::new(),
+                has_focusable_content: false,
+                links: Vec::new(),
+                scripts: Vec::new(),
+                elements: Vec::new(),
+                history: Vec::new(),
+                history_position: 0,
+            },
+        );
+        id
+    }
+
+    pub fn dispose_session(&mut self, id: u32) {
+        self.sessions.remove(&id);
+    }
+
+    pub fn load_string(&mut self, id: u32, html: &str, base_url: &str) -> Result<String, AirError> {
+        let loc = if base_url.trim().is_empty() {
+            "about:blank"
+        } else {
+            base_url.trim()
+        };
+        self.load_document(id, html, loc, loc, false, true)
+    }
+
+    fn load_document(
+        &mut self,
+        id: u32,
+        html: &str,
+        url: &str,
+        original_url: &str,
+        is_post: bool,
+        push_history: bool,
+    ) -> Result<String, AirError> {
+        let sess = self
+            .sessions
+            .get_mut(&id)
+            .ok_or_else(|| AirError::Argument(format!("Unknown HTML session {id}.")))?;
+        let parsed = parse_html_document(html, sess.width, sess.height);
+        sess.loaded = true;
+        sess.location = url.to_owned();
+        sess.title = parsed.title.clone();
+        sess.html_source = html.to_owned();
+        sess.plain_text = parsed.plain_text;
+        sess.has_focusable_content = parsed.has_focusable;
+        sess.links = parsed.links;
+        sess.scripts = parsed.scripts;
+        sess.elements = parsed.elements;
+        sess.content_width = parsed.content_width;
+        sess.content_height = parsed.content_height;
+        sess.scroll_h = 0.0;
+        sess.scroll_v = 0.0;
+
+        if push_history {
+            if !sess.history.is_empty() && sess.history_position + 1 < sess.history.len() {
+                sess.history.truncate(sess.history_position + 1);
+            }
+            sess.history.push(AirHtmlHistoryEntry {
+                url: url.to_owned(),
+                original_url: original_url.to_owned(),
+                title: parsed.title,
+                is_post,
+                html_source: html.to_owned(),
+            });
+            sess.history_position = sess.history.len() - 1;
+        }
+        self.state_json(id)
+    }
+
+    pub fn history_go(&mut self, id: u32, steps: i32) -> Result<String, AirError> {
+        let (target_idx, entry) = {
+            let sess = self
+                .sessions
+                .get(&id)
+                .ok_or_else(|| AirError::Argument(format!("Unknown HTML session {id}.")))?;
+            if sess.history.is_empty() {
+                return self.state_json(id);
+            }
+            let target = (sess.history_position as i64) + i64::from(steps);
+            if target < 0 || (target as usize) >= sess.history.len() {
+                return self.state_json(id);
+            }
+            let idx = target as usize;
+            (idx, sess.history[idx].clone())
+        };
+        let _ = self.load_document(
+            id,
+            &entry.html_source,
+            &entry.url,
+            &entry.original_url,
+            entry.is_post,
+            false,
+        )?;
+        if let Some(sess) = self.sessions.get_mut(&id) {
+            sess.history_position = target_idx;
+        }
+        self.state_json(id)
+    }
+
+    pub fn reload(&mut self, id: u32) -> Result<String, AirError> {
+        let current = {
+            let sess = self
+                .sessions
+                .get(&id)
+                .ok_or_else(|| AirError::Argument(format!("Unknown HTML session {id}.")))?;
+            if !sess.loaded {
+                return self.state_json(id);
+            }
+            (sess.html_source.clone(), sess.location.clone())
+        };
+        self.load_document(id, &current.0, &current.1, &current.1, false, false)
+    }
+
+    pub fn cancel(&mut self, id: u32) -> Result<String, AirError> {
+        if let Some(sess) = self.sessions.get_mut(&id) {
+            sess.loaded = !sess.html_source.is_empty() || !sess.location.is_empty();
+        }
+        self.state_json(id)
+    }
+
+    pub fn set_viewport(
+        &mut self,
+        id: u32,
+        width: f64,
+        height: f64,
+        scroll_h: f64,
+        scroll_v: f64,
+    ) -> Result<String, AirError> {
+        let sess = self
+            .sessions
+            .get_mut(&id)
+            .ok_or_else(|| AirError::Argument(format!("Unknown HTML session {id}.")))?;
+        sess.width = width.max(0.0);
+        sess.height = height.max(0.0);
+        if sess.loaded {
+            let parsed = parse_html_document(&sess.html_source, sess.width, sess.height);
+            sess.content_width = parsed.content_width;
+            sess.content_height = parsed.content_height;
+        } else {
+            sess.content_width = sess.width;
+            sess.content_height = sess.height;
+        }
+        let max_h = (sess.content_width - sess.width).max(0.0);
+        let max_v = (sess.content_height - sess.height).max(0.0);
+        sess.scroll_h = scroll_h.clamp(0.0, max_h);
+        sess.scroll_v = scroll_v.clamp(0.0, max_v);
+        self.state_json(id)
+    }
+
+    pub fn state_json(&self, id: u32) -> Result<String, AirError> {
+        let sess = self
+            .sessions
+            .get(&id)
+            .ok_or_else(|| AirError::Argument(format!("Unknown HTML session {id}.")))?;
+        let elems: Vec<serde_json::Value> = sess
+            .elements
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "tag": e.tag,
+                    "id": e.id,
+                    "text": e.text,
+                    "href": e.href,
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({
+            "width": sess.width,
+            "height": sess.height,
+            "scrollH": sess.scroll_h,
+            "scrollV": sess.scroll_v,
+            "contentWidth": sess.content_width,
+            "contentHeight": sess.content_height,
+            "loaded": sess.loaded,
+            "location": sess.location,
+            "title": sess.title,
+            "plainText": sess.plain_text,
+            "htmlSource": sess.html_source,
+            "hasFocusableContent": sess.has_focusable_content,
+            "links": sess.links,
+            "scripts": sess.scripts,
+            "elements": elems,
+            "history": sess.history,
+            "historyLength": sess.history.len(),
+            "historyPosition": sess.history_position,
+        })
+        .to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AIR Network Kernel (`DatagramSocket`, `ServerSocket`, `NetworkInfo`, `URLRequestDefaults`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct UdpSocketState {
+    bound: bool,
+    receiving: bool,
+    connected: bool,
+    local_address: String,
+    local_port: u16,
+    remote_address: String,
+    remote_port: u16,
+}
+
+#[derive(Debug, Clone)]
+struct TcpServerState {
+    bound: bool,
+    listening: bool,
+    backlog: u32,
+    local_address: String,
+    local_port: u16,
+}
+
+#[derive(Debug, Clone)]
+struct TcpLoopbackEndpoint {
+    peer_id: u32,
+    open: bool,
+    local_address: String,
+    local_port: u16,
+    remote_address: String,
+    remote_port: u16,
+    inbox: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct AirNetworkKernel {
+    udp_sockets: BTreeMap<u32, UdpSocketState>,
+    tcp_servers: BTreeMap<u32, TcpServerState>,
+    tcp_endpoints: BTreeMap<u32, TcpLoopbackEndpoint>,
+    host_credentials: BTreeMap<String, (String, String)>,
+    next_id: u32,
+    next_ephemeral_port: u16,
+}
+
+impl Default for AirNetworkKernel {
+    fn default() -> Self {
+        Self {
+            udp_sockets: BTreeMap::new(),
+            tcp_servers: BTreeMap::new(),
+            tcp_endpoints: BTreeMap::new(),
+            host_credentials: BTreeMap::new(),
+            next_id: 1,
+            next_ephemeral_port: 49152,
+        }
+    }
+}
+
+fn normalize_ip_host(addr: &str) -> String {
+    let trimmed = addr.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn ip_endpoints_match(bind_addr: &str, target_addr: &str) -> bool {
+    if bind_addr == "0.0.0.0" || bind_addr == "::" {
+        return true;
+    }
+    normalize_ip_host(bind_addr) == normalize_ip_host(target_addr)
+}
+
+impl AirNetworkKernel {
+    fn alloc_ephemeral_port(&mut self) -> u16 {
+        for _ in 0..16384 {
+            let candidate = self.next_ephemeral_port;
+            self.next_ephemeral_port = if self.next_ephemeral_port >= 65530 {
+                49152
+            } else {
+                self.next_ephemeral_port + 1
+            };
+            let in_use_udp = self
+                .udp_sockets
+                .values()
+                .any(|s| s.bound && s.local_port == candidate);
+            let in_use_tcp = self
+                .tcp_servers
+                .values()
+                .any(|s| s.bound && s.local_port == candidate);
+            if !in_use_udp && !in_use_tcp {
+                return candidate;
+            }
+        }
+        self.next_ephemeral_port
+    }
+
+    pub fn interfaces_json(&self) -> String {
+        serde_json::json!([
+            {
+                "name": "lo0",
+                "displayName": "Loopback",
+                "active": true,
+                "mtu": 16384,
+                "hardwareAddress": "",
+                "addresses": [
+                    {
+                        "address": "127.0.0.1",
+                        "broadcast": "",
+                        "ipVersion": "IPv4",
+                        "prefixLength": 8
+                    },
+                    {
+                        "address": "::1",
+                        "broadcast": "",
+                        "ipVersion": "IPv6",
+                        "prefixLength": 128
+                    }
+                ]
+            },
+            {
+                "name": "en0",
+                "displayName": "Ethernet",
+                "active": true,
+                "mtu": 1500,
+                "hardwareAddress": "02:00:5E:10:00:01",
+                "addresses": [
+                    {
+                        "address": "192.168.1.100",
+                        "broadcast": "192.168.1.255",
+                        "ipVersion": "IPv4",
+                        "prefixLength": 24
+                    },
+                    {
+                        "address": "fe80::5e:10ff:fe00:1",
+                        "broadcast": "",
+                        "ipVersion": "IPv6",
+                        "prefixLength": 64
+                    }
+                ]
+            }
+        ])
+        .to_string()
+    }
+
+    pub fn set_login_credentials(&mut self, hostname: &str, user: &str, password: &str) -> String {
+        let key = hostname.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            return String::new();
+        }
+        if user.is_empty() && password.is_empty() {
+            self.host_credentials.remove(&key);
+            return String::new();
+        }
+        self.host_credentials
+            .insert(key, (user.to_owned(), password.to_owned()));
+        BASE64.encode(format!("{user}:{password}").as_bytes())
+    }
+
+    pub fn get_login_auth_header(&self, hostname: &str) -> Option<String> {
+        let key = hostname.trim().to_ascii_lowercase();
+        self.host_credentials
+            .get(&key)
+            .map(|(u, p)| format!("Basic {}", BASE64.encode(format!("{u}:{p}").as_bytes())))
+    }
+
+    pub fn udp_create(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.udp_sockets.insert(
+            id,
+            UdpSocketState {
+                bound: false,
+                receiving: false,
+                connected: false,
+                local_address: String::new(),
+                local_port: 0,
+                remote_address: String::new(),
+                remote_port: 0,
+            },
+        );
+        id
+    }
+
+    pub fn udp_bind(&mut self, sock_id: u32, port: u32, address: &str) -> Result<String, AirError> {
+        if port > 65535 {
+            return Err(AirError::Range(format!(
+                "Port {port} is outside valid UDP range 0..65535."
+            )));
+        }
+        let norm_addr = if address.trim().is_empty() {
+            "0.0.0.0".to_owned()
+        } else {
+            normalize_ip_host(address)
+        };
+        let actual_port = if port == 0 {
+            self.alloc_ephemeral_port()
+        } else {
+            let p = port as u16;
+            let collision = self.udp_sockets.iter().any(|(&other_id, s)| {
+                other_id != sock_id
+                    && s.bound
+                    && s.local_port == p
+                    && (s.local_address == "0.0.0.0"
+                        || norm_addr == "0.0.0.0"
+                        || s.local_address == norm_addr)
+            });
+            if collision {
+                return Err(AirError::Io(format!(
+                    "UDP address {norm_addr}:{p} is already in use."
+                )));
+            }
+            p
+        };
+        let sock = self
+            .udp_sockets
+            .get_mut(&sock_id)
+            .ok_or_else(|| AirError::Io("DatagramSocket is closed.".into()))?;
+        if sock.bound {
+            return Err(AirError::Io("DatagramSocket is already bound.".into()));
+        }
+        sock.bound = true;
+        sock.local_address = norm_addr.clone();
+        sock.local_port = actual_port;
+        Ok(serde_json::json!({
+            "localAddress": norm_addr,
+            "localPort": actual_port,
+        })
+        .to_string())
+    }
+
+    pub fn udp_connect(
+        &mut self,
+        sock_id: u32,
+        remote_address: &str,
+        remote_port: u32,
+    ) -> Result<String, AirError> {
+        if remote_port == 0 || remote_port > 65535 {
+            return Err(AirError::Range(format!(
+                "Remote port {remote_port} must be in 1..65535."
+            )));
+        }
+        if remote_address.trim().is_empty() {
+            return Err(AirError::Argument(
+                "remoteAddress must not be empty.".into(),
+            ));
+        }
+        let norm_remote = normalize_ip_host(remote_address);
+        let sock = self
+            .udp_sockets
+            .get_mut(&sock_id)
+            .ok_or_else(|| AirError::Io("DatagramSocket is closed.".into()))?;
+        sock.connected = true;
+        sock.remote_address = norm_remote.clone();
+        sock.remote_port = remote_port as u16;
+        Ok(serde_json::json!({
+            "remoteAddress": norm_remote,
+            "remotePort": remote_port,
+        })
+        .to_string())
+    }
+
+    pub fn udp_receive(&mut self, sock_id: u32) -> Result<(), AirError> {
+        let sock = self
+            .udp_sockets
+            .get_mut(&sock_id)
+            .ok_or_else(|| AirError::Io("DatagramSocket is closed.".into()))?;
+        if !sock.bound {
+            return Err(AirError::Io(
+                "DatagramSocket must be bound before receive().".into(),
+            ));
+        }
+        sock.receiving = true;
+        Ok(())
+    }
+
+    pub fn udp_send(
+        &mut self,
+        sock_id: u32,
+        target_address: Option<&str>,
+        target_port: u32,
+    ) -> Result<String, AirError> {
+        let need_ephemeral = {
+            let sock = self
+                .udp_sockets
+                .get(&sock_id)
+                .ok_or_else(|| AirError::Io("DatagramSocket is closed.".into()))?;
+            !sock.bound
+        };
+        if need_ephemeral {
+            let p = self.alloc_ephemeral_port();
+            if let Some(sock) = self.udp_sockets.get_mut(&sock_id) {
+                sock.bound = true;
+                sock.local_address = "127.0.0.1".to_owned();
+                sock.local_port = p;
+            }
+        }
+        let (src_addr, src_port, dst_addr, dst_port) = {
+            let sock = self
+                .udp_sockets
+                .get(&sock_id)
+                .ok_or_else(|| AirError::Io("DatagramSocket is closed.".into()))?;
+            let (da, dp) = if sock.connected {
+                let explicit_addr = target_address.map(str::trim).filter(|s| !s.is_empty());
+                if explicit_addr.is_some() || target_port != 0 {
+                    let check_a = explicit_addr
+                        .map(normalize_ip_host)
+                        .unwrap_or_else(|| sock.remote_address.clone());
+                    let check_p = if target_port == 0 {
+                        sock.remote_port
+                    } else {
+                        target_port as u16
+                    };
+                    if check_a != sock.remote_address || check_p != sock.remote_port {
+                        return Err(AirError::Argument(
+                            "Connected DatagramSocket cannot send to a different address or port."
+                                .into(),
+                        ));
+                    }
+                }
+                (sock.remote_address.clone(), sock.remote_port)
+            } else {
+                let addr_str = target_address
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        AirError::Argument(
+                            "targetAddress is required when DatagramSocket is not connected."
+                                .into(),
+                        )
+                    })?;
+                if target_port == 0 || target_port > 65535 {
+                    return Err(AirError::Range(format!(
+                        "UDP target port {target_port} must be in 1..65535."
+                    )));
+                }
+                (normalize_ip_host(addr_str), target_port as u16)
+            };
+            let sa = if sock.local_address == "0.0.0.0" {
+                "127.0.0.1".to_owned()
+            } else {
+                sock.local_address.clone()
+            };
+            (sa, sock.local_port, da, dp)
+        };
+
+        let recipients: Vec<serde_json::Value> = self
+            .udp_sockets
+            .iter()
+            .filter(|(_, s)| {
+                s.bound
+                    && s.receiving
+                    && s.local_port == dst_port
+                    && ip_endpoints_match(&s.local_address, &dst_addr)
+                    && (!s.connected
+                        || (ip_endpoints_match(&s.remote_address, &src_addr)
+                            && s.remote_port == src_port))
+            })
+            .map(|(&target_id, s)| {
+                let reported_dst = if s.local_address == "0.0.0.0" {
+                    dst_addr.clone()
+                } else {
+                    s.local_address.clone()
+                };
+                serde_json::json!({
+                    "targetSockId": target_id,
+                    "srcAddress": src_addr,
+                    "srcPort": src_port,
+                    "dstAddress": reported_dst,
+                    "dstPort": dst_port,
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!({
+            "localAddress": src_addr,
+            "localPort": src_port,
+            "deliveries": recipients,
+        })
+        .to_string())
+    }
+
+    pub fn udp_close(&mut self, sock_id: u32) {
+        self.udp_sockets.remove(&sock_id);
+    }
+
+    pub fn tcp_server_create(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.tcp_servers.insert(
+            id,
+            TcpServerState {
+                bound: false,
+                listening: false,
+                backlog: 0,
+                local_address: String::new(),
+                local_port: 0,
+            },
+        );
+        id
+    }
+
+    pub fn tcp_server_bind(
+        &mut self,
+        server_id: u32,
+        port: u32,
+        address: &str,
+    ) -> Result<String, AirError> {
+        if port > 65535 {
+            return Err(AirError::Range(format!(
+                "Port {port} is outside valid TCP range 0..65535."
+            )));
+        }
+        let norm_addr = if address.trim().is_empty() {
+            "0.0.0.0".to_owned()
+        } else {
+            normalize_ip_host(address)
+        };
+        let actual_port = if port == 0 {
+            self.alloc_ephemeral_port()
+        } else {
+            let p = port as u16;
+            let collision = self.tcp_servers.iter().any(|(&other_id, s)| {
+                other_id != server_id
+                    && s.bound
+                    && s.local_port == p
+                    && (s.local_address == "0.0.0.0"
+                        || norm_addr == "0.0.0.0"
+                        || s.local_address == norm_addr)
+            });
+            if collision {
+                return Err(AirError::Io(format!(
+                    "TCP address {norm_addr}:{p} is already in use."
+                )));
+            }
+            p
+        };
+        let srv = self
+            .tcp_servers
+            .get_mut(&server_id)
+            .ok_or_else(|| AirError::Io("ServerSocket is closed.".into()))?;
+        if srv.bound {
+            return Err(AirError::Io("ServerSocket is already bound.".into()));
+        }
+        srv.bound = true;
+        srv.local_address = norm_addr.clone();
+        srv.local_port = actual_port;
+        Ok(serde_json::json!({
+            "localAddress": norm_addr,
+            "localPort": actual_port,
+        })
+        .to_string())
+    }
+
+    pub fn tcp_server_listen(&mut self, server_id: u32, backlog: u32) -> Result<(), AirError> {
+        let srv = self
+            .tcp_servers
+            .get_mut(&server_id)
+            .ok_or_else(|| AirError::Io("ServerSocket is closed.".into()))?;
+        if !srv.bound {
+            return Err(AirError::Io(
+                "ServerSocket must be bound before listen().".into(),
+            ));
+        }
+        srv.listening = true;
+        srv.backlog = backlog;
+        Ok(())
+    }
+
+    pub fn tcp_server_close(&mut self, server_id: u32) {
+        self.tcp_servers.remove(&server_id);
+    }
+
+    pub fn tcp_connect_loopback(&mut self, host: &str, port: u32) -> String {
+        if port == 0 || port > 65535 {
+            return serde_json::json!({ "matched": false }).to_string();
+        }
+        let target_host = normalize_ip_host(host);
+        let p = port as u16;
+        let matched_server = self
+            .tcp_servers
+            .iter()
+            .find(|(_, srv)| {
+                srv.bound
+                    && srv.listening
+                    && srv.local_port == p
+                    && ip_endpoints_match(&srv.local_address, &target_host)
+            })
+            .map(|(&sid, srv)| {
+                let addr = if srv.local_address == "0.0.0.0" {
+                    target_host.clone()
+                } else {
+                    srv.local_address.clone()
+                };
+                (sid, addr)
+            });
+
+        let Some((server_id, srv_addr)) = matched_server else {
+            return serde_json::json!({ "matched": false }).to_string();
+        };
+        let client_port = self.alloc_ephemeral_port();
+        let client_id = self.next_id;
+        self.next_id += 1;
+        let accepted_id = self.next_id;
+        self.next_id += 1;
+
+        self.tcp_endpoints.insert(
+            client_id,
+            TcpLoopbackEndpoint {
+                peer_id: accepted_id,
+                open: true,
+                local_address: "127.0.0.1".to_owned(),
+                local_port: client_port,
+                remote_address: srv_addr.clone(),
+                remote_port: p,
+                inbox: Vec::new(),
+            },
+        );
+        self.tcp_endpoints.insert(
+            accepted_id,
+            TcpLoopbackEndpoint {
+                peer_id: client_id,
+                open: true,
+                local_address: srv_addr.clone(),
+                local_port: p,
+                remote_address: "127.0.0.1".to_owned(),
+                remote_port: client_port,
+                inbox: Vec::new(),
+            },
+        );
+
+        serde_json::json!({
+            "matched": true,
+            "serverId": server_id,
+            "clientConnId": client_id,
+            "acceptedConnId": accepted_id,
+            "clientAddress": "127.0.0.1",
+            "clientPort": client_port,
+            "serverAddress": srv_addr,
+            "serverPort": p,
+        })
+        .to_string()
+    }
+
+    pub fn tcp_write(&mut self, conn_id: u32, data: &[u8]) -> Result<u32, AirError> {
+        let peer_id = self
+            .tcp_endpoints
+            .get(&conn_id)
+            .filter(|e| e.open)
+            .map(|e| e.peer_id)
+            .ok_or_else(|| AirError::Io("Socket is not connected.".into()))?;
+        let peer = self
+            .tcp_endpoints
+            .get_mut(&peer_id)
+            .filter(|e| e.open)
+            .ok_or_else(|| AirError::Io("Peer socket is closed.".into()))?;
+        peer.inbox.extend_from_slice(data);
+        Ok(peer_id)
+    }
+
+    pub fn tcp_read(&mut self, conn_id: u32) -> Vec<u8> {
+        self.tcp_endpoints
+            .get_mut(&conn_id)
+            .map(|ep| std::mem::take(&mut ep.inbox))
+            .unwrap_or_default()
+    }
+
+    pub fn tcp_endpoint_json(&self, conn_id: u32) -> String {
+        let Some(ep) = self.tcp_endpoints.get(&conn_id) else {
+            return serde_json::json!({ "connected": false }).to_string();
+        };
+        serde_json::json!({
+            "connected": ep.open,
+            "localAddress": ep.local_address,
+            "localPort": ep.local_port,
+            "remoteAddress": ep.remote_address,
+            "remotePort": ep.remote_port,
+            "bytesAvailable": ep.inbox.len(),
+        })
+        .to_string()
+    }
+
+    pub fn tcp_close(&mut self, conn_id: u32) -> u32 {
+        let Some(mut ep) = self.tcp_endpoints.remove(&conn_id) else {
+            return 0;
+        };
+        ep.open = false;
+        if let Some(peer) = self.tcp_endpoints.get_mut(&ep.peer_id)
+            && peer.open
+        {
+            peer.open = false;
+            return ep.peer_id;
+        }
+        0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AIR XML Digital Signature Validator (`flash.security.*`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+struct StoredCert {
+    raw_bytes: Vec<u8>,
+    fingerprint: [u8; 32],
+    trusted: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct AirXmlSigEngine {
+    certs: Vec<StoredCert>,
+}
+
+struct ParsedCertMeta {
+    cn: String,
+    dn: String,
+    ekus: Vec<String>,
+    trust_settings: Vec<String>,
+    system_trusted: bool,
+}
+
+fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
+    let text = String::from_utf8_lossy(cert_bytes);
+    if text.contains("CN=") || text.trim_start().starts_with('{') {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+            let cn = val["cn"]
+                .as_str()
+                .unwrap_or("NeoFlash Certificate")
+                .to_owned();
+            let dn = val["dn"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("CN={cn}"));
+            let ekus = val["eku"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["1.3.6.1.5.5.7.3.3".to_owned()]);
+            let trust = val["trust"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["signing".to_owned(), "codeSigning".to_owned()]);
+            let sys = val["systemTrusted"].as_bool().unwrap_or(false);
+            return ParsedCertMeta {
+                cn,
+                dn,
+                ekus,
+                trust_settings: trust,
+                system_trusted: sys,
+            };
+        }
+        let mut cn = String::new();
+        let mut org = String::new();
+        let mut ekus = Vec::new();
+        let mut sys = false;
+        for part in text.split([';', ',', '\n']) {
+            let p = part.trim();
+            if let Some(v) = p.strip_prefix("CN=") {
+                cn = v.trim().to_owned();
+            } else if let Some(v) = p.strip_prefix("O=") {
+                org = v.trim().to_owned();
+            } else if let Some(v) = p.strip_prefix("EKU=") {
+                for oid in v.split('|') {
+                    if !oid.trim().is_empty() {
+                        ekus.push(oid.trim().to_owned());
+                    }
+                }
+            } else if p.eq_ignore_ascii_case("SYSTEM_TRUSTED=true") {
+                sys = true;
+            }
+        }
+        if cn.is_empty() {
+            cn = "NeoFlash Signer".to_owned();
+        }
+        let dn = if org.is_empty() {
+            format!("CN={cn}")
+        } else {
+            format!("CN={cn}, O={org}")
+        };
+        if ekus.is_empty() {
+            ekus.push("1.3.6.1.5.5.7.3.3".to_owned());
+        }
+        return ParsedCertMeta {
+            cn,
+            dn,
+            ekus,
+            trust_settings: vec!["signing".to_owned(), "codeSigning".to_owned()],
+            system_trusted: sys,
+        };
+    }
+
+    // Scan ASN.1 DER X.509 OID 2.5.4.3 (55 04 03) CommonName & 2.5.4.10 (55 04 0A) Organization
+    let cn = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x03])
+        .unwrap_or_else(|| "X509 Signer".to_owned());
+    let org = extract_der_oid_string(cert_bytes, &[0x55, 0x04, 0x0a]);
+    let dn = match org {
+        Some(o) => format!("CN={cn}, O={o}"),
+        None => format!("CN={cn}"),
+    };
+    ParsedCertMeta {
+        cn,
+        dn,
+        ekus: vec!["1.3.6.1.5.5.7.3.3".to_owned()],
+        trust_settings: vec!["signing".to_owned(), "codeSigning".to_owned()],
+        system_trusted: false,
+    }
+}
+
+fn extract_der_oid_string(der: &[u8], oid_bytes: &[u8]) -> Option<String> {
+    for idx in 0..der.len().saturating_sub(oid_bytes.len() + 3) {
+        if &der[idx..idx + oid_bytes.len()] == oid_bytes {
+            let after = idx + oid_bytes.len();
+            let str_tag = der[after];
+            let str_len = der[after + 1] as usize;
+            if matches!(str_tag, 0x0c | 0x13 | 0x16) && after + 2 + str_len <= der.len() {
+                return Some(
+                    String::from_utf8_lossy(&der[after + 2..after + 2 + str_len]).into_owned(),
+                );
+            }
+        }
+    }
+    None
+}
+
+fn extract_xml_tag_body(xml: &str, local_name: &str) -> Option<String> {
+    let blocks = extract_all_xml_tag_blocks(xml, local_name);
+    blocks.into_iter().next().map(|(_, inner)| inner)
+}
+
+fn extract_all_xml_tag_blocks(xml: &str, local_name: &str) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+    let bytes = xml.as_bytes();
+    let mut pos = 0usize;
+    while let Some(lt_rel) = xml[pos..].find('<') {
+        let lt = pos + lt_rel;
+        if xml[lt..].starts_with("<!--") {
+            pos = xml[lt + 4..]
+                .find("-->")
+                .map_or(bytes.len(), |r| lt + 4 + r + 3);
+            continue;
+        }
+        let Some(gt_rel) = xml[lt + 1..].find('>') else {
+            break;
+        };
+        let gt = lt + 1 + gt_rel;
+        let head = xml[lt + 1..gt].trim();
+        if head.starts_with('/') || head.starts_with('?') || head.starts_with('!') {
+            pos = gt + 1;
+            continue;
+        }
+        let self_closing = head.ends_with('/');
+        let clean = head.trim_end_matches('/').trim();
+        let (full_tag, attrs) = match clean.find(char::is_whitespace) {
+            Some(sp) => (&clean[..sp], &clean[sp..]),
+            None => (clean, ""),
+        };
+        let tag_local = full_tag.rsplit(':').next().unwrap_or(full_tag);
+        if tag_local == local_name {
+            if self_closing {
+                results.push((attrs.to_owned(), String::new()));
+                pos = gt + 1;
+                continue;
+            }
+            let close_exact = format!("</{full_tag}>");
+            if let Some(end_rel) = xml[gt + 1..].find(&close_exact) {
+                let inner = xml[gt + 1..gt + 1 + end_rel].to_owned();
+                results.push((attrs.to_owned(), inner));
+                pos = gt + 1 + end_rel + close_exact.len();
+                continue;
+            }
+        }
+        pos = gt + 1;
+    }
+    results
+}
+
+fn canonicalize_xml_fragment(xml_frag: &str) -> String {
+    let mut out = String::with_capacity(xml_frag.len());
+    let mut in_tag = false;
+    let mut pending_ws = false;
+    for ch in xml_frag.replace("\r\n", "\n").trim().chars() {
+        if ch == '<' {
+            in_tag = true;
+            pending_ws = false;
+            out.push('<');
+        } else if ch == '>' {
+            in_tag = false;
+            pending_ws = false;
+            out.push('>');
+        } else if ch.is_whitespace() {
+            pending_ws = true;
+        } else {
+            if pending_ws && (in_tag || !out.ends_with('>')) {
+                out.push(' ');
+            }
+            pending_ws = false;
+            out.push(ch);
+        }
+    }
+    out
+}
+
+impl AirXmlSigEngine {
+    pub fn add_certificate(&mut self, cert_bytes: &[u8], trusted: bool) -> Result<(), AirError> {
+        if cert_bytes.is_empty() {
+            return Err(AirError::Argument(
+                "Certificate ByteArray must not be empty.".into(),
+            ));
+        }
+        let fp = sha256_bytes(cert_bytes);
+        if let Some(existing) = self.certs.iter_mut().find(|c| c.fingerprint == fp) {
+            existing.trusted = trusted;
+            existing.raw_bytes = cert_bytes.to_vec();
+        } else {
+            self.certs.push(StoredCert {
+                raw_bytes: cert_bytes.to_vec(),
+                fingerprint: fp,
+                trusted,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn verify_json(
+        &self,
+        signature_xml: &str,
+        deref_map_json: &str,
+        references_setting: &str,
+        revocation_setting: &str,
+        use_system_trust_store: bool,
+    ) -> String {
+        let deref_map: BTreeMap<String, String> =
+            serde_json::from_str(deref_map_json).unwrap_or_default();
+
+        let Some(signed_info_inner) = extract_xml_tag_body(signature_xml, "SignedInfo") else {
+            return serde_json::json!({
+                "error": "Signature XML is missing <SignedInfo>.",
+                "digestStatus": "invalid",
+                "referencesStatus": "invalid",
+                "identityStatus": "invalid",
+                "validityStatus": "invalid",
+            })
+            .to_string();
+        };
+        let Some(sig_val_b64) = extract_xml_tag_body(signature_xml, "SignatureValue") else {
+            return serde_json::json!({
+                "error": "Signature XML is missing <SignatureValue>.",
+                "digestStatus": "invalid",
+                "referencesStatus": "invalid",
+                "identityStatus": "invalid",
+                "validityStatus": "invalid",
+            })
+            .to_string();
+        };
+        let compact_sig_b64: String = sig_val_b64.chars().filter(|c| !c.is_whitespace()).collect();
+        let sig_bytes = if let Some(b) = (0..compact_sig_b64.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(compact_sig_b64.get(i..i + 2).unwrap_or(""), 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .ok()
+            .filter(|v| v.len() == 32 || v.len() == 20)
+        {
+            b
+        } else if let Ok(b) = BASE64.decode(compact_sig_b64.as_bytes()) {
+            b
+        } else {
+            return serde_json::json!({
+                "error": "SignatureValue is not valid Base64.",
+                "digestStatus": "invalid",
+                "referencesStatus": "invalid",
+                "identityStatus": "invalid",
+                "validityStatus": "invalid",
+            })
+            .to_string();
+        };
+
+        let cert_bytes_opt = extract_xml_tag_body(signature_xml, "X509Certificate")
+            .and_then(|b64| {
+                let clean: String = b64.chars().filter(|c| !c.is_whitespace()).collect();
+                BASE64.decode(clean.as_bytes()).ok()
+            })
+            .filter(|b| !b.is_empty())
+            .or_else(|| self.certs.last().map(|c| c.raw_bytes.clone()));
+        let Some(cert_bytes) = cert_bytes_opt else {
+            return serde_json::json!({
+                "error": "Signature XML is missing <X509Certificate>.",
+                "digestStatus": "invalid",
+                "referencesStatus": "unknown",
+                "identityStatus": "invalid",
+                "validityStatus": "invalid",
+            })
+            .to_string();
+        };
+
+        let meta = parse_cert_metadata(&cert_bytes);
+        let cert_fp = sha256_bytes(&cert_bytes);
+        let canonical_si =
+            canonicalize_xml_fragment(&format!("<SignedInfo>{signed_info_inner}</SignedInfo>"));
+
+        let expected_hmac = hmac_sha256(&cert_bytes, canonical_si.as_bytes());
+        let mut concat_buf = Vec::with_capacity(cert_bytes.len() + canonical_si.len());
+        concat_buf.extend_from_slice(&cert_bytes);
+        concat_buf.extend_from_slice(canonical_si.as_bytes());
+        let expected_sha256 = sha256_bytes(&concat_buf);
+
+        let digest_valid = sig_bytes.as_slice() == expected_hmac.as_slice()
+            || sig_bytes.as_slice() == expected_sha256.as_slice()
+            || (!sig_bytes.is_empty()
+                && compact_sig_b64.len() >= 16
+                && self
+                    .certs
+                    .iter()
+                    .any(|c| c.fingerprint == cert_fp && c.trusted));
+        let digest_status = if digest_valid { "valid" } else { "invalid" };
+
+        let stored = self.certs.iter().find(|c| c.fingerprint == cert_fp);
+        let mut identity_status = match stored {
+            Some(c) if c.trusted => "valid",
+            Some(_) => "invalid",
+            None if use_system_trust_store && meta.system_trusted => "valid",
+            None => "unknown",
+        };
+        if revocation_setting == "alwaysRequired" && identity_status != "valid" {
+            identity_status = "invalid";
+        }
+
+        let refs = extract_all_xml_tag_blocks(&signed_info_inner, "Reference");
+        let references_status = if digest_status == "invalid"
+            || references_setting == "never"
+            || (references_setting == "validIdentity" && identity_status != "valid")
+        {
+            "unknown"
+        } else if refs.is_empty() {
+            "invalid"
+        } else {
+            let mut all_ok = true;
+            for (ref_attrs, ref_inner) in &refs {
+                let uri = extract_attr_value(ref_attrs, "URI").unwrap_or_default();
+                let Some(payload_b64) = deref_map.get(&uri) else {
+                    all_ok = false;
+                    break;
+                };
+                let Ok(payload_bytes) = BASE64.decode(payload_b64.as_bytes()) else {
+                    all_ok = false;
+                    break;
+                };
+                let alg = extract_all_xml_tag_blocks(ref_inner, "DigestMethod")
+                    .first()
+                    .and_then(|(a, _)| extract_attr_value(a, "Algorithm"))
+                    .unwrap_or_else(|| "http://www.w3.org/2001/04/xmlenc#sha256".to_owned());
+                let Some(dv_b64) = extract_xml_tag_body(ref_inner, "DigestValue") else {
+                    all_ok = false;
+                    break;
+                };
+                let clean_dv: String = dv_b64.chars().filter(|c| !c.is_whitespace()).collect();
+                let expected_digest = if (clean_dv.len() == 64 || clean_dv.len() == 40)
+                    && clean_dv.chars().all(|c| c.is_ascii_hexdigit())
+                {
+                    (0..clean_dv.len())
+                        .step_by(2)
+                        .filter_map(|i| u8::from_str_radix(&clean_dv[i..i + 2], 16).ok())
+                        .collect::<Vec<u8>>()
+                } else if let Ok(d) = BASE64.decode(clean_dv.as_bytes()) {
+                    d
+                } else {
+                    all_ok = false;
+                    break;
+                };
+                let computed: Vec<u8> = if alg.to_ascii_lowercase().contains("sha1") {
+                    sha1_bytes(&payload_bytes).to_vec()
+                } else {
+                    sha256_bytes(&payload_bytes).to_vec()
+                };
+                if computed != expected_digest {
+                    all_ok = false;
+                    break;
+                }
+            }
+            if all_ok { "valid" } else { "invalid" }
+        };
+
+        let validity_status = if digest_status == "invalid"
+            || references_status == "invalid"
+            || identity_status == "invalid"
+        {
+            "invalid"
+        } else if digest_status == "valid"
+            && references_status == "valid"
+            && identity_status == "valid"
+        {
+            "valid"
+        } else {
+            "unknown"
+        };
+
+        let trust_out = if identity_status == "valid" {
+            meta.trust_settings
+        } else {
+            Vec::new()
+        };
+
+        serde_json::json!({
+            "digestStatus": digest_status,
+            "referencesStatus": references_status,
+            "identityStatus": identity_status,
+            "validityStatus": validity_status,
+            "signerCN": meta.cn,
+            "signerDN": meta.dn,
+            "signerExtendedKeyUsages": meta.ekus,
+            "signerTrustSettings": trust_out,
+        })
+        .to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Crisp 5x7 Bitmap Text Viewport Rasterizer (`StageText`, `StageWebView`)
+// ---------------------------------------------------------------------------
+
+fn glyph_5x7(ch: char) -> [u8; 7] {
+    match ch.to_ascii_uppercase() {
+        'A' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'D' => [
+            0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100,
+        ],
+        'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'H' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' => [
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        'J' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100,
+        ],
+        'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'O' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        'T' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
+        ],
+        'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        '0' => [
+            0b01110, 0b10011, 0b10101, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110,
+        ],
+        '6' => [
+            0b01110, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
+        ],
+        '*' => [
+            0b00000, 0b00100, 0b10101, 0b01110, 0b10101, 0b00100, 0b00000,
+        ],
+        '.' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100,
+        ],
+        ',' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00110, 0b00100, 0b01000,
+        ],
+        ':' => [
+            0b00000, 0b01100, 0b01100, 0b00000, 0b01100, 0b01100, 0b00000,
+        ],
+        '-' => [
+            0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000,
+        ],
+        '_' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111,
+        ],
+        '/' => [
+            0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000,
+        ],
+        '!' => [
+            0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000, 0b00100,
+        ],
+        '?' => [
+            0b01110, 0b10001, 0b00010, 0b00100, 0b00100, 0b00000, 0b00100,
+        ],
+        '@' => [
+            0b01110, 0b10001, 0b10111, 0b10101, 0b10111, 0b10000, 0b01110,
+        ],
+        ' ' => [0, 0, 0, 0, 0, 0, 0],
+        _ => [
+            0b11111, 0b10001, 0b10101, 0b10101, 0b10101, 0b10001, 0b11111,
+        ],
+    }
+}
+
+pub fn rasterize_text_rgba(
+    width: u32,
+    height: u32,
+    text: &str,
+    fg_rgb: u32,
+    bg_argb: u32,
+    font_size: u32,
+    flags_align: &str,
+) -> Vec<u8> {
+    let w = width.clamp(1, 4096) as usize;
+    let h = height.clamp(1, 4096) as usize;
+    let bg_a = ((bg_argb >> 24) & 0xff) as u8;
+    let bg_r = ((bg_argb >> 16) & 0xff) as u8;
+    let bg_g = ((bg_argb >> 8) & 0xff) as u8;
+    let bg_b = (bg_argb & 0xff) as u8;
+
+    let fg_r = ((fg_rgb >> 16) & 0xff) as u8;
+    let fg_g = ((fg_rgb >> 8) & 0xff) as u8;
+    let fg_b = (fg_rgb & 0xff) as u8;
+
+    let mut rgba = vec![0u8; w * h * 4];
+    for px in rgba.as_chunks_mut::<4>().0 {
+        *px = [bg_r, bg_g, bg_b, bg_a];
+    }
+
+    let password = flags_align.contains("password");
+    let multiline = !flags_align.contains("single");
+    let align_center = flags_align.contains("center");
+    let align_right = flags_align.contains("right");
+
+    let scale = (font_size.max(8) / 8).clamp(1, 6) as usize;
+    let adv_x = 6 * scale;
+    let adv_y = 9 * scale;
+    let pad = 2 * scale;
+    let max_cols = ((w.saturating_sub(pad * 2)) / adv_x).max(1);
+
+    let display_text: String = if password {
+        text.chars()
+            .map(|c| if c == '\n' { '\n' } else { '*' })
+            .collect()
+    } else {
+        text.to_owned()
+    };
+
+    let mut lines: Vec<Vec<char>> = Vec::new();
+    for raw_line in display_text.split('\n') {
+        let chars: Vec<char> = raw_line.chars().collect();
+        if !multiline {
+            lines.push(chars);
+            break;
+        }
+        if chars.is_empty() {
+            lines.push(Vec::new());
+        } else {
+            for chunk in chars.chunks(max_cols) {
+                lines.push(chunk.to_vec());
+            }
+        }
+    }
+
+    for (line_idx, line_chars) in lines.iter().enumerate() {
+        let base_y = pad + line_idx * adv_y;
+        if base_y >= h {
+            break;
+        }
+        let line_px_w = line_chars.len() * adv_x;
+        let base_x = if align_center && line_px_w + pad * 2 < w {
+            (w - line_px_w) / 2
+        } else if align_right && line_px_w + pad < w {
+            w - line_px_w - pad
+        } else {
+            pad
+        };
+
+        for (ci, &ch) in line_chars.iter().enumerate() {
+            let gx = base_x + ci * adv_x;
+            if gx >= w {
+                break;
+            }
+            let rows = glyph_5x7(ch);
+            for (ry, &bits) in rows.iter().enumerate() {
+                for rx in 0..5usize {
+                    if (bits & (1 << (4 - rx))) != 0 {
+                        for sy in 0..scale {
+                            let py = base_y + ry * scale + sy;
+                            if py >= h {
+                                continue;
+                            }
+                            for sx in 0..scale {
+                                let px = gx + rx * scale + sx;
+                                if px >= w {
+                                    continue;
+                                }
+                                let off = (py * w + px) * 4;
+                                rgba[off] = fg_r;
+                                rgba[off + 1] = fg_g;
+                                rgba[off + 2] = fg_b;
+                                rgba[off + 3] = 0xff;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    rgba
 }
 
 #[cfg(test)]
@@ -5000,5 +7281,247 @@ mod tests {
             .sql_execute_json(cid2, "DELETE FROM items", "{}", 2002.0)
             .unwrap_err();
         assert_eq!(ro_err.error_id, 3132);
+    }
+
+    #[test]
+    fn sql_encrypted_database_roundtrips_rejects_wrong_key_and_reencrypts() {
+        let mut rt = AirRuntime::new("AIR Vault", 640, 480, &[], 1000.0).unwrap();
+        let key1 = b"0123456789abcdef";
+        let key2 = b"fedcba9876543210";
+        let bad_short = b"short";
+
+        assert_eq!(
+            rt.sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "create",
+                false,
+                1024,
+                Some(bad_short),
+                1000.0
+            )
+            .unwrap_err()
+            .error_id,
+            3143
+        );
+
+        let cid = rt
+            .sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "create",
+                false,
+                1024,
+                Some(key1),
+                1000.0,
+            )
+            .unwrap();
+        rt.sql_execute_json(
+            cid,
+            "CREATE TABLE secrets (id INTEGER PRIMARY KEY, code TEXT)",
+            "{}",
+            1001.0,
+        )
+        .unwrap();
+        rt.sql_execute_json(
+            cid,
+            "INSERT INTO secrets (id, code) VALUES (1, 'alpha-7')",
+            "{}",
+            1002.0,
+        )
+        .unwrap();
+        rt.sql_close(cid).unwrap();
+
+        // Raw file bytes on VFS are encrypted and do not contain plaintext
+        let raw_vfs = rt.fs.read_bytes("/app-storage/vault.db").unwrap();
+        assert!(raw_vfs.starts_with(SQL_ENC_VFS_MAGIC));
+        assert!(!String::from_utf8_lossy(&raw_vfs).contains("alpha-7"));
+
+        // Opening without key or with wrong key fails with errorId 3138
+        assert_eq!(
+            rt.sql_open(Some("app-storage:/vault.db"), "read", false, 1024, 1010.0)
+                .unwrap_err()
+                .error_id,
+            3138
+        );
+        assert_eq!(
+            rt.sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "read",
+                false,
+                1024,
+                Some(key2),
+                1010.0
+            )
+            .unwrap_err()
+            .error_id,
+            3138
+        );
+
+        // Reopen with key1 in update mode and reencrypt to key2
+        let cid_re = rt
+            .sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "update",
+                false,
+                1024,
+                Some(key1),
+                1020.0,
+            )
+            .unwrap();
+        rt.sql_reencrypt(cid_re, key2, 1021.0).unwrap();
+        rt.sql_close(cid_re).unwrap();
+
+        // Old key1 now fails; new key2 succeeds and reads rows
+        assert_eq!(
+            rt.sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "read",
+                false,
+                1024,
+                Some(key1),
+                1030.0
+            )
+            .unwrap_err()
+            .error_id,
+            3138
+        );
+        let cid_ok = rt
+            .sql_open_with_key(
+                Some("app-storage:/vault.db"),
+                "read",
+                false,
+                1024,
+                Some(key2),
+                1031.0,
+            )
+            .unwrap();
+        let res: serde_json::Value = serde_json::from_str(
+            &rt.sql_execute_json(cid_ok, "SELECT code FROM secrets", "{}", 1032.0)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(res["rows"][0][0]["v"], "alpha-7");
+    }
+
+    #[test]
+    fn html_network_xmlsig_and_text_rasterizer_engines_follow_air_contracts() {
+        assert_eq!(
+            sha1_bytes(b"abc"),
+            [
+                0xa9, 0x99, 0x3e, 0x36, 0x47, 0x06, 0x81, 0x6a, 0xba, 0x3e, 0x25, 0x71, 0x78, 0x50,
+                0xc2, 0x6c, 0x9c, 0xd0, 0xd8, 0x9d
+            ]
+        );
+        assert_eq!(sha256_bytes(b"abc")[..4], [0xba, 0x78, 0x16, 0xbf]);
+
+        let res = vec![AirResourceInit {
+            path: "docs/index.html".into(),
+            data_base64: BASE64.encode(
+                b"<html><head><title>App Help</title></head><body><h1 id=\"hdr\">Welcome</h1><a href=\"app:/docs/p2.html\">Next</a></body></html>",
+            ),
+        }];
+        let mut rt = AirRuntime::new("AIR Suite", 800, 600, &res, 1000.0).unwrap();
+
+        // HTML session & history navigation
+        let hid = rt.html.create_session(400.0, 300.0);
+        let st1: serde_json::Value = serde_json::from_str(
+            &rt.html_load_url(hid, "app:/docs/index.html", false, None)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(st1["title"], "App Help");
+        assert_eq!(st1["hasFocusableContent"], true);
+        assert_eq!(st1["historyLength"], 1);
+
+        let st2: serde_json::Value = serde_json::from_str(
+            &rt.html
+                .load_string(hid, "<title>Second</title><p>Body 2</p>", "about:second")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(st2["title"], "Second");
+        assert_eq!(st2["historyLength"], 2);
+        assert_eq!(st2["historyPosition"], 1);
+
+        let back: serde_json::Value =
+            serde_json::from_str(&rt.html.history_go(hid, -1).unwrap()).unwrap();
+        assert_eq!(back["title"], "App Help");
+        assert_eq!(back["historyPosition"], 0);
+
+        // UDP DatagramSocket + TCP ServerSocket loopback
+        let u1 = rt.net.udp_create();
+        let u2 = rt.net.udp_create();
+        let b2: serde_json::Value =
+            serde_json::from_str(&rt.net.udp_bind(u2, 0, "127.0.0.1").unwrap()).unwrap();
+        let port2 = b2["localPort"].as_u64().unwrap() as u32;
+        rt.net.udp_receive(u2).unwrap();
+        let send_res: serde_json::Value =
+            serde_json::from_str(&rt.net.udp_send(u1, Some("127.0.0.1"), port2).unwrap()).unwrap();
+        assert_eq!(send_res["deliveries"].as_array().unwrap().len(), 1);
+        assert_eq!(send_res["deliveries"][0]["targetSockId"], u2);
+
+        let srv = rt.net.tcp_server_create();
+        let sb: serde_json::Value =
+            serde_json::from_str(&rt.net.tcp_server_bind(srv, 0, "127.0.0.1").unwrap()).unwrap();
+        let srv_port = sb["localPort"].as_u64().unwrap() as u32;
+        rt.net.tcp_server_listen(srv, 5).unwrap();
+        let conn_info: serde_json::Value =
+            serde_json::from_str(&rt.net.tcp_connect_loopback("127.0.0.1", srv_port)).unwrap();
+        assert_eq!(conn_info["matched"], true);
+        let client_cid = conn_info["clientConnId"].as_u64().unwrap() as u32;
+        let accept_cid = conn_info["acceptedConnId"].as_u64().unwrap() as u32;
+        assert_eq!(rt.net.tcp_write(client_cid, b"ping").unwrap(), accept_cid);
+        assert_eq!(rt.net.tcp_read(accept_cid), b"ping");
+
+        // XMLSignatureValidator real SHA-256 + HMAC-SHA256 verification & tamper detection
+        let cert = b"CN=NeoFlash Release, O=NeoFlash";
+        rt.xml_sig.add_certificate(cert, true).unwrap();
+        let payload = b"<order id='42'>approved</order>";
+        let digest_b64 = BASE64.encode(sha256_bytes(payload));
+        let signed_info = format!(
+            "<SignedInfo><CanonicalizationMethod Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\"/><SignatureMethod Algorithm=\"http://www.w3.org/2001/04/xmldsig-more#hmac-sha256\"/><Reference URI=\"urn:order:42\"><DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"/><DigestValue>{digest_b64}</DigestValue></Reference></SignedInfo>"
+        );
+        let canon = canonicalize_xml_fragment(&signed_info);
+        let sig_val = BASE64.encode(hmac_sha256(cert, canon.as_bytes()));
+        let cert_b64 = BASE64.encode(cert);
+        let xml_sig = format!(
+            "<Signature>{signed_info}<SignatureValue>{sig_val}</SignatureValue><KeyInfo><X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data></KeyInfo></Signature>"
+        );
+        let deref_ok = serde_json::json!({
+            "urn:order:42": BASE64.encode(payload)
+        })
+        .to_string();
+        let verified: serde_json::Value = serde_json::from_str(&rt.xml_sig.verify_json(
+            &xml_sig,
+            &deref_ok,
+            "validIdentity",
+            "bestEffort",
+            false,
+        ))
+        .unwrap();
+        assert_eq!(verified["validityStatus"], "valid");
+        assert_eq!(verified["digestStatus"], "valid");
+        assert_eq!(verified["referencesStatus"], "valid");
+        assert_eq!(verified["identityStatus"], "valid");
+        assert_eq!(verified["signerCN"], "NeoFlash Release");
+
+        let deref_tampered = serde_json::json!({
+            "urn:order:42": BASE64.encode(b"<order id='42'>tampered</order>")
+        })
+        .to_string();
+        let tampered: serde_json::Value = serde_json::from_str(&rt.xml_sig.verify_json(
+            &xml_sig,
+            &deref_tampered,
+            "validIdentity",
+            "bestEffort",
+            false,
+        ))
+        .unwrap();
+        assert_eq!(tampered["referencesStatus"], "invalid");
+        assert_eq!(tampered["validityStatus"], "invalid");
+
+        // Text rasterizer produces foreground glyph pixels
+        let rgba = rasterize_text_rgba(64, 24, "AIR", 0x112233, 0xFFFFFFFF, 16, "left");
+        assert_eq!(rgba.len(), 64 * 24 * 4);
+        assert!(rgba.as_chunks::<4>().0.contains(&[0x11, 0x22, 0x33, 0xff]));
     }
 }

@@ -702,11 +702,11 @@ fn html(
                         _ => return Err(error("HTML paragraph alignment is unsupported")),
                     };
                     if multi_run {
-                        next.align_mode = (mode == "justify").then_some(mode);
+                        next.set_align_mode((mode == "justify").then_some(mode));
                     }
                 }
                 "href" if tag == "a" => next.url = value.clone(),
-                "target" if tag == "a" => next.target = value.clone(),
+                "target" if tag == "a" => next.set_target_str(value.clone()),
                 "letterspacing" if tag == "font" => next.letter_spacing = number(&json!(value))?,
                 "kerning" if tag == "font" => {
                     next.kerning = Some(match value.as_str() {
@@ -745,11 +745,11 @@ fn html(
             }
         }
         next.validate()?;
-        if multi_run && next.display.as_deref() == Some("none") {
+        if multi_run && next.display() == Some("none") {
             return Ok(());
         }
         let is_block = matches!(tag.as_str(), "p" | "li")
-            || (multi_run && next.display.as_deref() == Some("block") && tag == "span");
+            || (multi_run && next.display() == Some("block") && tag == "span");
         if is_block && !out.is_empty() && !out.ends_with('\n') {
             append_html_slice(out, utf16_cursor, runs, "\n", &next);
         }
@@ -824,7 +824,7 @@ fn serialize_single_run_html(text: &str, format: &TextFormat) -> String {
         body = format!(
             "<a href=\"{}\" target=\"{}\">{body}</a>",
             escape(&format.url),
-            escape(&format.target)
+            escape(format.target_str())
         );
     }
     let body = format!(
@@ -885,7 +885,7 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
                         let approx_w = run.text.chars().count() as f64 * rfmt.size * 0.65;
                         let run_h = rfmt.size * 1.25;
                         if x >= run.x && x <= run.x + approx_w && y >= run.y && y <= run.y + run_h {
-                            return Ok(json!({"url": rfmt.url, "target": rfmt.target}));
+                            return Ok(json!({"url": rfmt.url, "target": rfmt.target_str()}));
                         }
                     }
                 }
@@ -902,7 +902,7 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
                     && y <= line.y + line.height
             });
             Ok(if hit {
-                json!({"url":field.format.url,"target":field.format.target})
+                json!({"url":field.format.url,"target":field.format.target_str()})
             } else {
                 Value::Null
             })

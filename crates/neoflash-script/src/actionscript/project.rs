@@ -600,6 +600,44 @@ const BUILTINS: &[&str] = &[
     "flash.media.VP6VideoStreamSettings",
     "flash.media.VideoCodec",
     "flash.media.VideoStreamSettings",
+    // AIR HTML, media, networking, printing, security, text, ANE & system
+    "flash.external.ExtensionContext",
+    "flash.html.HTMLHistoryItem",
+    "flash.html.HTMLHost",
+    "flash.html.HTMLLoader",
+    "flash.html.HTMLPDFCapability",
+    "flash.html.HTMLSWFCapability",
+    "flash.html.HTMLWindowCreateOptions",
+    "flash.media.AudioPlaybackMode",
+    "flash.media.CameraRoll",
+    "flash.media.CameraRollBrowseOptions",
+    "flash.media.CameraUI",
+    "flash.media.MediaPromise",
+    "flash.media.MediaType",
+    "flash.media.StageWebView",
+    "flash.net.DatagramSocket",
+    "flash.net.IPVersion",
+    "flash.net.InterfaceAddress",
+    "flash.net.NetworkInfo",
+    "flash.net.NetworkInterface",
+    "flash.net.ServerSocket",
+    "flash.net.URLRequestDefaults",
+    "flash.printing.PaperSize",
+    "flash.printing.PrintMethod",
+    "flash.printing.PrintUIOptions",
+    "flash.security.IURIDereferencer",
+    "flash.security.ReferencesValidationSetting",
+    "flash.security.RevocationCheckSettings",
+    "flash.security.SignatureStatus",
+    "flash.security.SignerTrustSettings",
+    "flash.security.XMLSignatureValidator",
+    "flash.system.ImageDecodingPolicy",
+    "flash.text.AutoCapitalize",
+    "flash.text.ReturnKeyLabel",
+    "flash.text.SoftKeyboardType",
+    "flash.text.StageText",
+    "flash.text.StageTextClearButtonMode",
+    "flash.text.StageTextInitOptions",
     "flash.ui.GameInput",
     "flash.ui.GameInputControl",
     "flash.ui.GameInputDevice",
@@ -1182,8 +1220,6 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "listWorkers"
                 | "local3DToGlobal"
                 | "globalToLocal3D"
-                | "getRelativeMatrix3D"
-                | "requestSoftKeyboard"
                 | "beginShaderFill"
                 | "lineShaderStyle"
                 | "unloadAndStop"
@@ -1287,6 +1323,41 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "systemOpenLinkMenuItem"
                 | "systemPasteMenuItem"
                 | "systemSelectAllMenuItem"
+                | "cancelLoad"
+                | "createRootWindow"
+                | "getHistoryAt"
+                | "historyBack"
+                | "historyForward"
+                | "historyGo"
+                | "loadString"
+                | "reload"
+                | "createWindow"
+                | "updateLocation"
+                | "updateStatus"
+                | "updateTitle"
+                | "windowBlur"
+                | "windowClose"
+                | "windowFocus"
+                | "loadURL"
+                | "drawViewPortToBitmapData"
+                | "addBitmapData"
+                | "browseForImage"
+                | "launch"
+                | "bind"
+                | "listen"
+                | "findInterfaces"
+                | "setLoginCredentialsForHost"
+                | "uploadUnencoded"
+                | "preloadEmbeddedData"
+                | "setDRMAuthenticationCredentials"
+                | "selectPaperSize"
+                | "showPageSetupDialog"
+                | "start2"
+                | "addCertificate"
+                | "verify"
+                | "dereference"
+                | "createExtensionContext"
+                | "getExtensionDirectory"
                 | "getDeviceAt"
                 | "getControlAt"
                 | "startCachingSamples"
@@ -1307,6 +1378,11 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "isLabeledBy"
                 | "get_selectionActiveIndex"
                 | "get_selectionAnchorIndex"
+                | "loadFilePromise"
+                | "createVertexBufferForInstances"
+                | "drawTrianglesInstanced"
+                | "uploadFromBitmapDataAsync"
+                | "uploadFromByteArrayAsync"
         )
 }
 
@@ -1450,6 +1526,8 @@ fn visible_names(
                                 || !AS2_BUILTINS.contains(&name.as_str())))
                         || *name == "flash.display.BitmapData"
                         || *name == "flash.external.ExternalInterface"
+                        || *name == "flash.net.FileReference"
+                        || *name == "flash.net.FileReferenceList"
                         || (language == ScriptLanguage::ActionScript2
                             && matches!(
                                 name.as_str(),
@@ -2346,7 +2424,10 @@ fn parse_class(
             || base.starts_with("flash.printing.")
             || base.starts_with("flash.profiler.")
             || base.starts_with("flash.sampler.")
-            || base.starts_with("flash.security.")
+            || (base.starts_with("flash.security.") && base != "flash.security.IURIDereferencer")
+            || (base.starts_with("flash.html.") && base != "flash.html.HTMLHost")
+            || base.starts_with("flash.net.dns.")
+            || base.starts_with("flash.net.drm.")
             || base.starts_with("flash.system.")
             || base.starts_with("flash.display3D.")
             || base.starts_with("flash.ui.")
@@ -2383,6 +2464,32 @@ fn parse_class(
                     | "flash.display.ShaderJob"
                     | "flash.display.GraphicsShaderFill"
                     | "flash.display.Stage3D"
+                    | "flash.external.ExtensionContext"
+                    | "flash.media.AudioPlaybackMode"
+                    | "flash.media.CameraPosition"
+                    | "flash.media.CameraRoll"
+                    | "flash.media.CameraRollBrowseOptions"
+                    | "flash.media.CameraUI"
+                    | "flash.media.MediaPromise"
+                    | "flash.media.MediaType"
+                    | "flash.media.StageWebView"
+                    | "flash.net.DatagramSocket"
+                    | "flash.net.IPVersion"
+                    | "flash.net.InterfaceAddress"
+                    | "flash.net.NetworkInfo"
+                    | "flash.net.NetworkInterface"
+                    | "flash.net.ServerSocket"
+                    | "flash.net.URLRequestDefaults"
+                    | "flash.system.ImageDecodingPolicy"
+                    | "flash.text.AutoCapitalize"
+                    | "flash.text.ReturnKeyLabel"
+                    | "flash.text.SoftKeyboardType"
+                    | "flash.text.StageText"
+                    | "flash.text.StageTextClearButtonMode"
+                    | "flash.text.StageTextInitOptions"
+                    | "flash.ui.GameInput"
+                    | "flash.ui.GameInputControl"
+                    | "flash.ui.GameInputDevice"
             )
     }) {
         return Err(Diagnostic::at(
@@ -2891,6 +2998,7 @@ fn native_member(base: &str, name: &str) -> bool {
                 | "toString"
         ),
         "flash.text.Font" => matches!(name, "fontName" | "fontStyle" | "fontType" | "hasGlyphs"),
+        "flash.html.HTMLHost" => matches!(name, "htmlLoader"),
         _ => false,
     };
     if value_member {
@@ -3312,8 +3420,17 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                     &[],
                     "int",
                 ),
-                ),
             ]),
+        ),
+        (
+            "flash.security.IURIDereferencer".to_owned(),
+            BTreeMap::from([entry(
+                "flash.security.IURIDereferencer",
+                "dereference",
+                MethodKind::Method,
+                &[("String", false)],
+                "flash.utils.IDataInput",
+            )]),
         ),
     ])
 }
@@ -3509,6 +3626,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         let mut acc_members = vec![
             MemberRecord {
                 name: "errno".into(),
+                namespace: None,
                 ty: Some("uint".into()),
                 access: Access::Public,
                 owner: acc_owner.into(),
@@ -3516,6 +3634,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             },
             MemberRecord {
                 name: "stub".into(),
+                namespace: None,
                 ty: Some("Boolean".into()),
                 access: Access::Public,
                 owner: acc_owner.into(),
@@ -3525,6 +3644,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         for ((mname, _), _) in &acc_contracts {
             acc_members.push(MemberRecord {
                 name: mname.clone(),
+                namespace: None,
                 ty: Some("Function".into()),
                 access: Access::Public,
                 owner: acc_owner.into(),
@@ -3534,6 +3654,46 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         resolved.insert(acc_owner.into(), acc_members);
         class_contracts.insert(acc_owner.into(), acc_contracts);
     }
+    let html_host_contract = |method_name: &str, kind: MethodKind, params: &[&str], ret: &str| {
+        (
+            (method_name.to_owned(), kind),
+            MethodContract {
+                signature: Signature {
+                    params: params.iter().map(|s| (*s).to_owned()).collect(),
+                    optional: vec![false; params.len()],
+                    rest: false,
+                    returns: ret.to_owned(),
+                },
+                access: Access::Public,
+                owner: "flash.html.HTMLHost".to_owned(),
+                final_: false,
+            },
+        )
+    };
+    class_contracts.insert(
+        "flash.html.HTMLHost".to_owned(),
+        vec![
+            html_host_contract(
+                "createWindow",
+                MethodKind::Method,
+                &["flash.html.HTMLWindowCreateOptions"],
+                "flash.html.HTMLLoader",
+            ),
+            html_host_contract("updateLocation", MethodKind::Method, &["String"], "void"),
+            html_host_contract("updateStatus", MethodKind::Method, &["String"], "void"),
+            html_host_contract("updateTitle", MethodKind::Method, &["String"], "void"),
+            html_host_contract("windowBlur", MethodKind::Method, &[], "void"),
+            html_host_contract("windowClose", MethodKind::Method, &[], "void"),
+            html_host_contract("windowFocus", MethodKind::Method, &[], "void"),
+            html_host_contract("windowRect", MethodKind::Get, &[], "flash.geom.Rectangle"),
+            html_host_contract(
+                "windowRect",
+                MethodKind::Set,
+                &["flash.geom.Rectangle"],
+                "void",
+            ),
+        ],
+    );
     let mut native_bases = BTreeMap::<String, String>::new();
     let mut contracts = builtin_interfaces.clone();
     let mut interface_closures: BTreeMap<String, BTreeSet<String>> = builtin_interfaces

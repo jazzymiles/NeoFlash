@@ -78,21 +78,17 @@ impl Player {
         let mut resolved = Vec::with_capacity(filters.len());
         for spec in filters {
             let mut item = spec.clone();
-            if let FilterSpec::Displacement {
-                map_bitmap: Some(ref pixel_ref),
-                ref mut map_width,
-                ref mut map_height,
-                ref mut map_rgba,
-                ..
-            } = item
-                && map_rgba.is_empty()
+            if let Some(mut disp) = item.as_displacement()
+                && let Some(ref pixel_ref) = disp.map_bitmap
+                && disp.map_rgba.is_empty()
                 && let Ok(info) = self.bitmap_info(pixel_ref)
                 && !info.disposed
                 && let Ok(bytes) = self.bitmap_pixels(pixel_ref)
             {
-                *map_width = info.width;
-                *map_height = info.height;
-                *map_rgba = bytes;
+                disp.map_width = info.width;
+                disp.map_height = info.height;
+                disp.map_rgba = bytes;
+                item = FilterSpec::from_displacement(&disp);
             }
             resolved.push(item);
         }

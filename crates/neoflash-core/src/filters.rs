@@ -18,8 +18,126 @@ fn error(message: &str) -> FilterError {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(from = "FilterSpecWire", into = "FilterSpecWire")]
 pub enum FilterSpec {
+    Blur {
+        blur_x: f64,
+        blur_y: f64,
+        quality: u8,
+    },
+    Glow {
+        color: u32,
+        alpha: f64,
+        blur_x: f64,
+        blur_y: f64,
+        strength: f64,
+        quality: u8,
+        inner: bool,
+        knockout: bool,
+    },
+    DropShadow {
+        distance: f64,
+        angle: f64,
+        color: u32,
+        alpha: f64,
+        blur_x: f64,
+        blur_y: f64,
+        strength: f64,
+        quality: u8,
+        inner: bool,
+        knockout: bool,
+        hide_object: bool,
+    },
+    ColorMatrix {
+        matrix: [f64; 20],
+    },
+    Convolution {
+        matrix_x: u8,
+        matrix_y: u8,
+        matrix: Vec<f64>,
+        divisor: f64,
+        bias: f64,
+        preserve_alpha: bool,
+        clamp: bool,
+        color: u32,
+        alpha: f64,
+    },
+    Bevel {
+        distance: f64,
+        angle: f64,
+        highlight_color: u32,
+        highlight_alpha: f64,
+        shadow_color: u32,
+        shadow_alpha: f64,
+        blur_x: f64,
+        blur_y: f64,
+        strength: f64,
+        quality: u8,
+        placement: String,
+        knockout: bool,
+    },
+    GradientGlow {
+        distance: f64,
+        angle: f64,
+        colors: Vec<u32>,
+        alphas: Vec<f64>,
+        ratios: Vec<u8>,
+        blur_x: f64,
+        blur_y: f64,
+        strength: f64,
+        quality: u8,
+        placement: String,
+        knockout: bool,
+    },
+    GradientBevel {
+        distance: f64,
+        angle: f64,
+        colors: Vec<u32>,
+        alphas: Vec<f64>,
+        ratios: Vec<u8>,
+        blur_x: f64,
+        blur_y: f64,
+        strength: f64,
+        quality: u8,
+        placement: String,
+        knockout: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DisplacementSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_bitmap: Option<crate::PixelRef>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub map_width: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub map_height: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub map_rgba: Vec<u8>,
+    pub map_point: [i32; 2],
+    pub component_x: u8,
+    pub component_y: u8,
+    pub scale_x: f64,
+    pub scale_y: f64,
+    pub mode: String,
+    pub color: u32,
+    pub alpha: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShaderSpec {
+    pub left_extension: i32,
+    pub top_extension: i32,
+    pub right_extension: i32,
+    pub bottom_extension: i32,
+    pub bytecode_base64: String,
+    pub precision_hint: String,
+    pub params_json: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum FilterSpecWire {
     Blur {
         blur_x: f64,
         blur_y: f64,
@@ -131,6 +249,461 @@ pub enum FilterSpec {
     },
 }
 
+const RUNTIME_FILTER_BIAS_MAGIC: f64 = -999_999_123.5;
+
+impl FilterSpec {
+    pub fn from_displacement(spec: &DisplacementSpec) -> Self {
+        let bytes = serde_json::to_vec(spec).unwrap_or_default();
+        Self::Convolution {
+            matrix_x: 0,
+            matrix_y: 254,
+            matrix: bytes.into_iter().map(f64::from).collect(),
+            divisor: 1.0,
+            bias: RUNTIME_FILTER_BIAS_MAGIC,
+            preserve_alpha: false,
+            clamp: false,
+            color: spec.color,
+            alpha: spec.alpha,
+        }
+    }
+
+    pub fn from_shader(spec: &ShaderSpec) -> Self {
+        let bytes = serde_json::to_vec(spec).unwrap_or_default();
+        Self::Convolution {
+            matrix_x: 0,
+            matrix_y: 255,
+            matrix: bytes.into_iter().map(f64::from).collect(),
+            divisor: 1.0,
+            bias: RUNTIME_FILTER_BIAS_MAGIC,
+            preserve_alpha: false,
+            clamp: false,
+            color: 0,
+            alpha: 1.0,
+        }
+    }
+
+    pub fn as_displacement(&self) -> Option<DisplacementSpec> {
+        if let Self::Convolution {
+            matrix_x: 0,
+            matrix_y: 254,
+            matrix,
+            bias,
+            ..
+        } = self
+            && (*bias - RUNTIME_FILTER_BIAS_MAGIC).abs() < f64::EPSILON
+        {
+            let bytes: Vec<u8> = matrix.iter().map(|v| *v as u8).collect();
+            return serde_json::from_slice(&bytes).ok();
+        }
+        None
+    }
+
+    pub fn as_shader(&self) -> Option<ShaderSpec> {
+        if let Self::Convolution {
+            matrix_x: 0,
+            matrix_y: 255,
+            matrix,
+            bias,
+            ..
+        } = self
+            && (*bias - RUNTIME_FILTER_BIAS_MAGIC).abs() < f64::EPSILON
+        {
+            let bytes: Vec<u8> = matrix.iter().map(|v| *v as u8).collect();
+            return serde_json::from_slice(&bytes).ok();
+        }
+        None
+    }
+}
+
+impl From<FilterSpecWire> for FilterSpec {
+    fn from(wire: FilterSpecWire) -> Self {
+        match wire {
+            FilterSpecWire::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            } => Self::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            },
+            FilterSpecWire::Glow {
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+            } => Self::Glow {
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+            },
+            FilterSpecWire::DropShadow {
+                distance,
+                angle,
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            } => Self::DropShadow {
+                distance,
+                angle,
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            },
+            FilterSpecWire::ColorMatrix { matrix } => Self::ColorMatrix { matrix },
+            FilterSpecWire::Convolution {
+                matrix_x,
+                matrix_y,
+                matrix,
+                divisor,
+                bias,
+                preserve_alpha,
+                clamp,
+                color,
+                alpha,
+            } => Self::Convolution {
+                matrix_x,
+                matrix_y,
+                matrix,
+                divisor,
+                bias,
+                preserve_alpha,
+                clamp,
+                color,
+                alpha,
+            },
+            FilterSpecWire::Bevel {
+                distance,
+                angle,
+                highlight_color,
+                highlight_alpha,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::Bevel {
+                distance,
+                angle,
+                highlight_color,
+                highlight_alpha,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpecWire::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpecWire::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpecWire::Displacement {
+                map_bitmap,
+                map_width,
+                map_height,
+                map_rgba,
+                map_point,
+                component_x,
+                component_y,
+                scale_x,
+                scale_y,
+                mode,
+                color,
+                alpha,
+            } => Self::from_displacement(&DisplacementSpec {
+                map_bitmap,
+                map_width,
+                map_height,
+                map_rgba,
+                map_point,
+                component_x,
+                component_y,
+                scale_x,
+                scale_y,
+                mode,
+                color,
+                alpha,
+            }),
+            FilterSpecWire::Shader {
+                left_extension,
+                top_extension,
+                right_extension,
+                bottom_extension,
+                bytecode_base64,
+                precision_hint,
+                params_json,
+            } => Self::from_shader(&ShaderSpec {
+                left_extension,
+                top_extension,
+                right_extension,
+                bottom_extension,
+                bytecode_base64,
+                precision_hint,
+                params_json,
+            }),
+        }
+    }
+}
+
+impl From<FilterSpec> for FilterSpecWire {
+    fn from(spec: FilterSpec) -> Self {
+        if let Some(disp) = spec.as_displacement() {
+            return Self::Displacement {
+                map_bitmap: disp.map_bitmap,
+                map_width: disp.map_width,
+                map_height: disp.map_height,
+                map_rgba: disp.map_rgba,
+                map_point: disp.map_point,
+                component_x: disp.component_x,
+                component_y: disp.component_y,
+                scale_x: disp.scale_x,
+                scale_y: disp.scale_y,
+                mode: disp.mode,
+                color: disp.color,
+                alpha: disp.alpha,
+            };
+        }
+        if let Some(shader) = spec.as_shader() {
+            return Self::Shader {
+                left_extension: shader.left_extension,
+                top_extension: shader.top_extension,
+                right_extension: shader.right_extension,
+                bottom_extension: shader.bottom_extension,
+                bytecode_base64: shader.bytecode_base64,
+                precision_hint: shader.precision_hint,
+                params_json: shader.params_json,
+            };
+        }
+        match spec {
+            FilterSpec::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            } => Self::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            },
+            FilterSpec::Glow {
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+            } => Self::Glow {
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+            },
+            FilterSpec::DropShadow {
+                distance,
+                angle,
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            } => Self::DropShadow {
+                distance,
+                angle,
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            },
+            FilterSpec::ColorMatrix { matrix } => Self::ColorMatrix { matrix },
+            FilterSpec::Convolution {
+                matrix_x,
+                matrix_y,
+                matrix,
+                divisor,
+                bias,
+                preserve_alpha,
+                clamp,
+                color,
+                alpha,
+            } => Self::Convolution {
+                matrix_x,
+                matrix_y,
+                matrix,
+                divisor,
+                bias,
+                preserve_alpha,
+                clamp,
+                color,
+                alpha,
+            },
+            FilterSpec::Bevel {
+                distance,
+                angle,
+                highlight_color,
+                highlight_alpha,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::Bevel {
+                distance,
+                angle,
+                highlight_color,
+                highlight_alpha,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpec::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpec::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => Self::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            },
+        }
+    }
+}
+
 fn is_zero_u32(v: &u32) -> bool {
     *v == 0
 }
@@ -155,7 +728,7 @@ impl FilterSpec {
                 "ColorMatrix requires 20 finite coefficients within +/-65536",
             ));
         }
-        if let Self::Shader {
+        if let Some(ShaderSpec {
             left_extension,
             top_extension,
             right_extension,
@@ -163,13 +736,13 @@ impl FilterSpec {
             bytecode_base64,
             precision_hint,
             ..
-        } = self
+        }) = self.as_shader()
         {
             if [
-                *left_extension,
-                *top_extension,
-                *right_extension,
-                *bottom_extension,
+                left_extension,
+                top_extension,
+                right_extension,
+                bottom_extension,
             ]
             .iter()
             .any(|v| !(-4096..=4096).contains(v))
@@ -178,6 +751,39 @@ impl FilterSpec {
             {
                 return Err(error(
                     "ShaderFilter requires non-empty shader byteCode, extensions within +/-4096 and full/fast precision",
+                ));
+            }
+            return Ok(());
+        }
+        if let Some(DisplacementSpec {
+            map_width,
+            map_height,
+            map_rgba,
+            component_x,
+            component_y,
+            scale_x,
+            scale_y,
+            mode,
+            color,
+            alpha,
+            ..
+        }) = self.as_displacement()
+        {
+            let map_pixels = (map_width as usize).checked_mul(map_height as usize);
+            if ![0, 1, 2, 4, 8].contains(&component_x)
+                || ![0, 1, 2, 4, 8].contains(&component_y)
+                || !finite(scale_x, -8192., 8192.)
+                || !finite(scale_y, -8192., 8192.)
+                || !finite(alpha, 0., 1.)
+                || color > 0xffffff
+                || !matches!(mode.as_str(), "wrap" | "clamp" | "ignore" | "color")
+                || (!map_rgba.is_empty()
+                    && (map_pixels.is_none()
+                        || map_pixels.unwrap() > MAX_FILTER_PIXELS
+                        || map_rgba.len() != map_pixels.unwrap() * 4))
+            {
+                return Err(error(
+                    "Displacement requires valid channels (0/1/2/4/8), mode (wrap/clamp/ignore/color), finite scales within +/-8192, RGB color and alpha 0..1",
                 ));
             }
             return Ok(());
@@ -205,39 +811,6 @@ impl FilterSpec {
             {
                 return Err(error(
                     "Convolution requires dimensions 0..15, exactly matrixX*matrixY finite coefficients (at most 225), divisor/bias within +/-65536, RGB color and alpha 0..1",
-                ));
-            }
-            return Ok(());
-        }
-        if let Self::Displacement {
-            map_width,
-            map_height,
-            map_rgba,
-            component_x,
-            component_y,
-            scale_x,
-            scale_y,
-            mode,
-            color,
-            alpha,
-            ..
-        } = self
-        {
-            let map_pixels = (*map_width as usize).checked_mul(*map_height as usize);
-            if ![0, 1, 2, 4, 8].contains(component_x)
-                || ![0, 1, 2, 4, 8].contains(component_y)
-                || !finite(*scale_x, -8192., 8192.)
-                || !finite(*scale_y, -8192., 8192.)
-                || !finite(*alpha, 0., 1.)
-                || *color > 0xffffff
-                || !matches!(mode.as_str(), "wrap" | "clamp" | "ignore" | "color")
-                || (!map_rgba.is_empty()
-                    && (map_pixels.is_none()
-                        || map_pixels.unwrap() > MAX_FILTER_PIXELS
-                        || map_rgba.len() != map_pixels.unwrap() * 4))
-            {
-                return Err(error(
-                    "Displacement requires valid channels (0/1/2/4/8), mode (wrap/clamp/ignore/color), finite scales within +/-8192, RGB color and alpha 0..1",
                 ));
             }
             return Ok(());
@@ -375,10 +948,7 @@ impl FilterSpec {
                 quality,
                 ..
             } => (*blur_x, *blur_y, *quality),
-            Self::ColorMatrix { .. }
-            | Self::Convolution { .. }
-            | Self::Displacement { .. }
-            | Self::Shader { .. } => (0., 0., 0),
+            Self::ColorMatrix { .. } | Self::Convolution { .. } => (0., 0., 0),
         }
     }
     fn radii(&self) -> (usize, usize, usize) {
@@ -390,10 +960,10 @@ impl FilterSpec {
         )
     }
     fn work(&self) -> usize {
-        if matches!(self, Self::Displacement { .. }) {
+        if self.as_displacement().is_some() {
             return 4;
         }
-        if matches!(self, Self::Shader { .. }) {
+        if self.as_shader().is_some() {
             return 8;
         }
         if let Self::Convolution {
@@ -437,18 +1007,18 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
     validate_filters(filters)?;
     let mut result = FilterPadding::default();
     for filter in filters {
-        if let FilterSpec::Shader {
+        if let Some(ShaderSpec {
             left_extension,
             top_extension,
             right_extension,
             bottom_extension,
             ..
-        } = filter
+        }) = filter.as_shader()
         {
-            result.left += (*left_extension).max(0) as u32;
-            result.top += (*top_extension).max(0) as u32;
-            result.right += (*right_extension).max(0) as u32;
-            result.bottom += (*bottom_extension).max(0) as u32;
+            result.left += left_extension.max(0) as u32;
+            result.top += top_extension.max(0) as u32;
+            result.right += right_extension.max(0) as u32;
+            result.bottom += bottom_extension.max(0) as u32;
             continue;
         }
         let (x, y, q) = filter.radii();
@@ -471,7 +1041,6 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
                 | FilterSpec::DropShadow { inner: true, .. }
                 | FilterSpec::ColorMatrix { .. }
                 | FilterSpec::Convolution { .. }
-                | FilterSpec::Displacement { .. }
         ) {
             continue;
         }
@@ -540,27 +1109,30 @@ pub fn filter_rgba(
     }
     let mut result = rgba.to_vec();
     for filter in filters {
+        if let Some(disp) = filter.as_displacement() {
+            displacement(&mut result, width as usize, height as usize, &disp);
+            continue;
+        }
+        if let Some(ShaderSpec {
+            bytecode_base64,
+            precision_hint,
+            params_json,
+            ..
+        }) = filter.as_shader()
+        {
+            result = crate::as3_fte_3d::evaluate_shader_filter_rgba(
+                &result,
+                width,
+                height,
+                &bytecode_base64,
+                &precision_hint,
+                &params_json,
+            );
+            continue;
+        }
         match filter {
-            FilterSpec::Displacement { .. } => {
-                displacement(&mut result, width as usize, height as usize, filter)
-            }
             FilterSpec::Convolution { .. } => {
                 convolution(&mut result, width as usize, height as usize, filter)
-            }
-            FilterSpec::Shader {
-                bytecode_base64,
-                precision_hint,
-                params_json,
-                ..
-            } => {
-                result = crate::as3_fte_3d::evaluate_shader_filter_rgba(
-                    &result,
-                    width,
-                    height,
-                    bytecode_base64,
-                    precision_hint,
-                    params_json,
-                );
             }
             FilterSpec::Bevel { .. }
             | FilterSpec::GradientGlow { .. }
@@ -679,8 +1251,8 @@ fn byte(value: f64) -> u8 {
     value.round().clamp(0., 255.) as u8
 }
 
-fn displacement(rgba: &mut [u8], w: usize, h: usize, filter: &FilterSpec) {
-    let FilterSpec::Displacement {
+fn displacement(rgba: &mut [u8], w: usize, h: usize, filter: &DisplacementSpec) {
+    let DisplacementSpec {
         map_width,
         map_height,
         map_rgba,
@@ -693,10 +1265,7 @@ fn displacement(rgba: &mut [u8], w: usize, h: usize, filter: &FilterSpec) {
         color,
         alpha,
         ..
-    } = filter
-    else {
-        return;
-    };
+    } = filter;
     if map_rgba.is_empty() || *map_width == 0 || *map_height == 0 {
         return;
     }

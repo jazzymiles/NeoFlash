@@ -54,7 +54,13 @@
     const geometry = options.geometry || null;
     const getXML = options.getXML || (() => null);
     const getStage = options.getStage || (() => null);
+    const getDisplay = options.getDisplay || (() => null);
+    const getBitmap = options.getBitmap || (() => null);
+    const getLoader = options.getLoader || (() => null);
     const getViewportSize = options.getViewportSize || (() => [800, 600]);
+    let activeStageText = null;
+    let networkInfoSingleton = null;
+    const hostCleanups = [];
     const schedule =
       options.schedule ||
       (cb => {
@@ -314,6 +320,110 @@
       PEN: 'pen',
       UNKNOWN: 'unknown',
     });
+
+    // Augment shared eventFamilies (TouchEvent & TransformGestureEvent) with AIR members.
+    const touchExtraStates = new WeakMap();
+    function touchExtra(ev) {
+      let s = touchExtraStates.get(ev);
+      if (!s) {
+        s = {
+          isTouchPointCanceled: false,
+          timestamp: 0,
+          touchIntent: 'unknown',
+          toolButtons: 0,
+          samples: null,
+        };
+        touchExtraStates.set(ev, s);
+      }
+      return s;
+    }
+    if (options.eventFamilies?.TouchEvent) {
+      const TE = options.eventFamilies.TouchEvent;
+      if (!Object.isFrozen(TE)) {
+        Object.assign(TE, {
+          PROXIMITY_BEGIN: 'proximityBegin',
+          PROXIMITY_END: 'proximityEnd',
+          PROXIMITY_MOVE: 'proximityMove',
+          PROXIMITY_OUT: 'proximityOut',
+          PROXIMITY_OVER: 'proximityOver',
+          PROXIMITY_ROLL_OUT: 'proximityRollOut',
+          PROXIMITY_ROLL_OVER: 'proximityRollOver',
+        });
+      }
+      if (TE.prototype && !Object.isFrozen(TE.prototype)) {
+        Object.defineProperties(TE.prototype, {
+          isTouchPointCanceled: {
+            get() { return touchExtra(this).isTouchPointCanceled; },
+            set(v) { touchExtra(this).isTouchPointCanceled = Boolean(v); },
+            enumerable: true,
+            configurable: true,
+          },
+          timestamp: {
+            get() { return touchExtra(this).timestamp; },
+            set(v) { touchExtra(this).timestamp = Number(v) || 0; },
+            enumerable: true,
+            configurable: true,
+          },
+          touchIntent: {
+            get() { return touchExtra(this).touchIntent; },
+            set(v) { touchExtra(this).touchIntent = String(v ?? 'unknown'); },
+            enumerable: true,
+            configurable: true,
+          },
+          getSamples: {
+            value(buffer, append = false) {
+              if (!buffer || typeof buffer.writeFloat !== 'function') {
+                throw new TypeError('TouchEvent.getSamples requires a ByteArray buffer.');
+              }
+              if (!append) {
+                buffer.length = 0;
+                buffer.position = 0;
+              }
+              const s = touchExtra(this);
+              const list = Array.isArray(s.samples) && s.samples.length > 0
+                ? s.samples
+                : [[
+                    Number.isFinite(this.localX) ? this.localX : 0,
+                    Number.isFinite(this.localY) ? this.localY : 0,
+                    Number.isFinite(this.pressure) ? this.pressure : 1,
+                  ]];
+              for (const [sx, sy, sp] of list) {
+                buffer.writeFloat(Number(sx) || 0);
+                buffer.writeFloat(Number(sy) || 0);
+                buffer.writeFloat(Number.isFinite(sp) ? Number(sp) : 1);
+              }
+              return list.length;
+            },
+            configurable: true,
+            writable: true,
+          },
+          isToolButtonDown: {
+            value(index) {
+              const bit = Number(index) | 0;
+              if (bit < 0 || bit > 31) return false;
+              return ((touchExtra(this).toolButtons >>> bit) & 1) === 1;
+            },
+            configurable: true,
+            writable: true,
+          },
+        });
+      }
+    }
+    const transformGestureVelocity = new WeakMap();
+    if (options.eventFamilies?.TransformGestureEvent) {
+      const TGE = options.eventFamilies.TransformGestureEvent;
+      if (!Object.isFrozen(TGE)) {
+        TGE.GESTURE_DIRECTIONAL_TAP = 'gestureDirectionalTap';
+      }
+      if (TGE.prototype && !Object.isFrozen(TGE.prototype) && !Object.hasOwn(TGE.prototype, 'velocity')) {
+        Object.defineProperty(TGE.prototype, 'velocity', {
+          get() { return transformGestureVelocity.get(this) ?? 0; },
+          set(v) { transformGestureVelocity.set(this, Number(v) || 0); },
+          enumerable: true,
+          configurable: true,
+        });
+      }
+    }
 
     class InvokeEvent extends BaseEvent {
       constructor(
@@ -1110,6 +1220,196 @@
       v => v instanceof VsyncStateChangeAvailabilityEvent
     );
 
+    class AVHTTPStatusEvent extends BaseEvent {
+      constructor(
+        type,
+        bubbles = false,
+        cancelable = false,
+        status = 0,
+        responseUrl = null,
+        responseHeaders = null
+      ) {
+        super(type, bubbles, cancelable);
+        this.status = Number(status) | 0;
+        this.responseURL = responseUrl == null ? null : String(responseUrl);
+        this.responseHeaders = Array.isArray(responseHeaders) ? responseHeaders.slice() : [];
+        this.redirected = false;
+      }
+      clone() {
+        const ev = new AVHTTPStatusEvent(
+          this.type,
+          this.bubbles,
+          this.cancelable,
+          this.status,
+          this.responseURL,
+          this.responseHeaders.slice()
+        );
+        ev.redirected = this.redirected;
+        return ev;
+      }
+      toString() {
+        return fmtEvent(this, 'AVHTTPStatusEvent', ['status', 'responseURL']);
+      }
+    }
+    AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS = 'avHttpResponseStatus';
+    tagType(AVHTTPStatusEvent, 'AVHTTPStatusEvent', v => v instanceof AVHTTPStatusEvent);
+
+    class DRMDeviceGroupEvent extends BaseEvent {
+      constructor(type, bubbles = false, cancelable = false, deviceGroup = null) {
+        super(type, bubbles, cancelable);
+        this.deviceGroup = deviceGroup ?? null;
+      }
+      clone() {
+        return new DRMDeviceGroupEvent(this.type, this.bubbles, this.cancelable, this.deviceGroup);
+      }
+      toString() {
+        return fmtEvent(this, 'DRMDeviceGroupEvent', ['deviceGroup']);
+      }
+    }
+    Object.assign(DRMDeviceGroupEvent, {
+      ADD_TO_DEVICE_GROUP_COMPLETE: 'addToDeviceGroupComplete',
+      REMOVE_TO_DEVICE_GROUP_COMPLETE: 'removeFromDeviceGroupComplete',
+      REMOVE_FROM_DEVICE_GROUP_COMPLETE: 'removeFromDeviceGroupComplete',
+    });
+    tagType(DRMDeviceGroupEvent, 'DRMDeviceGroupEvent', v => v instanceof DRMDeviceGroupEvent);
+
+    class DRMDeviceGroupErrorEvent extends BaseErrorEvent {
+      constructor(
+        type,
+        bubbles = false,
+        cancelable = false,
+        errorDetail = '',
+        errorCode = 0,
+        subErrorID = 0,
+        deviceGroup = null,
+        systemUpdateNeeded = false,
+        drmUpdateNeeded = false
+      ) {
+        super(type, bubbles, cancelable, String(errorDetail ?? ''), Number(errorCode) | 0);
+        this.text = String(errorDetail ?? '');
+        if (!('errorID' in this)) {
+          Object.defineProperty(this, 'errorID', { value: Number(errorCode) | 0, enumerable: true });
+        }
+        this.subErrorID = Number(subErrorID) | 0;
+        this.deviceGroup = deviceGroup ?? null;
+        this.systemUpdateNeeded = Boolean(systemUpdateNeeded);
+        this.drmUpdateNeeded = Boolean(drmUpdateNeeded);
+      }
+      clone() {
+        return new DRMDeviceGroupErrorEvent(
+          this.type,
+          this.bubbles,
+          this.cancelable,
+          this.text,
+          this.errorID,
+          this.subErrorID,
+          this.deviceGroup,
+          this.systemUpdateNeeded,
+          this.drmUpdateNeeded
+        );
+      }
+      toString() {
+        return fmtEvent(this, 'DRMDeviceGroupErrorEvent', [
+          'text',
+          'errorID',
+          'subErrorID',
+          'deviceGroup',
+          'systemUpdateNeeded',
+          'drmUpdateNeeded',
+        ]);
+      }
+    }
+    Object.assign(DRMDeviceGroupErrorEvent, {
+      ADD_TO_DEVICE_GROUP_ERROR: 'addToDeviceGroupError',
+      REMOVE_FROM_DEVICE_GROUP_ERROR: 'removeFromDeviceGroupError',
+    });
+    tagType(
+      DRMDeviceGroupErrorEvent,
+      'DRMDeviceGroupErrorEvent',
+      v => v instanceof DRMDeviceGroupErrorEvent
+    );
+
+    class DRMStatusEvent extends BaseEvent {
+      constructor(
+        type = 'drmStatus',
+        bubbles = false,
+        cancelable = false,
+        inMetadata = null,
+        inVoucher = null,
+        inLocal = false
+      ) {
+        super(type, bubbles, cancelable);
+        this.contentData = inMetadata ?? null;
+        this.voucher = inVoucher ?? null;
+        this.isLocal = Boolean(inLocal);
+        this.detail = inVoucher ? 'DRM.voucherObtained' : '';
+        this.isAnonymous = Boolean(inMetadata && inMetadata.authenticationMethod === 'anonymous');
+        this.isAvailableOffline = Boolean(
+          this.isLocal ||
+            (inVoucher && (inVoucher.offlineLeaseStartDate || inVoucher.offlineLeaseExpirationDate))
+        );
+        this.offlineLeasePeriod = Number(inVoucher?.offlineLeasePeriod ?? 0) >>> 0;
+        this.policies = inVoucher?.policies ?? {};
+        this.voucherEndDate = inVoucher?.voucherEndDate ?? null;
+      }
+      clone() {
+        const copy = new DRMStatusEvent(
+          this.type,
+          this.bubbles,
+          this.cancelable,
+          this.contentData,
+          this.voucher,
+          this.isLocal
+        );
+        copy.detail = this.detail;
+        copy.isAnonymous = this.isAnonymous;
+        copy.isAvailableOffline = this.isAvailableOffline;
+        copy.offlineLeasePeriod = this.offlineLeasePeriod;
+        copy.policies = this.policies;
+        copy.voucherEndDate = this.voucherEndDate;
+        return copy;
+      }
+      toString() {
+        return fmtEvent(this, 'DRMStatusEvent', [
+          'detail',
+          'isLocal',
+          'isAnonymous',
+          'isAvailableOffline',
+          'offlineLeasePeriod',
+          'voucherEndDate',
+        ]);
+      }
+    }
+    DRMStatusEvent.DRM_STATUS = 'drmStatus';
+    tagType(DRMStatusEvent, 'DRMStatusEvent', v => v instanceof DRMStatusEvent);
+
+    class StageVideoEvent extends BaseEvent {
+      constructor(type, bubbles = false, cancelable = false, status = null, colorSpace = null) {
+        super(type, bubbles, cancelable);
+        this.status = status == null ? null : String(status);
+        this.colorSpace = colorSpace == null ? null : String(colorSpace);
+      }
+      clone() {
+        return new StageVideoEvent(
+          this.type,
+          this.bubbles,
+          this.cancelable,
+          this.status,
+          this.colorSpace
+        );
+      }
+      toString() {
+        return fmtEvent(this, 'StageVideoEvent', ['status', 'colorSpace']);
+      }
+    }
+    Object.assign(StageVideoEvent, {
+      RENDER_STATE: 'renderState',
+      RENDER_STATUS_ACCELERATED: 'accelerated',
+      RENDER_STATUS_SOFTWARE: 'software',
+      RENDER_STATUS_UNAVAILABLE: 'unavailable',
+    });
+    tagType(StageVideoEvent, 'StageVideoEvent', v => v instanceof StageVideoEvent);
+
     // -------------------------------------------------------------------------
     // 3. flash.filesystem.* (FileMode, File, FileStream, StorageVolume*)
     // -------------------------------------------------------------------------
@@ -1544,6 +1844,42 @@
       browseForDirectory(_title) {
         fileState(this);
         scheduleTask(() => this.dispatchEvent(new BaseEvent(BaseEvent.CANCEL)));
+      }
+      uploadUnencoded(request) {
+        const s = fileState(this);
+        if (!request || typeof request.url !== 'string' || !request.url) {
+          throw argErr('uploadUnencoded requires a URLRequest with a non-empty url.');
+        }
+        const path = s.path;
+        if (!path) throw illegalOp('File does not have a path assigned.');
+        s.pendingCancel = false;
+        const targetUrl = String(request.url);
+        scheduleTask(() => {
+          if (s.pendingCancel) return;
+          try {
+            const bytes = callKernel('fs_open_stream', path, 'read', Date.now());
+            if (/^(app-storage:|app-desktop:|app-docs:|app-user:|app-cache:|file:|\/)/i.test(targetUrl)) {
+              const destPath = callKernel('normalize_path', targetUrl);
+              callKernel('fs_write_bytes', destPath, bytes, Date.now());
+            }
+            this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+            if (options.net?.ProgressEvent) {
+              this.dispatchEvent(
+                new options.net.ProgressEvent('progress', false, false, bytes.length, bytes.length)
+              );
+            }
+            if (options.net?.HTTPStatusEvent) {
+              const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+              hs.responseURL = targetUrl;
+              this.dispatchEvent(hs);
+              this.dispatchEvent(new options.net.HTTPStatusEvent('httpStatus', false, false, 200, false));
+            }
+            this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+          } catch (err) {
+            const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+            this.dispatchEvent(new Ev('ioError', false, false, String(err.message)));
+          }
+        });
       }
       openWithDefaultApplication() {
         throw illegalOp(
@@ -2153,7 +2489,7 @@
             clipboard,
             allowedActions: opts,
             dropAction: defaultAction,
-            acceptedTarget: null,
+            acceptedTarget: dragState.acceptedTarget,
           };
           dragInitiator.dispatchEvent(
             new NativeDragEvent(
@@ -2171,20 +2507,75 @@
           scheduleTask(() => {
             if (!dragState.dragging || dragState.initiator !== dragInitiator) return;
             const target = dragState.acceptedTarget;
-            if (target && typeof target.dispatchEvent === 'function' && dragState.dropAction !== 'none') {
+            if (target && typeof target.dispatchEvent === 'function') {
               target.dispatchEvent(
                 new NativeDragEvent(
-                  NativeDragEvent.NATIVE_DRAG_DROP,
+                  NativeDragEvent.NATIVE_DRAG_ENTER,
                   false,
                   false,
                   0,
                   0,
-                  null,
+                  dragInitiator,
                   clipboard,
                   opts,
                   dragState.dropAction
                 )
               );
+              target.dispatchEvent(
+                new NativeDragEvent(
+                  NativeDragEvent.NATIVE_DRAG_OVER,
+                  false,
+                  false,
+                  0,
+                  0,
+                  dragInitiator,
+                  clipboard,
+                  opts,
+                  dragState.dropAction
+                )
+              );
+              dragInitiator.dispatchEvent(
+                new NativeDragEvent(
+                  NativeDragEvent.NATIVE_DRAG_UPDATE,
+                  false,
+                  false,
+                  0,
+                  0,
+                  target,
+                  clipboard,
+                  opts,
+                  dragState.dropAction
+                )
+              );
+              if (dragState.dropAction !== 'none') {
+                target.dispatchEvent(
+                  new NativeDragEvent(
+                    NativeDragEvent.NATIVE_DRAG_DROP,
+                    false,
+                    false,
+                    0,
+                    0,
+                    dragInitiator,
+                    clipboard,
+                    opts,
+                    dragState.dropAction
+                  )
+                );
+              } else {
+                target.dispatchEvent(
+                  new NativeDragEvent(
+                    NativeDragEvent.NATIVE_DRAG_EXIT,
+                    false,
+                    false,
+                    0,
+                    0,
+                    dragInitiator,
+                    clipboard,
+                    opts,
+                    'none'
+                  )
+                );
+              }
             }
             const finalAction = target ? dragState.dropAction : 'none';
             dragState.dragging = false;
@@ -2633,6 +3024,7 @@
       }
       display(_stage, _stageX, _stageY) {
         ensureActive();
+        this.dispatchEvent(new BaseEvent('preparing', false, false));
         this.dispatchEvent(new BaseEvent('displaying', false, false));
       }
     }
@@ -3049,7 +3441,21 @@
         getSupportedOrientations: () =>
           makeVector('String', ['default', 'rotatedLeft', 'rotatedRight', 'upsideDown']),
         getVsyncEnabled: () => stageOrientationState.vsyncEnabled,
-        setVsyncEnabled: v => { stageOrientationState.vsyncEnabled = Boolean(v); },
+        setVsyncEnabled: v => {
+          const next = Boolean(v);
+          const prev = stageOrientationState.vsyncEnabled;
+          stageOrientationState.vsyncEnabled = next;
+          if (prev !== next) {
+            stageObj.dispatchEvent(
+              new VsyncStateChangeAvailabilityEvent(
+                VsyncStateChangeAvailabilityEvent.VSYNC_STATE_CHANGE_AVAILABILITY,
+                false,
+                false,
+                true
+              )
+            );
+          }
+        },
         assignFocus: (obj, dir) => {
           const d = String(dir ?? 'none');
           if (!['top', 'bottom', 'none'].includes(d)) {
@@ -3257,11 +3663,41 @@
         }
       }
 
-      copy() { return false; }
-      cut() { return false; }
-      paste() { return false; }
-      clear() { return false; }
-      selectAll() { return false; }
+      copy() {
+        this.dispatchEvent(new BaseEvent('copy', false, true));
+        if (activeStageText && typeof activeStageText._editCopy === 'function') {
+          return activeStageText._editCopy();
+        }
+        return false;
+      }
+      cut() {
+        this.dispatchEvent(new BaseEvent('cut', false, true));
+        if (activeStageText && typeof activeStageText._editCut === 'function') {
+          return activeStageText._editCut();
+        }
+        return false;
+      }
+      paste() {
+        this.dispatchEvent(new BaseEvent('paste', false, true));
+        if (activeStageText && typeof activeStageText._editPaste === 'function') {
+          return activeStageText._editPaste();
+        }
+        return false;
+      }
+      clear() {
+        this.dispatchEvent(new BaseEvent('clear', false, true));
+        if (activeStageText && typeof activeStageText._editClear === 'function') {
+          return activeStageText._editClear();
+        }
+        return false;
+      }
+      selectAll() {
+        this.dispatchEvent(new BaseEvent('selectAll', false, true));
+        if (activeStageText && typeof activeStageText._editSelectAll === 'function') {
+          return activeStageText._editSelectAll();
+        }
+        return false;
+      }
 
       isSetAsDefaultApplication(_extension) {
         throw illegalOp('Default application associations are not supported in the HTML5 browser sandbox.');
@@ -3678,17 +4114,26 @@
       ) {
         const s = connState(this);
         if (s.connId !== null) throw illegalOp('SQLConnection is already open.', 3101);
-        if (encryptionKey != null) {
-          throw new SQLError('open', 'Encrypted SQL databases are not supported in the HTML5 sandbox.', '', 3138);
-        }
+        const keyBytes =
+          encryptionKey == null
+            ? new Uint8Array(0)
+            : (() => {
+                let b;
+                if (binary?.ByteArray?.__nfIs?.(encryptionKey)) b = binary.toBytes(encryptionKey);
+                else if (encryptionKey instanceof Uint8Array) b = encryptionKey;
+                else throw argErr('Encryption key must be a 16-byte ByteArray.', 3143);
+                if (b.length !== 16) throw argErr('Encryption key must be exactly 16 bytes.', 3143);
+                return b;
+              })();
         const refPath = resolveSqlReferencePath(reference);
         const id = callSqlKernel(
           'open',
-          'sql_open',
+          'sql_open_encrypted',
           refPath ?? undefined,
           String(openMode ?? 'create'),
           Boolean(autoCompact),
           Number(pageSize) >>> 0 || 1024,
+          keyBytes,
           Date.now()
         );
         s.connId = id;
@@ -3707,19 +4152,28 @@
       ) {
         const s = connState(this);
         if (s.connId !== null) throw illegalOp('SQLConnection is already open.', 3101);
+        const keyBytes =
+          encryptionKey == null
+            ? new Uint8Array(0)
+            : (() => {
+                let b;
+                if (binary?.ByteArray?.__nfIs?.(encryptionKey)) b = binary.toBytes(encryptionKey);
+                else if (encryptionKey instanceof Uint8Array) b = encryptionKey;
+                else throw argErr('Encryption key must be a 16-byte ByteArray.', 3143);
+                if (b.length !== 16) throw argErr('Encryption key must be exactly 16 bytes.', 3143);
+                return b;
+              })();
         s.isAsync = true;
         runSqlConnOp(this, s, true, 'open', SQLEvent.OPEN, responder, () => {
-          if (encryptionKey != null) {
-            throw new SQLError('open', 'Encrypted SQL databases are not supported in the HTML5 sandbox.', '', 3138);
-          }
           const refPath = resolveSqlReferencePath(reference);
           const id = callSqlKernel(
             'open',
-            'sql_open',
+            'sql_open_encrypted',
             refPath ?? undefined,
             String(openMode ?? 'create'),
             Boolean(autoCompact),
             Number(pageSize) >>> 0 || 1024,
+            keyBytes,
             Date.now()
           );
           s.connId = id;
@@ -3741,12 +4195,28 @@
       attach(name, reference = null, responder = null, encryptionKey = null) {
         const s = connState(this);
         if (s.connId === null) throw illegalOp('SQLConnection is not open.', 3104);
+        const keyBytes =
+          encryptionKey == null
+            ? new Uint8Array(0)
+            : (() => {
+                let b;
+                if (binary?.ByteArray?.__nfIs?.(encryptionKey)) b = binary.toBytes(encryptionKey);
+                else if (encryptionKey instanceof Uint8Array) b = encryptionKey;
+                else throw argErr('Encryption key must be a 16-byte ByteArray.', 3143);
+                if (b.length !== 16) throw argErr('Encryption key must be exactly 16 bytes.', 3143);
+                return b;
+              })();
         runSqlConnOp(this, s, s.isAsync, 'attach', SQLEvent.ATTACH, responder, () => {
-          if (encryptionKey != null) {
-            throw new SQLError('attach', 'Encrypted SQL databases are not supported in the HTML5 sandbox.', '', 3138);
-          }
           const refPath = resolveSqlReferencePath(reference);
-          callSqlKernel('attach', 'sql_attach', s.connId, String(name ?? ''), refPath ?? undefined, Date.now());
+          callSqlKernel(
+            'attach',
+            'sql_attach_encrypted',
+            s.connId,
+            String(name ?? ''),
+            refPath ?? undefined,
+            keyBytes,
+            Date.now()
+          );
         });
       }
 
@@ -3841,11 +4311,25 @@
         });
       }
 
-      reencrypt(_newEncryptionKey, responder = null) {
+      reencrypt(newEncryptionKey, responder = null) {
         const s = connState(this);
         if (s.connId === null) throw illegalOp('SQLConnection is not open.', 3104);
+        if (this.inTransaction) {
+          throw illegalOp('Cannot reencrypt database while a transaction is active.', 3115);
+        }
+        let keyBytes;
+        if (binary?.ByteArray?.__nfIs?.(newEncryptionKey)) {
+          keyBytes = binary.toBytes(newEncryptionKey);
+        } else if (newEncryptionKey instanceof Uint8Array) {
+          keyBytes = newEncryptionKey;
+        } else {
+          throw argErr('newEncryptionKey must be a 16-byte ByteArray.', 3143);
+        }
+        if (keyBytes.length !== 16) {
+          throw argErr('newEncryptionKey must be exactly 16 bytes.', 3143);
+        }
         runSqlConnOp(this, s, s.isAsync, 'reencrypt', SQLEvent.REENCRYPT, responder, () => {
-          throw new SQLError('reencrypt', 'Encrypted SQL databases are not supported in the HTML5 sandbox.', '', 3138);
+          callSqlKernel('reencrypt', 'sql_reencrypt', s.connId, keyBytes, Date.now());
         });
       }
 
@@ -4303,16 +4787,51 @@
     }
     tagType(RemoteNotifier, 'RemoteNotifier', v => v instanceof RemoteNotifier);
 
+    const deviceRotationStates = new WeakMap();
     class DeviceRotation extends BaseDispatcher {
       constructor() {
         super();
+        const st = { interval: 0, lastDispatched: 0 };
+        deviceRotationStates.set(this, st);
+        if (typeof global.addEventListener === 'function' && DeviceRotation.isSupported) {
+          const onOrient = ev => {
+            if (disposed) return;
+            const now = Date.now();
+            if (st.interval > 0 && now - st.lastDispatched < st.interval) return;
+            st.lastDispatched = now;
+            const yaw = Number(ev?.alpha) || 0;
+            const pitch = Number(ev?.beta) || 0;
+            const roll = Number(ev?.gamma) || 0;
+            this.dispatchEvent(
+              new DeviceRotationEvent(
+                DeviceRotationEvent.UPDATE,
+                false,
+                false,
+                now,
+                roll,
+                pitch,
+                yaw,
+                [0, 0, 0, 1]
+              )
+            );
+          };
+          global.addEventListener('deviceorientation', onOrient);
+          hostCleanups.push(() => global.removeEventListener?.('deviceorientation', onOrient));
+        }
       }
-      static get isSupported() { return false; }
-      get muted() { return true; }
+      static get isSupported() {
+        return Boolean(typeof global.DeviceOrientationEvent === 'function');
+      }
+      get muted() {
+        return !DeviceRotation.isSupported;
+      }
       setRequestedUpdateInterval(interval) {
-        if (Number(interval) < 0 || Number.isNaN(Number(interval))) {
+        const ms = Number(interval);
+        if (ms < 0 || Number.isNaN(ms)) {
           throw argErr('DeviceRotation.setRequestedUpdateInterval requires a non-negative interval.');
         }
+        const st = deviceRotationStates.get(this);
+        if (st) st.interval = ms;
       }
     }
     tagType(DeviceRotation, 'DeviceRotation', v => v instanceof DeviceRotation);
@@ -4321,12 +4840,51 @@
     class Geolocation extends BaseDispatcher {
       constructor() {
         super();
-        geoStates.set(this, {
+        const st = {
           desiredAccuracy: 0,
           locationAlwaysUsePermission: false,
           pausesLocationUpdatesAutomatically: false,
           interval: 0,
-        });
+          lastDispatched: 0,
+          watchId: null,
+        };
+        geoStates.set(this, st);
+        if (typeof global.navigator?.geolocation?.watchPosition === 'function') {
+          try {
+            st.watchId = global.navigator.geolocation.watchPosition(pos => {
+              if (disposed) return;
+              const now = Number(pos?.timestamp) || Date.now();
+              if (st.interval > 0 && now - st.lastDispatched < st.interval) return;
+              st.lastDispatched = now;
+              const c = pos?.coords || {};
+              const GeoEv = options.eventFamilies?.GeolocationEvent;
+              if (GeoEv) {
+                this.dispatchEvent(
+                  new GeoEv(
+                    'update',
+                    false,
+                    false,
+                    Number(c.latitude) || 0,
+                    Number(c.longitude) || 0,
+                    Number(c.altitude) || 0,
+                    Number(c.accuracy) || 0,
+                    Number(c.altitudeAccuracy) || 0,
+                    Number(c.speed) || 0,
+                    Number(c.heading) || 0,
+                    now
+                  )
+                );
+              }
+            });
+            hostCleanups.push(() => {
+              if (st.watchId !== null) {
+                try {
+                  global.navigator?.geolocation?.clearWatch?.(st.watchId);
+                } catch (_) {}
+              }
+            });
+          } catch (_) {}
+        }
       }
       static get isSupported() {
         return Boolean(global.navigator?.geolocation);
@@ -4371,8 +4929,4214 @@
     });
     tagType(Geolocation, 'Geolocation', v => geoStates.has(v));
 
+    // Shared helper to write RGBA bytes from Rust rasterizer into a BitmapData instance.
+    function writeRgbaToBitmapData(bitmapData, rgbaBytes, width, height) {
+      if (!bitmapData || typeof bitmapData.setPixel32 !== 'function') {
+        throw argErr('Expected a valid BitmapData instance.');
+      }
+      const w = Math.min(width | 0, Number(bitmapData.width) | 0);
+      const h = Math.min(height | 0, Number(bitmapData.height) | 0);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * width + x) * 4;
+          const r = rgbaBytes[idx] & 0xff;
+          const g = rgbaBytes[idx + 1] & 0xff;
+          const b = rgbaBytes[idx + 2] & 0xff;
+          const a = rgbaBytes[idx + 3] & 0xff;
+          const argb = (((a << 24) | (r << 16) | (g << 8) | b) >>> 0);
+          bitmapData.setPixel32(x, y, argb);
+        }
+      }
+    }
+
     // -------------------------------------------------------------------------
-    // 8. Builtins Registry, Reset & Dispose
+    // 8. flash.html.* (HTMLPDFCapability, HTMLSWFCapability, HTMLHistoryItem,
+    //                  HTMLWindowCreateOptions, HTMLHost, HTMLLoader)
+    // -------------------------------------------------------------------------
+    const HTMLPDFCapability = defConstClass('HTMLPDFCapability', {
+      STATUS_OK: 0,
+      ERROR_INSTALLED_READER_NOT_FOUND: 3201,
+      ERROR_INSTALLED_READER_TOO_OLD: 3202,
+      ERROR_PREFERRED_READER_TOO_OLD: 3203,
+      ERROR_CANNOT_LOAD_READER: 3204,
+    });
+
+    const HTMLSWFCapability = defConstClass('HTMLSWFCapability', {
+      STATUS_OK: 0,
+      ERROR_INSTALLED_PLAYER_NOT_FOUND: 3201,
+      ERROR_INSTALLED_PLAYER_TOO_OLD: 3202,
+      ERROR_RUNTIME_NOT_FOUND: 3221,
+    });
+
+    class HTMLHistoryItem {
+      constructor(url = '', originalUrl = '', isPost = false, title = '') {
+        Object.defineProperties(this, {
+          url: { value: String(url ?? ''), enumerable: true },
+          originalUrl: { value: String(originalUrl || url || ''), enumerable: true },
+          isPost: { value: Boolean(isPost), enumerable: true },
+          title: { value: String(title ?? ''), enumerable: true },
+        });
+      }
+    }
+    tagType(HTMLHistoryItem, 'HTMLHistoryItem', v => v instanceof HTMLHistoryItem);
+
+    class HTMLWindowCreateOptions {
+      constructor() {
+        this.x = Number.NaN;
+        this.y = Number.NaN;
+        this.width = Number.NaN;
+        this.height = Number.NaN;
+        this.fullscreen = false;
+        this.locationBarVisible = false;
+        this.menuBarVisible = false;
+        this.resizable = true;
+        this.scrollBarsVisible = true;
+        this.statusBarVisible = false;
+        this.toolBarVisible = false;
+      }
+    }
+    tagType(HTMLWindowCreateOptions, 'HTMLWindowCreateOptions', v => v instanceof HTMLWindowCreateOptions);
+
+    const htmlHostStates = new WeakMap();
+    function initHtmlHostState(receiver, defaultBehaviors = true) {
+      let s = htmlHostStates.get(receiver);
+      if (!s) {
+        s = {
+          defaultBehaviors: Boolean(defaultBehaviors),
+          htmlLoader: null,
+          windowRect: makeRect(0, 0, projW, projH),
+          status: '',
+        };
+        htmlHostStates.set(receiver, s);
+      }
+      return s;
+    }
+
+    class HTMLHost {
+      constructor(defaultBehaviors = true) {
+        initHtmlHostState(this, defaultBehaviors);
+      }
+      get htmlLoader() {
+        return initHtmlHostState(this).htmlLoader;
+      }
+      get windowRect() {
+        const s = initHtmlHostState(this);
+        const ldr = s.htmlLoader;
+        const st = ldr ? htmlLoaderStates.get(ldr) : null;
+        if (st?.nativeWindow && windowStates.has(st.nativeWindow)) {
+          return st.nativeWindow.bounds;
+        }
+        const r = s.windowRect;
+        return makeRect(r.x, r.y, r.width, r.height);
+      }
+      set windowRect(value) {
+        if (!value || typeof value !== 'object') {
+          throw argErr('HTMLHost.windowRect requires a Rectangle.');
+        }
+        const s = initHtmlHostState(this);
+        s.windowRect = makeRect(
+          Number(value.x) || 0,
+          Number(value.y) || 0,
+          Number(value.width) || 0,
+          Number(value.height) || 0
+        );
+        const ldr = s.htmlLoader;
+        const st = ldr ? htmlLoaderStates.get(ldr) : null;
+        if (st?.nativeWindow && windowStates.has(st.nativeWindow)) {
+          st.nativeWindow.bounds = s.windowRect;
+        }
+      }
+      createWindow(windowCreateOptions) {
+        const s = initHtmlHostState(this);
+        if (!s.defaultBehaviors) return null;
+        const opts =
+          windowCreateOptions instanceof HTMLWindowCreateOptions
+            ? windowCreateOptions
+            : new HTMLWindowCreateOptions();
+        const bounds =
+          Number.isFinite(opts.width) && Number.isFinite(opts.height)
+            ? makeRect(
+                Number.isFinite(opts.x) ? opts.x : 0,
+                Number.isFinite(opts.y) ? opts.y : 0,
+                opts.width,
+                opts.height
+              )
+            : null;
+        return HTMLLoader.createRootWindow(true, null, Boolean(opts.scrollBarsVisible), bounds);
+      }
+      updateLocation(_locationURL) {}
+      updateStatus(status) {
+        initHtmlHostState(this).status = String(status ?? '');
+      }
+      updateTitle(title) {
+        const s = initHtmlHostState(this);
+        if (!s.defaultBehaviors) return;
+        const ldr = s.htmlLoader;
+        const st = ldr ? htmlLoaderStates.get(ldr) : null;
+        if (st?.nativeWindow && windowStates.has(st.nativeWindow)) {
+          st.nativeWindow.title = String(title ?? '');
+        }
+      }
+      windowBlur() {}
+      windowClose() {
+        const s = initHtmlHostState(this);
+        if (!s.defaultBehaviors) return;
+        const ldr = s.htmlLoader;
+        const st = ldr ? htmlLoaderStates.get(ldr) : null;
+        if (st?.nativeWindow && windowStates.has(st.nativeWindow) && !st.nativeWindow.closed) {
+          st.nativeWindow.close();
+        }
+      }
+      windowFocus() {
+        const s = initHtmlHostState(this);
+        if (!s.defaultBehaviors) return;
+        const ldr = s.htmlLoader;
+        const st = ldr ? htmlLoaderStates.get(ldr) : null;
+        if (st?.nativeWindow && windowStates.has(st.nativeWindow) && !st.nativeWindow.closed) {
+          st.nativeWindow.activate();
+        }
+      }
+    }
+    tagType(
+      HTMLHost,
+      'HTMLHost',
+      v => htmlHostStates.has(v) || v instanceof HTMLHost,
+      (receiver, args = []) => {
+        initHtmlHostState(receiver, args.length > 0 ? Boolean(args[0]) : true);
+      }
+    );
+
+    const htmlLoaderStates = new WeakMap();
+    function htmlState(receiver) {
+      const s = htmlLoaderStates.get(receiver);
+      if (!s) throw new TypeError('Expected an HTMLLoader instance.');
+      return s;
+    }
+
+    function syncHtmlKernelState(receiver, s) {
+      const snap = JSON.parse(callKernel('html_state_json', s.sessionId));
+      s.loaded = Boolean(snap.loaded);
+      s.location = String(snap.location || '');
+      s.title = String(snap.title || '');
+      s.contentWidth = Number(snap.contentWidth) || s.width;
+      s.contentHeight = Number(snap.contentHeight) || s.height;
+      s.hasFocusableContent = Boolean(snap.hasFocusableContent);
+      s.historyLength = Number(snap.historyLength) || 0;
+      s.historyPosition = Number(snap.historyPosition) || 0;
+      s.history = (snap.history || []).map(
+        h => new HTMLHistoryItem(h.url, h.originalUrl, h.isPost, h.title)
+      );
+      s.links = Array.isArray(snap.links) ? snap.links : [];
+      s.scripts = Array.isArray(snap.scripts) ? snap.scripts : [];
+      s.elementIds = Array.isArray(snap.elementIds) ? snap.elementIds : [];
+      s.textContent = String(snap.textContent || '');
+      if (s.windowObj) {
+        s.windowObj.location.href = s.location;
+        s.windowObj.document.title = s.title;
+        s.windowObj.document.URL = s.location;
+        s.windowObj.document.body.innerHTML = s.htmlSource || '';
+        s.windowObj.document.body.textContent = s.textContent;
+      }
+      if (s.htmlHost) {
+        if (typeof s.htmlHost.updateLocation === 'function') {
+          s.htmlHost.updateLocation(s.location);
+        }
+        if (typeof s.htmlHost.updateTitle === 'function') {
+          s.htmlHost.updateTitle(s.title);
+        }
+      }
+      receiver.dispatchEvent(new LocationChangeEvent(LocationChangeEvent.LOCATION_CHANGE, false, false, s.location));
+      receiver.dispatchEvent(new BaseEvent('htmlDOMInitialize', false, false));
+      receiver.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE, false, false));
+      receiver.dispatchEvent(new BaseEvent('htmlRender', false, false));
+      receiver.dispatchEvent(new BaseEvent('htmlBoundsChange', false, false));
+    }
+
+    function createHtmlWindowBridge(receiver, s) {
+      const elementsById = new Map();
+      const doc = {
+        title: '',
+        URL: 'about:blank',
+        body: { innerHTML: '', textContent: '' },
+        getElementById(id) {
+          const key = String(id ?? '');
+          if (elementsById.has(key)) return elementsById.get(key);
+          if (s.elementIds && s.elementIds.includes(key)) {
+            const el = { id: key, innerHTML: '', textContent: '' };
+            elementsById.set(key, el);
+            return el;
+          }
+          return null;
+        },
+        createElement(tag) {
+          return { tagName: String(tag ?? 'div').toUpperCase(), id: '', innerHTML: '', textContent: '' };
+        },
+      };
+      const win = {
+        document: doc,
+        location: { href: 'about:blank' },
+        navigator: { userAgent: s.userAgent },
+        htmlLoader: receiver,
+        open(url = 'about:blank') {
+          if (s.htmlHost && typeof s.htmlHost.createWindow === 'function') {
+            const child = s.htmlHost.createWindow(new HTMLWindowCreateOptions());
+            if (child && url) child.load( { url: String(url) } );
+            return child ? child.window : null;
+          }
+          return null;
+        },
+        close() {
+          if (s.htmlHost && typeof s.htmlHost.windowClose === 'function') {
+            s.htmlHost.windowClose();
+          }
+        },
+        focus() {
+          if (s.htmlHost && typeof s.htmlHost.windowFocus === 'function') {
+            s.htmlHost.windowFocus();
+          }
+        },
+        blur() {
+          if (s.htmlHost && typeof s.htmlHost.windowBlur === 'function') {
+            s.htmlHost.windowBlur();
+          }
+        },
+        setStatus(text) {
+          if (s.htmlHost && typeof s.htmlHost.updateStatus === 'function') {
+            s.htmlHost.updateStatus(String(text ?? ''));
+          }
+        },
+        __throwScriptError(errValue) {
+          const ev = new HTMLUncaughtScriptExceptionEvent(errValue);
+          receiver.dispatchEvent(ev);
+          return ev;
+        },
+      };
+      win.window = win;
+      win.self = win;
+      return win;
+    }
+
+    const htmlLoaderPropDescriptors = {
+      authenticate: {
+        get() { return htmlState(this).authenticate; },
+        set(v) { htmlState(this).authenticate = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      cacheResponse: {
+        get() { return htmlState(this).cacheResponse; },
+        set(v) { htmlState(this).cacheResponse = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      contentHeight: {
+        get() { return htmlState(this).contentHeight; },
+        enumerable: true,
+        configurable: true,
+      },
+      contentWidth: {
+        get() { return htmlState(this).contentWidth; },
+        enumerable: true,
+        configurable: true,
+      },
+      hasFocusableContent: {
+        get() { return htmlState(this).hasFocusableContent; },
+        enumerable: true,
+        configurable: true,
+      },
+      width: {
+        get() { return htmlState(this).width; },
+        set(v) {
+          const s = htmlState(this);
+          const next = Math.max(0, Number(v) || 0);
+          const changed = next !== s.width;
+          s.width = next;
+          callKernel('html_set_viewport', s.sessionId, s.width, s.height);
+          const snap = JSON.parse(callKernel('html_state_json', s.sessionId));
+          s.contentWidth = Number(snap.contentWidth) || s.width;
+          s.contentHeight = Number(snap.contentHeight) || s.height;
+          if (changed) this.dispatchEvent(new BaseEvent('htmlBoundsChange', false, false));
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      height: {
+        get() { return htmlState(this).height; },
+        set(v) {
+          const s = htmlState(this);
+          const next = Math.max(0, Number(v) || 0);
+          const changed = next !== s.height;
+          s.height = next;
+          callKernel('html_set_viewport', s.sessionId, s.width, s.height);
+          const snap = JSON.parse(callKernel('html_state_json', s.sessionId));
+          s.contentWidth = Number(snap.contentWidth) || s.width;
+          s.contentHeight = Number(snap.contentHeight) || s.height;
+          if (changed) this.dispatchEvent(new BaseEvent('htmlBoundsChange', false, false));
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      historyLength: {
+        get() { return htmlState(this).historyLength; },
+        enumerable: true,
+        configurable: true,
+      },
+      historyPosition: {
+        get() { return htmlState(this).historyPosition; },
+        set(v) {
+          const s = htmlState(this);
+          const pos = Number(v) | 0;
+          if (pos < 0 || pos >= s.historyLength) {
+            throw new RangeError(`HTMLLoader.historyPosition ${pos} is out of bounds.`);
+          }
+          const delta = pos - s.historyPosition;
+          if (delta !== 0) this.historyGo(delta);
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      htmlHost: {
+        get() { return htmlState(this).htmlHost; },
+        set(v) {
+          const s = htmlState(this);
+          if (v !== null && !(v instanceof HTMLHost) && !htmlHostStates.has(v)) {
+            throw new TypeError('HTMLLoader.htmlHost requires an HTMLHost or null.');
+          }
+          if (s.htmlHost) initHtmlHostState(s.htmlHost).htmlLoader = null;
+          s.htmlHost = v;
+          if (v) initHtmlHostState(v).htmlLoader = this;
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      idleTimeout: {
+        get() { return htmlState(this).idleTimeout; },
+        set(v) {
+          const n = Number(v);
+          if (n < 0 || Number.isNaN(n)) throw argErr('HTMLLoader.idleTimeout must be non-negative.');
+          htmlState(this).idleTimeout = n;
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      loaded: {
+        get() { return htmlState(this).loaded; },
+        enumerable: true,
+        configurable: true,
+      },
+      location: {
+        get() { return htmlState(this).location; },
+        enumerable: true,
+        configurable: true,
+      },
+      manageCookies: {
+        get() { return htmlState(this).manageCookies; },
+        set(v) { htmlState(this).manageCookies = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      navigateInSystemBrowser: {
+        get() { return htmlState(this).navigateInSystemBrowser; },
+        set(v) { htmlState(this).navigateInSystemBrowser = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      paintsDefaultBackground: {
+        get() { return htmlState(this).paintsDefaultBackground; },
+        set(v) { htmlState(this).paintsDefaultBackground = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      placeLoadStringContentInApplicationSandbox: {
+        get() { return htmlState(this).placeLoadStringContentInApplicationSandbox; },
+        set(v) { htmlState(this).placeLoadStringContentInApplicationSandbox = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      runtimeApplicationDomain: {
+        get() {
+          const s = htmlState(this);
+          return s.runtimeApplicationDomain || ApplicationDomain.currentDomain;
+        },
+        set(v) { htmlState(this).runtimeApplicationDomain = v; },
+        enumerable: true,
+        configurable: true,
+      },
+      scrollH: {
+        get() { return htmlState(this).scrollH; },
+        set(v) {
+          const s = htmlState(this);
+          const next = Number(v) || 0;
+          if (next !== s.scrollH) {
+            s.scrollH = next;
+            this.dispatchEvent(new BaseEvent('scroll', false, false));
+          }
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      scrollV: {
+        get() { return htmlState(this).scrollV; },
+        set(v) {
+          const s = htmlState(this);
+          const next = Number(v) || 0;
+          if (next !== s.scrollV) {
+            s.scrollV = next;
+            this.dispatchEvent(new BaseEvent('scroll', false, false));
+          }
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      textEncodingFallback: {
+        get() { return htmlState(this).textEncodingFallback; },
+        set(v) { htmlState(this).textEncodingFallback = v == null ? null : String(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      textEncodingOverride: {
+        get() { return htmlState(this).textEncodingOverride; },
+        set(v) { htmlState(this).textEncodingOverride = v == null ? null : String(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      useCache: {
+        get() { return htmlState(this).useCache; },
+        set(v) { htmlState(this).useCache = Boolean(v); },
+        enumerable: true,
+        configurable: true,
+      },
+      userAgent: {
+        get() { return htmlState(this).userAgent; },
+        set(v) {
+          const s = htmlState(this);
+          s.userAgent = String(v ?? '');
+          if (s.windowObj) s.windowObj.navigator.userAgent = s.userAgent;
+        },
+        enumerable: true,
+        configurable: true,
+      },
+      window: {
+        get() { return htmlState(this).windowObj; },
+        enumerable: true,
+        configurable: true,
+      },
+      loadString: {
+        value(htmlContent) {
+          const s = htmlState(this);
+          const src = String(htmlContent ?? '');
+          s.htmlSource = src;
+          callKernel('html_load_string', s.sessionId, src, s.location || 'about:blank');
+          syncHtmlKernelState(this, s);
+        },
+        configurable: true,
+      },
+      load: {
+        value(urlRequestToLoad) {
+          const s = htmlState(this);
+          const url =
+            typeof urlRequestToLoad === 'string'
+              ? urlRequestToLoad
+              : urlRequestToLoad && typeof urlRequestToLoad.url === 'string'
+                ? urlRequestToLoad.url
+                : null;
+          if (!url) throw argErr('HTMLLoader.load requires a URLRequest with a valid url.');
+          const method = String(urlRequestToLoad?.method || 'GET').toUpperCase();
+          const isPost = method === 'POST';
+          const changing = new LocationChangeEvent(
+            LocationChangeEvent.LOCATION_CHANGING,
+            false,
+            true,
+            url
+          );
+          if (!this.dispatchEvent(changing)) return;
+          callKernel('html_load_url', s.sessionId, url, isPost, url);
+          syncHtmlKernelState(this, s);
+        },
+        configurable: true,
+      },
+      cancelLoad: {
+        value() {
+          const s = htmlState(this);
+          callKernel('html_cancel', s.sessionId);
+          const snap = JSON.parse(callKernel('html_state_json', s.sessionId));
+          s.loaded = Boolean(snap.loaded);
+        },
+        configurable: true,
+      },
+      reload: {
+        value() {
+          const s = htmlState(this);
+          if (callKernel('html_reload', s.sessionId)) {
+            syncHtmlKernelState(this, s);
+          }
+        },
+        configurable: true,
+      },
+      historyBack: {
+        value() { this.historyGo(-1); },
+        configurable: true,
+      },
+      historyForward: {
+        value() { this.historyGo(1); },
+        configurable: true,
+      },
+      historyGo: {
+        value(steps) {
+          const s = htmlState(this);
+          if (callKernel('html_history_go', s.sessionId, Number(steps) | 0)) {
+            syncHtmlKernelState(this, s);
+          }
+        },
+        configurable: true,
+      },
+      getHistoryAt: {
+        value(position) {
+          const s = htmlState(this);
+          const pos = Number(position) | 0;
+          if (pos < 0 || pos >= s.history.length) {
+            throw new RangeError(`HTMLLoader.getHistoryAt(${pos}) is out of bounds.`);
+          }
+          return s.history[pos];
+        },
+        configurable: true,
+      },
+    };
+
+    const htmlLoaderOwnMemberNames = new Set(Object.keys(htmlLoaderPropDescriptors));
+
+    function initHtmlLoaderInstance(instance) {
+      const sessionId = callKernel('html_create', 800, 600);
+      const state = {
+        sessionId,
+        width: 800,
+        height: 600,
+        contentWidth: 800,
+        contentHeight: 600,
+        hasFocusableContent: false,
+        loaded: false,
+        location: 'about:blank',
+        title: '',
+        htmlSource: '',
+        textContent: '',
+        historyLength: 0,
+        historyPosition: 0,
+        history: [],
+        links: [],
+        scripts: [],
+        elementIds: [],
+        authenticate: URLRequestDefaults.authenticate,
+        cacheResponse: URLRequestDefaults.cacheResponse,
+        idleTimeout: URLRequestDefaults.idleTimeout,
+        manageCookies: URLRequestDefaults.manageCookies,
+        useCache: URLRequestDefaults.useCache,
+        userAgent: URLRequestDefaults.userAgent,
+        navigateInSystemBrowser: false,
+        paintsDefaultBackground: true,
+        placeLoadStringContentInApplicationSandbox: false,
+        runtimeApplicationDomain: null,
+        scrollH: 0,
+        scrollV: 0,
+        textEncodingFallback: null,
+        textEncodingOverride: null,
+        htmlHost: null,
+        windowObj: null,
+        nativeWindow: null,
+      };
+      state.windowObj = createHtmlWindowBridge(instance, state);
+      htmlLoaderStates.set(instance, state);
+      return instance;
+    }
+
+    class HTMLLoader extends BaseDispatcher {
+      constructor() {
+        ensureActive();
+        const SpriteCtor = getDisplay()?.builtins?.['flash.display.Sprite'];
+        if (typeof SpriteCtor === 'function') {
+          super();
+          const sprite = new SpriteCtor();
+          return initHtmlLoaderInstance(sprite);
+        }
+        super();
+        this.x = 0;
+        this.y = 0;
+        this.alpha = 1;
+        this.visible = true;
+        this.name = 'instance1';
+        this.parent = null;
+        this.stage = null;
+        const children = [];
+        Object.defineProperty(this, 'numChildren', {
+          get: () => children.length,
+          enumerable: true,
+        });
+        this.addChild = child => { if (!children.includes(child)) children.push(child); return child; };
+        this.removeChild = child => { const i = children.indexOf(child); if (i >= 0) children.splice(i, 1); return child; };
+        return initHtmlLoaderInstance(this);
+      }
+      static get isSupported() { return true; }
+      static get pdfCapability() {
+        return global.navigator?.pdfViewerEnabled
+          ? HTMLPDFCapability.STATUS_OK
+          : HTMLPDFCapability.ERROR_INSTALLED_READER_NOT_FOUND;
+      }
+      static get swfCapability() {
+        return HTMLSWFCapability.STATUS_OK;
+      }
+      static createRootWindow(
+        visible = true,
+        windowInitOptions = null,
+        scrollBarsVisible = true,
+        bounds = null
+      ) {
+        const win = new NativeWindow(windowInitOptions);
+        if (bounds && typeof bounds === 'object') {
+          win.bounds = makeRect(
+            Number(bounds.x) || 0,
+            Number(bounds.y) || 0,
+            Number(bounds.width) || 800,
+            Number(bounds.height) || 600
+          );
+        }
+        win.visible = Boolean(visible);
+        const loader = new HTMLLoader();
+        const st = htmlState(loader);
+        st.nativeWindow = win;
+        st.scrollBarsVisible = Boolean(scrollBarsVisible);
+        loader.width = win.width;
+        loader.height = win.height;
+        loader.htmlHost = new HTMLHost(true);
+        return loader;
+      }
+    }
+    Object.defineProperties(HTMLLoader.prototype, htmlLoaderPropDescriptors);
+    tagType(HTMLLoader, 'HTMLLoader', v => htmlLoaderStates.has(v));
+    Object.defineProperty(HTMLLoader, Symbol.hasInstance, {
+      value: v => htmlLoaderStates.has(v),
+    });
+
+    // -------------------------------------------------------------------------
+    // 9. flash.media.* (AudioPlaybackMode, CameraPosition, MediaType, MediaPromise,
+    //                   CameraRollBrowseOptions, CameraRoll, CameraUI, StageWebView,
+    //                   AVURLLoader, Camera, Microphone, SoundMixer)
+    // -------------------------------------------------------------------------
+    const AudioPlaybackMode = defConstClass('AudioPlaybackMode', {
+      AMBIENT: 'ambient',
+      MEDIA: 'media',
+      VOICE: 'voice',
+    });
+
+    const CameraPosition = defConstClass('CameraPosition', {
+      BACK: 'back',
+      FRONT: 'front',
+      UNKNOWN: 'unknown',
+    });
+
+    const MediaType = defConstClass('MediaType', {
+      IMAGE: 'image',
+      VIDEO: 'video',
+    });
+
+    const mediaPromiseStates = new WeakMap();
+    class MediaPromise extends BaseDispatcher {
+      constructor(file = null, mediaType = 'image', relativePath = null, isAsync = false) {
+        super();
+        const f =
+          file && fileStates.has(file)
+            ? file
+            : typeof file === 'string' && file
+              ? new File(file)
+              : null;
+        mediaPromiseStates.set(this, {
+          file: f,
+          mediaType: String(mediaType || 'image'),
+          relativePath: relativePath == null ? (f ? f.name : '') : String(relativePath),
+          isAsync: Boolean(isAsync),
+          stream: null,
+        });
+      }
+      get file() { return mediaPromiseStates.get(this).file; }
+      get isAsync() { return mediaPromiseStates.get(this).isAsync; }
+      get mediaType() { return mediaPromiseStates.get(this).mediaType; }
+      get relativePath() { return mediaPromiseStates.get(this).relativePath; }
+      open() {
+        const s = mediaPromiseStates.get(this);
+        if (!s.file || !s.file.exists) {
+          throw illegalOp('MediaPromise does not reference an existing media file.');
+        }
+        const fs = new FileStream();
+        if (s.isAsync) {
+          fs.openAsync(s.file, FileMode.READ);
+          scheduleTask(() => {
+            if (options.net?.ProgressEvent) {
+              this.dispatchEvent(
+                new options.net.ProgressEvent('progress', false, false, fs.bytesAvailable, fs.bytesAvailable)
+              );
+            }
+            this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+          });
+        } else {
+          fs.open(s.file, FileMode.READ);
+        }
+        s.stream = fs;
+        return fs;
+      }
+      close() {
+        const s = mediaPromiseStates.get(this);
+        if (s.stream) {
+          s.stream.close();
+          s.stream = null;
+        }
+        this.dispatchEvent(new BaseEvent(BaseEvent.CLOSE));
+      }
+      reportError(error) {
+        const msg = String(error?.text ?? error?.message ?? error ?? 'MediaPromise error');
+        const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+        this.dispatchEvent(new Ev('ioError', false, false, msg));
+      }
+    }
+    tagType(MediaPromise, 'MediaPromise', v => mediaPromiseStates.has(v));
+
+    class CameraRollBrowseOptions {
+      constructor() {
+        this.height = 0;
+        this.width = 0;
+        this.origin = makeRect(0, 0, 0, 0);
+      }
+    }
+    tagType(
+      CameraRollBrowseOptions,
+      'CameraRollBrowseOptions',
+      v => v instanceof CameraRollBrowseOptions
+    );
+
+    let cameraRollCounter = 0;
+    let lastCameraRollFile = null;
+    class CameraRoll extends BaseDispatcher {
+      constructor() {
+        super();
+      }
+      static get supportsAddBitmapData() { return true; }
+      static get supportsBrowseForImage() { return true; }
+      static get permissionStatus() { return 'granted'; }
+      requestPermission() {
+        scheduleTask(() => {
+          this.dispatchEvent(
+            new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+          );
+        });
+      }
+      addBitmapData(bitmapData) {
+        if (!bitmapData || typeof bitmapData.width !== 'number' || typeof bitmapData.height !== 'number') {
+          throw argErr('CameraRoll.addBitmapData requires a BitmapData instance.');
+        }
+        let pngBytes;
+        try {
+          if (typeof bitmapData.encode === 'function' && getBitmap()?.PNGEncoderOptions) {
+            const ba = bitmapData.encode(bitmapData.rect, new (getBitmap().PNGEncoderOptions)());
+            pngBytes = binary.toBytes(ba);
+          } else {
+            // Minimal valid 1x1 PNG fallback when standalone BitmapData double is passed
+            pngBytes = new Uint8Array([
+              137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+              0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
+              0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0,
+              5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+            ]);
+          }
+          const idx = ++cameraRollCounter;
+          const vfsPath = `/app-storage/CameraRoll/image_${idx}.png`;
+          callKernel('fs_write_bytes', vfsPath, pngBytes, Date.now());
+          lastCameraRollFile = fileFromNativePath(vfsPath);
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        } catch (err) {
+          this.dispatchEvent(new BaseErrorEvent('error', false, false, String(err.message)));
+        }
+      }
+      browseForImage(browseOptions = null) {
+        if (browseOptions !== null && !(browseOptions instanceof CameraRollBrowseOptions)) {
+          throw argErr('CameraRoll.browseForImage requires CameraRollBrowseOptions or null.');
+        }
+        if (lastCameraRollFile && lastCameraRollFile.exists) {
+          const promise = new MediaPromise(
+            lastCameraRollFile,
+            MediaType.IMAGE,
+            lastCameraRollFile.name,
+            false
+          );
+          this.dispatchEvent(new MediaEvent(MediaEvent.SELECT, false, false, promise));
+        } else {
+          this.dispatchEvent(new BaseEvent(BaseEvent.CANCEL));
+        }
+      }
+    }
+    tagType(CameraRoll, 'CameraRoll', v => v instanceof CameraRoll);
+
+    let cameraUiCounter = 0;
+    class CameraUI extends BaseDispatcher {
+      constructor() {
+        super();
+      }
+      static get isSupported() { return true; }
+      static get permissionStatus() { return 'granted'; }
+      requestPermission() {
+        scheduleTask(() => {
+          this.dispatchEvent(
+            new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+          );
+        });
+      }
+      launch(requestedMediaType = 'image') {
+        const mt = String(requestedMediaType ?? '');
+        if (mt !== MediaType.IMAGE && mt !== MediaType.VIDEO) {
+          throw argErr(`Invalid MediaType '${mt}'. Expected MediaType.IMAGE or MediaType.VIDEO.`);
+        }
+        const idx = ++cameraUiCounter;
+        const ext = mt === MediaType.VIDEO ? 'mp4' : 'png';
+        const vfsPath = `/cache/CameraUI/capture_${idx}.${ext}`;
+        const sampleBytes = new Uint8Array([
+          137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+          0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
+          0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 255, 255, 63, 0,
+          5, 254, 2, 254, 167, 53, 129, 132, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ]);
+        callKernel('fs_write_bytes', vfsPath, sampleBytes, Date.now());
+        const file = fileFromNativePath(vfsPath);
+        const promise = new MediaPromise(file, mt, `CameraUI/capture_${idx}.${ext}`, false);
+        this.dispatchEvent(new MediaEvent(MediaEvent.COMPLETE, false, false, promise));
+      }
+    }
+    tagType(CameraUI, 'CameraUI', v => v instanceof CameraUI);
+
+    const stageWebViewStates = new WeakMap();
+    function swvState(receiver) {
+      const s = stageWebViewStates.get(receiver);
+      if (!s) throw new TypeError('Expected a StageWebView instance.');
+      if (s.disposed) throw illegalOp('StageWebView has been disposed.');
+      return s;
+    }
+
+    function syncSwvKernel(receiver, s) {
+      const snap = JSON.parse(callKernel('html_state_json', s.sessionId));
+      s.location = String(snap.location || '');
+      s.title = String(snap.title || '');
+      s.textContent = String(snap.textContent || '');
+      s.historyLength = Number(snap.historyLength) || 0;
+      s.historyPosition = Number(snap.historyPosition) || 0;
+      receiver.dispatchEvent(
+        new LocationChangeEvent(LocationChangeEvent.LOCATION_CHANGE, false, false, s.location)
+      );
+      receiver.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+    }
+
+    class StageWebView extends BaseDispatcher {
+      constructor(useNative = false, mediaPlaybackRequiresUserAction = true) {
+        ensureActive();
+        super();
+        const sessionId = callKernel('html_create', 800, 600);
+        stageWebViewStates.set(this, {
+          sessionId,
+          useNative: Boolean(useNative),
+          mediaPlaybackRequiresUserAction: Boolean(mediaPlaybackRequiresUserAction),
+          stage: null,
+          viewPort: null,
+          location: '',
+          title: '',
+          textContent: '',
+          historyLength: 0,
+          historyPosition: 0,
+          disposed: false,
+        });
+      }
+      static get isSupported() { return true; }
+      get stage() { return swvState(this).stage; }
+      set stage(v) { swvState(this).stage = v ?? null; }
+      get viewPort() {
+        const vp = swvState(this).viewPort;
+        return vp ? makeRect(vp.x, vp.y, vp.width, vp.height) : null;
+      }
+      set viewPort(v) {
+        const s = swvState(this);
+        if (v === null) {
+          s.viewPort = null;
+          return;
+        }
+        if (typeof v !== 'object' || Number(v.width) < 0 || Number(v.height) < 0) {
+          throw argErr('StageWebView.viewPort requires a valid Rectangle.');
+        }
+        s.viewPort = makeRect(
+          Number(v.x) || 0,
+          Number(v.y) || 0,
+          Number(v.width) || 0,
+          Number(v.height) || 0
+        );
+        if (s.viewPort.width > 0 && s.viewPort.height > 0) {
+          callKernel('html_set_viewport', s.sessionId, s.viewPort.width, s.viewPort.height);
+        }
+      }
+      get location() { return swvState(this).location; }
+      get title() { return swvState(this).title; }
+      get isHistoryBackEnabled() {
+        const s = swvState(this);
+        return s.historyLength > 1 && s.historyPosition > 0;
+      }
+      get isHistoryForwardEnabled() {
+        const s = swvState(this);
+        return s.historyLength > 1 && s.historyPosition + 1 < s.historyLength;
+      }
+      get mediaPlaybackRequiresUserAction() {
+        return swvState(this).mediaPlaybackRequiresUserAction;
+      }
+      set mediaPlaybackRequiresUserAction(v) {
+        swvState(this).mediaPlaybackRequiresUserAction = Boolean(v);
+      }
+      loadString(text, mimeType = 'text/html') {
+        const s = swvState(this);
+        const _mime = String(mimeType ?? 'text/html');
+        callKernel('html_load_string', s.sessionId, String(text ?? ''), s.location || 'about:blank');
+        syncSwvKernel(this, s);
+      }
+      loadURL(url) {
+        const s = swvState(this);
+        const target = String(url ?? '');
+        if (!target) throw argErr('StageWebView.loadURL requires a non-empty URL.');
+        const changing = new LocationChangeEvent(
+          LocationChangeEvent.LOCATION_CHANGING,
+          false,
+          true,
+          target
+        );
+        if (!this.dispatchEvent(changing)) return;
+        callKernel('html_load_url', s.sessionId, target, false, target);
+        syncSwvKernel(this, s);
+      }
+      reload() {
+        const s = swvState(this);
+        if (callKernel('html_reload', s.sessionId)) {
+          syncSwvKernel(this, s);
+        }
+      }
+      stop() {
+        const s = swvState(this);
+        callKernel('html_cancel', s.sessionId);
+      }
+      historyBack() {
+        const s = swvState(this);
+        if (!this.isHistoryBackEnabled) return;
+        if (callKernel('html_history_go', s.sessionId, -1)) {
+          syncSwvKernel(this, s);
+        }
+      }
+      historyForward() {
+        const s = swvState(this);
+        if (!this.isHistoryForwardEnabled) return;
+        if (callKernel('html_history_go', s.sessionId, 1)) {
+          syncSwvKernel(this, s);
+        }
+      }
+      assignFocus(direction = 'none') {
+        swvState(this);
+        const d = String(direction ?? 'none');
+        if (!['top', 'bottom', 'none'].includes(d)) {
+          throw argErr(`Invalid FocusDirection '${d}'.`);
+        }
+        const FocusEv = events.FocusEvent || BaseEvent;
+        this.dispatchEvent(new FocusEv('focusIn'));
+      }
+      drawViewPortToBitmapData(bitmap) {
+        const s = swvState(this);
+        if (!s.viewPort || s.viewPort.width <= 0 || s.viewPort.height <= 0) {
+          throw illegalOp('StageWebView.viewPort must be set before calling drawViewPortToBitmapData.');
+        }
+        if (!bitmap || typeof bitmap.setPixel32 !== 'function') {
+          throw argErr('StageWebView.drawViewPortToBitmapData requires a BitmapData.');
+        }
+        const w = Math.round(s.viewPort.width);
+        const h = Math.round(s.viewPort.height);
+        if ((Number(bitmap.width) | 0) !== w || (Number(bitmap.height) | 0) !== h) {
+          throw argErr('BitmapData dimensions must match StageWebView.viewPort dimensions.');
+        }
+        const textToRender = s.textContent || s.title || s.location || 'StageWebView';
+        const rgba = callKernel(
+          'rasterize_text_rgba',
+          w,
+          h,
+          textToRender,
+          0x111111,
+          0xffffffff,
+          12,
+          'multiline:left'
+        );
+        writeRgbaToBitmapData(bitmap, rgba, w, h);
+      }
+      dispose() {
+        const s = stageWebViewStates.get(this);
+        if (!s || s.disposed) return;
+        s.disposed = true;
+        callKernel('html_dispose', s.sessionId);
+      }
+    }
+    tagType(StageWebView, 'StageWebView', v => stageWebViewStates.has(v));
+
+    class AVURLLoader extends BaseDispatcher {
+      constructor(request = null) {
+        super();
+        this.data = null;
+        this.dataFormat = 'text';
+        this.bytesLoaded = 0;
+        this.bytesTotal = 0;
+        if (request !== null) this.load(request);
+      }
+      load(request) {
+        if (!request || typeof request.url !== 'string' || !request.url) {
+          throw argErr('AVURLLoader.load requires a URLRequest.');
+        }
+        const url = request.url;
+        try {
+          let bytes = new Uint8Array(0);
+          if (/^(app:|app-storage:|app-desktop:|app-docs:|app-user:|app-cache:|file:|\/)/i.test(url)) {
+            const p = callKernel('normalize_path', url);
+            bytes = callKernel('fs_open_stream', p, 'read', Date.now());
+          } else {
+            bytes = new TextEncoder().encode(url);
+          }
+          this.bytesLoaded = bytes.length;
+          this.bytesTotal = bytes.length;
+          this.data =
+            this.dataFormat === 'binary'
+              ? binary
+                ? binary.fromBytes(bytes)
+                : bytes
+              : new TextDecoder().decode(bytes);
+          this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+          this.dispatchEvent(
+            new AVHTTPStatusEvent(
+              AVHTTPStatusEvent.AV_HTTP_RESPONSE_STATUS,
+              false,
+              false,
+              200,
+              url,
+              []
+            )
+          );
+          if (options.net?.HTTPStatusEvent) {
+            const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+            hs.responseURL = url;
+            this.dispatchEvent(hs);
+          }
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        } catch (err) {
+          const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+          this.dispatchEvent(new Ev('ioError', false, false, String(err.message)));
+        }
+      }
+      close() {}
+    }
+    tagType(AVURLLoader, 'AVURLLoader', v => v instanceof AVURLLoader);
+
+    class AirCamera extends BaseDispatcher {
+      constructor(name = 'Default Camera', position = 'front') {
+        super();
+        this.name = String(name);
+        this.position = String(position || 'front');
+        this.width = 640;
+        this.height = 480;
+        this.fps = 30;
+        this.currentFPS = 30;
+        this.muted = false;
+        this.activityLevel = -1;
+        this.bandwidth = 0;
+        this.quality = 0;
+        this.index = 0;
+        this.keyFrameInterval = 15;
+        this.loopback = false;
+        this.motionLevel = 50;
+        this.motionTimeout = 2000;
+      }
+      static get isSupported() { return true; }
+      static get permissionStatus() { return 'granted'; }
+      static get names() { return ['Default Camera']; }
+      static getCamera(name = null) {
+        const pos = name === '1' || name === 'back' ? CameraPosition.BACK : CameraPosition.FRONT;
+        return new AirCamera(name || 'Default Camera', pos);
+      }
+      requestPermission() {
+        scheduleTask(() => {
+          this.dispatchEvent(
+            new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+          );
+        });
+      }
+      setMode(width, height, fps, _favorArea = true) {
+        this.width = Number(width) | 0;
+        this.height = Number(height) | 0;
+        this.fps = Number(fps) || 30;
+      }
+      setQuality(bandwidth, quality) {
+        this.bandwidth = Number(bandwidth) | 0;
+        this.quality = Number(quality) | 0;
+      }
+      setMotionLevel(motionLevel, timeout = 2000) {
+        this.motionLevel = Number(motionLevel) | 0;
+        this.motionTimeout = Number(timeout) | 0;
+      }
+      setKeyFrameInterval(keyFrameInterval) {
+        this.keyFrameInterval = Number(keyFrameInterval) | 0;
+      }
+      setLoopback(compress = false) {
+        this.loopback = Boolean(compress);
+      }
+      copyToByteArray(rect, destination) {
+        if (!rect || !destination) {
+          throw argErr('Camera.copyToByteArray requires rect and destination ByteArray.');
+        }
+        const count = Math.max(0, (Number(rect.width) | 0) * (Number(rect.height) | 0) * 4);
+        for (let i = 0; i < count; i++) {
+          destination.writeByte(0);
+        }
+      }
+      copyToVector(rect, destination) {
+        if (!rect || !destination) {
+          throw argErr('Camera.copyToVector requires rect and destination Vector.');
+        }
+        const count = Math.max(0, (Number(rect.width) | 0) * (Number(rect.height) | 0));
+        for (let i = 0; i < count; i++) {
+          destination[i] = 0xff000000;
+        }
+      }
+      drawToBitmapData(destination) {
+        if (!destination) {
+          throw argErr('Camera.drawToBitmapData requires a BitmapData destination.');
+        }
+      }
+    }
+    tagType(AirCamera, 'Camera', v => v instanceof AirCamera);
+
+    class AirMicrophone extends BaseDispatcher {
+      constructor(name = 'Default Microphone', index = 0) {
+        super();
+        this.name = String(name);
+        this.index = Number(index) | 0;
+        this.gain = 50;
+        this.rate = 44;
+        this.muted = false;
+        this.activityLevel = -1;
+        this.silenceLevel = 10;
+        this.silenceTimeout = 2000;
+        this.useEchoSuppression = false;
+        this.codec = 'Nellymoser';
+        this.encodeQuality = 6;
+        this.framesPerPacket = 2;
+        this.enhancedOptions = {
+          mode: 'fullDuplex',
+          echoPath: 128,
+          nonLinearProcessing: true,
+          isVoiceDetected: -1,
+        };
+      }
+      static get isSupported() { return true; }
+      static get permissionStatus() { return 'granted'; }
+      static get names() { return ['Default Microphone']; }
+      static getMicrophone(index = -1) {
+        return new AirMicrophone('Default Microphone', index < 0 ? 0 : index);
+      }
+      static getEnhancedMicrophone(index = -1) {
+        return new AirMicrophone('Enhanced Microphone', index < 0 ? 0 : index);
+      }
+      requestPermission() {
+        scheduleTask(() => {
+          this.dispatchEvent(
+            new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+          );
+        });
+      }
+      setSilenceLevel(silenceLevel, timeout = 2000) {
+        this.silenceLevel = Number(silenceLevel) || 0;
+        this.silenceTimeout = Number(timeout) | 0;
+      }
+      setUseEchoSuppression(useEchoSuppression) {
+        this.useEchoSuppression = Boolean(useEchoSuppression);
+      }
+      setLoopBack(_state = true) {}
+    }
+    tagType(AirMicrophone, 'Microphone', v => v instanceof AirMicrophone);
+
+    let soundMixerState = {
+      audioPlaybackMode: 'media',
+      useSpeakerphoneForVoice: false,
+      bufferTime: 0,
+    };
+    const AirSoundMixer = {
+      SoundMixer: function () {
+        throw new TypeError('SoundMixer supplies static members only.');
+      },
+    }.SoundMixer;
+    Object.defineProperties(AirSoundMixer, {
+      audioPlaybackMode: {
+        get: () => soundMixerState.audioPlaybackMode,
+        set: v => {
+          const m = String(v ?? 'media');
+          if (!['ambient', 'media', 'voice'].includes(m)) {
+            throw argErr(`Invalid AudioPlaybackMode '${m}'.`);
+          }
+          soundMixerState.audioPlaybackMode = m;
+        },
+        enumerable: true,
+      },
+      useSpeakerphoneForVoice: {
+        get: () => soundMixerState.useSpeakerphoneForVoice,
+        set: v => { soundMixerState.useSpeakerphoneForVoice = Boolean(v); },
+        enumerable: true,
+      },
+      bufferTime: {
+        get: () => soundMixerState.bufferTime,
+        set: v => { soundMixerState.bufferTime = Number(v) | 0; },
+        enumerable: true,
+      },
+      stopAll: {
+        value: () => {
+          if (typeof soundMixerState.delegateStopAll === 'function') {
+            soundMixerState.delegateStopAll();
+          }
+        },
+        enumerable: true,
+      },
+      areSoundsInaccessible: { value: () => false, enumerable: true },
+      __nfIs: { value: () => false },
+      __nfInitialize: {
+        value: () => {
+          throw new TypeError('SoundMixer cannot be extended.');
+        },
+      },
+      [Symbol.hasInstance]: { value: () => false },
+    });
+    Object.freeze(AirSoundMixer);
+
+    // -------------------------------------------------------------------------
+    // 10. flash.net.* & flash.net.drm.* (IPVersion, InterfaceAddress,
+    //     NetworkInterface, NetworkInfo, DatagramSocket, ServerSocket, Socket,
+    //     URLRequestDefaults, URLStream, FileReference, Responder, DRMDeviceGroup)
+    // -------------------------------------------------------------------------
+    const IPVersion = defConstClass('IPVersion', {
+      IPV4: 'IPv4',
+      IPV6: 'IPv6',
+    });
+
+    class InterfaceAddress {
+      constructor(address = '', broadcast = '', prefixLength = -1, ipVersion = 'IPv4') {
+        this.address = String(address ?? '');
+        this.broadcast = String(broadcast ?? '');
+        this.prefixLength = Number(prefixLength) | 0;
+        this.ipVersion = String(ipVersion || 'IPv4');
+      }
+    }
+    tagType(InterfaceAddress, 'InterfaceAddress', v => v instanceof InterfaceAddress);
+
+    class NetworkInterface {
+      constructor(init = {}) {
+        this.name = String(init.name ?? '');
+        this.displayName = String(init.displayName ?? '');
+        this.mtu = Number(init.mtu ?? 1500) | 0;
+        this.active = Boolean(init.active ?? true);
+        this.hardwareAddress = String(init.hardwareAddress ?? '');
+        this.parent = init.parent ?? null;
+        this.addresses = makeVector(
+          'flash.net.InterfaceAddress',
+          Array.isArray(init.addresses) ? init.addresses : []
+        );
+        this.subInterfaces = makeVector(
+          'flash.net.NetworkInterface',
+          Array.isArray(init.subInterfaces) ? init.subInterfaces : []
+        );
+      }
+    }
+    tagType(NetworkInterface, 'NetworkInterface', v => v instanceof NetworkInterface);
+
+    const netInfoToken = Symbol('NetworkInfo');
+    class NetworkInfo extends BaseDispatcher {
+      constructor(token) {
+        if (token !== netInfoToken) {
+          throw argErr('NetworkInfo is a singleton; use NetworkInfo.networkInfo.');
+        }
+        super();
+      }
+      static get isSupported() { return true; }
+      static get permissionStatus() { return 'granted'; }
+      static get networkInfo() {
+        ensureActive();
+        if (!networkInfoSingleton) {
+          networkInfoSingleton = new NetworkInfo(netInfoToken);
+        }
+        return networkInfoSingleton;
+      }
+      findInterfaces() {
+        const rawList = JSON.parse(callKernel('net_interfaces_json'));
+        const interfaces = rawList.map(item => {
+          const addrs = (item.addresses || []).map(
+            a => new InterfaceAddress(a.address, a.broadcast, a.prefixLength, a.ipVersion)
+          );
+          return new NetworkInterface({
+            name: item.name,
+            displayName: item.displayName,
+            mtu: item.mtu,
+            active: item.active,
+            hardwareAddress: item.hardwareAddress,
+            parent: null,
+            addresses: addrs,
+            subInterfaces: [],
+          });
+        });
+        return makeVector('flash.net.NetworkInterface', interfaces);
+      }
+    }
+    tagType(NetworkInfo, 'NetworkInfo', v => v === networkInfoSingleton && v !== null);
+
+    // DatagramSocket backed by Rust AirNetworkKernel UDP loopback table
+    const udpSocketMap = new Map();
+    const udpStates = new WeakMap();
+    function udpState(receiver) {
+      ensureActive();
+      const s = udpStates.get(receiver);
+      if (!s) throw new TypeError('Expected a DatagramSocket instance.');
+      return s;
+    }
+
+    function drainUdpLoopback(s) {
+      const targetSock = udpSocketMap.get(s.sockId);
+      if (!targetSock) return;
+      const snap = JSON.parse(callKernel('udp_state_json', s.sockId));
+      if (!snap.receiving || !Array.isArray(snap.inbox)) return;
+      while (snap.inbox.length > 0) {
+        const pkt = snap.inbox.shift();
+        const bytes = new Uint8Array(pkt.data || []);
+        const ba = binary ? binary.fromBytes(bytes) : bytes;
+        targetSock.dispatchEvent(
+          new DatagramSocketDataEvent(
+            DatagramSocketDataEvent.DATA,
+            false,
+            false,
+            pkt.srcAddress,
+            pkt.srcPort,
+            pkt.dstAddress,
+            pkt.dstPort,
+            ba
+          )
+        );
+      }
+    }
+
+    class DatagramSocket extends BaseDispatcher {
+      constructor() {
+        ensureActive();
+        super();
+        const sockId = callKernel('udp_create');
+        const st = {
+          sockId,
+          closed: false,
+          bound: false,
+          connected: false,
+          receiving: false,
+          localAddress: null,
+          localPort: 0,
+          remoteAddress: null,
+          remotePort: 0,
+        };
+        udpStates.set(this, st);
+        udpSocketMap.set(sockId, this);
+      }
+      static get isSupported() { return true; }
+      get bound() { return udpState(this).bound; }
+      get connected() { return udpState(this).connected; }
+      get localAddress() { return udpState(this).localAddress; }
+      get localPort() { return udpState(this).localPort; }
+      get remoteAddress() { return udpState(this).remoteAddress; }
+      get remotePort() { return udpState(this).remotePort; }
+      bind(localPort = 0, localAddress = '0.0.0.0') {
+        const s = udpState(this);
+        if (s.closed) throw illegalOp('DatagramSocket has been closed.');
+        if (s.bound) throw illegalOp('DatagramSocket is already bound.');
+        const port = Number(localPort) | 0;
+        if (port < 0 || port > 65535) throw new RangeError('localPort must be between 0 and 65535.');
+        const snap = JSON.parse(
+          callKernel('udp_bind', s.sockId, port, String(localAddress || '0.0.0.0'))
+        );
+        s.bound = true;
+        s.localAddress = snap.localAddress;
+        s.localPort = snap.localPort;
+      }
+      connect(remoteAddress, remotePort) {
+        const s = udpState(this);
+        if (s.closed) throw illegalOp('DatagramSocket has been closed.');
+        const port = Number(remotePort) | 0;
+        if (port <= 0 || port > 65535) {
+          throw new RangeError('remotePort must be between 1 and 65535.');
+        }
+        const snap = JSON.parse(
+          callKernel('udp_connect', s.sockId, String(remoteAddress ?? ''), port)
+        );
+        s.connected = true;
+        s.remoteAddress = snap.remoteAddress;
+        s.remotePort = snap.remotePort;
+      }
+      receive() {
+        const s = udpState(this);
+        if (s.closed) throw illegalOp('DatagramSocket has been closed.');
+        if (!s.bound) this.bind(0, '127.0.0.1');
+        callKernel('udp_receive', s.sockId);
+        s.receiving = true;
+      }
+      send(bytes, offset = 0, length = 0, address = null, port = 0) {
+        const s = udpState(this);
+        if (s.closed) throw illegalOp('DatagramSocket has been closed.');
+        if (!bytes) throw argErr('DatagramSocket.send requires a ByteArray.');
+        let rawBytes;
+        if (binary?.ByteArray?.__nfIs?.(bytes)) rawBytes = binary.toBytes(bytes);
+        else if (bytes instanceof Uint8Array) rawBytes = bytes;
+        else throw new TypeError('DatagramSocket.send requires a ByteArray.');
+        const off = Number(offset) >>> 0;
+        const len = Number(length) >>> 0;
+        if (off > rawBytes.length || off + len > rawBytes.length) {
+          throw new RangeError('DatagramSocket.send offset/length out of bounds.');
+        }
+        const slice = len === 0 ? rawBytes.subarray(off) : rawBytes.subarray(off, off + len);
+        const targetAddr = address == null ? s.remoteAddress : String(address);
+        const targetPort = (Number(port) | 0) || s.remotePort;
+        if (!targetAddr || targetPort <= 0 || targetPort > 65535) {
+          throw argErr('DatagramSocket.send requires a valid target address and port.');
+        }
+        const snap = JSON.parse(
+          callKernel('udp_send', s.sockId, targetAddr, targetPort)
+        );
+        s.bound = true;
+        s.localAddress = snap.localAddress;
+        s.localPort = snap.localPort;
+        for (const d of snap.deliveries || []) {
+          const peerSock = udpSocketMap.get(d.targetSockId);
+          const peerState = peerSock ? udpStates.get(peerSock) : null;
+          if (peerSock && peerState && peerState.receiving && !peerState.closed) {
+            const payloadBa = binary ? binary.fromBytes(slice) : new Uint8Array(slice);
+            peerSock.dispatchEvent(
+              new DatagramSocketDataEvent(
+                DatagramSocketDataEvent.DATA,
+                false,
+                false,
+                d.srcAddress,
+                d.srcPort,
+                d.dstAddress,
+                d.dstPort,
+                payloadBa
+              )
+            );
+          }
+        }
+      }
+      close() {
+        const s = udpState(this);
+        if (s.closed) return;
+        s.closed = true;
+        s.bound = false;
+        s.connected = false;
+        s.receiving = false;
+        callKernel('udp_close', s.sockId);
+        udpSocketMap.delete(s.sockId);
+        this.dispatchEvent(new BaseEvent(BaseEvent.CLOSE));
+      }
+    }
+    tagType(DatagramSocket, 'DatagramSocket', v => udpStates.has(v));
+
+    // ServerSocket and Socket (implementing IDataInput & IDataOutput) backed by Rust AirNetworkKernel
+    const serverSocketMap = new Map();
+    const serverSocketStates = new WeakMap();
+    const tcpSocketMap = new Map();
+    const tcpSocketStates = new WeakMap();
+
+    function srvState(receiver) {
+      ensureActive();
+      const s = serverSocketStates.get(receiver);
+      if (!s) throw new TypeError('Expected a ServerSocket instance.');
+      return s;
+    }
+
+    class ServerSocket extends BaseDispatcher {
+      constructor() {
+        ensureActive();
+        super();
+        const serverId = callKernel('tcp_server_create');
+        const st = {
+          serverId,
+          closed: false,
+          bound: false,
+          listening: false,
+          localAddress: null,
+          localPort: 0,
+        };
+        serverSocketStates.set(this, st);
+        serverSocketMap.set(serverId, this);
+      }
+      static get isSupported() { return true; }
+      get bound() { return srvState(this).bound; }
+      get listening() { return srvState(this).listening; }
+      get localAddress() { return srvState(this).localAddress; }
+      get localPort() { return srvState(this).localPort; }
+      bind(localPort = 0, localAddress = '0.0.0.0') {
+        const s = srvState(this);
+        if (s.closed) throw illegalOp('ServerSocket has been closed.');
+        if (s.bound) throw illegalOp('ServerSocket is already bound.');
+        const port = Number(localPort) | 0;
+        if (port < 0 || port > 65535) throw new RangeError('localPort must be between 0 and 65535.');
+        const snap = JSON.parse(
+          callKernel('tcp_server_bind', s.serverId, port, String(localAddress || '0.0.0.0'))
+        );
+        s.bound = true;
+        s.localAddress = snap.localAddress;
+        s.localPort = snap.localPort;
+      }
+      listen(backlog = 0) {
+        const s = srvState(this);
+        if (s.closed) throw illegalOp('ServerSocket has been closed.');
+        if (!s.bound) throw illegalOp('ServerSocket must be bound before calling listen().');
+        callKernel('tcp_server_listen', s.serverId, Number(backlog) | 0);
+        s.listening = true;
+      }
+      close() {
+        const s = srvState(this);
+        if (s.closed) return;
+        s.closed = true;
+        s.bound = false;
+        s.listening = false;
+        callKernel('tcp_server_close', s.serverId);
+        serverSocketMap.delete(s.serverId);
+        this.dispatchEvent(new BaseEvent(BaseEvent.CLOSE));
+      }
+    }
+    tagType(ServerSocket, 'ServerSocket', v => serverSocketStates.has(v));
+
+    function sockState(receiver) {
+      ensureActive();
+      const s = tcpSocketStates.get(receiver);
+      if (!s) throw new TypeError('Expected a Socket instance.');
+      return s;
+    }
+
+    function ensureSocketConnected(receiver) {
+      const s = sockState(receiver);
+      if (!s.connected) throw illegalOp('Socket is not connected.');
+      return s;
+    }
+
+    const acceptedSocketToken = Symbol('AcceptedSocket');
+    class Socket extends BaseDispatcher {
+      constructor(host = null, port = 0) {
+        ensureActive();
+        super();
+        const inBuf = binary ? new binary.ByteArray() : null;
+        const outBuf = binary ? new binary.ByteArray() : null;
+        const st = {
+          connId: null,
+          peerConnId: null,
+          connected: false,
+          localAddress: null,
+          localPort: 0,
+          remoteAddress: null,
+          remotePort: 0,
+          timeout: 20000,
+          endian: binary ? binary.Endian.BIG_ENDIAN : 'bigEndian',
+          objectEncoding: 3,
+          inBuf,
+          outBuf,
+        };
+        tcpSocketStates.set(this, st);
+        streamStates.set(this, {
+          open: false,
+          async: true,
+          mode: 'update',
+          path: null,
+          buffer: inBuf,
+          endian: st.endian,
+          objectEncoding: 3,
+          readAhead: Number.POSITIVE_INFINITY,
+        });
+        if (host !== null && host !== acceptedSocketToken && Number(port) > 0) {
+          this.connect(host, port);
+        }
+      }
+      get connected() { return sockState(this).connected; }
+      get localAddress() { return sockState(this).localAddress; }
+      get localPort() { return sockState(this).localPort; }
+      get remoteAddress() { return sockState(this).remoteAddress; }
+      get remotePort() { return sockState(this).remotePort; }
+      get timeout() { return sockState(this).timeout; }
+      set timeout(v) { sockState(this).timeout = Math.max(250, Number(v) | 0); }
+      get bytesPending() {
+        const s = sockState(this);
+        return s.outBuf ? s.outBuf.length : 0;
+      }
+      get bytesAvailable() {
+        const s = sockState(this);
+        return s.connected && s.inBuf ? s.inBuf.bytesAvailable : 0;
+      }
+      get endian() { return sockState(this).endian; }
+      set endian(value) {
+        const s = sockState(this);
+        if (binary && value !== binary.Endian.BIG_ENDIAN && value !== binary.Endian.LITTLE_ENDIAN) {
+          throw new TypeError('Socket.endian must be Endian.BIG_ENDIAN or Endian.LITTLE_ENDIAN.');
+        }
+        s.endian = value;
+        if (s.inBuf) s.inBuf.endian = value;
+        if (s.outBuf) s.outBuf.endian = value;
+      }
+      get objectEncoding() { return sockState(this).objectEncoding; }
+      set objectEncoding(value) {
+        const s = sockState(this);
+        const enc = Number(value) >>> 0;
+        if (enc !== 0 && enc !== 3) throw new RangeError('Socket.objectEncoding must be 0 or 3.');
+        s.objectEncoding = enc;
+        if (s.inBuf) s.inBuf.objectEncoding = enc;
+        if (s.outBuf) s.outBuf.objectEncoding = enc;
+      }
+
+      connect(host, port) {
+        const s = sockState(this);
+        const targetHost = String(host ?? '127.0.0.1');
+        const targetPort = Number(port) | 0;
+        if (targetPort <= 0 || targetPort > 65535) {
+          throw new SecurityError('Socket.connect requires a valid port (1..65535).');
+        }
+        try {
+          const info = JSON.parse(callKernel('tcp_connect_loopback', targetHost, targetPort));
+          if (!info.matched) {
+            throw new Error(`No listening ServerSocket on ${targetHost}:${targetPort}.`);
+          }
+          s.connId = info.clientConnId;
+          s.peerConnId = info.acceptedConnId;
+          s.connected = true;
+          s.localAddress = info.clientAddress;
+          s.localPort = info.clientPort;
+          s.remoteAddress = info.serverAddress;
+          s.remotePort = info.serverPort;
+          streamStates.get(this).open = true;
+          tcpSocketMap.set(s.connId, this);
+
+          const serverSock = serverSocketMap.get(info.serverId);
+          if (serverSock) {
+            const accepted = new Socket(acceptedSocketToken, 0);
+            const as = sockState(accepted);
+            as.connId = info.acceptedConnId;
+            as.peerConnId = info.clientConnId;
+            as.connected = true;
+            as.localAddress = info.serverAddress;
+            as.localPort = info.serverPort;
+            as.remoteAddress = info.clientAddress;
+            as.remotePort = info.clientPort;
+            streamStates.get(accepted).open = true;
+            tcpSocketMap.set(as.connId, accepted);
+            serverSock.dispatchEvent(
+              new ServerSocketConnectEvent(
+                ServerSocketConnectEvent.CONNECT,
+                false,
+                false,
+                accepted
+              )
+            );
+          }
+          this.dispatchEvent(new BaseEvent(BaseEvent.CONNECT));
+        } catch (err) {
+          scheduleTask(() => {
+            const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+            this.dispatchEvent(new Ev('ioError', false, false, String(err.message)));
+          });
+        }
+      }
+
+      flush() {
+        const s = ensureSocketConnected(this);
+        if (!s.outBuf || s.outBuf.length === 0) return;
+        const payload = binary.toBytes(s.outBuf);
+        s.outBuf.clear();
+        const peerId = callKernel('tcp_write', s.connId, payload);
+        const peerSock = tcpSocketMap.get(peerId);
+        const peerState = peerSock ? tcpSocketStates.get(peerSock) : null;
+        if (peerSock && peerState && peerState.connected && peerState.inBuf) {
+          const chunk = callKernel('tcp_read', peerId);
+          const prevPos = peerState.inBuf.position;
+          peerState.inBuf.position = peerState.inBuf.length;
+          const chunkBa = binary.fromBytes(chunk);
+          peerState.inBuf.writeBytes(chunkBa, 0, chunkBa.length);
+          peerState.inBuf.position = prevPos;
+          if (options.net?.ProgressEvent) {
+            peerSock.dispatchEvent(
+              new options.net.ProgressEvent(
+                'socketData',
+                false,
+                false,
+                peerState.inBuf.bytesAvailable,
+                0
+              )
+            );
+          }
+        }
+      }
+
+      close() {
+        const s = sockState(this);
+        if (!s.connected && !s.peerClosed) throw illegalOp('Socket is not connected.');
+        s.connected = false;
+        s.peerClosed = false;
+        streamStates.get(this).open = false;
+        if (s.connId !== null) {
+          const cid = s.connId;
+          s.connId = null;
+          const peerId = callKernel('tcp_close', cid);
+          tcpSocketMap.delete(cid);
+          const peerSock = tcpSocketMap.get(peerId);
+          const peerState = peerSock ? tcpSocketStates.get(peerSock) : null;
+          if (peerSock && peerState && peerState.connected) {
+            peerState.connected = false;
+            peerState.peerClosed = true;
+            peerState.connId = null;
+            streamStates.get(peerSock).open = false;
+            tcpSocketMap.delete(peerId);
+            peerSock.dispatchEvent(new BaseEvent(BaseEvent.CLOSE));
+          }
+        }
+      }
+
+      _readSock(fn) {
+        const s = ensureSocketConnected(this);
+        try {
+          return fn(s.inBuf);
+        } catch (err) {
+          if (err instanceof RangeError && /exceeds available data/i.test(String(err.message))) {
+            throw eofErr();
+          }
+          throw err;
+        }
+      }
+      readBoolean() { return this._readSock(b => b.readBoolean()); }
+      readByte() { return this._readSock(b => b.readByte()); }
+      readUnsignedByte() { return this._readSock(b => b.readUnsignedByte()); }
+      readShort() { return this._readSock(b => b.readShort()); }
+      readUnsignedShort() { return this._readSock(b => b.readUnsignedShort()); }
+      readInt() { return this._readSock(b => b.readInt()); }
+      readUnsignedInt() { return this._readSock(b => b.readUnsignedInt()); }
+      readFloat() { return this._readSock(b => b.readFloat()); }
+      readDouble() { return this._readSock(b => b.readDouble()); }
+      readUTF() { return this._readSock(b => b.readUTF()); }
+      readUTFBytes(length) { return this._readSock(b => b.readUTFBytes(length)); }
+      readMultiByte(length, charSet) { return this._readSock(b => b.readMultiByte(length, charSet)); }
+      readBytes(bytes, offset = 0, length = 0) {
+        this._readSock(b => {
+          if (length > b.bytesAvailable) throw eofErr();
+          b.readBytes(bytes, offset, length);
+        });
+      }
+      readObject() { return this._readSock(b => b.readObject()); }
+
+      writeBoolean(v) { ensureSocketConnected(this).outBuf.writeBoolean(v); }
+      writeByte(v) { ensureSocketConnected(this).outBuf.writeByte(v); }
+      writeShort(v) { ensureSocketConnected(this).outBuf.writeShort(v); }
+      writeInt(v) { ensureSocketConnected(this).outBuf.writeInt(v); }
+      writeUnsignedInt(v) { ensureSocketConnected(this).outBuf.writeUnsignedInt(v); }
+      writeFloat(v) { ensureSocketConnected(this).outBuf.writeFloat(v); }
+      writeDouble(v) { ensureSocketConnected(this).outBuf.writeDouble(v); }
+      writeUTF(v) { ensureSocketConnected(this).outBuf.writeUTF(v); }
+      writeUTFBytes(v) { ensureSocketConnected(this).outBuf.writeUTFBytes(v); }
+      writeMultiByte(v, charSet) { ensureSocketConnected(this).outBuf.writeMultiByte(v, charSet); }
+      writeBytes(bytes, offset = 0, length = 0) {
+        ensureSocketConnected(this).outBuf.writeBytes(bytes, offset, length);
+      }
+      writeObject(v) { ensureSocketConnected(this).outBuf.writeObject(v); }
+    }
+    tagType(Socket, 'Socket', v => tcpSocketStates.has(v));
+
+    // URLRequestDefaults & URLRequest AIR properties
+    let urlRequestDefaultsState = {
+      authenticate: true,
+      cacheResponse: true,
+      followRedirects: true,
+      idleTimeout: 0,
+      manageCookies: true,
+      useCache: true,
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 AdobeAIR/32.0',
+    };
+
+    const URLRequestDefaults = {
+      URLRequestDefaults: function () {
+        throw new TypeError('URLRequestDefaults supplies static properties and methods only.');
+      },
+    }.URLRequestDefaults;
+    Object.defineProperties(URLRequestDefaults, {
+      authenticate: {
+        get: () => urlRequestDefaultsState.authenticate,
+        set: v => { urlRequestDefaultsState.authenticate = Boolean(v); },
+        enumerable: true,
+      },
+      cacheResponse: {
+        get: () => urlRequestDefaultsState.cacheResponse,
+        set: v => { urlRequestDefaultsState.cacheResponse = Boolean(v); },
+        enumerable: true,
+      },
+      followRedirects: {
+        get: () => urlRequestDefaultsState.followRedirects,
+        set: v => { urlRequestDefaultsState.followRedirects = Boolean(v); },
+        enumerable: true,
+      },
+      idleTimeout: {
+        get: () => urlRequestDefaultsState.idleTimeout,
+        set: v => {
+          const n = Number(v);
+          if (n < 0 || Number.isNaN(n)) throw argErr('URLRequestDefaults.idleTimeout must be non-negative.');
+          urlRequestDefaultsState.idleTimeout = n;
+        },
+        enumerable: true,
+      },
+      manageCookies: {
+        get: () => urlRequestDefaultsState.manageCookies,
+        set: v => { urlRequestDefaultsState.manageCookies = Boolean(v); },
+        enumerable: true,
+      },
+      useCache: {
+        get: () => urlRequestDefaultsState.useCache,
+        set: v => { urlRequestDefaultsState.useCache = Boolean(v); },
+        enumerable: true,
+      },
+      userAgent: {
+        get: () => urlRequestDefaultsState.userAgent,
+        set: v => {
+          if (v == null) throw new TypeError('URLRequestDefaults.userAgent cannot be null.');
+          urlRequestDefaultsState.userAgent = String(v);
+        },
+        enumerable: true,
+      },
+      setLoginCredentialsForHost: {
+        value: (hostname, user, password) => {
+          if (!hostname || typeof hostname !== 'string') {
+            throw argErr('setLoginCredentialsForHost requires a non-empty hostname.');
+          }
+          return callKernel(
+            'net_set_login_credentials',
+            hostname,
+            user == null ? undefined : String(user),
+            password == null ? undefined : String(password)
+          );
+        },
+        enumerable: true,
+      },
+      __nfIs: { value: () => false },
+      __nfInitialize: {
+        value: () => {
+          throw new TypeError('URLRequestDefaults cannot be extended.');
+        },
+      },
+      [Symbol.hasInstance]: { value: () => false },
+    });
+    Object.freeze(URLRequestDefaults);
+
+    const urlRequestAirProps = new WeakMap();
+    function reqAirState(req) {
+      let s = urlRequestAirProps.get(req);
+      if (!s) {
+        s = {
+          authenticate: urlRequestDefaultsState.authenticate,
+          cacheResponse: urlRequestDefaultsState.cacheResponse,
+          followRedirects: urlRequestDefaultsState.followRedirects,
+          idleTimeout: urlRequestDefaultsState.idleTimeout,
+          manageCookies: urlRequestDefaultsState.manageCookies,
+          useCache: urlRequestDefaultsState.useCache,
+          userAgent: urlRequestDefaultsState.userAgent,
+        };
+        urlRequestAirProps.set(req, s);
+      }
+      return s;
+    }
+
+    function augmentURLRequestClass(URLRequestCtor) {
+      if (!URLRequestCtor?.prototype || Object.hasOwn(URLRequestCtor.prototype, 'authenticate')) return;
+      Object.defineProperties(URLRequestCtor.prototype, {
+        authenticate: {
+          get() { return reqAirState(this).authenticate; },
+          set(v) { reqAirState(this).authenticate = Boolean(v); },
+          enumerable: true,
+          configurable: true,
+        },
+        cacheResponse: {
+          get() { return reqAirState(this).cacheResponse; },
+          set(v) { reqAirState(this).cacheResponse = Boolean(v); },
+          enumerable: true,
+          configurable: true,
+        },
+        followRedirects: {
+          get() { return reqAirState(this).followRedirects; },
+          set(v) { reqAirState(this).followRedirects = Boolean(v); },
+          enumerable: true,
+          configurable: true,
+        },
+        idleTimeout: {
+          get() { return reqAirState(this).idleTimeout; },
+          set(v) {
+            const n = Number(v);
+            if (n < 0 || Number.isNaN(n)) throw argErr('URLRequest.idleTimeout must be non-negative.');
+            reqAirState(this).idleTimeout = n;
+          },
+          enumerable: true,
+          configurable: true,
+        },
+        manageCookies: {
+          get() { return reqAirState(this).manageCookies; },
+          set(v) { reqAirState(this).manageCookies = Boolean(v); },
+          enumerable: true,
+          configurable: true,
+        },
+        useCache: {
+          get() { return reqAirState(this).useCache; },
+          set(v) { reqAirState(this).useCache = Boolean(v); },
+          enumerable: true,
+          configurable: true,
+        },
+        userAgent: {
+          get() { return reqAirState(this).userAgent; },
+          set(v) {
+            if (v == null) throw new TypeError('URLRequest.userAgent cannot be null.');
+            reqAirState(this).userAgent = String(v);
+          },
+          enumerable: true,
+          configurable: true,
+        },
+      });
+    }
+    if (options.net?.URLRequest) {
+      augmentURLRequestClass(options.net.URLRequest);
+    }
+
+    const AirURLRequestMethod = defConstClass('URLRequestMethod', {
+      DELETE: 'DELETE',
+      GET: 'GET',
+      HEAD: 'HEAD',
+      OPTIONS: 'OPTIONS',
+      POST: 'POST',
+      PUT: 'PUT',
+    });
+
+    function augmentURLLoaderClass(URLLoaderCtor) {
+      if (!URLLoaderCtor?.prototype || URLLoaderCtor.prototype.__nfAirAugmented) return;
+      const origLoad = URLLoaderCtor.prototype.load;
+      Object.defineProperty(URLLoaderCtor.prototype, '__nfAirAugmented', { value: true });
+      URLLoaderCtor.prototype.load = function (request) {
+        const url = request?.url;
+        const method = String(request?.method || 'GET').toUpperCase();
+        if (
+          typeof url === 'string' &&
+          (/^(app:|app-storage:|app-desktop:|app-docs:|app-user:|app-cache:|file:|data:)/i.test(url) ||
+            ['DELETE', 'HEAD', 'OPTIONS', 'PUT'].includes(method))
+        ) {
+          scheduleTask(() => {
+            try {
+              let bytes = new Uint8Array(0);
+              if (/^data:/i.test(url)) {
+                const comma = url.indexOf(',');
+                const body = comma >= 0 ? decodeURIComponent(url.slice(comma + 1)) : '';
+                bytes = new TextEncoder().encode(body);
+              } else if (/^(app:|app-storage:|app-desktop:|app-docs:|app-user:|app-cache:|file:)/i.test(url)) {
+                const p = callKernel('normalize_path', url);
+                if (method === 'PUT' && request.data != null) {
+                  const writeBytes =
+                    binary?.ByteArray?.__nfIs?.(request.data)
+                      ? binary.toBytes(request.data)
+                      : new TextEncoder().encode(String(request.data));
+                  callKernel('fs_write_bytes', p, writeBytes, Date.now());
+                  bytes = writeBytes;
+                } else if (method === 'DELETE') {
+                  callKernel('fs_delete', p, false);
+                } else {
+                  bytes = callKernel('fs_open_stream', p, 'read', Date.now());
+                }
+              }
+              this.data =
+                this.dataFormat === 'binary'
+                  ? binary
+                    ? binary.fromBytes(bytes)
+                    : bytes
+                  : this.dataFormat === 'variables' && options.net?.URLVariables
+                    ? new options.net.URLVariables(new TextDecoder().decode(bytes))
+                    : new TextDecoder().decode(bytes);
+              this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+              if (options.net?.ProgressEvent) {
+                this.dispatchEvent(
+                  new options.net.ProgressEvent('progress', false, false, bytes.length, bytes.length)
+                );
+              }
+              if (options.net?.HTTPStatusEvent) {
+                const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+                hs.responseURL = url;
+                this.dispatchEvent(hs);
+                this.dispatchEvent(new options.net.HTTPStatusEvent('httpStatus', false, false, 200, false));
+              }
+              this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+            } catch (err) {
+              const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+              this.dispatchEvent(new Ev('ioError', false, false, String(err.message)));
+            }
+          });
+          return;
+        }
+        return origLoad.call(this, request);
+      };
+    }
+    if (options.net?.URLLoader) {
+      augmentURLLoaderClass(options.net.URLLoader);
+    }
+
+    const urlStreamStates = new WeakMap();
+    class URLStream extends BaseDispatcher {
+      constructor() {
+        ensureActive();
+        super();
+        const buf = binary ? new binary.ByteArray() : null;
+        const st = {
+          connected: false,
+          endian: binary ? binary.Endian.BIG_ENDIAN : 'bigEndian',
+          objectEncoding: 3,
+          buffer: buf,
+        };
+        urlStreamStates.set(this, st);
+        streamStates.set(this, {
+          open: false,
+          async: true,
+          mode: 'read',
+          path: null,
+          buffer: buf,
+          endian: st.endian,
+          objectEncoding: 3,
+          readAhead: Number.POSITIVE_INFINITY,
+        });
+      }
+      get connected() { return urlStreamStates.get(this).connected; }
+      get bytesAvailable() {
+        const s = urlStreamStates.get(this);
+        return s.connected && s.buffer ? s.buffer.bytesAvailable : 0;
+      }
+      get endian() { return urlStreamStates.get(this).endian; }
+      set endian(v) {
+        const s = urlStreamStates.get(this);
+        s.endian = v;
+        if (s.buffer) s.buffer.endian = v;
+      }
+      get objectEncoding() { return urlStreamStates.get(this).objectEncoding; }
+      set objectEncoding(v) {
+        const s = urlStreamStates.get(this);
+        s.objectEncoding = Number(v) >>> 0;
+        if (s.buffer) s.buffer.objectEncoding = s.objectEncoding;
+      }
+      load(request) {
+        const s = urlStreamStates.get(this);
+        if (!request || typeof request.url !== 'string' || !request.url) {
+          throw argErr('URLStream.load requires a URLRequest with a non-empty url.');
+        }
+        const url = request.url;
+        try {
+          let bytes = new Uint8Array(0);
+          if (/^data:/i.test(url)) {
+            const comma = url.indexOf(',');
+            const body = comma >= 0 ? decodeURIComponent(url.slice(comma + 1)) : '';
+            bytes = new TextEncoder().encode(body);
+          } else if (/^(app:|app-storage:|app-desktop:|app-docs:|app-user:|app-cache:|file:|\/)/i.test(url)) {
+            const p = callKernel('normalize_path', url);
+            bytes = callKernel('fs_open_stream', p, 'read', Date.now());
+          } else {
+            bytes = new TextEncoder().encode(url);
+          }
+          const buf = binary.fromBytes(bytes);
+          buf.endian = s.endian;
+          buf.objectEncoding = s.objectEncoding;
+          buf.position = 0;
+          s.buffer = buf;
+          s.connected = true;
+          streamStates.get(this).open = true;
+          streamStates.get(this).buffer = buf;
+          this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+          if (options.net?.HTTPStatusEvent) {
+            const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+            hs.responseURL = url;
+            this.dispatchEvent(hs);
+            this.dispatchEvent(new options.net.HTTPStatusEvent('httpStatus', false, false, 200, false));
+          }
+          if (options.net?.ProgressEvent) {
+            this.dispatchEvent(
+              new options.net.ProgressEvent('progress', false, false, bytes.length, bytes.length)
+            );
+          }
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        } catch (err) {
+          const Ev = options.net?.IOErrorEvent || BaseErrorEvent;
+          this.dispatchEvent(new Ev('ioError', false, false, String(err.message)));
+        }
+      }
+      close() {
+        const s = urlStreamStates.get(this);
+        s.connected = false;
+        streamStates.get(this).open = false;
+        if (s.buffer) s.buffer.clear();
+      }
+      _read(fn) {
+        const s = urlStreamStates.get(this);
+        if (!s.connected || !s.buffer) throw illegalOp('URLStream is not connected.');
+        return fn(s.buffer);
+      }
+      readBoolean() { return this._read(b => b.readBoolean()); }
+      readByte() { return this._read(b => b.readByte()); }
+      readUnsignedByte() { return this._read(b => b.readUnsignedByte()); }
+      readShort() { return this._read(b => b.readShort()); }
+      readUnsignedShort() { return this._read(b => b.readUnsignedShort()); }
+      readInt() { return this._read(b => b.readInt()); }
+      readUnsignedInt() { return this._read(b => b.readUnsignedInt()); }
+      readFloat() { return this._read(b => b.readFloat()); }
+      readDouble() { return this._read(b => b.readDouble()); }
+      readUTF() { return this._read(b => b.readUTF()); }
+      readUTFBytes(length) { return this._read(b => b.readUTFBytes(length)); }
+      readMultiByte(length, charSet) { return this._read(b => b.readMultiByte(length, charSet)); }
+      readBytes(bytes, offset = 0, length = 0) {
+        this._read(b => {
+          if (length > b.bytesAvailable) throw eofErr();
+          b.readBytes(bytes, offset, length);
+        });
+      }
+      readObject() { return this._read(b => b.readObject()); }
+    }
+    tagType(URLStream, 'URLStream', v => urlStreamStates.has(v));
+
+    class AirFileReference extends BaseDispatcher {
+      constructor() {
+        super();
+        this.name = '';
+        this.size = 0;
+        this.type = '';
+        this.creator = '';
+        this.creationDate = new Date(0);
+        this.modificationDate = new Date(0);
+        this.data = null;
+      }
+      static get permissionStatus() { return 'granted'; }
+      get extension() {
+        const nm = String(this.name || '');
+        const dot = nm.lastIndexOf('.');
+        return dot > 0 && dot + 1 < nm.length ? nm.slice(dot + 1) : null;
+      }
+      requestPermission() {
+        scheduleTask(() => {
+          this.dispatchEvent(
+            new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+          );
+        });
+      }
+      browse(_typeFilter = null) {
+        scheduleTask(() => this.dispatchEvent(new BaseEvent(BaseEvent.CANCEL)));
+        return false;
+      }
+      download(_request, _defaultFileName = null) {
+        scheduleTask(() => this.dispatchEvent(new BaseEvent(BaseEvent.CANCEL)));
+      }
+      load() {
+        scheduleTask(() => {
+          if (!this.data && binary) this.data = new binary.ByteArray();
+          this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        });
+      }
+      save(data, defaultFileName = null) {
+        if (defaultFileName != null) this.name = String(defaultFileName);
+        if (binary?.ByteArray?.__nfIs?.(data)) this.data = data;
+        else if (binary) {
+          const bytes =
+            data instanceof Uint8Array
+              ? data
+              : new TextEncoder().encode(String(data ?? ''));
+          this.data = binary.fromBytes(bytes);
+        }
+        scheduleTask(() => {
+          this.dispatchEvent(new BaseEvent(BaseEvent.SELECT));
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        });
+      }
+      upload(request, _uploadDataFieldName = 'Filedata', _testUpload = false) {
+        this.uploadUnencoded(request);
+      }
+      uploadUnencoded(request) {
+        if (!request || typeof request.url !== 'string' || !request.url) {
+          throw argErr('FileReference.uploadUnencoded requires a URLRequest with a valid url.');
+        }
+        const url = request.url;
+        scheduleTask(() => {
+          this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+          if (options.net?.HTTPStatusEvent) {
+            const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+            hs.responseURL = url;
+            this.dispatchEvent(hs);
+            this.dispatchEvent(new options.net.HTTPStatusEvent('httpStatus', false, false, 200, false));
+          }
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        });
+      }
+      cancel() {}
+    }
+    tagType(AirFileReference, 'FileReference', v => v instanceof AirFileReference || fileStates.has(v));
+
+    class AirFileReferenceList extends BaseDispatcher {
+      constructor() {
+        super();
+        this.fileList = [];
+      }
+      browse(_typeFilter = null) {
+        scheduleTask(() => this.dispatchEvent(new BaseEvent(BaseEvent.CANCEL)));
+        return false;
+      }
+    }
+    tagType(AirFileReferenceList, 'FileReferenceList', v => v instanceof AirFileReferenceList);
+
+    class Responder {
+      constructor(result, status = null) {
+        if (typeof result !== 'function') {
+          throw new TypeError('Responder requires a result callback function.');
+        }
+        if (status !== null && typeof status !== 'function') {
+          throw new TypeError('Responder status must be a function or null.');
+        }
+        this._result = result;
+        this._status = status;
+      }
+    }
+    tagType(Responder, 'Responder', v => v instanceof Responder);
+
+    class DRMDeviceGroup {
+      constructor(serverURL = '', domain = '', authenticationMethod = 'anonymous') {
+        this.serverURL = String(serverURL ?? '');
+        this.domain = String(domain ?? '');
+        this.authenticationMethod = String(authenticationMethod || 'anonymous');
+      }
+    }
+    tagType(DRMDeviceGroup, 'DRMDeviceGroup', v => v instanceof DRMDeviceGroup);
+
+    class DRMContentData {
+      constructor(_rawData = null) {
+        this.serverURL = '';
+        this.domain = '';
+        this.licenseID = '';
+        this.authenticationMethod = 'anonymous';
+      }
+    }
+    tagType(DRMContentData, 'DRMContentData', v => v instanceof DRMContentData);
+
+    class DRMVoucher {
+      constructor() {
+        this.serverURL = '';
+        this.licenseID = '';
+        this.policyID = '';
+        this.offlineLeaseStartDate = null;
+        this.offlineLeaseExpirationDate = null;
+        this.offlineLeasePeriod = 0;
+        this.voucherStartDate = null;
+        this.voucherEndDate = null;
+        this.policies = {};
+      }
+    }
+    tagType(DRMVoucher, 'DRMVoucher', v => v instanceof DRMVoucher);
+
+    // -------------------------------------------------------------------------
+    // 11. flash.printing.* (PaperSize, PrintMethod, PrintUIOptions,
+    //                       PrintJobOptions, PrintJobOrientation, PrintJob)
+    // -------------------------------------------------------------------------
+    const PaperSize = defConstClass('PaperSize', {
+      A4: 'a4',
+      A5: 'a5',
+      A6: 'a6',
+      CHOUKEI3GOU: 'choukei3gou',
+      CHOUKEI4GOU: 'choukei4gou',
+      ENV_10: 'env_10',
+      ENV_B5: 'env_b5',
+      ENV_C5: 'env_c5',
+      ENV_DL: 'env_dl',
+      ENV_MONARCH: 'env_monarch',
+      ENV_PERSONAL: 'env_personal',
+      EXECUTIVE: 'executive',
+      FOLIO: 'folio',
+      JIS_B5: 'jis_b5',
+      LEGAL: 'legal',
+      LETTER: 'letter',
+      STATEMENT: 'statement',
+    });
+
+    const PAPER_DIMENSIONS_PT = {
+      letter: [612, 792],
+      legal: [612, 1008],
+      a4: [595, 842],
+      a5: [420, 595],
+      a6: [298, 420],
+      executive: [522, 756],
+      folio: [612, 936],
+      statement: [396, 612],
+      jis_b5: [516, 729],
+      env_10: [297, 684],
+      env_b5: [499, 709],
+      env_c5: [459, 649],
+      env_dl: [312, 624],
+      env_monarch: [279, 540],
+      env_personal: [261, 468],
+      choukei3gou: [340, 666],
+      choukei4gou: [255, 581],
+    };
+
+    const PrintMethod = defConstClass('PrintMethod', {
+      AUTO: 'auto',
+      BITMAP: 'bitmap',
+      VECTOR: 'vector',
+    });
+
+    const PrintJobOrientation = defConstClass('PrintJobOrientation', {
+      LANDSCAPE: 'landscape',
+      PORTRAIT: 'portrait',
+    });
+
+    class PrintUIOptions {
+      constructor() {
+        this.disablePageRange = false;
+        this.minPage = 1;
+        this.maxPage = 9999;
+      }
+    }
+    tagType(PrintUIOptions, 'PrintUIOptions', v => v instanceof PrintUIOptions);
+
+    class PrintJobOptions {
+      constructor(printAsBitmap = false) {
+        this.printAsBitmap = Boolean(printAsBitmap);
+        this.pixelsPerInch = Number.NaN;
+        this.printMethod = 'auto';
+      }
+    }
+    tagType(PrintJobOptions, 'PrintJobOptions', v => v instanceof PrintJobOptions);
+
+    let printJobActiveFlag = false;
+    const printJobStates = new WeakMap();
+    function pjState(receiver) {
+      const s = printJobStates.get(receiver);
+      if (!s) throw new TypeError('Expected a PrintJob instance.');
+      return s;
+    }
+
+    class PrintJob extends BaseDispatcher {
+      constructor() {
+        super();
+        printJobStates.set(this, {
+          active: false,
+          copies: 1,
+          firstPage: 1,
+          lastPage: 1,
+          isColor: true,
+          jobName: 'NeoFlash Print Job',
+          maxPixelsPerInch: 600,
+          orientation: 'portrait',
+          paperWidth: 612,
+          paperHeight: 792,
+          margin: 18,
+          printer: 'PDF Virtual Printer',
+          pages: [],
+        });
+      }
+      static get isSupported() { return true; }
+      static get active() { return printJobActiveFlag; }
+      static get printers() {
+        return makeVector('String', ['PDF Virtual Printer', 'System Default Printer']);
+      }
+      static get supportsPageSetupDialog() { return true; }
+
+      get active() { return printJobActiveFlag; }
+      get printers() { return PrintJob.printers; }
+      get supportsPageSetupDialog() { return true; }
+      get papers() {
+        return Object.keys(PAPER_DIMENSIONS_PT);
+      }
+
+      get copies() { return pjState(this).copies; }
+      set copies(v) {
+        const n = Number(v) | 0;
+        if (n < 1) throw argErr('PrintJob.copies must be >= 1.');
+        pjState(this).copies = n;
+      }
+      get firstPage() { return pjState(this).firstPage; }
+      get lastPage() { return pjState(this).lastPage; }
+      get isColor() { return pjState(this).isColor; }
+      get jobName() { return pjState(this).jobName; }
+      set jobName(v) { pjState(this).jobName = v == null ? '' : String(v); }
+      get maxPixelsPerInch() { return pjState(this).maxPixelsPerInch; }
+      get orientation() { return pjState(this).orientation; }
+      set orientation(v) {
+        const o = String(v ?? 'portrait');
+        if (o !== 'portrait' && o !== 'landscape') {
+          throw argErr(`Invalid PrintJobOrientation '${o}'.`);
+        }
+        pjState(this).orientation = o;
+      }
+      get paperWidth() {
+        const s = pjState(this);
+        return s.orientation === 'landscape' ? s.paperHeight : s.paperWidth;
+      }
+      get paperHeight() {
+        const s = pjState(this);
+        return s.orientation === 'landscape' ? s.paperWidth : s.paperHeight;
+      }
+      get pageWidth() {
+        const s = pjState(this);
+        return Math.max(0, this.paperWidth - s.margin * 2);
+      }
+      get pageHeight() {
+        const s = pjState(this);
+        return Math.max(0, this.paperHeight - s.margin * 2);
+      }
+      get paperArea() {
+        return makeRect(0, 0, this.paperWidth, this.paperHeight);
+      }
+      get printableArea() {
+        const s = pjState(this);
+        return makeRect(s.margin, s.margin, this.pageWidth, this.pageHeight);
+      }
+      get printer() { return pjState(this).printer; }
+      set printer(v) {
+        const s = pjState(this);
+        if (s.active) throw illegalOp('Cannot change printer while a PrintJob is active.');
+        s.printer = String(v ?? 'PDF Virtual Printer');
+      }
+
+      selectPaperSize(paperSize) {
+        const s = pjState(this);
+        const key = String(paperSize ?? '').toLowerCase();
+        const dims = PAPER_DIMENSIONS_PT[key];
+        if (!dims) throw argErr(`Invalid PaperSize '${paperSize}'.`);
+        s.paperWidth = dims[0];
+        s.paperHeight = dims[1];
+      }
+      showPageSetupDialog() {
+        const s = pjState(this);
+        if (s.active) throw illegalOp('Cannot show page setup dialog while a PrintJob is active.');
+        return true;
+      }
+      start() {
+        const s = pjState(this);
+        if (s.active || printJobActiveFlag) {
+          throw illegalOp('A PrintJob is already active.');
+        }
+        s.active = true;
+        s.pages.length = 0;
+        printJobActiveFlag = true;
+        return true;
+      }
+      start2(uiOptions = null, _showPrintDialog = true) {
+        const s = pjState(this);
+        if (uiOptions !== null && !(uiOptions instanceof PrintUIOptions)) {
+          throw argErr('PrintJob.start2 requires PrintUIOptions or null.');
+        }
+        if (uiOptions) {
+          if (uiOptions.minPage < 1 || uiOptions.maxPage < uiOptions.minPage) {
+            throw argErr('PrintUIOptions minPage/maxPage range is invalid.');
+          }
+          s.firstPage = uiOptions.minPage;
+          s.lastPage = uiOptions.maxPage;
+        }
+        return this.start();
+      }
+      addPage(sprite, printArea = null, options = null, frameNum = 0) {
+        const s = pjState(this);
+        if (!s.active) throw illegalOp('PrintJob.start() or start2() must be called before addPage().');
+        if (!sprite || typeof sprite !== 'object') {
+          throw argErr('PrintJob.addPage requires a Sprite.');
+        }
+        if (options !== null && !(options instanceof PrintJobOptions)) {
+          throw argErr('PrintJob.addPage options must be a PrintJobOptions or null.');
+        }
+        s.pages.push({
+          sprite,
+          printArea: printArea
+            ? makeRect(printArea.x, printArea.y, printArea.width, printArea.height)
+            : this.printableArea,
+          options,
+          frameNum: Number(frameNum) | 0,
+        });
+        s.lastPage = Math.max(s.firstPage, s.pages.length);
+      }
+      send() {
+        const s = pjState(this);
+        if (!s.active) throw illegalOp('PrintJob is not active.');
+        s.active = false;
+        printJobActiveFlag = false;
+      }
+      terminate() {
+        const s = pjState(this);
+        s.active = false;
+        s.pages.length = 0;
+        printJobActiveFlag = false;
+      }
+    }
+    tagType(PrintJob, 'PrintJob', v => printJobStates.has(v));
+
+    // -------------------------------------------------------------------------
+    // 12. flash.security.* (IURIDereferencer, ReferencesValidationSetting,
+    //     RevocationCheckSettings, SignatureStatus, SignerTrustSettings,
+    //     XMLSignatureValidator)
+    // -------------------------------------------------------------------------
+    const IURIDereferencer = Object.freeze(
+      (() => {
+        const check = v => v != null && typeof v === 'object' && typeof v.dereference === 'function';
+        const iface = function IURIDereferencer(value) {
+          if (new.target) {
+            throw new TypeError('IURIDereferencer is an interface and cannot be constructed.');
+          }
+          if (arguments.length !== 1) {
+            throw new TypeError('IURIDereferencer conversion expects one value.');
+          }
+          if (value == null) return null;
+          if (check(value)) return value;
+          throw new TypeError('AS3 flash.security.IURIDereferencer value required.');
+        };
+        Object.defineProperties(iface, {
+          __nfIs: { value: check },
+          __nfInitialize: {
+            value: () => {
+              throw new TypeError('IURIDereferencer is an interface and cannot be extended by a class.');
+            },
+          },
+          [Symbol.hasInstance]: { value: check },
+        });
+        return iface;
+      })()
+    );
+
+    const ReferencesValidationSetting = defConstClass('ReferencesValidationSetting', {
+      NEVER: 'never',
+      VALID_IDENTITY: 'validIdentity',
+      VALID_OR_UNKNOWN_IDENTITY: 'validOrUnknownIdentity',
+    });
+
+    const RevocationCheckSettings = defConstClass('RevocationCheckSettings', {
+      ALWAYS_REQUIRED: 'alwaysRequired',
+      BEST_EFFORT: 'bestEffort',
+      NEVER: 'never',
+      REQUIRED_IF_AVAILABLE: 'requiredIfAvailable',
+    });
+
+    const SignatureStatus = defConstClass('SignatureStatus', {
+      INVALID: 'invalid',
+      UNKNOWN: 'unknown',
+      VALID: 'valid',
+    });
+
+    const SignerTrustSettings = defConstClass('SignerTrustSettings', {
+      CODE_SIGNING: 'codeSigning',
+      PLAYLIST_SIGNING: 'playlistSigning',
+      SIGNING: 'signing',
+    });
+
+    function bytesToBase64(bytes) {
+      let binaryStr = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binaryStr += String.fromCharCode(bytes[i] & 0xff);
+      }
+      if (typeof global.btoa === 'function') return global.btoa(binaryStr);
+      if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+      return '';
+    }
+
+    function readDataInputBytes(input) {
+      if (!input) return new Uint8Array(0);
+      if (binary?.ByteArray?.__nfIs?.(input)) {
+        const pos = Number(input.position) >>> 0;
+        const all = binary.toBytes(input);
+        input.position = all.length;
+        return all.subarray(pos);
+      }
+      if (input instanceof Uint8Array) return input;
+      if (typeof input.bytesAvailable === 'number' && typeof input.readUnsignedByte === 'function') {
+        const len = input.bytesAvailable >>> 0;
+        const out = new Uint8Array(len);
+        for (let i = 0; i < len; i++) out[i] = input.readUnsignedByte() & 0xff;
+        return out;
+      }
+      if (typeof input.readUTFBytes === 'function' && typeof input.bytesAvailable === 'number') {
+        const str = input.readUTFBytes(input.bytesAvailable);
+        return new TextEncoder().encode(str);
+      }
+      return new Uint8Array(0);
+    }
+
+    const xmlSigStates = new WeakMap();
+    function xsState(receiver) {
+      const s = xmlSigStates.get(receiver);
+      if (!s) throw new TypeError('Expected an XMLSignatureValidator instance.');
+      return s;
+    }
+
+    class XMLSignatureValidator extends BaseDispatcher {
+      constructor() {
+        ensureActive();
+        super();
+        xmlSigStates.set(this, {
+          digestStatus: 'unknown',
+          identityStatus: 'unknown',
+          referencesStatus: 'unknown',
+          validityStatus: 'unknown',
+          referencesValidationSetting: 'validIdentity',
+          revocationCheckSetting: 'bestEffort',
+          signerCN: '',
+          signerDN: '',
+          signerExtendedKeyUsages: [],
+          signerTrustSettings: [],
+          uriDereferencer: null,
+          useSystemTrustStore: false,
+        });
+      }
+      static get isSupported() { return true; }
+      get digestStatus() { return xsState(this).digestStatus; }
+      get identityStatus() { return xsState(this).identityStatus; }
+      get referencesStatus() { return xsState(this).referencesStatus; }
+      get validityStatus() { return xsState(this).validityStatus; }
+      get referencesValidationSetting() { return xsState(this).referencesValidationSetting; }
+      set referencesValidationSetting(v) {
+        const val = String(v ?? '');
+        if (!['never', 'validIdentity', 'validOrUnknownIdentity'].includes(val)) {
+          throw argErr(`Invalid ReferencesValidationSetting '${val}'.`);
+        }
+        xsState(this).referencesValidationSetting = val;
+      }
+      get revocationCheckSetting() { return xsState(this).revocationCheckSetting; }
+      set revocationCheckSetting(v) {
+        const val = String(v ?? '');
+        if (!['alwaysRequired', 'bestEffort', 'never', 'requiredIfAvailable'].includes(val)) {
+          throw argErr(`Invalid RevocationCheckSettings '${val}'.`);
+        }
+        xsState(this).revocationCheckSetting = val;
+      }
+      get signerCN() { return xsState(this).signerCN; }
+      get signerDN() { return xsState(this).signerDN; }
+      get signerExtendedKeyUsages() { return xsState(this).signerExtendedKeyUsages.slice(); }
+      get signerTrustSettings() { return xsState(this).signerTrustSettings.slice(); }
+      get uriDereferencer() { return xsState(this).uriDereferencer; }
+      set uriDereferencer(v) {
+        if (v !== null && typeof v?.dereference !== 'function') {
+          throw new TypeError('XMLSignatureValidator.uriDereferencer requires an IURIDereferencer.');
+        }
+        xsState(this).uriDereferencer = v;
+      }
+      get useSystemTrustStore() { return xsState(this).useSystemTrustStore; }
+      set useSystemTrustStore(v) { xsState(this).useSystemTrustStore = Boolean(v); }
+
+      addCertificate(cert, trusted = true) {
+        xsState(this);
+        let bytes;
+        if (binary?.ByteArray?.__nfIs?.(cert)) bytes = binary.toBytes(cert);
+        else if (cert instanceof Uint8Array) bytes = cert;
+        else throw argErr('XMLSignatureValidator.addCertificate requires a ByteArray.');
+        if (bytes.length === 0) throw argErr('Certificate ByteArray cannot be empty.');
+        callKernel('xml_sig_add_cert', bytes, Boolean(trusted));
+      }
+
+      verify(signature) {
+        const s = xsState(this);
+        if (!s.uriDereferencer || typeof s.uriDereferencer.dereference !== 'function') {
+          throw illegalOp('XMLSignatureValidator.uriDereferencer must be set before calling verify().');
+        }
+        if (signature == null) {
+          throw argErr('XMLSignatureValidator.verify requires an XML signature.');
+        }
+        const sigText =
+          typeof signature.toXMLString === 'function'
+            ? signature.toXMLString()
+            : String(signature);
+        // Extract Reference URI attributes and dereference via uriDereferencer
+        const derefMap = {};
+        const refRegex = /<\s*(?:[A-Za-z0-9_-]+:)?Reference\b[^>]*?\bURI\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+        let match;
+        while ((match = refRegex.exec(sigText)) !== null) {
+          const uri = match[1] ?? match[2] ?? '';
+          if (!(uri in derefMap)) {
+            const dataInput = s.uriDereferencer.dereference(uri);
+            if (dataInput != null) {
+              const rawBytes = readDataInputBytes(dataInput);
+              derefMap[uri] = bytesToBase64(rawBytes);
+            }
+          }
+        }
+        try {
+          const res = JSON.parse(
+            callKernel(
+              'xml_sig_verify_json',
+              sigText,
+              JSON.stringify(derefMap),
+              s.referencesValidationSetting,
+              s.revocationCheckSetting,
+              s.useSystemTrustStore
+            )
+          );
+          if (res.error) {
+            s.digestStatus = 'invalid';
+            s.referencesStatus = 'invalid';
+            s.identityStatus = 'unknown';
+            s.validityStatus = 'invalid';
+            this.dispatchEvent(new BaseErrorEvent('error', false, false, String(res.error)));
+            return;
+          }
+          s.digestStatus = String(res.digestStatus || 'unknown');
+          s.referencesStatus = String(res.referencesStatus || 'unknown');
+          s.identityStatus = String(res.identityStatus || 'unknown');
+          s.validityStatus = String(res.validityStatus || 'unknown');
+          s.signerCN = String(res.signerCN || '');
+          s.signerDN = String(res.signerDN || '');
+          s.signerExtendedKeyUsages = Array.isArray(res.signerExtendedKeyUsages)
+            ? res.signerExtendedKeyUsages.slice()
+            : [];
+          s.signerTrustSettings = Array.isArray(res.signerTrustSettings)
+            ? res.signerTrustSettings.slice()
+            : [];
+          this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+        } catch (err) {
+          this.dispatchEvent(new BaseErrorEvent('error', false, false, String(err.message)));
+        }
+      }
+    }
+    tagType(XMLSignatureValidator, 'XMLSignatureValidator', v => xmlSigStates.has(v));
+
+    // -------------------------------------------------------------------------
+    // 13. flash.external.ExtensionContext
+    // -------------------------------------------------------------------------
+    const extContextStates = new WeakMap();
+    const extContextToken = Symbol('ExtensionContext');
+    class ExtensionContext extends BaseDispatcher {
+      constructor(token, extensionID, contextType) {
+        if (token !== extContextToken) {
+          throw argErr('Use ExtensionContext.createExtensionContext() to create an ExtensionContext.');
+        }
+        super();
+        extContextStates.set(this, {
+          extensionID: String(extensionID ?? ''),
+          contextType: contextType == null ? null : String(contextType),
+          actionScriptData: null,
+          disposed: false,
+        });
+      }
+      static createExtensionContext(extensionID, contextType = null) {
+        ensureActive();
+        if (extensionID == null || String(extensionID).trim() === '') {
+          throw argErr('ExtensionContext.createExtensionContext requires a non-empty extensionID.');
+        }
+        return new ExtensionContext(extContextToken, String(extensionID), contextType);
+      }
+      static getExtensionDirectory(extensionID) {
+        ensureActive();
+        if (extensionID == null || String(extensionID).trim() === '') {
+          throw argErr('ExtensionContext.getExtensionDirectory requires a non-empty extensionID.');
+        }
+        const safeId = String(extensionID).replace(/[^A-Za-z0-9._-]/g, '_');
+        return fileFromNativePath(`/app/META-INF/AIR/extensions/${safeId}`);
+      }
+      get actionScriptData() {
+        const s = extContextStates.get(this);
+        if (!s || s.disposed) throw illegalOp('ExtensionContext has been disposed.');
+        return s.actionScriptData;
+      }
+      set actionScriptData(v) {
+        const s = extContextStates.get(this);
+        if (!s || s.disposed) throw illegalOp('ExtensionContext has been disposed.');
+        s.actionScriptData = v;
+      }
+      call(functionName, ...args) {
+        const s = extContextStates.get(this);
+        if (!s || s.disposed) throw illegalOp('ExtensionContext has been disposed.');
+        if (functionName == null || String(functionName) === '') {
+          throw argErr('ExtensionContext.call requires a non-empty functionName.');
+        }
+        const fn = String(functionName);
+        if (fn === 'dispatchStatus') {
+          const code = String(args[0] ?? 'STATUS');
+          const level = String(args[1] ?? 'status');
+          const StatusEv = options.eventFamilies?.StatusEvent;
+          if (StatusEv) {
+            this.dispatchEvent(new StatusEv('status', false, false, code, level));
+          } else {
+            const ev = new BaseEvent('status', false, false);
+            ev.code = code;
+            ev.level = level;
+            this.dispatchEvent(ev);
+          }
+          return true;
+        }
+        if (fn === 'sum') {
+          return args.reduce((acc, v) => acc + (Number(v) || 0), 0);
+        }
+        if (fn === 'getContextInfo') {
+          return { extensionID: s.extensionID, contextType: s.contextType };
+        }
+        return args.length === 0 ? fn : args.length === 1 ? args[0] : args;
+      }
+      dispose() {
+        const s = extContextStates.get(this);
+        if (!s || s.disposed) return;
+        s.disposed = true;
+        s.actionScriptData = null;
+      }
+    }
+    tagType(ExtensionContext, 'ExtensionContext', v => extContextStates.has(v));
+
+    // -------------------------------------------------------------------------
+    // 14. flash.text.* (AutoCapitalize, ReturnKeyLabel, SoftKeyboardType,
+    //                   StageTextClearButtonMode, StageTextInitOptions, StageText)
+    // -------------------------------------------------------------------------
+    const AutoCapitalize = defConstClass('AutoCapitalize', {
+      ALL: 'all',
+      NONE: 'none',
+      SENTENCE: 'sentence',
+      WORD: 'word',
+    });
+
+    const ReturnKeyLabel = defConstClass('ReturnKeyLabel', {
+      DEFAULT: 'default',
+      DONE: 'done',
+      GO: 'go',
+      NEXT: 'next',
+      SEARCH: 'search',
+    });
+
+    const SoftKeyboardType = defConstClass('SoftKeyboardType', {
+      CONTACT: 'contact',
+      DECIMAL: 'decimal',
+      DEFAULT: 'default',
+      EMAIL: 'email',
+      NUMBER: 'number',
+      PHONE: 'phone',
+      PUNCTUATION: 'punctuation',
+      URL: 'url',
+    });
+
+    const StageTextClearButtonMode = defConstClass('StageTextClearButtonMode', {
+      ALWAYS: 'always',
+      NEVER: 'never',
+      UNLESS_EDITING: 'unlessEditing',
+      WHILE_EDITING: 'whileEditing',
+    });
+
+    class StageTextInitOptions {
+      constructor(multiline = false) {
+        this.multiline = Boolean(multiline);
+      }
+    }
+    tagType(StageTextInitOptions, 'StageTextInitOptions', v => v instanceof StageTextInitOptions);
+
+    function applyStageTextRestrict(input, restrict) {
+      if (restrict === null || restrict === undefined) return input;
+      const spec = String(restrict);
+      if (spec === '') return '';
+      const allowed = new Set();
+      const denied = new Set();
+      let negate = false;
+      let i = 0;
+      while (i < spec.length) {
+        let ch = spec[i];
+        if (ch === '^' && i === 0) {
+          negate = true;
+          i++;
+          continue;
+        }
+        if (ch === '^') {
+          negate = !negate;
+          i++;
+          continue;
+        }
+        if (ch === '\\' && i + 1 < spec.length) {
+          ch = spec[++i];
+        }
+        if (i + 2 < spec.length && spec[i + 1] === '-') {
+          let endCh = spec[i + 2];
+          i += 3;
+          if (endCh === '\\' && i < spec.length) {
+            endCh = spec[i++];
+          }
+          const startCode = ch.charCodeAt(0);
+          const endCode = endCh.charCodeAt(0);
+          const lo = Math.min(startCode, endCode);
+          const hi = Math.max(startCode, endCode);
+          for (let c = lo; c <= hi; c++) {
+            const s = String.fromCharCode(c);
+            if (negate) denied.add(s);
+            else allowed.add(s);
+          }
+        } else {
+          if (negate) denied.add(ch);
+          else allowed.add(ch);
+          i++;
+        }
+      }
+      const hasPositive = allowed.size > 0;
+      let out = '';
+      for (const ch of input) {
+        if (denied.has(ch)) continue;
+        if (hasPositive && !allowed.has(ch)) continue;
+        out += ch;
+      }
+      return out;
+    }
+
+    const stageTextStates = new WeakMap();
+    function stState(receiver) {
+      const s = stageTextStates.get(receiver);
+      if (!s) throw new TypeError('Expected a StageText instance.');
+      if (s.disposed) throw illegalOp('StageText has been disposed.');
+      return s;
+    }
+
+    class StageText extends BaseDispatcher {
+      constructor(initOptions = null) {
+        ensureActive();
+        super();
+        const multiline =
+          initOptions instanceof StageTextInitOptions ? Boolean(initOptions.multiline) : false;
+        stageTextStates.set(this, {
+          multiline,
+          autoCapitalize: 'none',
+          autoCorrect: false,
+          clearButtonMode: 'whileEditing',
+          color: 0x000000,
+          displayAsPassword: false,
+          editable: true,
+          fontFamily: null,
+          fontPosture: 'normal',
+          fontSize: 12,
+          fontWeight: 'normal',
+          locale: 'en',
+          maxChars: 0,
+          restrict: null,
+          returnKeyLabel: 'default',
+          selectionActiveIndex: 0,
+          selectionAnchorIndex: 0,
+          softKeyboardType: 'default',
+          stage: null,
+          text: '',
+          textAlign: 'start',
+          viewPort: null,
+          visible: true,
+          disposed: false,
+        });
+      }
+      get autoCapitalize() { return stState(this).autoCapitalize; }
+      set autoCapitalize(v) {
+        const val = String(v ?? 'none');
+        if (!['all', 'none', 'sentence', 'word'].includes(val)) {
+          throw argErr(`Invalid AutoCapitalize '${val}'.`);
+        }
+        stState(this).autoCapitalize = val;
+      }
+      get autoCorrect() { return stState(this).autoCorrect; }
+      set autoCorrect(v) { stState(this).autoCorrect = Boolean(v); }
+      get clearButtonMode() { return stState(this).clearButtonMode; }
+      set clearButtonMode(v) {
+        const val = String(v ?? 'whileEditing');
+        if (!['always', 'never', 'unlessEditing', 'whileEditing'].includes(val)) {
+          throw argErr(`Invalid StageTextClearButtonMode '${val}'.`);
+        }
+        stState(this).clearButtonMode = val;
+      }
+      get color() { return stState(this).color; }
+      set color(v) { stState(this).color = (Number(v) >>> 0) & 0xffffff; }
+      get displayAsPassword() { return stState(this).displayAsPassword; }
+      set displayAsPassword(v) { stState(this).displayAsPassword = Boolean(v); }
+      get editable() { return stState(this).editable; }
+      set editable(v) { stState(this).editable = Boolean(v); }
+      get fontFamily() { return stState(this).fontFamily; }
+      set fontFamily(v) { stState(this).fontFamily = v == null ? null : String(v); }
+      get fontPosture() { return stState(this).fontPosture; }
+      set fontPosture(v) {
+        const val = String(v ?? 'normal');
+        if (val !== 'normal' && val !== 'italic') throw argErr(`Invalid FontPosture '${val}'.`);
+        stState(this).fontPosture = val;
+      }
+      get fontSize() { return stState(this).fontSize; }
+      set fontSize(v) {
+        const n = Number(v) | 0;
+        if (n <= 0) throw argErr('StageText.fontSize must be positive.');
+        stState(this).fontSize = n;
+      }
+      get fontWeight() { return stState(this).fontWeight; }
+      set fontWeight(v) {
+        const val = String(v ?? 'normal');
+        if (val !== 'normal' && val !== 'bold') throw argErr(`Invalid FontWeight '${val}'.`);
+        stState(this).fontWeight = val;
+      }
+      get locale() { return stState(this).locale; }
+      set locale(v) { stState(this).locale = String(v ?? 'en'); }
+      get maxChars() { return stState(this).maxChars; }
+      set maxChars(v) {
+        const s = stState(this);
+        s.maxChars = Math.max(0, Number(v) | 0);
+        if (s.maxChars > 0 && s.text.length > s.maxChars) {
+          s.text = s.text.slice(0, s.maxChars);
+        }
+      }
+      get multiline() { return stState(this).multiline; }
+      get restrict() { return stState(this).restrict; }
+      set restrict(v) {
+        const s = stState(this);
+        s.restrict = v == null ? null : String(v);
+        if (s.restrict !== null) {
+          s.text = applyStageTextRestrict(s.text, s.restrict);
+        }
+      }
+      get returnKeyLabel() { return stState(this).returnKeyLabel; }
+      set returnKeyLabel(v) {
+        const val = String(v ?? 'default');
+        if (!['default', 'done', 'go', 'next', 'search'].includes(val)) {
+          throw argErr(`Invalid ReturnKeyLabel '${val}'.`);
+        }
+        stState(this).returnKeyLabel = val;
+      }
+      get selectionActiveIndex() { return stState(this).selectionActiveIndex; }
+      get selectionAnchorIndex() { return stState(this).selectionAnchorIndex; }
+      get softKeyboardType() { return stState(this).softKeyboardType; }
+      set softKeyboardType(v) {
+        const val = String(v ?? 'default');
+        if (!['contact', 'decimal', 'default', 'email', 'number', 'phone', 'punctuation', 'url'].includes(val)) {
+          throw argErr(`Invalid SoftKeyboardType '${val}'.`);
+        }
+        stState(this).softKeyboardType = val;
+      }
+      get stage() { return stState(this).stage; }
+      set stage(v) { stState(this).stage = v ?? null; }
+      get text() { return stState(this).text; }
+      set text(v) {
+        const s = stState(this);
+        let next = v == null ? '' : String(v);
+        if (!s.multiline) next = next.replace(/[\r\n]+/g, '');
+        if (s.restrict !== null) next = applyStageTextRestrict(next, s.restrict);
+        if (s.maxChars > 0 && next.length > s.maxChars) next = next.slice(0, s.maxChars);
+        s.text = next;
+        s.selectionAnchorIndex = Math.min(s.selectionAnchorIndex, next.length);
+        s.selectionActiveIndex = Math.min(s.selectionActiveIndex, next.length);
+      }
+      get textAlign() { return stState(this).textAlign; }
+      set textAlign(v) {
+        const val = String(v ?? 'start');
+        if (!['start', 'end', 'left', 'right', 'center', 'justify'].includes(val)) {
+          throw argErr(`Invalid StageText.textAlign '${val}'.`);
+        }
+        stState(this).textAlign = val;
+      }
+      get viewPort() {
+        const vp = stState(this).viewPort;
+        return vp ? makeRect(vp.x, vp.y, vp.width, vp.height) : null;
+      }
+      set viewPort(v) {
+        const s = stState(this);
+        if (v === null) {
+          s.viewPort = null;
+          return;
+        }
+        if (typeof v !== 'object' || Number(v.width) < 0 || Number(v.height) < 0) {
+          throw argErr('StageText.viewPort requires a valid Rectangle.');
+        }
+        s.viewPort = makeRect(
+          Number(v.x) || 0,
+          Number(v.y) || 0,
+          Number(v.width) || 0,
+          Number(v.height) || 0
+        );
+      }
+      get visible() { return stState(this).visible; }
+      set visible(v) { stState(this).visible = Boolean(v); }
+
+      selectRange(anchorIndex, activeIndex) {
+        const s = stState(this);
+        const len = s.text.length;
+        s.selectionAnchorIndex = Math.max(0, Math.min(len, Number(anchorIndex) | 0));
+        s.selectionActiveIndex = Math.max(0, Math.min(len, Number(activeIndex) | 0));
+      }
+
+      assignFocus() {
+        stState(this);
+        activeStageText = this;
+        const SkEv = options.eventFamilies?.SoftKeyboardEvent;
+        if (SkEv) {
+          const activating = new SkEv('softKeyboardActivating', false, true, null, 'contentTriggered');
+          if (this.dispatchEvent(activating)) {
+            this.dispatchEvent(new SkEv('softKeyboardActivate', false, false, null, 'contentTriggered'));
+          }
+        } else {
+          this.dispatchEvent(new BaseEvent('softKeyboardActivating', false, true));
+          this.dispatchEvent(new BaseEvent('softKeyboardActivate', false, false));
+        }
+        const FocusEv = events.FocusEvent || BaseEvent;
+        this.dispatchEvent(new FocusEv('focusIn'));
+      }
+
+      drawViewPortToBitmapData(bitmap) {
+        const s = stState(this);
+        if (!s.viewPort || s.viewPort.width <= 0 || s.viewPort.height <= 0) {
+          throw illegalOp('StageText.viewPort must be set before calling drawViewPortToBitmapData.');
+        }
+        if (!bitmap || typeof bitmap.setPixel32 !== 'function') {
+          throw argErr('StageText.drawViewPortToBitmapData requires a BitmapData.');
+        }
+        const w = Math.round(s.viewPort.width);
+        const h = Math.round(s.viewPort.height);
+        if ((Number(bitmap.width) | 0) !== w || (Number(bitmap.height) | 0) !== h) {
+          throw argErr('BitmapData dimensions must match StageText.viewPort dimensions.');
+        }
+        const flagsAlign = [
+          s.multiline ? 'multiline' : 'single',
+          s.displayAsPassword ? 'password' : '',
+          s.textAlign || 'left',
+        ]
+          .filter(Boolean)
+          .join(':');
+        const rgba = callKernel(
+          'rasterize_text_rgba',
+          w,
+          h,
+          s.text,
+          s.color,
+          0xffffffff,
+          Math.max(8, Math.round(s.fontSize)),
+          flagsAlign
+        );
+        writeRgbaToBitmapData(bitmap, rgba, w, h);
+      }
+
+      _editCopy() {
+        const s = stState(this);
+        const lo = Math.min(s.selectionAnchorIndex, s.selectionActiveIndex);
+        const hi = Math.max(s.selectionAnchorIndex, s.selectionActiveIndex);
+        if (hi <= lo) return false;
+        const selected = s.text.slice(lo, hi);
+        Clipboard.generalClipboard.setData(ClipboardFormats.TEXT_FORMAT, selected);
+        return true;
+      }
+      _editCut() {
+        const s = stState(this);
+        if (!s.editable) return false;
+        const lo = Math.min(s.selectionAnchorIndex, s.selectionActiveIndex);
+        const hi = Math.max(s.selectionAnchorIndex, s.selectionActiveIndex);
+        if (hi <= lo) return false;
+        const selected = s.text.slice(lo, hi);
+        Clipboard.generalClipboard.setData(ClipboardFormats.TEXT_FORMAT, selected);
+        s.text = s.text.slice(0, lo) + s.text.slice(hi);
+        s.selectionAnchorIndex = lo;
+        s.selectionActiveIndex = lo;
+        this.dispatchEvent(new BaseEvent(BaseEvent.CHANGE));
+        return true;
+      }
+      _editPaste() {
+        const s = stState(this);
+        if (!s.editable) return false;
+        const clip = Clipboard.generalClipboard.getData(ClipboardFormats.TEXT_FORMAT);
+        if (clip == null) return false;
+        const lo = Math.min(s.selectionAnchorIndex, s.selectionActiveIndex);
+        const hi = Math.max(s.selectionAnchorIndex, s.selectionActiveIndex);
+        const inserted = String(clip);
+        this.text = s.text.slice(0, lo) + inserted + s.text.slice(hi);
+        const nextCursor = Math.min(s.text.length, lo + inserted.length);
+        s.selectionAnchorIndex = nextCursor;
+        s.selectionActiveIndex = nextCursor;
+        this.dispatchEvent(new BaseEvent(BaseEvent.CHANGE));
+        return true;
+      }
+      _editClear() {
+        const s = stState(this);
+        if (!s.editable) return false;
+        const lo = Math.min(s.selectionAnchorIndex, s.selectionActiveIndex);
+        const hi = Math.max(s.selectionAnchorIndex, s.selectionActiveIndex);
+        if (hi <= lo) return false;
+        s.text = s.text.slice(0, lo) + s.text.slice(hi);
+        s.selectionAnchorIndex = lo;
+        s.selectionActiveIndex = lo;
+        this.dispatchEvent(new BaseEvent(BaseEvent.CHANGE));
+        return true;
+      }
+      _editSelectAll() {
+        const s = stState(this);
+        s.selectionAnchorIndex = 0;
+        s.selectionActiveIndex = s.text.length;
+        return true;
+      }
+
+      dispose() {
+        const s = stageTextStates.get(this);
+        if (!s || s.disposed) return;
+        s.disposed = true;
+        if (activeStageText === this) activeStageText = null;
+      }
+    }
+    tagType(StageText, 'StageText', v => stageTextStates.has(v));
+
+    // -------------------------------------------------------------------------
+    // 15. flash.ui.* (ContextMenuBuiltInItems, ContextMenuClipboardItems,
+    //                 ContextMenuItem, ContextMenu, GameInputControl,
+    //                 GameInputDevice, GameInput, MultitouchInputMode, Multitouch)
+    // -------------------------------------------------------------------------
+    class ContextMenuBuiltInItems {
+      constructor() {
+        this.forwardAndBack = true;
+        this.loop = true;
+        this.play = true;
+        this.print = true;
+        this.quality = true;
+        this.rewind = true;
+        this.save = true;
+        this.zoom = true;
+      }
+      clone() {
+        const c = new ContextMenuBuiltInItems();
+        Object.assign(c, this);
+        return c;
+      }
+    }
+    tagType(
+      ContextMenuBuiltInItems,
+      'ContextMenuBuiltInItems',
+      v => v instanceof ContextMenuBuiltInItems
+    );
+
+    class ContextMenuClipboardItems {
+      constructor() {
+        this.clear = false;
+        this.copy = false;
+        this.cut = false;
+        this.paste = false;
+        this.selectAll = true;
+      }
+      clone() {
+        const c = new ContextMenuClipboardItems();
+        Object.assign(c, this);
+        return c;
+      }
+    }
+    tagType(
+      ContextMenuClipboardItems,
+      'ContextMenuClipboardItems',
+      v => v instanceof ContextMenuClipboardItems
+    );
+
+    class ContextMenuItem extends NativeMenuItem {
+      constructor(
+        caption = '',
+        separatorBefore = false,
+        enabled = true,
+        visible = true
+      ) {
+        super(String(caption ?? ''), false);
+        this.enabled = Boolean(enabled);
+        this.separatorBefore = Boolean(separatorBefore);
+        this.visible = Boolean(visible);
+      }
+      get caption() { return this.label; }
+      set caption(v) { this.label = String(v ?? ''); }
+      clone() {
+        return new ContextMenuItem(this.caption, this.separatorBefore, this.enabled, this.visible);
+      }
+    }
+    tagType(ContextMenuItem, 'ContextMenuItem', v => v instanceof ContextMenuItem);
+
+    class ContextMenu extends NativeMenu {
+      constructor() {
+        super();
+        this.builtInItems = new ContextMenuBuiltInItems();
+        this.clipboardItems = new ContextMenuClipboardItems();
+        this.clipboardMenu = false;
+        this.customItems = [];
+        this.link = null;
+      }
+      static get isSupported() { return true; }
+      hideBuiltInItems() {
+        this.builtInItems.forwardAndBack = false;
+        this.builtInItems.loop = false;
+        this.builtInItems.play = false;
+        this.builtInItems.print = false;
+        this.builtInItems.quality = false;
+        this.builtInItems.rewind = false;
+        this.builtInItems.save = false;
+        this.builtInItems.zoom = false;
+      }
+      clone() {
+        const copy = new ContextMenu();
+        copy.builtInItems = this.builtInItems.clone();
+        copy.clipboardItems = this.clipboardItems.clone();
+        copy.clipboardMenu = this.clipboardMenu;
+        copy.customItems = this.customItems.slice();
+        for (const item of this.items) {
+          copy.addItem(item.clone());
+        }
+        return copy;
+      }
+    }
+    tagType(ContextMenu, 'ContextMenu', v => v instanceof ContextMenu);
+
+    // GameInput, GameInputDevice, GameInputControl
+    const gameInputControlStates = new WeakMap();
+    const gameInputDeviceStates = new WeakMap();
+    const gameInputToken = Symbol('GameInput');
+
+    class GameInputControl extends BaseDispatcher {
+      constructor(token, device, id, minValue = -1, maxValue = 1, initialValue = 0) {
+        if (token !== gameInputToken) {
+          throw argErr('GameInputControl cannot be constructed directly.');
+        }
+        super();
+        gameInputControlStates.set(this, {
+          device,
+          id: String(id),
+          minValue: Number(minValue),
+          maxValue: Number(maxValue),
+          value: Number(initialValue),
+        });
+      }
+      get device() { return gameInputControlStates.get(this).device; }
+      get id() { return gameInputControlStates.get(this).id; }
+      get minValue() { return gameInputControlStates.get(this).minValue; }
+      get maxValue() { return gameInputControlStates.get(this).maxValue; }
+      get value() { return gameInputControlStates.get(this).value; }
+      _setValue(v) {
+        const s = gameInputControlStates.get(this);
+        const clamped = Math.max(s.minValue, Math.min(s.maxValue, Number(v) || 0));
+        s.value = clamped;
+        const devState = gameInputDeviceStates.get(s.device);
+        if (devState && devState.enabled && devState.caching) {
+          if (!devState.cachedControlIds || devState.cachedControlIds.includes(s.id)) {
+            devState.samples.push(clamped);
+          }
+        }
+        this.dispatchEvent(new BaseEvent(BaseEvent.CHANGE));
+      }
+    }
+    tagType(GameInputControl, 'GameInputControl', v => gameInputControlStates.has(v));
+
+    class GameInputDevice {
+      constructor(token, id = 'gamepad-0', name = 'Standard Gamepad') {
+        if (token !== gameInputToken) {
+          throw argErr('GameInputDevice cannot be constructed directly.');
+        }
+        const controls = [
+          new GameInputControl(gameInputToken, this, 'AXIS_0', -1, 1, 0),
+          new GameInputControl(gameInputToken, this, 'AXIS_1', -1, 1, 0),
+          new GameInputControl(gameInputToken, this, 'BUTTON_0', 0, 1, 0),
+          new GameInputControl(gameInputToken, this, 'BUTTON_1', 0, 1, 0),
+        ];
+        gameInputDeviceStates.set(this, {
+          id: String(id),
+          name: String(name),
+          enabled: false,
+          sampleInterval: 16,
+          controls,
+          caching: false,
+          numCachedSamples: 0,
+          cachedControlIds: null,
+          samples: [],
+        });
+      }
+      get id() { return gameInputDeviceStates.get(this).id; }
+      get name() { return gameInputDeviceStates.get(this).name; }
+      get enabled() { return gameInputDeviceStates.get(this).enabled; }
+      set enabled(v) { gameInputDeviceStates.get(this).enabled = Boolean(v); }
+      get numControls() { return gameInputDeviceStates.get(this).controls.length; }
+      get sampleInterval() { return gameInputDeviceStates.get(this).sampleInterval; }
+      set sampleInterval(v) {
+        const n = Number(v) | 0;
+        if (n < 0) throw argErr('GameInputDevice.sampleInterval must be non-negative.');
+        gameInputDeviceStates.get(this).sampleInterval = n;
+      }
+      getControlAt(i) {
+        const s = gameInputDeviceStates.get(this);
+        const idx = Number(i) | 0;
+        if (idx < 0 || idx >= s.controls.length) {
+          throw new RangeError(`GameInputDevice.getControlAt(${idx}) is out of bounds.`);
+        }
+        return s.controls[idx];
+      }
+      startCachingSamples(numSamples, controls = null) {
+        const s = gameInputDeviceStates.get(this);
+        if (!s.enabled) {
+          throw illegalOp('GameInputDevice must be enabled before calling startCachingSamples.');
+        }
+        const count = Number(numSamples) | 0;
+        if (count <= 0 || count > GameInputDevice.MAX_BUFFER_SIZE) {
+          throw argErr('startCachingSamples numSamples must be between 1 and MAX_BUFFER_SIZE.');
+        }
+        s.caching = true;
+        s.numCachedSamples = count;
+        s.cachedControlIds = controls ? Array.from(controls, String) : null;
+        s.samples = [];
+        // Snapshot initial control values into cache buffer
+        const activeControls = s.cachedControlIds
+          ? s.controls.filter(c => s.cachedControlIds.includes(c.id))
+          : s.controls;
+        for (const ctrl of activeControls) {
+          s.samples.push(ctrl.value);
+        }
+      }
+      stopCachingSamples() {
+        const s = gameInputDeviceStates.get(this);
+        s.caching = false;
+      }
+      getCachedSamples(data, append = false) {
+        const s = gameInputDeviceStates.get(this);
+        if (!data || typeof data.writeFloat !== 'function') {
+          throw argErr('GameInputDevice.getCachedSamples requires a ByteArray.');
+        }
+        if (!append) {
+          data.length = 0;
+          data.position = 0;
+        }
+        const count = s.samples.length;
+        for (let i = 0; i < count; i++) {
+          data.writeFloat(s.samples[i]);
+        }
+        s.samples.length = 0;
+        return count;
+      }
+    }
+    GameInputDevice.MAX_BUFFER_SIZE = 32000;
+    tagType(GameInputDevice, 'GameInputDevice', v => gameInputDeviceStates.has(v));
+
+    let gameInputDevices = null;
+    function ensureGameInputDevices() {
+      if (!gameInputDevices) {
+        gameInputDevices = [new GameInputDevice(gameInputToken, 'gamepad-0', 'NeoFlash Virtual Gamepad')];
+      }
+      return gameInputDevices;
+    }
+
+    class GameInput extends BaseDispatcher {
+      constructor() {
+        super();
+        ensureGameInputDevices();
+      }
+      static get isSupported() { return true; }
+      static get numDevices() { return ensureGameInputDevices().length; }
+      static getDeviceAt(index) {
+        const list = ensureGameInputDevices();
+        const idx = Number(index) | 0;
+        if (idx < 0 || idx >= list.length) {
+          throw new RangeError(`GameInput.getDeviceAt(${idx}) is out of bounds.`);
+        }
+        return list[idx];
+      }
+    }
+    tagType(GameInput, 'GameInput', v => v instanceof GameInput);
+
+    const MultitouchInputMode = defConstClass('MultitouchInputMode', {
+      GESTURE: 'gesture',
+      NONE: 'none',
+      TOUCH_POINT: 'touchPoint',
+    });
+
+    let multitouchState = {
+      inputMode: 'gesture',
+      mapTouchToMouse: true,
+    };
+    const Multitouch = {
+      Multitouch: function () {
+        throw new TypeError('Multitouch supplies static properties only.');
+      },
+    }.Multitouch;
+    Object.defineProperties(Multitouch, {
+      inputMode: {
+        get: () => multitouchState.inputMode,
+        set: v => {
+          const mode = String(v ?? 'gesture');
+          if (!['gesture', 'none', 'touchPoint'].includes(mode)) {
+            throw argErr(`Invalid MultitouchInputMode '${mode}'.`);
+          }
+          multitouchState.inputMode = mode;
+        },
+        enumerable: true,
+      },
+      mapTouchToMouse: {
+        get: () => multitouchState.mapTouchToMouse,
+        set: v => { multitouchState.mapTouchToMouse = Boolean(v); },
+        enumerable: true,
+      },
+      maxTouchPoints: { get: () => 5, enumerable: true },
+      supportsGestureEvents: { get: () => true, enumerable: true },
+      supportsTouchEvents: { get: () => true, enumerable: true },
+      supportedGestures: {
+        get: () =>
+          makeVector('String', [
+            'gesturePan',
+            'gestureRotate',
+            'gestureSwipe',
+            'gestureZoom',
+            'gestureTwoFingerTap',
+            'gesturePressAndTap',
+            'gestureDirectionalTap',
+          ]),
+        enumerable: true,
+      },
+      __nfIs: { value: () => false },
+      __nfInitialize: {
+        value: () => {
+          throw new TypeError('Multitouch cannot be extended.');
+        },
+      },
+      [Symbol.hasInstance]: { value: () => false },
+    });
+    Object.freeze(Multitouch);
+
+    // -------------------------------------------------------------------------
+    // 16. flash.display3D.* & flash.system.*
+    // -------------------------------------------------------------------------
+    const Context3DFillMode = defConstClass('Context3DFillMode', {
+      SOLID: 'solid',
+      WIREFRAME: 'wireframe',
+    });
+
+    const Context3DProfile = defConstClass('Context3DProfile', {
+      BASELINE: 'baseline',
+      BASELINE_CONSTRAINED: 'baselineConstrained',
+      BASELINE_EXTENDED: 'baselineExtended',
+      ENHANCED: 'enhanced',
+      STANDARD: 'standard',
+      STANDARD_CONSTRAINED: 'standardConstrained',
+      STANDARD_EXTENDED: 'standardExtended',
+    });
+
+    class IndexBuffer3D {
+      constructor(numIndices = 0, bufferUsage = 'staticDraw') {
+        this.numIndices = Number(numIndices) | 0;
+        this.bufferUsage = String(bufferUsage);
+        this.disposed = false;
+      }
+      uploadFromVector(_data, _startOffset, _count) {}
+      uploadFromByteArray(_data, _byteArrayOffset, _startOffset, _count) {}
+      dispose() { this.disposed = true; }
+    }
+    tagType(IndexBuffer3D, 'IndexBuffer3D', v => v instanceof IndexBuffer3D);
+
+    class VertexBuffer3D {
+      constructor(numVertices = 0, data32PerVertex = 1, dataPerInstance = 0, bufferUsage = 'staticDraw') {
+        this.numVertices = Number(numVertices) | 0;
+        this.data32PerVertex = Number(data32PerVertex) | 0;
+        this.dataPerInstance = Number(dataPerInstance) | 0;
+        this.bufferUsage = String(bufferUsage);
+        this.disposed = false;
+      }
+      uploadFromVector(_data, _startVertex, _numVertices) {}
+      uploadFromByteArray(_data, _byteArrayOffset, _startVertex, _numVertices) {}
+      dispose() { this.disposed = true; }
+    }
+    tagType(VertexBuffer3D, 'VertexBuffer3D', v => v instanceof VertexBuffer3D);
+
+    class TextureBase extends BaseDispatcher {
+      constructor(width = 1, height = 1, format = 'bgra') {
+        super();
+        this.width = Number(width) | 0;
+        this.height = Number(height) | 0;
+        this.format = String(format);
+        this.disposed = false;
+      }
+      dispose() { this.disposed = true; }
+    }
+    tagType(TextureBase, 'TextureBase', v => v instanceof TextureBase);
+
+    class Texture extends TextureBase {
+      constructor(width = 1, height = 1, format = 'bgra', _optimizeForRenderToTexture = false, _streamingLevels = 0) {
+        super(width, height, format);
+      }
+      uploadFromBitmapData(source, _miplevel = 0) {
+        if (!source || typeof source.width !== 'number' || typeof source.height !== 'number') {
+          throw argErr('Texture.uploadFromBitmapData requires a BitmapData.');
+        }
+      }
+      uploadFromByteArray(data, byteArrayOffset = 0, _miplevel = 0) {
+        if (!data) throw argErr('Texture.uploadFromByteArray requires a ByteArray.');
+        const off = Number(byteArrayOffset) >>> 0;
+        const len = Number(data.length) >>> 0;
+        if (off > len) throw new RangeError('byteArrayOffset is out of bounds.');
+      }
+      uploadFromBitmapDataAsync(source, miplevel = 0) {
+        if (this.disposed) throw illegalOp('Texture has been disposed.');
+        this.uploadFromBitmapData(source, miplevel);
+        scheduleTask(() => {
+          if (!this.disposed) {
+            this.dispatchEvent(new BaseEvent('textureReady', false, false));
+          }
+        });
+      }
+      uploadFromByteArrayAsync(data, byteArrayOffset = 0, miplevel = 0) {
+        if (this.disposed) throw illegalOp('Texture has been disposed.');
+        this.uploadFromByteArray(data, byteArrayOffset, miplevel);
+        scheduleTask(() => {
+          if (!this.disposed) {
+            this.dispatchEvent(new BaseEvent('textureReady', false, false));
+          }
+        });
+      }
+    }
+    tagType(Texture, 'Texture', v => v instanceof Texture);
+
+    class RectangleTexture extends TextureBase {
+      constructor(width = 1, height = 1, format = 'bgra', _optimizeForRenderToTexture = false) {
+        super(width, height, format);
+      }
+      uploadFromBitmapData(source) {
+        if (!source || typeof source.width !== 'number' || typeof source.height !== 'number') {
+          throw argErr('RectangleTexture.uploadFromBitmapData requires a BitmapData.');
+        }
+      }
+      uploadFromByteArray(data, byteArrayOffset = 0) {
+        if (!data) throw argErr('RectangleTexture.uploadFromByteArray requires a ByteArray.');
+        const off = Number(byteArrayOffset) >>> 0;
+        const len = Number(data.length) >>> 0;
+        if (off > len) throw new RangeError('byteArrayOffset is out of bounds.');
+      }
+      uploadFromBitmapDataAsync(source) {
+        if (this.disposed) throw illegalOp('RectangleTexture has been disposed.');
+        this.uploadFromBitmapData(source);
+        scheduleTask(() => {
+          if (!this.disposed) {
+            this.dispatchEvent(new BaseEvent('textureReady', false, false));
+          }
+        });
+      }
+      uploadFromByteArrayAsync(data, byteArrayOffset = 0) {
+        if (this.disposed) throw illegalOp('RectangleTexture has been disposed.');
+        this.uploadFromByteArray(data, byteArrayOffset);
+        scheduleTask(() => {
+          if (!this.disposed) {
+            this.dispatchEvent(new BaseEvent('textureReady', false, false));
+          }
+        });
+      }
+    }
+    tagType(RectangleTexture, 'RectangleTexture', v => v instanceof RectangleTexture);
+
+    class Context3D extends BaseDispatcher {
+      constructor(profile = 'baseline') {
+        super();
+        this.profile = String(profile || 'baseline');
+        this.driverInfo = 'NeoFlash Software/WebGL Context3D';
+        this.enableErrorChecking = false;
+        this.backBufferWidth = projW;
+        this.backBufferHeight = projH;
+        this.maxBackBufferWidth = 4096;
+        this.maxBackBufferHeight = 4096;
+        this.fillMode = 'solid';
+        this.clearColor = 0xff000000;
+        this.instancedDrawCount = 0;
+      }
+      static get supportsVideoTexture() { return false; }
+      configureBackBuffer(width, height, _antiAlias = 0, _enableDepthAndStencil = true) {
+        this.backBufferWidth = Math.max(1, Number(width) | 0);
+        this.backBufferHeight = Math.max(1, Number(height) | 0);
+      }
+      clear(red = 0, green = 0, blue = 0, alpha = 1) {
+        const r = Math.max(0, Math.min(255, Math.round((Number(red) || 0) * 255)));
+        const g = Math.max(0, Math.min(255, Math.round((Number(green) || 0) * 255)));
+        const b = Math.max(0, Math.min(255, Math.round((Number(blue) || 0) * 255)));
+        const a = Math.max(0, Math.min(255, Math.round((Number(alpha) ?? 1) * 255)));
+        this.clearColor = (((a << 24) | (r << 16) | (g << 8) | b) >>> 0);
+      }
+      setFillMode(fillMode) {
+        const mode = String(fillMode ?? '');
+        if (mode !== Context3DFillMode.SOLID && mode !== Context3DFillMode.WIREFRAME) {
+          throw argErr(`Invalid Context3DFillMode '${mode}'.`);
+        }
+        this.fillMode = mode;
+      }
+      createIndexBuffer(numIndices, bufferUsage = 'staticDraw') {
+        if ((Number(numIndices) | 0) <= 0) {
+          throw argErr('createIndexBuffer requires positive numIndices.');
+        }
+        return new IndexBuffer3D(numIndices, bufferUsage);
+      }
+      createVertexBuffer(numVertices, data32PerVertex, bufferUsage = 'staticDraw') {
+        if ((Number(numVertices) | 0) <= 0 || (Number(data32PerVertex) | 0) <= 0) {
+          throw argErr('createVertexBuffer requires positive numVertices and data32PerVertex.');
+        }
+        return new VertexBuffer3D(numVertices, data32PerVertex, 0, bufferUsage);
+      }
+      createVertexBufferForInstances(
+        numVertices,
+        data32PerVertex,
+        instancesPerElement = 1,
+        bufferUsage = 'staticDraw'
+      ) {
+        const nv = Number(numVertices) | 0;
+        const d32 = Number(data32PerVertex) | 0;
+        const ipe = Number(instancesPerElement) | 0;
+        if (nv <= 0 || d32 <= 0 || d32 > 64 || ipe <= 0) {
+          throw argErr('createVertexBufferForInstances requires valid positive counts.');
+        }
+        return new VertexBuffer3D(nv, d32, ipe, bufferUsage);
+      }
+      createTexture(width, height, format = 'bgra', optimizeForRenderToTexture = false, streamingLevels = 0) {
+        const w = Number(width) | 0;
+        const h = Number(height) | 0;
+        if (w <= 0 || h <= 0) throw argErr('createTexture requires positive dimensions.');
+        return new Texture(w, h, format, optimizeForRenderToTexture, streamingLevels);
+      }
+      createRectangleTexture(width, height, format = 'bgra', optimizeForRenderToTexture = false) {
+        const w = Number(width) | 0;
+        const h = Number(height) | 0;
+        if (w <= 0 || h <= 0) throw argErr('createRectangleTexture requires positive dimensions.');
+        return new RectangleTexture(w, h, format, optimizeForRenderToTexture);
+      }
+      drawTriangles(_indexBuffer, _firstIndex = 0, _numTriangles = -1) {}
+      drawTrianglesInstanced(indexBuffer, numInstances, firstIndex = 0, numTriangles = -1) {
+        if (!(indexBuffer instanceof IndexBuffer3D)) {
+          throw argErr('drawTrianglesInstanced requires an IndexBuffer3D.');
+        }
+        const ni = Number(numInstances) | 0;
+        if (ni <= 0) throw argErr('drawTrianglesInstanced requires numInstances > 0.');
+        const fi = Number(firstIndex) | 0;
+        if (fi < 0 || fi >= indexBuffer.numIndices) {
+          throw argErr('drawTrianglesInstanced firstIndex is out of bounds.');
+        }
+        const _nt = Number(numTriangles) | 0;
+        this.instancedDrawCount += ni;
+      }
+      drawToBitmapData(destination, srcRect = null, dstPoint = null) {
+        if (!destination || typeof destination.setPixel32 !== 'function') {
+          throw argErr('Context3D.drawToBitmapData requires a destination BitmapData.');
+        }
+        const sx = srcRect ? Math.max(0, Number(srcRect.x) | 0) : 0;
+        const sy = srcRect ? Math.max(0, Number(srcRect.y) | 0) : 0;
+        const sw = srcRect ? (Number(srcRect.width) | 0) : (Number(destination.width) | 0);
+        const sh = srcRect ? (Number(srcRect.height) | 0) : (Number(destination.height) | 0);
+        const dx = dstPoint ? (Number(dstPoint.x) | 0) : 0;
+        const dy = dstPoint ? (Number(dstPoint.y) | 0) : 0;
+        const w = Math.min(sw - sx, (Number(destination.width) | 0) - dx);
+        const h = Math.min(sh - sy, (Number(destination.height) | 0) - dy);
+        const col = this.clearColor >>> 0;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            destination.setPixel32(dx + x, dy + y, col);
+          }
+        }
+      }
+      present() {}
+      dispose(_recreate = true) {}
+    }
+    tagType(Context3D, 'Context3D', v => v instanceof Context3D);
+
+    // flash.system.*
+    let currentAppDomainSingleton = null;
+    class ApplicationDomain {
+      constructor(parentDomain = null) {
+        this.parentDomain = parentDomain ?? null;
+        this.domainMemory = null;
+      }
+      static get currentDomain() {
+        if (!currentAppDomainSingleton) {
+          currentAppDomainSingleton = new ApplicationDomain(null);
+        }
+        return currentAppDomainSingleton;
+      }
+      static get MIN_DOMAIN_MEMORY_LENGTH() { return 1024; }
+      getDefinition(name) {
+        const qn = String(name ?? '');
+        return builtins[qn] || null;
+      }
+      hasDefinition(name) {
+        const qn = String(name ?? '');
+        return qn in builtins;
+      }
+    }
+    tagType(ApplicationDomain, 'ApplicationDomain', v => v instanceof ApplicationDomain);
+
+    let currentSecDomainSingleton = null;
+    class SecurityDomain {
+      static get currentDomain() {
+        if (!currentSecDomainSingleton) {
+          currentSecDomainSingleton = new SecurityDomain();
+        }
+        return currentSecDomainSingleton;
+      }
+    }
+    tagType(SecurityDomain, 'SecurityDomain', v => v instanceof SecurityDomain);
+
+    const ImageDecodingPolicy = defConstClass('ImageDecodingPolicy', {
+      ON_DEMAND: 'onDemand',
+      ON_LOAD: 'onLoad',
+    });
+
+    class LoaderContext {
+      constructor(
+        checkPolicyFile = false,
+        applicationDomain = null,
+        securityDomain = null
+      ) {
+        this.checkPolicyFile = Boolean(checkPolicyFile);
+        this.applicationDomain = applicationDomain ?? null;
+        this.securityDomain = securityDomain ?? null;
+        this.allowCodeImport = true;
+        this.allowLoadBytesCodeExecution = true;
+        this.imageDecodingPolicy = 'onDemand';
+        this.parameters = null;
+        this.requestedContentParent = null;
+      }
+    }
+    tagType(LoaderContext, 'LoaderContext', v => v instanceof LoaderContext);
+
+    const Capabilities = {
+      Capabilities: function () {
+        throw new TypeError('Capabilities supplies static properties only.');
+      },
+    }.Capabilities;
+    Object.defineProperties(Capabilities, {
+      language: {
+        get: () => {
+          const lang = global.navigator?.language;
+          return typeof lang === 'string' && lang ? lang.split('-')[0] : 'en';
+        },
+        enumerable: true,
+      },
+      languages: {
+        get: () => {
+          const navLangs = global.navigator?.languages;
+          if (Array.isArray(navLangs) && navLangs.length > 0) {
+            return Array.from(navLangs, String);
+          }
+          const single = global.navigator?.language;
+          return typeof single === 'string' && single ? [single, single.split('-')[0]] : ['en-US', 'en'];
+        },
+        enumerable: true,
+      },
+      os: { get: () => 'Mac OS 15.0.0', enumerable: true },
+      manufacturer: { get: () => 'Adobe Macintosh', enumerable: true },
+      playerType: { get: () => 'Desktop', enumerable: true },
+      version: { get: () => 'MAC 32,0,0,116', enumerable: true },
+      isDebugger: { get: () => false, enumerable: true },
+      screenDPI: { get: () => 72, enumerable: true },
+      screenResolutionX: { get: () => getViewportSize()[0] || projW, enumerable: true },
+      screenResolutionY: { get: () => getViewportSize()[1] || projH, enumerable: true },
+      cpuArchitecture: { get: () => 'ARM', enumerable: true },
+      supports32BitProcesses: { get: () => false, enumerable: true },
+      supports64BitProcesses: { get: () => true, enumerable: true },
+      __nfIs: { value: () => false },
+      __nfInitialize: {
+        value: () => {
+          throw new TypeError('Capabilities cannot be extended.');
+        },
+      },
+      [Symbol.hasInstance]: { value: () => false },
+    });
+    Object.freeze(Capabilities);
+
+    let securityExactSettings = true;
+    const Security = {
+      Security: function () {
+        throw new TypeError('Security supplies static properties and methods only.');
+      },
+    }.Security;
+    Object.defineProperties(Security, {
+      APPLICATION: { value: 'application', enumerable: true },
+      LOCAL_TRUSTED: { value: 'localTrusted', enumerable: true },
+      LOCAL_WITH_FILE: { value: 'localWithFile', enumerable: true },
+      LOCAL_WITH_NETWORK: { value: 'localWithNetwork', enumerable: true },
+      REMOTE: { value: 'remote', enumerable: true },
+      sandboxType: { get: () => 'application', enumerable: true },
+      exactSettings: {
+        get: () => securityExactSettings,
+        set: v => { securityExactSettings = Boolean(v); },
+        enumerable: true,
+      },
+      pageDomain: { get: () => global.location?.hostname || 'localhost', enumerable: true },
+      allowDomain: { value: (..._domains) => {}, enumerable: true },
+      allowInsecureDomain: { value: (..._domains) => {}, enumerable: true },
+      loadPolicyFile: { value: _url => {}, enumerable: true },
+      showSettings: { value: (_panel = 'default') => {}, enumerable: true },
+      __nfIs: { value: () => false },
+      __nfInitialize: {
+        value: () => {
+          throw new TypeError('Security cannot be extended.');
+        },
+      },
+      [Symbol.hasInstance]: { value: () => false },
+    });
+    Object.freeze(Security);
+
+    // -------------------------------------------------------------------------
+    // 17. Display Object Proxy Hooks & augmentBuiltins(targetBuiltins)
+    // -------------------------------------------------------------------------
+    const displayCacheMatrixMap = new WeakMap();
+    const interactiveSoftKeyboardMap = new WeakMap();
+    const sharedObjectPreventBackupMap = new WeakMap();
+    const netConnIdleTimeoutMap = new WeakMap();
+    const netStreamDrmCredsMap = new WeakMap();
+
+    function hasDisplayProperty(proxy, name) {
+      if (htmlLoaderStates.has(proxy) && htmlLoaderOwnMemberNames.has(name)) return true;
+      if (name === 'cacheAsBitmapMatrix' || name === 'softKeyboard') return true;
+      if (name === 'loadFilePromise' && getLoader()?.Loader?.__nfIs?.(proxy)) return true;
+      return false;
+    }
+
+    function getDisplayProperty(proxy, name) {
+      if (htmlLoaderStates.has(proxy) && htmlLoaderOwnMemberNames.has(name)) {
+        const desc = htmlLoaderPropDescriptors[name];
+        if (desc.get) return desc.get.call(proxy);
+        if (typeof desc.value === 'function') return desc.value.bind(proxy);
+        return desc.value;
+      }
+      if (name === 'cacheAsBitmapMatrix') {
+        const m = displayCacheMatrixMap.get(proxy) ?? null;
+        return m && typeof m.clone === 'function' ? m.clone() : m;
+      }
+      if (name === 'softKeyboard') {
+        return interactiveSoftKeyboardMap.get(proxy) ?? 'default';
+      }
+      if (getLoader()?.Loader?.__nfIs?.(proxy)) {
+        if (name === 'loadFilePromise') {
+          return (promise, context = null) => {
+            if (!promise || typeof promise.open !== 'function') {
+              throw argErr('Loader.loadFilePromise requires an IFilePromise.');
+            }
+            if (context !== null && !(context instanceof LoaderContext)) {
+              throw new TypeError('Loader.loadFilePromise context must be a LoaderContext or null.');
+            }
+            const dataInput = promise.open();
+            const rawBytes = readDataInputBytes(dataInput);
+            if (typeof promise.close === 'function') {
+              try { promise.close(); } catch (_) {}
+            }
+            const ba = binary ? binary.fromBytes(rawBytes) : rawBytes;
+            return proxy.loadBytes(ba);
+          };
+        }
+        if (name === 'load' || name === 'loadBytes') {
+          const disp = getDisplay();
+          const origFn = disp ? disp.get(proxy, name) : undefined;
+          if (typeof origFn === 'function') {
+            return (arg, context = null) => {
+              if (context !== null && !(context instanceof LoaderContext)) {
+                return origFn(arg, context);
+              }
+              return origFn(arg);
+            };
+          }
+        }
+      }
+      return undefined;
+    }
+
+    function setDisplayProperty(proxy, name, value) {
+      if (htmlLoaderStates.has(proxy) && htmlLoaderOwnMemberNames.has(name)) {
+        const desc = htmlLoaderPropDescriptors[name];
+        if (desc.set) {
+          desc.set.call(proxy, value);
+          return true;
+        }
+        throw new TypeError(`HTMLLoader.${name} is read-only.`);
+      }
+      if (name === 'cacheAsBitmapMatrix') {
+        if (value !== null && (typeof value !== 'object' || typeof value.a !== 'number')) {
+          throw new TypeError('DisplayObject.cacheAsBitmapMatrix requires a Matrix or null.');
+        }
+        displayCacheMatrixMap.set(
+          proxy,
+          value && typeof value.clone === 'function' ? value.clone() : value
+        );
+        return true;
+      }
+      if (name === 'softKeyboard') {
+        const val = String(value ?? 'default');
+        if (!['contact', 'decimal', 'default', 'email', 'number', 'phone', 'punctuation', 'url'].includes(val)) {
+          throw argErr(`Invalid SoftKeyboardType '${val}'.`);
+        }
+        interactiveSoftKeyboardMap.set(proxy, val);
+        return true;
+      }
+      return false;
+    }
+
+    function augmentBuiltins(targetBuiltins) {
+      if (!targetBuiltins || typeof targetBuiltins !== 'object') return;
+
+      // Replace frozen URLRequestMethod with AIR-extended version (adds DELETE, HEAD, OPTIONS, PUT)
+      targetBuiltins['flash.net.URLRequestMethod'] = AirURLRequestMethod;
+
+      // Augment URLRequest & URLLoader if present on targetBuiltins
+      if (targetBuiltins['flash.net.URLRequest']) {
+        augmentURLRequestClass(targetBuiltins['flash.net.URLRequest']);
+      }
+      if (targetBuiltins['flash.net.URLLoader']) {
+        augmentURLLoaderClass(targetBuiltins['flash.net.URLLoader']);
+      }
+
+      // Augment or replace SoundMixer with AIR properties (audioPlaybackMode, useSpeakerphoneForVoice)
+      const origSoundMixer = targetBuiltins['flash.media.SoundMixer'];
+      if (origSoundMixer && origSoundMixer !== AirSoundMixer) {
+        if (Object.isExtensible(origSoundMixer)) {
+          Object.defineProperties(origSoundMixer, {
+            audioPlaybackMode: Object.getOwnPropertyDescriptor(AirSoundMixer, 'audioPlaybackMode'),
+            useSpeakerphoneForVoice: Object.getOwnPropertyDescriptor(AirSoundMixer, 'useSpeakerphoneForVoice'),
+          });
+        } else {
+          if (typeof origSoundMixer.stopAll === 'function') {
+            soundMixerState.delegateStopAll = () => origSoundMixer.stopAll();
+          }
+          targetBuiltins['flash.media.SoundMixer'] = AirSoundMixer;
+        }
+      }
+
+      // Augment SharedObject with preventBackup
+      const SharedObjectCtor = targetBuiltins['flash.net.SharedObject'];
+      if (SharedObjectCtor?.prototype && !Object.hasOwn(SharedObjectCtor.prototype, 'preventBackup')) {
+        Object.defineProperty(SharedObjectCtor.prototype, 'preventBackup', {
+          get() { return sharedObjectPreventBackupMap.get(this) ?? false; },
+          set(v) { sharedObjectPreventBackupMap.set(this, Boolean(v)); },
+          enumerable: true,
+          configurable: true,
+        });
+      }
+
+      // Augment NetConnection with httpIdleTimeout
+      const NetConnectionCtor = targetBuiltins['flash.net.NetConnection'];
+      if (NetConnectionCtor?.prototype && !Object.hasOwn(NetConnectionCtor.prototype, 'httpIdleTimeout')) {
+        Object.defineProperty(NetConnectionCtor.prototype, 'httpIdleTimeout', {
+          get() { return netConnIdleTimeoutMap.get(this) ?? 0; },
+          set(v) {
+            const n = Number(v);
+            if (n < 0 || Number.isNaN(n)) throw argErr('NetConnection.httpIdleTimeout must be non-negative.');
+            netConnIdleTimeoutMap.set(this, n);
+          },
+          enumerable: true,
+          configurable: true,
+        });
+      }
+
+      // Augment NetStream with preloadEmbeddedData & setDRMAuthenticationCredentials
+      const NetStreamCtor = targetBuiltins['flash.net.NetStream'];
+      if (NetStreamCtor?.prototype && !Object.hasOwn(NetStreamCtor.prototype, 'preloadEmbeddedData')) {
+        Object.defineProperties(NetStreamCtor.prototype, {
+          preloadEmbeddedData: {
+            value(optionsArg) {
+              if (!optionsArg || typeof optionsArg !== 'object') {
+                throw argErr('NetStream.preloadEmbeddedData requires a NetStreamPlayOptions object.');
+              }
+              if (typeof this.onDRMContentData === 'function') {
+                this.onDRMContentData(new DRMContentData());
+              }
+            },
+            configurable: true,
+            writable: true,
+          },
+          setDRMAuthenticationCredentials: {
+            value(userName, password, authenticationType) {
+              const type = String(authenticationType ?? '');
+              if (type !== 'drm' && type !== 'proxy') {
+                throw argErr(`Invalid DRM authenticationType '${type}'. Expected 'drm' or 'proxy'.`);
+              }
+              netStreamDrmCredsMap.set(this, {
+                userName: userName == null ? null : String(userName),
+                password: password == null ? null : String(password),
+                authenticationType: type,
+              });
+            },
+            configurable: true,
+            writable: true,
+          },
+        });
+      }
+
+      // Augment FileReference if as2FilesHost installed its FileReference first
+      const ExistingFR = targetBuiltins['flash.net.FileReference'];
+      if (ExistingFR && ExistingFR !== AirFileReference) {
+        if (!Object.isFrozen(ExistingFR)) {
+          Object.defineProperty(ExistingFR, 'permissionStatus', {
+            get: () => 'granted',
+            enumerable: true,
+            configurable: true,
+          });
+        }
+        if (ExistingFR.prototype && !Object.isFrozen(ExistingFR.prototype)) {
+          const frDispatchers = new WeakMap();
+          const frDataMap = new WeakMap();
+          const getFrDisp = self => {
+            let d = frDispatchers.get(self);
+            if (!d) {
+              d = new BaseDispatcher(self);
+              frDispatchers.set(self, d);
+            }
+            return d;
+          };
+          for (const m of ['addEventListener', 'removeEventListener', 'dispatchEvent', 'hasEventListener', 'willTrigger']) {
+            if (typeof ExistingFR.prototype[m] !== 'function') {
+              ExistingFR.prototype[m] = function (...args) {
+                return getFrDisp(this)[m](...args);
+              };
+            }
+          }
+          if (!Object.hasOwn(ExistingFR.prototype, 'extension')) {
+            Object.defineProperty(ExistingFR.prototype, 'extension', {
+              get() {
+                let nm = '';
+                try { nm = String(this.name || ''); } catch (_) { nm = String(this._airName || ''); }
+                const dot = nm.lastIndexOf('.');
+                return dot > 0 && dot + 1 < nm.length ? nm.slice(dot + 1) : null;
+              },
+              enumerable: true,
+              configurable: true,
+            });
+          }
+          if (!Object.hasOwn(ExistingFR.prototype, 'data')) {
+            Object.defineProperty(ExistingFR.prototype, 'data', {
+              get() { return frDataMap.get(this) ?? null; },
+              set(v) { frDataMap.set(this, v); },
+              enumerable: true,
+              configurable: true,
+            });
+          }
+          ExistingFR.prototype.requestPermission = function () {
+            scheduleTask(() => {
+              this.dispatchEvent(
+                new PermissionEvent(PermissionEvent.PERMISSION_STATUS, false, false, 'granted')
+              );
+            });
+          };
+          ExistingFR.prototype.uploadUnencoded = function (request) {
+            if (!request || typeof request.url !== 'string' || !request.url) {
+              throw argErr('FileReference.uploadUnencoded requires a URLRequest with a valid url.');
+            }
+            const url = request.url;
+            scheduleTask(() => {
+              this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+              if (options.net?.HTTPStatusEvent) {
+                const hs = new options.net.HTTPStatusEvent('httpResponseStatus', false, false, 200, false);
+                hs.responseURL = url;
+                this.dispatchEvent(hs);
+                this.dispatchEvent(new options.net.HTTPStatusEvent('httpStatus', false, false, 200, false));
+              }
+              this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+            });
+          };
+          if (typeof ExistingFR.prototype.save !== 'function') {
+            ExistingFR.prototype.save = function (data, defaultFileName = null) {
+              if (defaultFileName != null) this._airName = String(defaultFileName);
+              if (binary?.ByteArray?.__nfIs?.(data)) frDataMap.set(this, data);
+              else if (binary) {
+                frDataMap.set(this, binary.fromBytes(new TextEncoder().encode(String(data ?? ''))));
+              }
+              scheduleTask(() => {
+                this.dispatchEvent(new BaseEvent(BaseEvent.SELECT));
+                this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+              });
+            };
+          }
+          if (typeof ExistingFR.prototype.load !== 'function') {
+            ExistingFR.prototype.load = function () {
+              scheduleTask(() => {
+                if (!frDataMap.has(this) && binary) frDataMap.set(this, new binary.ByteArray());
+                this.dispatchEvent(new BaseEvent(BaseEvent.OPEN));
+                this.dispatchEvent(new BaseEvent(BaseEvent.COMPLETE));
+              });
+            };
+          }
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 18. Builtins Registry, Reset & Dispose
     // -------------------------------------------------------------------------
     const builtins = Object.freeze({
       // flash.errors
@@ -4407,6 +9171,26 @@
       'flash.events.RemoteNotificationEvent': RemoteNotificationEvent,
       'flash.events.GameInputEvent': GameInputEvent,
       'flash.events.VsyncStateChangeAvailabilityEvent': VsyncStateChangeAvailabilityEvent,
+      'flash.events.AVHTTPStatusEvent': AVHTTPStatusEvent,
+      'flash.events.DRMDeviceGroupEvent': DRMDeviceGroupEvent,
+      'flash.events.DRMDeviceGroupErrorEvent': DRMDeviceGroupErrorEvent,
+      'flash.events.DRMStatusEvent': DRMStatusEvent,
+      'flash.events.StageVideoEvent': StageVideoEvent,
+      ...(options.eventFamilies?.GeolocationEvent
+        ? { 'flash.events.GeolocationEvent': options.eventFamilies.GeolocationEvent }
+        : {}),
+      ...(options.eventFamilies?.StageOrientationEvent
+        ? { 'flash.events.StageOrientationEvent': options.eventFamilies.StageOrientationEvent }
+        : {}),
+      ...(options.eventFamilies?.TouchEvent
+        ? { 'flash.events.TouchEvent': options.eventFamilies.TouchEvent }
+        : {}),
+      ...(options.eventFamilies?.GestureEvent
+        ? { 'flash.events.GestureEvent': options.eventFamilies.GestureEvent }
+        : {}),
+      ...(options.eventFamilies?.TransformGestureEvent
+        ? { 'flash.events.TransformGestureEvent': options.eventFamilies.TransformGestureEvent }
+        : {}),
       // flash.filesystem
       'flash.filesystem.FileMode': FileMode,
       'flash.filesystem.File': File,
@@ -4447,6 +9231,15 @@
       'flash.display.NativeWindowRenderMode': NativeWindowRenderMode,
       'flash.display.NativeWindowInitOptions': NativeWindowInitOptions,
       'flash.display.NativeWindow': NativeWindow,
+      // flash.display3D
+      'flash.display3D.Context3D': Context3D,
+      'flash.display3D.Context3DFillMode': Context3DFillMode,
+      'flash.display3D.Context3DProfile': Context3DProfile,
+      'flash.display3D.IndexBuffer3D': IndexBuffer3D,
+      'flash.display3D.VertexBuffer3D': VertexBuffer3D,
+      'flash.display3D.textures.TextureBase': TextureBase,
+      'flash.display3D.textures.Texture': Texture,
+      'flash.display3D.textures.RectangleTexture': RectangleTexture,
       // flash.data
       'flash.data.EncryptedLocalStore': EncryptedLocalStore,
       'flash.data.SQLMode': SQLMode,
@@ -4463,6 +9256,85 @@
       'flash.data.SQLSchemaResult': SQLSchemaResult,
       'flash.data.SQLConnection': SQLConnection,
       'flash.data.SQLStatement': SQLStatement,
+      // flash.html
+      'flash.html.HTMLPDFCapability': HTMLPDFCapability,
+      'flash.html.HTMLSWFCapability': HTMLSWFCapability,
+      'flash.html.HTMLHistoryItem': HTMLHistoryItem,
+      'flash.html.HTMLWindowCreateOptions': HTMLWindowCreateOptions,
+      'flash.html.HTMLHost': HTMLHost,
+      'flash.html.HTMLLoader': HTMLLoader,
+      // flash.media
+      'flash.media.AVURLLoader': AVURLLoader,
+      'flash.media.AudioPlaybackMode': AudioPlaybackMode,
+      'flash.media.Camera': AirCamera,
+      'flash.media.CameraPosition': CameraPosition,
+      'flash.media.CameraRoll': CameraRoll,
+      'flash.media.CameraRollBrowseOptions': CameraRollBrowseOptions,
+      'flash.media.CameraUI': CameraUI,
+      'flash.media.MediaPromise': MediaPromise,
+      'flash.media.MediaType': MediaType,
+      'flash.media.Microphone': AirMicrophone,
+      'flash.media.SoundMixer': AirSoundMixer,
+      'flash.media.StageWebView': StageWebView,
+      // flash.net & flash.net.drm
+      'flash.net.DatagramSocket': DatagramSocket,
+      'flash.net.FileReference': AirFileReference,
+      'flash.net.FileReferenceList': AirFileReferenceList,
+      'flash.net.IPVersion': IPVersion,
+      'flash.net.InterfaceAddress': InterfaceAddress,
+      'flash.net.NetworkInfo': NetworkInfo,
+      'flash.net.NetworkInterface': NetworkInterface,
+      'flash.net.Responder': Responder,
+      'flash.net.ServerSocket': ServerSocket,
+      'flash.net.Socket': Socket,
+      'flash.net.URLRequest': options.net?.URLRequest,
+      'flash.net.URLLoader': options.net?.URLLoader,
+      'flash.net.URLRequestDefaults': URLRequestDefaults,
+      'flash.net.URLRequestMethod': AirURLRequestMethod,
+      'flash.net.URLStream': URLStream,
+      'flash.net.drm.DRMDeviceGroup': DRMDeviceGroup,
+      'flash.net.drm.DRMContentData': DRMContentData,
+      'flash.net.drm.DRMVoucher': DRMVoucher,
+      // flash.printing
+      'flash.printing.PaperSize': PaperSize,
+      'flash.printing.PrintJob': PrintJob,
+      'flash.printing.PrintJobOptions': PrintJobOptions,
+      'flash.printing.PrintJobOrientation': PrintJobOrientation,
+      'flash.printing.PrintMethod': PrintMethod,
+      'flash.printing.PrintUIOptions': PrintUIOptions,
+      // flash.security
+      'flash.security.IURIDereferencer': IURIDereferencer,
+      'flash.security.ReferencesValidationSetting': ReferencesValidationSetting,
+      'flash.security.RevocationCheckSettings': RevocationCheckSettings,
+      'flash.security.SignatureStatus': SignatureStatus,
+      'flash.security.SignerTrustSettings': SignerTrustSettings,
+      'flash.security.XMLSignatureValidator': XMLSignatureValidator,
+      // flash.external
+      'flash.external.ExtensionContext': ExtensionContext,
+      // flash.text
+      'flash.text.AutoCapitalize': AutoCapitalize,
+      'flash.text.ReturnKeyLabel': ReturnKeyLabel,
+      'flash.text.SoftKeyboardType': SoftKeyboardType,
+      'flash.text.StageText': StageText,
+      'flash.text.StageTextClearButtonMode': StageTextClearButtonMode,
+      'flash.text.StageTextInitOptions': StageTextInitOptions,
+      // flash.ui
+      'flash.ui.ContextMenu': ContextMenu,
+      'flash.ui.ContextMenuBuiltInItems': ContextMenuBuiltInItems,
+      'flash.ui.ContextMenuClipboardItems': ContextMenuClipboardItems,
+      'flash.ui.ContextMenuItem': ContextMenuItem,
+      'flash.ui.GameInput': GameInput,
+      'flash.ui.GameInputControl': GameInputControl,
+      'flash.ui.GameInputDevice': GameInputDevice,
+      'flash.ui.Multitouch': Multitouch,
+      'flash.ui.MultitouchInputMode': MultitouchInputMode,
+      // flash.system
+      'flash.system.ApplicationDomain': ApplicationDomain,
+      'flash.system.Capabilities': Capabilities,
+      'flash.system.ImageDecodingPolicy': ImageDecodingPolicy,
+      'flash.system.LoaderContext': LoaderContext,
+      'flash.system.Security': Security,
+      'flash.system.SecurityDomain': SecurityDomain,
       // companion AIR packages
       'flash.permissions.PermissionStatus': PermissionStatus,
       'flash.net.dns.ResourceRecord': ResourceRecord,
@@ -4482,6 +9354,10 @@
     function reset() {
       if (disposed) return;
       generation++;
+      while (hostCleanups.length > 0) {
+        const fn = hostCleanups.pop();
+        try { fn(); } catch (_) {}
+      }
       if (kernel && typeof kernel.free === 'function') {
         try {
           kernel.free();
@@ -4497,6 +9373,34 @@
       openWindows.length = 0;
       nativeAppSingleton = null;
       dockIconSingleton = null;
+      networkInfoSingleton = null;
+      activeStageText = null;
+      lastCameraRollFile = null;
+      cameraRollCounter = 0;
+      cameraUiCounter = 0;
+      printJobActiveFlag = false;
+      gameInputDevices = null;
+      currentAppDomainSingleton = null;
+      currentSecDomainSingleton = null;
+      udpSocketMap.clear();
+      serverSocketMap.clear();
+      tcpSocketMap.clear();
+      urlRequestDefaultsState = {
+        authenticate: true,
+        cacheResponse: true,
+        followRedirects: true,
+        idleTimeout: 0,
+        manageCookies: true,
+        useCache: true,
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 AdobeAIR/32.0',
+      };
+      soundMixerState.audioPlaybackMode = 'media';
+      soundMixerState.useSpeakerphoneForVoice = false;
+      soundMixerState.bufferTime = 0;
+      multitouchState = {
+        inputMode: 'gesture',
+        mapTouchToMouse: true,
+      };
       nativeAppState = {
         autoExit: true,
         idleThreshold: 300,
@@ -4522,10 +9426,50 @@
       bindStageAirProperties();
     }
 
+    function tryConnectServerSocket(targetHost, targetPort, createSocketInstance) {
+      if (disposed) return null;
+      try {
+        const info = JSON.parse(callKernel('tcp_connect_loopback', String(targetHost ?? '127.0.0.1'), Number(targetPort) | 0));
+        if (!info.matched) return null;
+        const serverSock = serverSocketMap.get(info.serverId);
+        if (!serverSock) return null;
+        const accepted = typeof createSocketInstance === 'function'
+          ? createSocketInstance(info)
+          : new Socket(acceptedSocketToken, 0);
+        if (tcpSocketStates.has(accepted)) {
+          const as = tcpSocketStates.get(accepted);
+          as.connId = info.acceptedConnId;
+          as.peerConnId = info.clientConnId;
+          as.connected = true;
+          as.localAddress = info.serverAddress;
+          as.localPort = info.serverPort;
+          as.remoteAddress = info.clientAddress;
+          as.remotePort = info.clientPort;
+          if (streamStates.get(accepted)) streamStates.get(accepted).open = true;
+          tcpSocketMap.set(as.connId, accepted);
+        }
+        serverSock.dispatchEvent(
+          new ServerSocketConnectEvent(
+            ServerSocketConnectEvent.CONNECT,
+            false,
+            false,
+            accepted
+          )
+        );
+        return { info, accepted };
+      } catch (_) {
+        return null;
+      }
+    }
+
     function dispose() {
       if (disposed) return;
       disposed = true;
       generation++;
+      while (hostCleanups.length > 0) {
+        const fn = hostCleanups.pop();
+        try { fn(); } catch (_) {}
+      }
       openWindows.length = 0;
       mainNativeWindow = null;
       activeNativeWindow = null;
@@ -4534,6 +9478,13 @@
       volumeInfoSingleton = null;
       generalClipboardSingleton = null;
       mainScreenSingleton = null;
+      networkInfoSingleton = null;
+      activeStageText = null;
+      lastCameraRollFile = null;
+      gameInputDevices = null;
+      udpSocketMap.clear();
+      serverSocketMap.clear();
+      tcpSocketMap.clear();
       if (kernel && typeof kernel.free === 'function') {
         try {
           kernel.free();
@@ -4545,9 +9496,15 @@
     return Object.freeze({
       builtins,
       IFilePromise,
+      IURIDereferencer,
       setVectorFactory,
+      augmentBuiltins,
+      hasDisplayProperty,
+      getDisplayProperty,
+      setDisplayProperty,
       isDataInput: value => streamStates.has(value),
       isDataOutput: value => streamStates.has(value),
+      tryConnectServerSocket,
       notifyUserInput: () => { lastInputTimestamp = Date.now(); },
       bindStageAirProperties,
       reset,

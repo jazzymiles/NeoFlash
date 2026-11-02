@@ -202,29 +202,20 @@ impl PixelArena {
                 rgba[j..j + 4].copy_from_slice(&p);
             }
         }
-        let mut resolved_filter;
-        let active_filter = if let FilterSpec::Displacement {
-            map_bitmap: Some(ref map_ref),
-            ref map_rgba,
-            ..
-        } = *filter
-            && map_rgba.is_empty()
+        let resolved_filter;
+        let active_filter = if let Some(mut disp) = filter.as_displacement()
+            && let Some(ref map_ref) = disp.map_bitmap
+            && disp.map_rgba.is_empty()
         {
-            resolved_filter = filter.clone();
-            if let FilterSpec::Displacement {
-                ref mut map_width,
-                ref mut map_height,
-                ref mut map_rgba,
-                ..
-            } = resolved_filter
-                && let Ok(info) = self.info(map_ref)
+            if let Ok(info) = self.info(map_ref)
                 && !info.disposed
                 && let Ok(bytes) = self.pixels(map_ref)
             {
-                *map_width = info.width;
-                *map_height = info.height;
-                *map_rgba = bytes;
+                disp.map_width = info.width;
+                disp.map_height = info.height;
+                disp.map_rgba = bytes;
             }
+            resolved_filter = FilterSpec::from_displacement(&disp);
             &resolved_filter
         } else {
             filter

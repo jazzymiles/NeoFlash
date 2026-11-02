@@ -1395,7 +1395,21 @@
       constructor(secret, info) {
         super();
         if (secret !== stage3dToken) {
-          throw argError('ArgumentError: Error #2012: Context3D$ class cannot be instantiated.', 2012);
+          const ctxId = kcall(() => kernel.create_context('auto', 'baseline'));
+          info = {
+            id: ctxId,
+            ctxId,
+            renderMode: 'auto',
+            profile: 'baseline',
+            driverInfo: 'Software Hw_disabled=user (DirectBlit)',
+            enableErrorChecking: false,
+            backBufferWidth: 0,
+            backBufferHeight: 0,
+            maxBackBufferWidth: 16384,
+            maxBackBufferHeight: 16384,
+            disposed: false,
+            fillRate: 0,
+          };
         }
         context3dMap.set(this, info);
       }

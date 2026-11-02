@@ -1717,6 +1717,290 @@ impl AirKernel {
             .sql_execute_json(conn_id, sql_text, params_json, now_ms)
             .map_err(air_sql_js_err)
     }
+
+    pub fn sql_open_encrypted(
+        &mut self,
+        reference_path: Option<String>,
+        open_mode: &str,
+        auto_compact: bool,
+        page_size: u32,
+        encryption_key: &[u8],
+        now_ms: f64,
+    ) -> Result<u32, JsValue> {
+        let key_opt = if encryption_key.is_empty() {
+            None
+        } else {
+            Some(encryption_key)
+        };
+        self.inner
+            .sql_open_with_key(
+                reference_path.as_deref(),
+                open_mode,
+                auto_compact,
+                page_size,
+                key_opt,
+                now_ms,
+            )
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_attach_encrypted(
+        &mut self,
+        conn_id: u32,
+        name: &str,
+        reference_path: Option<String>,
+        encryption_key: &[u8],
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        let key_opt = if encryption_key.is_empty() {
+            None
+        } else {
+            Some(encryption_key)
+        };
+        self.inner
+            .sql_attach_with_key(conn_id, name, reference_path.as_deref(), key_opt, now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn sql_reencrypt(
+        &mut self,
+        conn_id: u32,
+        new_encryption_key: &[u8],
+        now_ms: f64,
+    ) -> Result<(), JsValue> {
+        self.inner
+            .sql_reencrypt(conn_id, new_encryption_key, now_ms)
+            .map_err(air_sql_js_err)
+    }
+
+    pub fn html_create(&mut self, width: f64, height: f64) -> u32 {
+        self.inner.html.create_session(width, height)
+    }
+
+    pub fn html_dispose(&mut self, id: u32) {
+        self.inner.html.dispose_session(id);
+    }
+
+    pub fn html_load_string(
+        &mut self,
+        id: u32,
+        html: &str,
+        base_url: &str,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .html
+            .load_string(id, html, base_url)
+            .map_err(air_js_err)
+    }
+
+    pub fn html_load_url(
+        &mut self,
+        id: u32,
+        url: &str,
+        is_post: bool,
+        fallback_html: Option<String>,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .html_load_url(id, url, is_post, fallback_html.as_deref())
+            .map_err(air_js_err)
+    }
+
+    pub fn html_history_go(&mut self, id: u32, steps: i32) -> Result<String, JsValue> {
+        self.inner.html.history_go(id, steps).map_err(air_js_err)
+    }
+
+    pub fn html_reload(&mut self, id: u32) -> Result<String, JsValue> {
+        self.inner.html.reload(id).map_err(air_js_err)
+    }
+
+    pub fn html_cancel(&mut self, id: u32) -> Result<String, JsValue> {
+        self.inner.html.cancel(id).map_err(air_js_err)
+    }
+
+    pub fn html_set_viewport(
+        &mut self,
+        id: u32,
+        width: f64,
+        height: f64,
+        scroll_h: f64,
+        scroll_v: f64,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .html
+            .set_viewport(id, width, height, scroll_h, scroll_v)
+            .map_err(air_js_err)
+    }
+
+    pub fn html_state_json(&self, id: u32) -> Result<String, JsValue> {
+        self.inner.html.state_json(id).map_err(air_js_err)
+    }
+
+    pub fn net_interfaces_json(&self) -> String {
+        self.inner.net.interfaces_json()
+    }
+
+    pub fn net_set_login_credentials(
+        &mut self,
+        hostname: &str,
+        user: &str,
+        password: &str,
+    ) -> String {
+        self.inner
+            .net
+            .set_login_credentials(hostname, user, password)
+    }
+
+    pub fn net_get_login_auth_header(&self, hostname: &str) -> Option<String> {
+        self.inner.net.get_login_auth_header(hostname)
+    }
+
+    pub fn udp_create(&mut self) -> u32 {
+        self.inner.net.udp_create()
+    }
+
+    pub fn udp_bind(&mut self, sock_id: u32, port: u32, address: &str) -> Result<String, JsValue> {
+        self.inner
+            .net
+            .udp_bind(sock_id, port, address)
+            .map_err(air_js_err)
+    }
+
+    pub fn udp_connect(
+        &mut self,
+        sock_id: u32,
+        remote_address: &str,
+        remote_port: u32,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .net
+            .udp_connect(sock_id, remote_address, remote_port)
+            .map_err(air_js_err)
+    }
+
+    pub fn udp_receive(&mut self, sock_id: u32) -> Result<(), JsValue> {
+        self.inner.net.udp_receive(sock_id).map_err(air_js_err)
+    }
+
+    pub fn udp_send(
+        &mut self,
+        sock_id: u32,
+        target_address: Option<String>,
+        target_port: u32,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .net
+            .udp_send(sock_id, target_address.as_deref(), target_port)
+            .map_err(air_js_err)
+    }
+
+    pub fn udp_close(&mut self, sock_id: u32) {
+        self.inner.net.udp_close(sock_id);
+    }
+
+    pub fn tcp_server_create(&mut self) -> u32 {
+        self.inner.net.tcp_server_create()
+    }
+
+    pub fn tcp_server_bind(
+        &mut self,
+        server_id: u32,
+        port: u32,
+        address: &str,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .net
+            .tcp_server_bind(server_id, port, address)
+            .map_err(air_js_err)
+    }
+
+    pub fn tcp_server_listen(&mut self, server_id: u32, backlog: u32) -> Result<(), JsValue> {
+        self.inner
+            .net
+            .tcp_server_listen(server_id, backlog)
+            .map_err(air_js_err)
+    }
+
+    pub fn tcp_server_close(&mut self, server_id: u32) {
+        self.inner.net.tcp_server_close(server_id);
+    }
+
+    pub fn tcp_connect_loopback(&mut self, host: &str, port: u32) -> String {
+        self.inner.net.tcp_connect_loopback(host, port)
+    }
+
+    pub fn tcp_write(&mut self, conn_id: u32, data: &[u8]) -> Result<u32, JsValue> {
+        self.inner.net.tcp_write(conn_id, data).map_err(air_js_err)
+    }
+
+    pub fn tcp_read(&mut self, conn_id: u32) -> Vec<u8> {
+        self.inner.net.tcp_read(conn_id)
+    }
+
+    pub fn tcp_endpoint_json(&self, conn_id: u32) -> String {
+        self.inner.net.tcp_endpoint_json(conn_id)
+    }
+
+    pub fn tcp_close(&mut self, conn_id: u32) -> u32 {
+        self.inner.net.tcp_close(conn_id)
+    }
+
+    pub fn xml_sig_add_cert(&mut self, cert_bytes: &[u8], trusted: bool) -> Result<(), JsValue> {
+        self.inner
+            .xml_sig
+            .add_certificate(cert_bytes, trusted)
+            .map_err(air_js_err)
+    }
+
+    pub fn xml_sig_verify_json(
+        &self,
+        signature_xml: &str,
+        deref_map_json: &str,
+        references_setting: &str,
+        revocation_setting: &str,
+        use_system_trust_store: bool,
+    ) -> String {
+        self.inner.xml_sig.verify_json(
+            signature_xml,
+            deref_map_json,
+            references_setting,
+            revocation_setting,
+            use_system_trust_store,
+        )
+    }
+
+    pub fn sha256(&self, data: &[u8]) -> Vec<u8> {
+        neoflash_core::as3_air::sha256_bytes(data).to_vec()
+    }
+
+    pub fn sha1(&self, data: &[u8]) -> Vec<u8> {
+        neoflash_core::as3_air::sha1_bytes(data).to_vec()
+    }
+
+    pub fn hmac_sha256(&self, key: &[u8], data: &[u8]) -> Vec<u8> {
+        neoflash_core::as3_air::hmac_sha256(key, data).to_vec()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn rasterize_text_rgba(
+        &self,
+        width: u32,
+        height: u32,
+        text: &str,
+        fg_rgb: u32,
+        bg_argb: u32,
+        font_size: u32,
+        flags_align: &str,
+    ) -> Vec<u8> {
+        neoflash_core::as3_air::rasterize_text_rgba(
+            width,
+            height,
+            text,
+            fg_rgb,
+            bg_argb,
+            font_size,
+            flags_align,
+        )
+    }
 }
 
 #[wasm_bindgen]
