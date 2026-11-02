@@ -23,6 +23,7 @@ pub mod as3_air;
 pub mod as3_collections;
 pub mod as3_geom;
 pub mod as3_object;
+pub mod as3_sound_media;
 pub mod as3_strings;
 pub mod as_binary;
 pub mod as_broadcaster;
@@ -111,8 +112,9 @@ pub use scenes::{
 pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
 pub use text::{
     MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
-    TextFormat, TextFormatPatch, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery,
-    TextReplacement, TextRestrictPatch, TextSelection, layout_text, query_text,
+    TextFormat, TextFormatPatch, TextFormatRangePatch, TextFormatRun, TextInputEdit, TextLayout,
+    TextLine, TextPatch, TextQuery, TextReplacement, TextRestrictPatch, TextSelection, layout_text,
+    query_text,
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,

@@ -59,7 +59,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -192,6 +192,7 @@
     // copies; concatenated/pixel coordinates use the logical stage, excluding
     // the editor/export preview's CSS zoom and browser-window mapping.
     const transformTargets=new WeakMap(),transformCache=new WeakMap();
+    let transformMatrix3D=new WeakMap(),transformPerspective=new WeakMap();
     const colorNames=['redMultiplier','greenMultiplier','blueMultiplier','alphaMultiplier','redOffset','greenOffset','blueOffset','alphaOffset'];
     const identityColor={multipliers:[1,1,1,1],offsets:[0,0,0,0]};
     const colorCopy=value=>new ColorTransform(...value.multipliers,...value.offsets);
@@ -204,10 +205,40 @@
     }
     class Transform {
       constructor(target){descriptor(target);transformTargets.set(this,target);Object.seal(this);}
-      get matrix(){const node=descriptor(transformTarget(this));return new Matrix(...(node.local_matrix||matrix(node.transform)));}
+      get matrix(){const target=transformTarget(this);if(transformMatrix3D.has(target))return null;const node=descriptor(target);return new Matrix(...(node.local_matrix||matrix(node.transform)));}
       set matrix(value){
-        const target=transformTarget(this),components=finiteComponents(value,['a','b','c','d','tx','ty']);
+        const target=transformTarget(this);
+        if(value===null){transformMatrix3D.delete(target);return;}
+        const components=finiteComponents(value,['a','b','c','d','tx','ty']);
+        transformMatrix3D.delete(target);
         if(!player.object_set_matrix(referenceOf(target).key,JSON.stringify(components)))throw new RangeError('Runtime rejected the matrix on this display object.');
+      }
+      get matrix3D(){
+        const target=transformTarget(this),m=transformMatrix3D.get(target);
+        return m?m.clone():null;
+      }
+      set matrix3D(value){
+        const target=transformTarget(this);
+        if(value===null||value===undefined){transformMatrix3D.delete(target);return;}
+        const geom3d=getGeom3D();
+        if(!geom3d?.Matrix3D?.__nfIs?.(value))throw new TypeError('Transform.matrix3D requires a Matrix3D or null.');
+        const copy=value.clone(),raw=copy.rawData;
+        transformMatrix3D.set(target,copy);
+        const a=Number(raw[0]),b=Number(raw[1]),c=Number(raw[4]),d=Number(raw[5]),tx=Number(raw[12]),ty=Number(raw[13]);
+        if([a,b,c,d,tx,ty].every(Number.isFinite)&&Math.abs(a*d-b*c)>1e-8){
+          try{player.object_set_matrix(referenceOf(target).key,JSON.stringify([a,b,c,d,tx,ty]));}catch(_){}
+        }
+      }
+      get perspectiveProjection(){
+        const target=transformTarget(this);
+        return transformPerspective.get(target)||null;
+      }
+      set perspectiveProjection(value){
+        const target=transformTarget(this);
+        if(value===null||value===undefined){transformPerspective.delete(target);return;}
+        const geom3d=getGeom3D();
+        if(!geom3d?.PerspectiveProjection?.__nfIs?.(value))throw new TypeError('Transform.perspectiveProjection requires a PerspectiveProjection or null.');
+        transformPerspective.set(target,value);
       }
       get colorTransform(){return colorCopy(descriptor(transformTarget(this)).color_transform||identityColor);}
       set colorTransform(value){
@@ -222,10 +253,20 @@
         const x=Math.floor(box.x),y=Math.floor(box.y);return new Rectangle(x,y,Math.ceil(box.right)-x,Math.ceil(box.bottom)-y);
       }
       getRelativeMatrix(relativeTo){const list=nodes(),node=descriptor(transformTarget(this),list),target=relativeTo===getStage()?null:descriptor(relativeTo,list);return new Matrix(...relative(node,target,list));}
+      getRelativeMatrix3D(relativeTo){
+        if(relativeTo===null||relativeTo===undefined)throw new TypeError('Transform.getRelativeMatrix3D requires a non-null relativeTo DisplayObject.');
+        const list=nodes(),sourceTarget=transformTarget(this),node=descriptor(sourceTarget,list);
+        const target=relativeTo===getStage()?null:descriptor(relativeTo,list);
+        const geom3d=getGeom3D();
+        if(!geom3d?.Matrix3D)throw new Error('Matrix3D service is unavailable.');
+        const m=relative(node,target,list);
+        const rel=new geom3d.Matrix3D([m[0],m[1],0,0,m[2],m[3],0,0,0,0,1,0,m[4],m[5],0,1]);
+        const local3d=transformMatrix3D.get(sourceTarget);
+        if(local3d&&nodeKey(node)=== (target?nodeKey(target):''))return local3d.clone();
+        return rel;
+      }
     }
     Object.defineProperties(Transform,{__nfIs:{value:value=>transformTargets.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native Transform subclassing is not supported.');}}});
-    for(const name of ['matrix3D','perspectiveProjection'])Object.defineProperty(Transform.prototype,name,{get(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);},set(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
-    for(const name of ['getRelativeMatrix3D'])Object.defineProperty(Transform.prototype,name,{value(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
     function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
     function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
@@ -780,7 +821,7 @@
 
     let dragging=null,pressed=null,hovered=null;
     const drops=new WeakMap();
-    let contextMenus=new WeakMap(),accessImpls=new WeakMap(),buttonRecords=new WeakMap();
+    let contextMenus=new WeakMap(),accessImpls=new WeakMap(),buttonRecords=new WeakMap(),softKeyboardNeeds=new WeakMap(),softKeyboardRects=new WeakMap();
     function buttonRecord(target){let rec=buttonRecords.get(target);if(!rec){rec={upState:null,overState:null,downState:null,hitTestState:null,volume:1,pan:0};buttonRecords.set(target,rec);}return rec;}
     function ownsInputProperty(owner,name){
       if(name==='mouseChildren'||name==='tabChildren')return containerOwners.includes(owner);
@@ -970,6 +1011,9 @@
         localToGlobal: value=>convert(target,value,true),
         globalToLocal: value=>convert(target,value,false),
       };
+      if(interactiveOwners.includes(descriptor(target).owner)&&!isStaticTextNode(descriptor(target))){
+        result.requestSoftKeyboard=()=>{descriptor(target);return true;};
+      }
       if(containerOwners.includes(descriptor(target).owner))Object.assign(result,{
         getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return nodeProxy(list[index]);},
         getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
@@ -1055,7 +1099,10 @@
       if(name==='_url'){descriptor(target);if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
 
       if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(name==='accessibilityProperties'){descriptor(target);return accProps.get(target)??null;}
       if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
+      if(name==='needsSoftKeyboard'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;return Boolean(softKeyboardNeeds.get(target));}
+      if(name==='softKeyboardInputAreaOfInterest'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;const r=softKeyboardRects.get(target);return r?new Rectangle(r.x,r.y,r.width,r.height):null;}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
       if(name==='enabled'&&descriptor(target).owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
       if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip')return Boolean(nativeInput(target).track_as_menu);
@@ -1149,7 +1196,10 @@
         if(['upState','overState','downState','hitTestState'].includes(name)){validateButtonState(value);buttonRecord(target)[name]=value;return true;}
         if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
       }
+      if(name==='accessibilityProperties'){descriptor(target);if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError('DisplayObject.accessibilityProperties requires AccessibilityProperties or null.');if(value===null||value===undefined)accProps.delete(target);else accProps.set(target,value);return true;}
       if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
+      if(name==='needsSoftKeyboard'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(typeof value!=='boolean')throw new TypeError('InteractiveObject.needsSoftKeyboard requires a Boolean.');softKeyboardNeeds.set(target,value);return true;}
+      if(name==='softKeyboardInputAreaOfInterest'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&!Rectangle.__nfIs(value))throw new TypeError('InteractiveObject.softKeyboardInputAreaOfInterest requires a Rectangle or null.');softKeyboardRects.set(target,value===null?null:{x:value.x,y:value.y,width:value.width,height:value.height});return true;}
       if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
@@ -1537,7 +1587,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

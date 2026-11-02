@@ -69,13 +69,8 @@ fn compiler_intrinsic_identifiers_are_reserved() {
 }
 
 #[test]
-fn excess_parse_int_arguments_are_a_named_boundary_not_a_flash_error_claim() {
-    let errors = compile("parseInt('10', 10, 0);", ScriptLanguage::ActionScript3).unwrap_err();
-    assert!(
-        errors[0]
-            .message
-            .contains("excess-argument semantics are not verified")
-    );
+fn excess_parse_int_arguments_compile_in_as3_for_runtime_argument_error() {
+    assert!(compile("parseInt('10', 10, 0);", ScriptLanguage::ActionScript3).is_ok());
     assert!(compile("parseInt('10', 10, 0);", ScriptLanguage::ActionScript2).is_ok());
     assert!(
         compile(

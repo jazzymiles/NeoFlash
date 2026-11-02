@@ -1211,5 +1211,31 @@
       "triggerType"
     ],
     "requiredArguments": 5
+  },
+  {
+    "name": "StageVideoAvailabilityEvent",
+    "parent": "Event",
+    "fields": [
+      {
+        "name": "availability",
+        "kind": "string",
+        "default": null,
+        "readonly": true
+      }
+    ],
+    "ownFields": [
+      "availability"
+    ],
+    "params": [
+      "availability"
+    ],
+    "constants": {
+      "STAGE_VIDEO_AVAILABILITY": "stageVideoAvailability"
+    },
+    "bubbles": false,
+    "cancelable": false,
+    "format": [
+      "availability"
+    ]
   }
 ]

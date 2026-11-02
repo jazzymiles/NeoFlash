@@ -196,23 +196,36 @@ fn uniform_fields_share_layout_but_keep_runtime_formats_and_placement_lifetimes_
     let before = player.object_text_info(&project, &dynamic).unwrap();
     assert_eq!(before.format.color, 0x123456);
     assert_eq!(before.default_format.color, 0xff0000);
-    assert!(
-        player
-            .object_text_update(
-                &project,
-                &dynamic,
-                &TextPatch {
-                    append: Some(" more".into()),
-                    ..TextPatch::default()
-                }
-            )
-            .is_err()
-    );
-    assert_eq!(
-        player.object_text_info(&project, &dynamic).unwrap(),
-        before,
-        "mixed formatting rejection is atomic"
-    );
+    let before_units = before.text.encode_utf16().count() as u32;
+    let changed = player
+        .object_text_update(
+            &project,
+            &dynamic,
+            &TextPatch {
+                append: Some(" more".into()),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
+    assert!(changed);
+    let appended = player.object_text_info(&project, &dynamic).unwrap();
+    assert_eq!(appended.format_runs.len(), 2);
+    assert_eq!(appended.format_runs[0].format.color, 0x123456);
+    assert_eq!(appended.format_runs[1].format.color, 0xff0000);
+    player
+        .object_text_update(
+            &project,
+            &dynamic,
+            &TextPatch {
+                replace: Some(TextReplacement {
+                    begin: before_units,
+                    end: before_units + 5,
+                    text: String::new(),
+                }),
+                ..TextPatch::default()
+            },
+        )
+        .unwrap();
     assert!(
         player
             .object_text_update(

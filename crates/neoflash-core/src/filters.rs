@@ -102,6 +102,28 @@ pub enum FilterSpec {
         placement: String,
         knockout: bool,
     },
+    Displacement {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        map_bitmap: Option<crate::PixelRef>,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        map_width: u32,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        map_height: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        map_rgba: Vec<u8>,
+        map_point: [i32; 2],
+        component_x: u8,
+        component_y: u8,
+        scale_x: f64,
+        scale_y: f64,
+        mode: String,
+        color: u32,
+        alpha: f64,
+    },
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +169,39 @@ impl FilterSpec {
             {
                 return Err(error(
                     "Convolution requires dimensions 0..15, exactly matrixX*matrixY finite coefficients (at most 225), divisor/bias within +/-65536, RGB color and alpha 0..1",
+                ));
+            }
+            return Ok(());
+        }
+        if let Self::Displacement {
+            map_width,
+            map_height,
+            map_rgba,
+            component_x,
+            component_y,
+            scale_x,
+            scale_y,
+            mode,
+            color,
+            alpha,
+            ..
+        } = self
+        {
+            let map_pixels = (*map_width as usize).checked_mul(*map_height as usize);
+            if ![0, 1, 2, 4, 8].contains(component_x)
+                || ![0, 1, 2, 4, 8].contains(component_y)
+                || !finite(*scale_x, -8192., 8192.)
+                || !finite(*scale_y, -8192., 8192.)
+                || !finite(*alpha, 0., 1.)
+                || *color > 0xffffff
+                || !matches!(mode.as_str(), "wrap" | "clamp" | "ignore" | "color")
+                || (!map_rgba.is_empty()
+                    && (map_pixels.is_none()
+                        || map_pixels.unwrap() > MAX_FILTER_PIXELS
+                        || map_rgba.len() != map_pixels.unwrap() * 4))
+            {
+                return Err(error(
+                    "Displacement requires valid channels (0/1/2/4/8), mode (wrap/clamp/ignore/color), finite scales within +/-8192, RGB color and alpha 0..1",
                 ));
             }
             return Ok(());
@@ -284,7 +339,9 @@ impl FilterSpec {
                 quality,
                 ..
             } => (*blur_x, *blur_y, *quality),
-            Self::ColorMatrix { .. } | Self::Convolution { .. } => (0., 0., 0),
+            Self::ColorMatrix { .. } | Self::Convolution { .. } | Self::Displacement { .. } => {
+                (0., 0., 0)
+            }
         }
     }
     fn radii(&self) -> (usize, usize, usize) {
@@ -296,6 +353,9 @@ impl FilterSpec {
         )
     }
     fn work(&self) -> usize {
+        if matches!(self, Self::Displacement { .. }) {
+            return 4;
+        }
         if let Self::Convolution {
             matrix_x,
             matrix_y,
@@ -357,6 +417,7 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
                 | FilterSpec::DropShadow { inner: true, .. }
                 | FilterSpec::ColorMatrix { .. }
                 | FilterSpec::Convolution { .. }
+                | FilterSpec::Displacement { .. }
         ) {
             continue;
         }
@@ -426,6 +487,9 @@ pub fn filter_rgba(
     let mut result = rgba.to_vec();
     for filter in filters {
         match filter {
+            FilterSpec::Displacement { .. } => {
+                displacement(&mut result, width as usize, height as usize, filter)
+            }
             FilterSpec::Convolution { .. } => {
                 convolution(&mut result, width as usize, height as usize, filter)
             }
@@ -544,6 +608,87 @@ pub fn filter_rgba(
 }
 fn byte(value: f64) -> u8 {
     value.round().clamp(0., 255.) as u8
+}
+
+fn displacement(rgba: &mut [u8], w: usize, h: usize, filter: &FilterSpec) {
+    let FilterSpec::Displacement {
+        map_width,
+        map_height,
+        map_rgba,
+        map_point,
+        component_x,
+        component_y,
+        scale_x,
+        scale_y,
+        mode,
+        color,
+        alpha,
+        ..
+    } = filter
+    else {
+        return;
+    };
+    if map_rgba.is_empty() || *map_width == 0 || *map_height == 0 {
+        return;
+    }
+    let mw = *map_width as usize;
+    let mh = *map_height as usize;
+    let source = rgba.to_vec();
+    let mut fill = [
+        ((color >> 16) & 255) as u8,
+        ((color >> 8) & 255) as u8,
+        (color & 255) as u8,
+        byte(alpha * 255.),
+    ];
+    if fill[3] == 0 {
+        fill[..3].fill(0);
+    }
+    let channel_idx = |c: u8| -> Option<usize> {
+        match c {
+            1 => Some(0),
+            2 => Some(1),
+            4 => Some(2),
+            8 => Some(3),
+            _ => None,
+        }
+    };
+    let fetch = |x: usize, y: usize| -> [u8; 4] {
+        let off = (y * w + x) * 4;
+        [
+            source[off],
+            source[off + 1],
+            source[off + 2],
+            source[off + 3],
+        ]
+    };
+    for (index, output) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let sx = index % w;
+        let sy = index / w;
+        let mut mx = sx as i64;
+        let mut my = sy as i64;
+        let map_x = sx as i64 - i64::from(map_point[0]);
+        let map_y = sy as i64 - i64::from(map_point[1]);
+        if map_x >= 0 && map_y >= 0 && (map_x as usize) < mw && (map_y as usize) < mh {
+            let moff = ((map_y as usize) * mw + (map_x as usize)) * 4;
+            let mp = &map_rgba[moff..moff + 4];
+            let sample = |c: u8| channel_idx(c).map_or(128.0, |i| f64::from(mp[i]));
+            mx = (sx as f64 + (sample(*component_x) - 128.0) * scale_x / 256.0).floor() as i64;
+            my = (sy as f64 + (sample(*component_y) - 128.0) * scale_y / 256.0).floor() as i64;
+        }
+        let outside = mx < 0 || my < 0 || mx >= w as i64 || my >= h as i64;
+        *output = match mode.as_str() {
+            "color" if outside => fill,
+            "ignore" if outside => fetch(sx, sy),
+            "clamp" => fetch(
+                mx.clamp(0, w as i64 - 1) as usize,
+                my.clamp(0, h as i64 - 1) as usize,
+            ),
+            _ => fetch(
+                mx.rem_euclid(w as i64) as usize,
+                my.rem_euclid(h as i64) as usize,
+            ),
+        };
+    }
 }
 
 fn convolution(rgba: &mut [u8], w: usize, h: usize, filter: &FilterSpec) {

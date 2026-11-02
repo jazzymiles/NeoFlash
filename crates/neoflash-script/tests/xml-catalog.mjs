@@ -33,7 +33,7 @@ export async function verifyXMLCatalog(root,cargo) {
       assert.equal(scene.total,modernTotal);assert.equal(scene.legacyTotal,legacyTotal);assert.equal(scene.legacyCount,3);
       assert.equal(scene.original.elements('item').length(),3,'copy mutation leaves original XML unchanged');
       assert.equal(scene.roundtrip.elements('item').length(),revision?4:3,'serialized XML parses back with the same records');
-      assert.equal(scene.malformedRejected,true);assert.equal(scene.declarationRejected,true);assert.equal(scene.operatorRejected,true);assert.equal(scene.legacyReceiverOK,true);
+      assert.equal(scene.malformedRejected,true);assert.equal(scene.declarationRejected,true);assert.equal(scene.operatorRejected,false);assert.equal(scene.legacyReceiverOK,true);
       assert.match(scene.serialized,/urn:neoflash:catalog/);assert.match(scene.serialized,/meta:note/);
       assert.match(scene.modernRows.text,revision?/Parts & fittings/:/Film & frames/,'entities decode as text');
       assert.equal(scene.namespaceMatched,true);assert.equal(scene.descendantCount,revision?4:3);

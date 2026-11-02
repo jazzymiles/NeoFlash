@@ -224,6 +224,25 @@
       }
       families[definition.name] = Constructor;
     }
+    if (!families.StageVideoAvailabilityEvent) {
+      class StageVideoAvailabilityEvent extends Event {
+        constructor(type, bubbles = false, cancelable = false, availability = null, driver = null) {
+          super(type, bubbles, cancelable);
+          const avail = availability == null ? null : String(availability);
+          const drv = driver == null ? null : String(driver);
+          Object.defineProperties(this, {
+            availability: { value: avail, enumerable: true, configurable: true },
+            driver: { value: drv, enumerable: true, configurable: true },
+          });
+        }
+        clone() { return new StageVideoAvailabilityEvent(this.type, this.bubbles, this.cancelable, this.availability, this.driver); }
+        toString() { return this.formatToString('StageVideoAvailabilityEvent', 'type', 'bubbles', 'cancelable', 'eventPhase', 'availability'); }
+      }
+      StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY = 'stageVideoAvailability';
+      StageVideoAvailabilityEvent.__nfIs = value => states.has(value) && value instanceof StageVideoAvailabilityEvent;
+      StageVideoAvailabilityEvent.__nfInitialize = () => { throw new TypeError('StageVideoAvailabilityEvent native subclass initialization is not supported.'); };
+      families.StageVideoAvailabilityEvent = StageVideoAvailabilityEvent;
+    }
     for (const [name, constants] of Object.entries(JSON.parse(wasm.as_event_constants_json()))) {
       if (name === 'Event') { Object.assign(Event, constants); continue; }
       const Holder = { [name]: class { constructor() { throw new TypeError(`${name} supplies constants only.`); } } }[name];

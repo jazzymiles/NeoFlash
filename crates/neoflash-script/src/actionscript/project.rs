@@ -144,6 +144,7 @@ const BUILTINS: &[&str] = &[
     "flash.text.TextSnapshot",
     "flash.text.TextFormat",
     "flash.text.TextFormatAlign",
+    "flash.text.TextFormatDisplay",
     "flash.text.TextFieldType",
     "flash.text.TextFieldAutoSize",
     "flash.text.AntiAliasType",
@@ -164,7 +165,12 @@ const BUILTINS: &[&str] = &[
     "flash.ui.Mouse",
     "flash.ui.MouseCursor",
     "flash.ui.MouseCursorData",
+    "flash.ui.ContextMenu",
+    "flash.ui.ContextMenuBuiltInItems",
+    "flash.ui.ContextMenuClipboardItems",
+    "flash.ui.ContextMenuItem",
     "flash.media.Video",
+    "flash.media.VideoStatus",
     "flash.net.NetConnection",
     "flash.net.NetStream",
     "flash.events.NetStatusEvent",
@@ -172,6 +178,12 @@ const BUILTINS: &[&str] = &[
     "flash.media.SoundChannel",
     "flash.media.SoundTransform",
     "flash.media.SoundMixer",
+    "flash.media.SoundLoaderContext",
+    "flash.media.ID3Info",
+    "flash.accessibility.AccessibilityProperties",
+    "flash.utils.Proxy",
+    "flash.utils.flash_proxy",
+    "mx.utils.object_proxy",
     "flash.filters.BitmapFilter",
     "flash.filters.BitmapFilterQuality",
     "flash.filters.BlurFilter",
@@ -185,6 +197,7 @@ const BUILTINS: &[&str] = &[
     "flash.filters.BitmapFilterType",
     "flash.filters.DisplacementMapFilter",
     "flash.filters.DisplacementMapFilterMode",
+    "flash.filters.ShaderFilter",
     "mx.transitions.easing.Back",
     "mx.transitions.easing.Bounce",
     "mx.transitions.easing.Elastic",
@@ -326,6 +339,7 @@ const BUILTINS: &[&str] = &[
     "flash.events.RemoteNotificationEvent",
     "flash.events.GameInputEvent",
     "flash.events.VsyncStateChangeAvailabilityEvent",
+    "flash.events.StageVideoAvailabilityEvent",
     // AIR filesystem
     "flash.filesystem.FileMode",
     "flash.filesystem.File",
@@ -414,6 +428,22 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.net.registerClassAlias",
     "flash.net.getClassByAlias",
 ];
+const BUILTIN_NAMESPACES: &[(&str, &str)] = &[
+    ("AS3", "http://adobe.com/AS3/2006/builtin"),
+    (
+        "flash.utils.flash_proxy",
+        "http://www.adobe.com/2006/actionscript/flash/proxy",
+    ),
+    (
+        "mx.utils.object_proxy",
+        "http://www.adobe.com/2006/flex/mx/internal",
+    ),
+];
+fn builtin_namespace_uri(name: &str) -> Option<&'static str> {
+    BUILTIN_NAMESPACES
+        .iter()
+        .find_map(|(k, uri)| (*k == name).then_some(*uri))
+}
 pub(super) fn is_graphics_constants(name: &str) -> bool {
     matches!(
         name,
@@ -529,6 +559,16 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "createBox"
                 | "createGradientBox"
                 | "getRelativeMatrix"
+                | "getRelativeMatrix3D"
+                | "requestSoftKeyboard"
+                | "getImageReference"
+                | "extract"
+                | "loadCompressedDataFromByteArray"
+                | "loadPCMFromByteArray"
+                | "computeSpectrum"
+                | "stopAll"
+                | "areSoundsInaccessible"
+                | "attachCamera"
                 | "start"
                 | "reset"
                 | "updateAfterEvent"
@@ -847,6 +887,7 @@ pub struct ProjectProgram {
     languages: BTreeMap<String, ScriptLanguage>,
     interfaces: BTreeSet<String>,
     public_types: BTreeSet<String>,
+    namespace_uris: BTreeMap<String, String>,
     as2_private: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -882,6 +923,7 @@ struct MemberRecord {
     name: String,
     ty: Option<String>,
     access: Access,
+    namespace: Option<String>,
     owner: String,
     is_static: bool,
 }
@@ -894,6 +936,10 @@ struct Header {
     base: Option<String>,
     interfaces: Vec<String>,
     is_interface: bool,
+    is_namespace: bool,
+    namespace_uri: Option<String>,
+    local_namespaces: BTreeMap<String, String>,
+    open_namespaces: Vec<String>,
     imports: Vec<String>,
     tokens: TokenCursor,
     body: usize,
@@ -910,12 +956,14 @@ struct Field {
     constant: bool,
     is_static: bool,
     access: Access,
+    namespace: Option<String>,
 }
 struct Method {
     function: Function,
     is_static: bool,
     override_: bool,
     access: Access,
+    namespace: Option<String>,
     final_: bool,
     kind: MethodKind,
 }
@@ -1036,35 +1084,82 @@ fn imports(p: &mut Frontend<'_>) -> Result<Vec<String>, Diagnostic> {
     }
     Ok(imports)
 }
-fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
-    let script = Script {
+fn parse_namespace_uri_literal(
+    p: &mut Frontend<'_>,
+    default_uri: String,
+    known: &BTreeMap<String, String>,
+) -> Result<String, Diagnostic> {
+    if !p.eat("=") {
+        return Ok(default_uri);
+    }
+    match p.token().kind.clone() {
+        Kind::String(_) => {
+            let lit = p.token_text();
+            p.pos += 1;
+            let unquoted = lit
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| lit.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(&lit)
+                .to_owned();
+            Ok(unquoted)
+        }
+        Kind::Ident(_) => {
+            let ref_name = qualified(p)?;
+            known
+                .get(&ref_name)
+                .cloned()
+                .or_else(|| builtin_namespace_uri(&ref_name).map(str::to_owned))
+                .ok_or_else(|| p.error(format!("Unresolved namespace initializer '{ref_name}'.")))
+        }
+        _ => Err(p.error("Expected a namespace URI string literal.")),
+    }
+}
+
+fn header(
+    source: &neoflash_core::SourceUnit,
+    includes: &BTreeMap<String, neoflash_core::ResourceUnit>,
+) -> Result<Header, Diagnostic> {
+    let raw_script = Script {
         language: source.language,
         source: source.source.clone(),
     };
-    if script.language == ScriptLanguage::ActionScript1 {
+    if raw_script.language == ScriptLanguage::ActionScript1 {
         return Err(Diagnostic::at(
-            &script,
+            &raw_script,
             0,
             "ActionScript 1.0 does not support AS2/AS3 class or interface source units; use timeline/object prototype functions or #include resource files.",
         ));
     }
     if !matches!(
-        script.language,
+        raw_script.language,
         ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3
     ) {
         return Err(Diagnostic::at(
-            &script,
+            &raw_script,
             0,
             "Project source units require AS2 or AS3 classes; JS/TS modules are not implemented yet.",
         ));
     }
-    if script.source.len() > 1_048_576 {
+    if raw_script.source.len() > 1_048_576 {
         return Err(Diagnostic::at(
-            &script,
+            &raw_script,
             0,
             "A source unit is limited to 1 MiB.",
         ));
     }
+    let script = if (raw_script.language == ScriptLanguage::ActionScript2
+        && raw_script.source.contains("#include"))
+        || (raw_script.language == ScriptLanguage::ActionScript3
+            && (raw_script.source.contains("include ")
+                || raw_script.source.contains("include\"")
+                || raw_script.source.contains("include'")
+                || raw_script.source.contains("#include")))
+    {
+        super::includes::expand_at(&raw_script, &source.path, includes)?.script
+    } else {
+        raw_script
+    };
     let tokens = TokenCursor::default();
     let mut p = frontend(&script, tokens, CompileContext::default());
     let as2 = script.language == ScriptLanguage::ActionScript2;
@@ -1083,13 +1178,34 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
     } else {
         String::new()
     };
-    let imports = imports(&mut p)?;
+    let mut imports = imports(&mut p)?;
+    let mut local_namespaces = BTreeMap::new();
+    let mut open_namespaces = Vec::new();
     let mut public = as2;
     let mut access_seen = false;
     let mut dynamic = false;
     let mut final_ = false;
     let mut intrinsic = false;
     loop {
+        if !as2
+            && !access_seen
+            && !dynamic
+            && !final_
+            && p.is("use")
+            && p.peek(p.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "namespace"))
+        {
+            p.pos += 2;
+            loop {
+                open_namespaces.push(qualified(&mut p)?);
+                if !p.eat(",") {
+                    break;
+                }
+            }
+            p.semicolon()?;
+            imports.extend(self::imports(&mut p)?);
+            continue;
+        }
         if p.is("public") || p.is("internal") {
             let value = p.eat("public");
             if !value {
@@ -1119,6 +1235,60 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
                 ));
             }
             intrinsic = true;
+        } else if !as2 && !dynamic && !final_ && p.eat("namespace") {
+            let short = p.ident()?;
+            if invalid_binding(&short, false) {
+                return Err(p.error("Invalid or reserved namespace name."));
+            }
+            let default_uri = if package.is_empty() {
+                short.clone()
+            } else {
+                format!("{package}:{short}")
+            };
+            let uri = parse_namespace_uri_literal(&mut p, default_uri, &local_namespaces)?;
+            p.semicolon()?;
+            if p.is("}") || p.token().kind == Kind::End {
+                if packaged {
+                    p.expect("}")?;
+                }
+                if p.token().kind != Kind::End {
+                    return Err(p.error(
+                        "A source unit must contain a single primary package declaration.",
+                    ));
+                }
+                let name = if package.is_empty() {
+                    short
+                } else {
+                    format!("{package}.{short}")
+                };
+                let body = p.pos;
+                let tokens = p.tokens;
+                return Ok(Header {
+                    script,
+                    path: source.path.clone(),
+                    package,
+                    name,
+                    base: None,
+                    interfaces: Vec::new(),
+                    is_interface: false,
+                    is_namespace: true,
+                    namespace_uri: Some(uri),
+                    local_namespaces,
+                    open_namespaces,
+                    imports,
+                    tokens,
+                    body,
+                    packaged,
+                    public,
+                    dynamic: false,
+                    final_: false,
+                    intrinsic: false,
+                });
+            }
+            local_namespaces.insert(short, uri);
+            public = false;
+            access_seen = false;
+            imports.extend(self::imports(&mut p)?);
         } else {
             break;
         }
@@ -1193,6 +1363,10 @@ fn header(source: &neoflash_core::SourceUnit) -> Result<Header, Diagnostic> {
         base,
         interfaces,
         is_interface,
+        is_namespace: false,
+        namespace_uri: None,
+        local_namespaces,
+        open_namespaces,
         imports,
         tokens,
         body,
@@ -1209,14 +1383,28 @@ fn context(
     imports: &[String],
     language: ScriptLanguage,
     interfaces: &BTreeSet<String>,
+    namespace_uris: &BTreeMap<String, String>,
 ) -> Result<CompileContext, String> {
+    let resolve_ns = |qualified_name: &str| -> Option<String> {
+        builtin_namespace_uri(qualified_name)
+            .map(str::to_owned)
+            .or_else(|| namespace_uris.get(qualified_name).cloned())
+    };
     let mut c = CompileContext {
         project: true,
         interfaces: interfaces.intersection(names).cloned().collect(),
         ..Default::default()
     };
+    if language == ScriptLanguage::ActionScript3 {
+        c.namespaces
+            .insert("AS3".into(), "http://adobe.com/AS3/2006/builtin".into());
+    }
     for name in names {
-        if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+        if language == ScriptLanguage::ActionScript3
+            && let Some(uri) = resolve_ns(name)
+        {
+            c.namespaces.insert(name.clone(), uri);
+        } else if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
             c.functions.insert(name.clone(), name.clone());
         } else {
             c.types.insert(name.clone(), name.clone());
@@ -1243,7 +1431,11 @@ fn context(
     for name in names {
         let (owner, short) = name.rsplit_once('.').unwrap_or(("", name));
         if owner == package {
-            if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+            if language == ScriptLanguage::ActionScript3
+                && let Some(uri) = resolve_ns(name)
+            {
+                c.namespaces.insert(short.into(), uri);
+            } else if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
                 c.functions.insert(short.into(), name.clone());
             } else {
                 c.types.insert(short.into(), name.clone());
@@ -1259,6 +1451,12 @@ fn context(
             ));
         }
         let short = import.rsplit('.').next().unwrap();
+        if language == ScriptLanguage::ActionScript3
+            && let Some(uri) = resolve_ns(import)
+        {
+            c.namespaces.insert(short.into(), uri);
+            continue;
+        }
         if c.types
             .get(short)
             .or_else(|| c.functions.get(short))
@@ -1303,6 +1501,12 @@ fn context(
         }
     }
     for (short, name) in wildcard_names {
+        if language == ScriptLanguage::ActionScript3
+            && let Some(uri) = resolve_ns(&name)
+        {
+            c.namespaces.entry(short).or_insert(uri);
+            continue;
+        }
         // Same-package declarations take precedence over wildcard imports.
         if c.types
             .get(&short)
@@ -1344,6 +1548,7 @@ fn parse_class(
     header: Header,
     names: &BTreeSet<String>,
     interface_names: &BTreeSet<String>,
+    namespace_uris: &BTreeMap<String, String>,
 ) -> Result<Class, Diagnostic> {
     let mut c = context(
         names,
@@ -1351,8 +1556,24 @@ fn parse_class(
         &header.imports,
         header.script.language,
         interface_names,
+        namespace_uris,
     )
     .map_err(|m| Diagnostic::at(&header.script, 0, m))?;
+    for (k, v) in &header.local_namespaces {
+        c.namespaces.insert(k.clone(), v.clone());
+    }
+    for ns_name in &header.open_namespaces {
+        let uri = c.namespaces.get(ns_name).cloned().ok_or_else(|| {
+            Diagnostic::at(
+                &header.script,
+                0,
+                format!("Unresolved namespace '{ns_name}' in use namespace directive."),
+            )
+        })?;
+        if !c.open_namespaces.contains(&uri) {
+            c.open_namespaces.push(uri);
+        }
+    }
     c.class_name = Some(header.name.clone());
     if header.base.as_ref().is_some_and(|name| {
         c.intrinsic_type(
@@ -1648,6 +1869,7 @@ fn parse_class(
                 | "flash.events.RemoteNotificationEvent"
                 | "flash.events.GameInputEvent"
                 | "flash.events.VsyncStateChangeAvailabilityEvent"
+                | "flash.events.StageVideoAvailabilityEvent"
         )
     ) {
         return Err(Diagnostic::at(
@@ -1698,9 +1920,36 @@ fn parse_class(
         if p.eat(";") {
             continue;
         }
+        if !as2
+            && !header.is_interface
+            && p.is("use")
+            && p.peek(p.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "namespace"))
+        {
+            p.pos += 2;
+            loop {
+                let ns_name = qualified(&mut p)?;
+                let uri = c.namespaces.get(&ns_name).cloned().ok_or_else(|| {
+                    p.error(format!(
+                        "Unresolved namespace '{ns_name}' in use namespace directive."
+                    ))
+                })?;
+                if !c.open_namespaces.contains(&uri) {
+                    c.open_namespaces.push(uri);
+                }
+                if !p.eat(",") {
+                    break;
+                }
+            }
+            p.semicolon()?;
+            p.context = c.clone();
+            continue;
+        }
         let mut is_static = false;
         let mut override_ = false;
         let mut final_ = false;
+        let mut native_ = false;
+        let mut member_ns: Option<String> = None;
         let mut access = if as2 || header.is_interface {
             Access::Public
         } else {
@@ -1711,7 +1960,14 @@ fn parse_class(
             && !(as2 && p.is("public"))
             && matches!(
                 p.token_text().as_str(),
-                "public" | "static" | "override" | "private" | "protected" | "internal" | "final"
+                "public"
+                    | "static"
+                    | "override"
+                    | "private"
+                    | "protected"
+                    | "internal"
+                    | "final"
+                    | "native"
             )
         {
             return Err(p.error(
@@ -1748,6 +2004,46 @@ fn parse_class(
                     return Err(p.error("AS3 final cannot be repeated and is not an AS2 modifier."));
                 }
                 final_ = true;
+            } else if !as2 && p.eat("native") {
+                if native_ {
+                    return Err(p.error("Duplicate native modifier."));
+                }
+                native_ = true;
+            } else if !as2
+                && !header.is_interface
+                && matches!(p.token().kind, Kind::Ident(_))
+                && !matches!(
+                    p.token_text().as_str(),
+                    "var" | "const" | "function" | "namespace" | "use"
+                )
+                && p.peek(p.pos + 1).is_some_and(|next_tok| {
+                    matches!(
+                        &next_tok.kind,
+                        Kind::Ident(s)
+                            if matches!(
+                                s.as_str(),
+                                "var"
+                                    | "const"
+                                    | "function"
+                                    | "static"
+                                    | "override"
+                                    | "final"
+                                    | "native"
+                                    | "namespace"
+                            )
+                    )
+                })
+            {
+                if access_seen || member_ns.is_some() {
+                    return Err(p.error("Duplicate or unsupported member access modifier."));
+                }
+                let ns_ident = p.ident()?;
+                let Some(uri) = c.namespaces.get(&ns_ident).cloned() else {
+                    return Err(p.error(format!("Unresolved namespace '{ns_ident}'.")));
+                };
+                member_ns = Some(uri);
+                access = Access::Public;
+                access_seen = true;
             } else {
                 break;
             }
@@ -1755,7 +2051,40 @@ fn parse_class(
         if header.is_interface && (is_static || access != Access::Public) {
             return Err(p.error("Interface methods must be public instance signatures."));
         }
-        if p.is("var") || p.is("const") {
+        if !as2 && !header.is_interface && p.eat("namespace") {
+            if override_ || final_ || native_ {
+                return Err(p.error("Namespace declarations cannot use override, final or native."));
+            }
+            let ns_name = p.ident()?;
+            if invalid_binding(&ns_name, false) {
+                return Err(p.error("Invalid or reserved namespace name."));
+            }
+            let default_uri = format!("{}:{}/{ns_name}", header.package, header.name);
+            let uri = parse_namespace_uri_literal(&mut p, default_uri, &c.namespaces)?;
+            p.semicolon()?;
+            c.namespaces.insert(ns_name.clone(), uri.clone());
+            p.context = c.clone();
+            if seen
+                .iter()
+                .any(|(old, old_ns, _)| old == &ns_name && old_ns == &member_ns)
+                || !seen.insert((ns_name.clone(), member_ns.clone(), MethodKind::Method))
+            {
+                return Err(p.error(format!("Duplicate class member '{ns_name}'.")));
+            }
+            fields.push(Field {
+                name: ns_name,
+                ty: Some("Namespace".into()),
+                value: Some(Expr::Call(
+                    Box::new(Expr::Name("Namespace".into())),
+                    vec![Expr::Literal(format!("{uri:?}"))],
+                    p.token().offset,
+                )),
+                constant: true,
+                is_static: true,
+                access,
+                namespace: member_ns,
+            });
+        } else if p.is("var") || p.is("const") {
             if header.is_interface {
                 return Err(
                     p.error("Interfaces contain method/getter/setter signatures, not fields.")
@@ -1770,16 +2099,18 @@ fn parse_class(
             if !constant {
                 p.expect("var")?;
             }
-            if override_ || final_ {
-                return Err(p.error("Fields cannot use override or final."));
+            if override_ || final_ || native_ {
+                return Err(p.error("Fields cannot use override, final or native."));
             }
             let Stmt::Var(vars) = p.variables()? else {
                 unreachable!()
             };
             p.semicolon()?;
             for (name, ty, value) in vars {
-                if seen.iter().any(|(old, _)| old == &name)
-                    || !seen.insert((name.clone(), MethodKind::Method))
+                if seen
+                    .iter()
+                    .any(|(old, old_ns, _)| old == &name && old_ns == &member_ns)
+                    || !seen.insert((name.clone(), member_ns.clone(), MethodKind::Method))
                 {
                     return Err(p.error(format!("Duplicate class member '{name}'.")));
                 }
@@ -1807,6 +2138,7 @@ fn parse_class(
                     constant,
                     is_static,
                     access,
+                    namespace: member_ns.clone(),
                 });
             }
         } else if p.is("function") {
@@ -1814,7 +2146,7 @@ fn parse_class(
                 true,
                 true,
                 header.is_interface || header.intrinsic,
-                header.intrinsic && !header.is_interface,
+                (header.intrinsic && !header.is_interface) || native_,
             )?;
             let kind = match accessor.as_deref() {
                 Some("get") => MethodKind::Get,
@@ -1826,7 +2158,7 @@ fn parse_class(
                 return Err(p.error("Interfaces cannot declare constructors."));
             }
             if name == header.name.rsplit('.').next().unwrap() && kind == MethodKind::Method {
-                if access_seen && access != Access::Public {
+                if (access_seen && access != Access::Public) || member_ns.is_some() {
                     return Err(p.error("Constructors must be public."));
                 }
                 if final_ {
@@ -1870,24 +2202,29 @@ fn parse_class(
             {
                 return Err(p.error("Duplicate parameter name in method signature."));
             }
-            if seen.contains(&(name.clone(), kind))
-                || seen.iter().any(|(old, old_kind)| {
-                    old == name && (*old_kind == MethodKind::Method || kind == MethodKind::Method)
+            if seen.contains(&(name.clone(), member_ns.clone(), kind))
+                || seen.iter().any(|(old, old_ns, old_kind)| {
+                    old == name
+                        && old_ns == &member_ns
+                        && (*old_kind == MethodKind::Method || kind == MethodKind::Method)
                 })
             {
                 return Err(p.error(format!("Duplicate class member '{name}'.")));
             }
-            seen.insert((name.clone(), kind));
+            seen.insert((name.clone(), member_ns.clone(), kind));
             methods.push(Method {
                 function: f,
                 is_static,
                 override_,
                 access,
+                namespace: member_ns,
                 final_,
                 kind,
             });
         } else {
-            return Err(p.error("Expected a supported field, method or get/set accessor; custom namespaces remain unsupported."));
+            return Err(p.error(
+                "Expected a supported field, method, get/set accessor or namespace declaration.",
+            ));
         }
     }
     p.expect("}")?;
@@ -2420,6 +2757,12 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
 }
 
 pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
+    let includes: BTreeMap<_, _> = project
+        .resources
+        .iter()
+        .filter(|r| r.path.ends_with(".as"))
+        .map(|r| (r.path.clone(), r.clone()))
+        .collect();
     let mut headers = vec![];
     let mut errors = vec![];
     let mut names: BTreeSet<String> = BUILTINS
@@ -2428,7 +2771,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .map(|s| (*s).into())
         .collect();
     for source in &project.sources {
-        match header(source) {
+        match header(source, &includes) {
             Ok(h) => {
                 if !names.insert(h.name.clone()) {
                     errors.push(Diagnostic::at(
@@ -2454,6 +2797,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .filter(|h| h.public)
         .map(|h| h.name.clone())
         .collect();
+    let namespace_uris: BTreeMap<_, _> = headers
+        .iter()
+        .filter(|h| h.is_namespace)
+        .map(|h| (h.name.clone(), h.namespace_uri.clone().unwrap_or_default()))
+        .collect();
     let builtin_interfaces = builtin_interface_contracts();
     let interfaces: BTreeSet<_> = headers
         .iter()
@@ -2463,6 +2811,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .collect();
     let mut classes = BTreeMap::new();
     for h in headers {
+        if h.is_namespace {
+            continue;
+        }
         let path = h.path.clone();
         let visible = visible_names(
             &names,
@@ -2471,7 +2822,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             &public_types,
             &h.package,
         );
-        match parse_class(h, &visible, &interfaces) {
+        match parse_class(h, &visible, &interfaces, &namespace_uris) {
             Ok(c) => {
                 classes.insert(c.header.name.clone(), c);
             }
@@ -2580,6 +2931,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         "QName",
     ]);
     let mut registrations = format!("__nfProgram.setNativeTypes({reflection_types:?});\n");
+    for (ns_name, ns_uri) in &namespace_uris {
+        registrations.push_str(&format!(
+            "if(typeof __nfProgram.defineNamespace==='function')__nfProgram.defineNamespace({ns_name:?},{ns_uri:?});\n"
+        ));
+    }
     for name in &order {
         let c = classes.get_mut(name).unwrap();
         let as2 = c.header.script.language == ScriptLanguage::ActionScript2;
@@ -2683,12 +3039,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             for member in c
                 .fields
                 .iter()
-                .filter(|f| !f.is_static)
+                .filter(|f| !f.is_static && f.namespace.is_none())
                 .map(|f| f.name.as_str())
                 .chain(
                     c.methods
                         .iter()
-                        .filter(|m| !m.is_static)
+                        .filter(|m| !m.is_static && m.namespace.is_none())
                         .filter_map(|m| m.function.name.as_deref()),
                 )
             {
@@ -2705,7 +3061,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .unwrap_or_default();
         let inherited_records: BTreeMap<_, _> = member_history
             .iter()
-            .filter(|m| m.access.inherited(&m.owner, &c.header.package, as2))
+            .filter(|m| {
+                m.namespace.is_none() && m.access.inherited(&m.owner, &c.header.package, as2)
+            })
             .map(|m| (m.name.clone(), m.clone()))
             .collect();
         let mut members: BTreeMap<_, _> = inherited_records
@@ -2714,9 +3072,10 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .collect();
         let inherited_members = members.clone();
         for f in &c.fields {
-            if inherited_records
-                .get(&f.name)
-                .is_some_and(|m| !m.is_static && !f.is_static)
+            if f.namespace.is_none()
+                && inherited_records
+                    .get(&f.name)
+                    .is_some_and(|m| !m.is_static && !f.is_static)
             {
                 errors.push(Diagnostic::at(
                     &c.header.script,
@@ -2727,30 +3086,63 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     ),
                 ));
             }
-            members.insert(f.name.clone(), f.ty.clone());
+            if f.namespace.is_none()
+                || c.context
+                    .open_namespaces
+                    .iter()
+                    .any(|u| Some(u) == f.namespace.as_ref())
+            {
+                members
+                    .entry(f.name.clone())
+                    .or_insert_with(|| f.ty.clone());
+            }
             member_history.push(MemberRecord {
                 name: f.name.clone(),
                 ty: f.ty.clone(),
                 access: f.access,
+                namespace: f.namespace.clone(),
                 owner: name.clone(),
                 is_static: f.is_static,
             });
         }
         let short = c.header.name.rsplit('.').next().unwrap();
+        let is_proxy_subclass = native_base.as_deref() == Some("flash.utils.Proxy");
         for m in &c.methods {
             let n = m.function.name.as_ref().unwrap();
             if n != short || m.kind != MethodKind::Method {
-                let key = (n.clone(), m.kind);
+                let trait_key = if let Some(ns) = &m.namespace {
+                    format!("{ns}::{n}")
+                } else {
+                    n.clone()
+                };
+                let key = (trait_key.clone(), m.kind);
                 let own_contract = method_contract(c, m);
                 let inherited = if m.is_static {
                     None
                 } else {
                     inherited_contract.get(&key)
                 };
+                let is_native_proxy_hook = is_proxy_subclass
+                    && m.namespace.as_deref()
+                        == Some("http://www.adobe.com/2006/actionscript/flash/proxy")
+                    && matches!(
+                        n.as_str(),
+                        "getProperty"
+                            | "setProperty"
+                            | "callProperty"
+                            | "hasProperty"
+                            | "deleteProperty"
+                            | "nextNameIndex"
+                            | "nextName"
+                            | "nextValue"
+                            | "getDescendants"
+                            | "isAttribute"
+                    );
                 let same_name = inherited_contract.keys().any(|(name, kind)| {
-                    name == n && (*kind == MethodKind::Method || m.kind == MethodKind::Method)
+                    name == &trait_key
+                        && (*kind == MethodKind::Method || m.kind == MethodKind::Method)
                 });
-                if m.override_ && inherited.is_none() {
+                if m.override_ && inherited.is_none() && !is_native_proxy_hook {
                     errors.push(Diagnostic::at(
                         &c.header.script,
                         m.function.offset,
@@ -2770,6 +3162,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                             errors.push(Diagnostic::at(&c.header.script, m.function.offset, format!("{}: inherited member '{n}' requires a non-final base, override and an identical access/signature", c.header.path)));
                         }
                     } else if !m.is_static
+                        && m.namespace.is_none()
                         && (same_name
                             || inherited_members.contains_key(n)
                                 && !inherited_contract.keys().any(|(name, _)| name == n))
@@ -2797,17 +3190,24 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                         None
                     },
                     access: m.access,
+                    namespace: m.namespace.clone(),
                     owner: name.clone(),
                     is_static: m.is_static,
                 });
-                members.insert(
-                    n.clone(),
-                    if m.kind == MethodKind::Method {
-                        Some("Function".into())
-                    } else {
-                        None
-                    },
-                );
+                if m.namespace.is_none()
+                    || c.context
+                        .open_namespaces
+                        .iter()
+                        .any(|u| Some(u) == m.namespace.as_ref())
+                {
+                    members.entry(n.clone()).or_insert_with(|| {
+                        if m.kind == MethodKind::Method {
+                            Some("Function".into())
+                        } else {
+                            None
+                        }
+                    });
+                }
             }
         }
         check_accessor_pairs(c, &contract, &mut errors);
@@ -2816,10 +3216,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .iter()
             .filter(|m| m.is_static)
             .map(|m| {
-                (
-                    (m.function.name.clone().unwrap(), m.kind),
-                    method_contract(c, m),
-                )
+                let n = m.function.name.as_ref().unwrap();
+                let trait_key = if let Some(ns) = &m.namespace {
+                    format!("{ns}::{n}")
+                } else {
+                    n.clone()
+                };
+                ((trait_key, m.kind), method_contract(c, m))
             })
             .collect();
         check_accessor_pairs(c, &statics_contract, &mut errors);
@@ -2827,6 +3230,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             if c.methods.iter().any(|m| {
                 m.kind == MethodKind::Set
                     && m.function.name == getter.function.name
+                    && m.namespace == getter.namespace
                     && m.is_static != getter.is_static
             }) {
                 errors.push(Diagnostic::at(
@@ -2859,10 +3263,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                             || m.kind != MethodKind::Method)
                 })
                 .map(|m| {
-                    (
-                        (m.function.name.clone().unwrap(), m.kind),
-                        method_contract(c, m),
-                    )
+                    let n = m.function.name.as_ref().unwrap();
+                    let trait_key = if let Some(ns) = &m.namespace {
+                        format!("{ns}::{n}")
+                    } else {
+                        n.clone()
+                    };
+                    ((trait_key, m.kind), method_contract(c, m))
                 }),
         );
         class_contracts.insert(name.clone(), history);
@@ -2870,6 +3277,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .iter()
             .filter(|m| {
                 m.is_static
+                    && (m.namespace.is_none()
+                        || c.context
+                            .open_namespaces
+                            .iter()
+                            .any(|u| Some(u) == m.namespace.as_ref()))
                     && (m.owner == *name || m.access.inherited(&m.owner, &c.header.package, as2))
             })
             .map(|m| (m.name.clone(), m.owner.clone()))
@@ -2919,12 +3331,6 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             });
         }
     }
-    let includes: BTreeMap<_, _> = project
-        .resources
-        .iter()
-        .filter(|r| r.path.ends_with(".as"))
-        .map(|r| (r.path.clone(), r.clone()))
-        .collect();
     let mut init_clips = Vec::new();
     for (symbol_idx, symbol) in project.symbols.iter().enumerate() {
         if symbol.kind != neoflash_core::SymbolKind::MovieClip {
@@ -2998,6 +3404,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 &imported,
                 ScriptLanguage::ActionScript2,
                 &interfaces,
+                &namespace_uris,
             ) {
                 Ok(c) => c,
                 Err(m) => {
@@ -3093,6 +3500,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         languages,
         interfaces,
         public_types,
+        namespace_uris,
         as2_private,
     })
 }
@@ -3108,11 +3516,19 @@ pub fn compile_with_program(
             "A single script is limited to 1 MiB.",
         )]);
     }
-    if matches!(
-        script.language,
-        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-    ) && script.source.contains("#include")
-    {
+    let has_include = match script.language {
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+            script.source.contains("#include")
+        }
+        ScriptLanguage::ActionScript3 => {
+            script.source.contains("include ")
+                || script.source.contains("include\"")
+                || script.source.contains("include'")
+                || script.source.contains("#include")
+        }
+        _ => false,
+    };
+    if has_include {
         let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
         compile_prepared(&expanded.script, program)
             .map_err(|errors| errors.into_iter().map(|e| expanded.diagnostic(e)).collect())
@@ -3142,7 +3558,11 @@ fn apply_as3_timeline_auto_imports(
                 && !c.types.contains_key(short)
                 && !c.functions.contains_key(short)
             {
-                if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+                if let Some(uri) = builtin_namespace_uri(name) {
+                    c.namespaces
+                        .entry(short.into())
+                        .or_insert_with(|| uri.into());
+                } else if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
                     c.functions.insert(short.into(), name.clone());
                 } else {
                     c.types.insert(short.into(), name.clone());
@@ -3182,8 +3602,15 @@ fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String,
         &program.public_types,
         "",
     );
-    let mut c = context(&visible, "", &imported, dialect, &program.interfaces)
-        .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
+    let mut c = context(
+        &visible,
+        "",
+        &imported,
+        dialect,
+        &program.interfaces,
+        &program.namespace_uris,
+    )
+    .map_err(|m| vec![Diagnostic::at(script, 0, m)])?;
     if dialect == ScriptLanguage::ActionScript3 {
         apply_as3_timeline_auto_imports(&mut c, &visible, &program.languages);
     }
@@ -3218,7 +3645,7 @@ fn reflection_metadata(c: &Class) -> serde_json::Value {
     let mut constructor_rest = false;
     let mut members = c.fields.iter().map(|field| json!({
         "name": field.name, "kind": if field.constant { "constant" } else { "variable" },
-        "static": field.is_static, "access": field.access.name(), "type": canonical(field.ty.as_deref())
+        "static": field.is_static, "access": field.access.name(), "uri": field.namespace, "type": canonical(field.ty.as_deref())
     })).collect::<Vec<_>>();
     for method in &c.methods {
         let function = &method.function;
@@ -3234,7 +3661,7 @@ fn reflection_metadata(c: &Class) -> serde_json::Value {
         };
         members.push(json!({
             "name": function.name, "kind": match method.kind { MethodKind::Method => "method", MethodKind::Get => "get", MethodKind::Set => "set" },
-            "static": method.is_static, "access": method.access.name(), "type": canonical(ty),
+            "static": method.is_static, "access": method.access.name(), "uri": method.namespace, "type": canonical(ty),
             "parameters": parameters(function), "rest": function.rest.is_some()
         }));
     }
@@ -3253,7 +3680,8 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     let as3 = c.header.script.language == ScriptLanguage::ActionScript3;
     let mut fields = vec![];
     let mut methods = vec![];
-    let mut accessors = BTreeMap::<(String, bool, Access), (Option<String>, Option<String>)>::new();
+    let mut accessors =
+        BTreeMap::<(String, bool, Access, Option<String>), (Option<String>, Option<String>)>::new();
     let mut constructor = "null".to_owned();
     let short = c.header.name.rsplit('.').next().unwrap();
     let initializers: Vec<_> = c
@@ -3283,7 +3711,11 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                 )
             })
             .unwrap_or_else(|| "null".into());
-        fields.push(format!("{{name:{:?},static:{},access:{:?},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.access.name(),f.constant,emitter.default_value(f.ty.as_deref())));
+        let ns_lit = f
+            .namespace
+            .as_ref()
+            .map_or_else(|| "null".into(), |u| format!("{u:?}"));
+        fields.push(format!("{{name:{:?},static:{},access:{:?},ns:{ns_lit},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.access.name(),f.constant,emitter.default_value(f.ty.as_deref())));
     }
     for method in &c.methods {
         let f = &method.function;
@@ -3342,15 +3774,24 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         if is_ctor {
             constructor = function;
         } else if method.kind == MethodKind::Method {
+            let ns_lit = method
+                .namespace
+                .as_ref()
+                .map_or_else(|| "null".into(), |u| format!("{u:?}"));
             methods.push(format!(
-                "{{name:{name:?},static:{},access:{:?},final:{},fn:{function}}}",
+                "{{name:{name:?},static:{},access:{:?},ns:{ns_lit},final:{},fn:{function}}}",
                 method.is_static,
                 method.access.name(),
                 method.final_
             ));
         } else {
             let pair = accessors
-                .entry((name.clone(), method.is_static, method.access))
+                .entry((
+                    name.clone(),
+                    method.is_static,
+                    method.access,
+                    method.namespace.clone(),
+                ))
                 .or_default();
             if method.kind == MethodKind::Get {
                 pair.0 = Some(function);
@@ -3361,9 +3802,12 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
     }
     let accessors = accessors
         .into_iter()
-        .map(|((name, is_static, access), (get, set))| {
+        .map(|((name, is_static, access, ns), (get, set))| {
+            let ns_lit = ns
+                .as_ref()
+                .map_or_else(|| "null".into(), |u| format!("{u:?}"));
             format!(
-                "{{name:{name:?},static:{is_static},access:{:?},get:{},set:{}}}",
+                "{{name:{name:?},static:{is_static},access:{:?},ns:{ns_lit},get:{},set:{}}}",
                 access.name(),
                 get.unwrap_or_else(|| "null".into()),
                 set.unwrap_or_else(|| "null".into())
@@ -3371,7 +3815,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         })
         .collect::<Vec<_>>();
     Ok(format!(
-        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?},{{dynamic:{},final:{},package:{:?},reflection:{}}});\n",
+        "__nfProgram.define({:?},{},[{}],[{}],{},{:?},[{}],{:?},{{dynamic:{},final:{},package:{:?},openNamespaces:{:?},reflection:{}}});\n",
         c.header.name,
         c.base
             .as_ref()
@@ -3386,6 +3830,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         c.header.dynamic,
         c.header.final_,
         c.header.package,
+        c.context.open_namespaces,
         reflection_metadata(c)
     ))
 }

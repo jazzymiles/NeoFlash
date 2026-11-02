@@ -18,6 +18,10 @@
   const identity={multipliers:[1,1,1,1],offsets:[0,0,0,0]};
   const unsupported=name=>{throw new TypeError(`${name} is not supported by the local progressive-video profile.`);};
   const number=(value,name,min,max)=>{if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)throw new RangeError(`${name} must be finite from ${min} through ${max}.`);return value;};
+  const VideoStatus=function(){throw new TypeError('VideoStatus supplies constants and cannot be instantiated.');};
+  Object.assign(VideoStatus,{ACCELERATED:'accelerated',SOFTWARE:'software',UNAVAILABLE:'unavailable'});
+  Object.defineProperties(VideoStatus,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>unsupported('VideoStatus native subclassing')},[Symbol.hasInstance]:{value:()=>false}});
+  Object.freeze(VideoStatus);
   function create(options={}){
     const {player,net,events=global.NeoFlashEvents,referenceOf,proxyForRef}=options;
     if(!player?.object_video_info||!net?.mediaSource||!events?.create)throw new TypeError('Video requires the shared display, resource and Event services.');
@@ -217,7 +221,19 @@
     }
     function clear(target){const b=binding(target);b.frozen=null;b.captureClearId=b.capture?.read()?.id??null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
     function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
-    function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:()=>unsupported('Video.attachCamera')};}
+    function attachCamera(target,value){
+      const b=binding(target);
+      if(value===null||value===undefined){
+        if(b.capture){b.frozen=freezeCapture(b);b.capture.release();b.capture=null;b.captureClearId=null;}
+        b.attachedCamera=null;b.revision=++serial;collectFrames();after(generation);return;
+      }
+      const capture=options.getCapture?.();
+      if(capture?.isCamera?.(value)){legacyAttachVideo(target,value);return;}
+      if(typeof value!=='object')throw new TypeError('Video.attachCamera requires a Camera or null.');
+      if(b.stream){b.frozen=freeze(b.stream);b.stream=null;}
+      b.attachedCamera=value;b.revision=++serial;collectFrames();after(generation);
+    }
+    function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:value=>attachCamera(target,value)};}
     function get(target,name){if(name==='smoothing')return videoRef(target).info.smoothing;if(name==='deblocking')return videoRef(target).info.deblocking??0;if(name==='videoWidth'||name==='videoHeight'){const b=binding(target),r=b.stream,f=source(b);return r?(name==='videoWidth'?r.width:r.height):f?(name==='videoWidth'?f.width:f.height):0;}return UNHANDLED;}
     function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,smoothing:value}));return true;}if(name==='deblocking'){if(!Number.isInteger(value)||value<0||value>5)throw new RangeError('Video.deblocking requires an integer from 0 through 5.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,deblocking:value}));return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
     class Video{
@@ -250,7 +266,7 @@
     }
     function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Video,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose});
+    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose});
   }
-  const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
+  const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

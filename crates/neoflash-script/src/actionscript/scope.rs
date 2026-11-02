@@ -34,6 +34,7 @@ pub(super) struct Analysis<'a> {
     pub(super) script: &'a Script,
     as2_catch_names: HashMap<String, usize>,
     pub context: CompileContext,
+    with_depth: usize,
 }
 impl<'a> Analysis<'a> {
     pub fn with_context(
@@ -46,6 +47,7 @@ impl<'a> Analysis<'a> {
             script,
             as2_catch_names: HashMap::new(),
             context,
+            with_depth: 0,
         };
         result.scopes.insert(
             0,
@@ -501,8 +503,7 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && matches!(name.as_str(),"eval"|"set") && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 eval/set preserve lexical bindings through direct calls; dynamic aliases are outside this profile.")),
             Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && name=="random" && self.context.utility_function(name,false) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 random is supported through direct random(maximum) calls; legacy opcode function values are outside this profile.")),
             Expr::Name(name) if !direct_callee && self.script.language==ScriptLanguage::ActionScript2 && self.context.numeric_conversion(name,false) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"AS2 int is supported through direct conversion calls, not class values or constructor aliases.")),
-            Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript3 && name=="Class" && !direct_callee && self.resolve(scope,name).is_none() && self.context.core_type(name) => return Err(self.error(self.scopes[&scope].offset,"Class is supported as an AS3 annotation and is/as type; the Class metaclass value is outside this profile.")),
-            Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}) && !(self.script.language == ScriptLanguage::ActionScript2 && matches!(target.as_ref(),Expr::Name(_))) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
+            Expr::Delete(target,offset) if !matches!(target.as_ref(),Expr::Member(_,_)|Expr::Index(_,_)|Expr::XmlSelect{descendant:false,..}|Expr::XmlWithAttr{..}) && !((self.script.language == ScriptLanguage::ActionScript2 || self.with_depth > 0) && matches!(target.as_ref(),Expr::Name(_))) => return Err(self.error(*offset,"delete requires a property or indexed element.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
             Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
             Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
@@ -519,7 +520,7 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.context.legacy_case && self.context.class_name.is_none() && name=="super" && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS1 super property values and method extraction are outside this profile; call super(...) or super.method(...) directly.")),
             Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript3 && name=="super" && (self.context.class_name.is_none() || !direct_callee) => return Err(self.error(self.scopes[&scope].offset,"AS3 super is not a standalone value; use super(...) or super.member inside a project class.")),
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
-            Expr::Name(name) if is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
+            Expr::Name(name) if self.script.language != ScriptLanguage::ActionScript3 && is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
             Expr::NewError(name, _, offset) if self.resolve(scope, name).is_some() => return Err(self.error(*offset, "A shadowed Error constructor cannot be resolved as a core type; arbitrary constructor calls are unsupported.")),
             Expr::NewValue(name, _, offset) if !self.context.legacy_case && self.resolve(scope,name).is_none() => return Err(self.error(*offset,"Constructor alias must be a declared Class/value binding or a resolved project class; unknown constructors are unsupported.")),
             Expr::NewValue(name, _, offset) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(*offset,"A static method cannot construct through an instance field without an explicit receiver.")),
@@ -544,6 +545,7 @@ impl<'a> Analysis<'a> {
             Expr::NewBuiltin(name, _, offset) if name == "SharedObject" => return Err(self.error(*offset,"Local SharedObject instances are supplied by SharedObject.getLocal(name); direct construction is unsupported in this persistence profile.")),
             Expr::NewBuiltin(name, args, offset) if name == "Sound" && args.len() > 1 => return Err(self.error(*offset,"AS2 Sound construction accepts at most one optional target MovieClip argument.")),
             Expr::NewClass(name, _, offset) if name == "flash.media.SoundChannel" => return Err(self.error(*offset,"SoundChannel is returned by Sound.play and cannot be directly constructed in this profile.")),
+            Expr::NewClass(name, _, offset) if matches!(name.as_str(), "flash.media.VideoStatus" | "flash.media.SoundMixer") => return Err(self.error(*offset,"VideoStatus and SoundMixer supply static members and constants and are not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.filters.BitmapFilterQuality" => return Err(self.error(*offset,"BitmapFilterQuality supplies LOW, MEDIUM and HIGH constants and is not constructible.")),
             Expr::NewClass(name, _, offset) if name == "flash.filters.BitmapFilter" => return Err(self.error(*offset,"BitmapFilter is the filter base type; construct BlurFilter, GlowFilter, DropShadowFilter or ColorMatrixFilter instead.")),
             Expr::NewClass(name, _, offset) if name == "flash.display.LoaderInfo" => return Err(self.error(*offset,"LoaderInfo is supplied by Loader.contentLoaderInfo and cannot be directly constructed.")),
@@ -582,10 +584,6 @@ impl<'a> Analysis<'a> {
                 if binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name == "JSON" && self.context.intrinsic_type(name,true)) {
                     return Err(self.error(*offset,"JSON supplies static parse/stringify functions and cannot be called as a function."));
                 }
-                if self.script.language == ScriptLanguage::ActionScript3 && binding.is_none()
-                    && matches!(callee.as_ref(), Expr::Name(name) if name == "parseInt") && args.len() > 2 {
-                    return Err(self.error(*offset, "AS3 parseInt excess-argument semantics are not verified. Pass at most two arguments."));
-                }
                 if self.script.language == ScriptLanguage::ActionScript3
                     && binding.is_some_and(|(_,b)| b.ty.as_deref().is_some_and(|t|matches!(t,"Number"|"String"|"Boolean"|"int"|"uint"))) {
                     return Err(self.error(*offset,"An AS3 primitive binding cannot be called as a function."));
@@ -597,18 +595,26 @@ impl<'a> Analysis<'a> {
                 let shadowed_math=matches!(callee.as_ref(),Expr::Member(base,_) if matches!(base.as_ref(),Expr::Name(name) if name=="Math" && self.resolve(scope,name).is_some()));
                 let project_call = self.context.project && match callee.as_ref() {
                     Expr::Name(name) => self.context.types.contains_key(name) || self.context.functions.contains_key(name) || project::is_host_method(name) || (name == "super" && self.context.class_name.is_some()),
-                    Expr::Member(_, _) => true,
+                    Expr::Member(_, _) | Expr::XmlSelect { .. } => true,
                     _ => false,
                 };
                 let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"|"call"));
                 if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval/call take one argument; set takes a path and value."));}}
                 let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"loadMovie"|"unloadMovie"|"containsRectangle"|"watch"|"unwatch"|"addProperty"|"hasOwnProperty"|"isPrototypeOf"|"isPropertyEnumerable"|"valueOf"|"registerClass"|"getSWFVersion"|"getFontList"|"getTextExtent"|"getTextSnapshot"|"getCount"|"getText"|"findText"|"setSelected"|"getSelected"|"getSelectedText"|"setSelectColor"|"getTextRunInfo"|"hitTestTextNearPos"|"parseCSS"|"getStyle"|"setStyle"|"getStyleNames"|"transform"|"replaceSel"|"removeTextField"|"getDepth"|"loadBitmap"|"getPixel"|"getPixel32"|"setPixel"|"setPixel32"|"fillRect"|"copyPixels"|"copyChannel"|"floodFill"|"getColorBoundsRect"|"compare"|"merge"|"paletteMap"|"threshold"|"noise"|"perlinNoise"|"pixelDissolve"|"clone"|"scroll"|"colorTransform"|"applyFilter"|"generateFilterRect"|"draw"|"dispose"|"parseXML"|"createElement"|"createTextNode"|"cloneNode"|"removeNode"|"insertBefore"|"appendChild"|"hasChildNodes"|"getNamespaceForPrefix"|"getPrefixForNamespace"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getRemote"|"setFps"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"attachAudio"|"getInfo"|"play2"|"publish"|"play"|"pause"|"seek"|"close"|"beginBitmapFill"|"isActive"|"updateProperties"|"setKeyFrameInterval"|"setLoopback"|"setQuality"|"setCodec"|"setEncodeQuality"|"setFramesPerPacket"|"setClipboard"|"showSettings"|"allowDomain"|"allowInsecureDomain"|"loadPolicyFile"|"doConversion"|"getConversionMode"|"getEnabled"|"setCompositionString"|"setConversionMode"|"setEnabled"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if super::is_as2_frame_global(name) && !self.context.types.contains_key(name));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
+                let as3_error_or_meta = self.script.language == ScriptLanguage::ActionScript3
+                    && matches!(
+                        callee.as_ref(),
+                        Expr::Name(name)
+                            if is_error_type(name)
+                                || matches!(name.as_str(), "Class" | "Function" | "RegExp" | "Namespace" | "QName")
+                    );
+                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||as3_error_or_meta||matches!(callee.as_ref(),Expr::XmlSelect{..})||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.
-                let dynamic_timeline = self.script.language == ScriptLanguage::ActionScript2
+                let dynamic_timeline = (self.script.language == ScriptLanguage::ActionScript2
+                    || self.with_depth > 0)
                     && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if !is_global(name));
                 // AS3 MovieClip scene navigation and host stage/UI/text methods
                 // resolve on the receiver at run time.
@@ -687,6 +693,17 @@ impl<'a> Analysis<'a> {
                                         | "setSelectColor"
                                         | "setSelected"
                                         | "getStackTrace"
+                                        | "getRelativeMatrix3D"
+                                        | "requestSoftKeyboard"
+                                        | "getImageReference"
+                                        | "extract"
+                                        | "loadCompressedDataFromByteArray"
+                                        | "loadPCMFromByteArray"
+                                        | "computeSpectrum"
+                                        | "stopAll"
+                                        | "areSoundsInaccessible"
+                                        | "attachCamera"
+                                        | "setPropertyIsEnumerable"
                                 )
                         ));
                 let legacy_proto_call = self.context.legacy_case
@@ -702,6 +719,13 @@ impl<'a> Analysis<'a> {
                 if let Expr::Name(name)=left.as_ref() && (is_global(name) || (self.script.language==ScriptLanguage::ActionScript2 && super::parse_as2_level(name).is_some()) || (name=="Object" && self.context.core_type(name)) || self.context.intrinsic_type(name,self.script.language == ScriptLanguage::ActionScript3) || self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3) || self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)) && self.resolve(scope,name).is_none() {return Err(self.error(self.scopes[&scope].offset,"Cannot assign to an unshadowed built-in name in this ActionScript subset."));}
             }
             _=>{}
+        }
+        if let Expr::XmlFilter(base, pred, _) = expr {
+            self.expression(scope, base)?;
+            self.with_depth += 1;
+            let res = self.expression(scope, pred);
+            self.with_depth -= 1;
+            return res;
         }
         if let Expr::Call(callee, arguments, _) = expr {
             self.expression_context(scope, callee, true)?;
@@ -722,6 +746,13 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn statement(&mut self, scope: usize, stmt: &Stmt) -> Result<(), Diagnostic> {
+        if let Stmt::With(target, body, _) = stmt {
+            self.expression(scope, target)?;
+            self.with_depth += 1;
+            let res = self.statement(scope, body);
+            self.with_depth -= 1;
+            return res;
+        }
         if let Stmt::ForIn(binding, _, _, _) = stmt
             && let Stmt::Expr(target) = binding.as_ref()
         {
@@ -784,7 +815,7 @@ impl<'a> Analysis<'a> {
 }
 fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt {
-        Stmt::Expr(e) => vec![e],
+        Stmt::Expr(e) | Stmt::DefaultXmlNamespace(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
         Stmt::If(e, _, _) | Stmt::While(e, _) | Stmt::With(e, _, _) | Stmt::TellTarget(e, _, _) => {
             vec![e]
@@ -828,7 +859,11 @@ fn children(expr: &Expr) -> Vec<&Expr> {
         | Expr::Update(_, v, _)
         | Expr::TypeTest(_, v, _, _)
         | Expr::Delete(v, _) => vec![v],
-        Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => vec![a, b],
+        Expr::Index(a, b)
+        | Expr::Binary(_, a, b)
+        | Expr::Assign(_, a, b)
+        | Expr::XmlFilter(a, b, _)
+        | Expr::InstanceOf(a, b) => vec![a, b],
         Expr::XmlSelect {
             base,
             local,
@@ -836,6 +871,13 @@ fn children(expr: &Expr) -> Vec<&Expr> {
             ..
         } => std::iter::once(base.as_ref())
             .chain(namespace.as_deref())
+            .chain(std::iter::once(local.as_ref()))
+            .collect(),
+        Expr::XmlWithAttr {
+            local, namespace, ..
+        } => namespace
+            .iter()
+            .map(Box::as_ref)
             .chain(std::iter::once(local.as_ref()))
             .collect(),
         Expr::Array(v) => v.iter().flatten().collect(),

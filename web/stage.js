@@ -72,6 +72,176 @@
     if (!mouseCursorRecords.has(receiver)) throw new TypeError('MouseCursorData is final and cannot be subclassed.');
   };
   Object.defineProperty(MouseCursorData, Symbol.hasInstance, { value: MouseCursorData.__nfIs });
+  const accessibilityPropRecords = new WeakMap();
+  class AccessibilityProperties {
+    constructor() {
+      const rec = { description: '', forceSimple: false, name: '', noAutoLabeling: false, shortcut: '', silent: false };
+      accessibilityPropRecords.set(this, rec);
+    }
+    get description() { return accessibilityPropRecords.get(this).description; }
+    set description(value) { accessibilityPropRecords.get(this).description = value == null ? '' : String(value); }
+    get forceSimple() { return accessibilityPropRecords.get(this).forceSimple; }
+    set forceSimple(value) { accessibilityPropRecords.get(this).forceSimple = Boolean(value); }
+    get name() { return accessibilityPropRecords.get(this).name; }
+    set name(value) { accessibilityPropRecords.get(this).name = value == null ? '' : String(value); }
+    get noAutoLabeling() { return accessibilityPropRecords.get(this).noAutoLabeling; }
+    set noAutoLabeling(value) { accessibilityPropRecords.get(this).noAutoLabeling = Boolean(value); }
+    get shortcut() { return accessibilityPropRecords.get(this).shortcut; }
+    set shortcut(value) { accessibilityPropRecords.get(this).shortcut = value == null ? '' : String(value); }
+    get silent() { return accessibilityPropRecords.get(this).silent; }
+    set silent(value) { accessibilityPropRecords.get(this).silent = Boolean(value); }
+  }
+  AccessibilityProperties.__nfIs = value => accessibilityPropRecords.has(value);
+  AccessibilityProperties.__nfInitialize = receiver => {
+    if (!accessibilityPropRecords.has(receiver)) {
+      accessibilityPropRecords.set(receiver, { description: '', forceSimple: false, name: '', noAutoLabeling: false, shortcut: '', silent: false });
+    }
+  };
+  Object.defineProperty(AccessibilityProperties, Symbol.hasInstance, { value: AccessibilityProperties.__nfIs });
+  const builtInItemsRecords = new WeakMap();
+  class ContextMenuBuiltInItems {
+    constructor() {
+      if (new.target !== ContextMenuBuiltInItems) throw new TypeError('ContextMenuBuiltInItems is final and cannot be subclassed.');
+      builtInItemsRecords.set(this, { forwardAndBack: true, loop: true, play: true, print: true, quality: true, rewind: true, save: true, zoom: true });
+      return Object.seal(this);
+    }
+    get forwardAndBack() { return builtInItemsRecords.get(this).forwardAndBack; }
+    set forwardAndBack(value) { builtInItemsRecords.get(this).forwardAndBack = Boolean(value); }
+    get loop() { return builtInItemsRecords.get(this).loop; }
+    set loop(value) { builtInItemsRecords.get(this).loop = Boolean(value); }
+    get play() { return builtInItemsRecords.get(this).play; }
+    set play(value) { builtInItemsRecords.get(this).play = Boolean(value); }
+    get print() { return builtInItemsRecords.get(this).print; }
+    set print(value) { builtInItemsRecords.get(this).print = Boolean(value); }
+    get quality() { return builtInItemsRecords.get(this).quality; }
+    set quality(value) { builtInItemsRecords.get(this).quality = Boolean(value); }
+    get rewind() { return builtInItemsRecords.get(this).rewind; }
+    set rewind(value) { builtInItemsRecords.get(this).rewind = Boolean(value); }
+    get save() { return builtInItemsRecords.get(this).save; }
+    set save(value) { builtInItemsRecords.get(this).save = Boolean(value); }
+    get zoom() { return builtInItemsRecords.get(this).zoom; }
+    set zoom(value) { builtInItemsRecords.get(this).zoom = Boolean(value); }
+    clone() {
+      const rec = builtInItemsRecords.get(this);
+      const copy = new ContextMenuBuiltInItems();
+      Object.assign(builtInItemsRecords.get(copy), rec);
+      return copy;
+    }
+  }
+  ContextMenuBuiltInItems.__nfIs = value => builtInItemsRecords.has(value);
+  ContextMenuBuiltInItems.__nfInitialize = receiver => {
+    if (!builtInItemsRecords.has(receiver)) throw new TypeError('ContextMenuBuiltInItems is final and cannot be subclassed.');
+  };
+  Object.defineProperty(ContextMenuBuiltInItems, Symbol.hasInstance, { value: ContextMenuBuiltInItems.__nfIs });
+  const clipboardItemsRecords = new WeakMap();
+  class ContextMenuClipboardItems {
+    constructor() {
+      if (new.target !== ContextMenuClipboardItems) throw new TypeError('ContextMenuClipboardItems is final and cannot be subclassed.');
+      clipboardItemsRecords.set(this, { clear: false, copy: false, cut: false, paste: false, selectAll: true });
+      return Object.seal(this);
+    }
+    get clear() { return clipboardItemsRecords.get(this).clear; }
+    set clear(value) { clipboardItemsRecords.get(this).clear = Boolean(value); }
+    get copy() { return clipboardItemsRecords.get(this).copy; }
+    set copy(value) { clipboardItemsRecords.get(this).copy = Boolean(value); }
+    get cut() { return clipboardItemsRecords.get(this).cut; }
+    set cut(value) { clipboardItemsRecords.get(this).cut = Boolean(value); }
+    get paste() { return clipboardItemsRecords.get(this).paste; }
+    set paste(value) { clipboardItemsRecords.get(this).paste = Boolean(value); }
+    get selectAll() { return clipboardItemsRecords.get(this).selectAll; }
+    set selectAll(value) { clipboardItemsRecords.get(this).selectAll = Boolean(value); }
+    clone() {
+      const rec = clipboardItemsRecords.get(this);
+      const copy = new ContextMenuClipboardItems();
+      Object.assign(clipboardItemsRecords.get(copy), rec);
+      return copy;
+    }
+  }
+  ContextMenuClipboardItems.__nfIs = value => clipboardItemsRecords.has(value);
+  ContextMenuClipboardItems.__nfInitialize = receiver => {
+    if (!clipboardItemsRecords.has(receiver)) throw new TypeError('ContextMenuClipboardItems is final and cannot be subclassed.');
+  };
+  Object.defineProperty(ContextMenuClipboardItems, Symbol.hasInstance, { value: ContextMenuClipboardItems.__nfIs });
+  const contextMenuItemRecords = new WeakMap();
+  class ContextMenuItem extends (eventsAPI?.EventDispatcher || class {}) {
+    constructor(caption, separatorBefore = false, enabled = true, visible = true) {
+      if (caption == null) throw new TypeError('ContextMenuItem caption must be a String.');
+      super();
+      contextMenuItemRecords.set(this, { caption: String(caption), separatorBefore: Boolean(separatorBefore), enabled: Boolean(enabled), visible: Boolean(visible) });
+    }
+    get caption() { return contextMenuItemRecords.get(this).caption; }
+    set caption(value) { if (value == null) throw new TypeError('ContextMenuItem.caption must be a String.'); contextMenuItemRecords.get(this).caption = String(value); }
+    get separatorBefore() { return contextMenuItemRecords.get(this).separatorBefore; }
+    set separatorBefore(value) { contextMenuItemRecords.get(this).separatorBefore = Boolean(value); }
+    get enabled() { return contextMenuItemRecords.get(this).enabled; }
+    set enabled(value) { contextMenuItemRecords.get(this).enabled = Boolean(value); }
+    get visible() { return contextMenuItemRecords.get(this).visible; }
+    set visible(value) { contextMenuItemRecords.get(this).visible = Boolean(value); }
+    clone() {
+      const rec = contextMenuItemRecords.get(this);
+      return new ContextMenuItem(rec.caption, rec.separatorBefore, rec.enabled, rec.visible);
+    }
+  }
+  ContextMenuItem.__nfIs = value => contextMenuItemRecords.has(value);
+  ContextMenuItem.__nfInitialize = (receiver, args = []) => {
+    if (!contextMenuItemRecords.has(receiver)) {
+      eventsAPI?.EventDispatcher?.__nfInitialize?.(receiver, []);
+      const [caption, separatorBefore = false, enabled = true, visible = true] = args;
+      if (caption == null) throw new TypeError('ContextMenuItem caption must be a String.');
+      contextMenuItemRecords.set(receiver, { caption: String(caption), separatorBefore: Boolean(separatorBefore), enabled: Boolean(enabled), visible: Boolean(visible) });
+    }
+  };
+  Object.defineProperty(ContextMenuItem, Symbol.hasInstance, { value: ContextMenuItem.__nfIs });
+  const contextMenuRecords = new WeakMap();
+  class ContextMenu extends (eventsAPI?.EventDispatcher || class {}) {
+    constructor() {
+      super();
+      contextMenuRecords.set(this, { builtInItems: new ContextMenuBuiltInItems(), clipboardItems: new ContextMenuClipboardItems(), clipboardMenu: false, customItems: [], link: null });
+    }
+    static get isSupported() { return true; }
+    get builtInItems() { return contextMenuRecords.get(this).builtInItems; }
+    set builtInItems(value) {
+      if (!ContextMenuBuiltInItems.__nfIs(value)) throw new TypeError('ContextMenu.builtInItems requires a ContextMenuBuiltInItems instance.');
+      contextMenuRecords.get(this).builtInItems = value;
+    }
+    get clipboardItems() { return contextMenuRecords.get(this).clipboardItems; }
+    set clipboardItems(value) {
+      if (!ContextMenuClipboardItems.__nfIs(value)) throw new TypeError('ContextMenu.clipboardItems requires a ContextMenuClipboardItems instance.');
+      contextMenuRecords.get(this).clipboardItems = value;
+    }
+    get clipboardMenu() { return contextMenuRecords.get(this).clipboardMenu; }
+    set clipboardMenu(value) { contextMenuRecords.get(this).clipboardMenu = Boolean(value); }
+    get customItems() { return contextMenuRecords.get(this).customItems; }
+    set customItems(value) {
+      if (!Array.isArray(value)) throw new TypeError('ContextMenu.customItems requires an Array.');
+      contextMenuRecords.get(this).customItems = value;
+    }
+    get link() { return contextMenuRecords.get(this).link; }
+    set link(value) { contextMenuRecords.get(this).link = value ?? null; }
+    hideBuiltInItems() {
+      const b = contextMenuRecords.get(this).builtInItems;
+      b.forwardAndBack = false; b.loop = false; b.play = false; b.print = false; b.quality = false; b.rewind = false; b.save = false; b.zoom = false;
+    }
+    clone() {
+      const rec = contextMenuRecords.get(this);
+      const copy = new ContextMenu();
+      const copyRec = contextMenuRecords.get(copy);
+      copyRec.builtInItems = rec.builtInItems.clone();
+      copyRec.clipboardItems = rec.clipboardItems.clone();
+      copyRec.clipboardMenu = rec.clipboardMenu;
+      copyRec.customItems = rec.customItems.map(item => typeof item?.clone === 'function' ? item.clone() : item);
+      copyRec.link = rec.link;
+      return copy;
+    }
+  }
+  ContextMenu.__nfIs = value => contextMenuRecords.has(value);
+  ContextMenu.__nfInitialize = receiver => {
+    if (!contextMenuRecords.has(receiver)) {
+      eventsAPI?.EventDispatcher?.__nfInitialize?.(receiver, []);
+      contextMenuRecords.set(receiver, { builtInItems: new ContextMenuBuiltInItems(), clipboardItems: new ContextMenuClipboardItems(), clipboardMenu: false, customItems: [], link: null });
+    }
+  };
+  Object.defineProperty(ContextMenu, Symbol.hasInstance, { value: ContextMenu.__nfIs });
   class StageScaleMode { constructor() { throw new TypeError('StageScaleMode supplies EXACT_FIT, NO_BORDER, NO_SCALE and SHOW_ALL constants.'); } }
   Object.assign(StageScaleMode, { EXACT_FIT: 'exactFit', NO_BORDER: 'noBorder', NO_SCALE: 'noScale', SHOW_ALL: 'showAll' }); Object.freeze(StageScaleMode);
   class StageAlign { constructor() { throw new TypeError('StageAlign supplies stage alignment constants.'); } }
@@ -429,6 +599,8 @@
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.showDefaultContextMenu requires a Boolean.'); showDefaultContextMenu = value; } },
       stageFocusRect: { enumerable: true, get: () => stageFocusRect,
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.stageFocusRect requires a Boolean.'); stageFocusRect = value; } },
+      stageVideos: { enumerable: true, get: () => cursorVectorFactory([]) },
+      stage3Ds: { enumerable: true, get: () => cursorVectorFactory([]) },
       mouseX: { enumerable: true, get: () => mouseX }, mouseY: { enumerable: true, get: () => mouseY },
       focus: { enumerable: true, get() { if (focus && !alive(focus)) changeFocus(null); return focus; },
         set(value) {changeFocus(value);} },
@@ -695,6 +867,7 @@
   }
   const api = Object.freeze({ create, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
     Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
+    AccessibilityProperties, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
     createKeyboard, createMouse, setStageAdapters });
   global.NeoFlashStage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

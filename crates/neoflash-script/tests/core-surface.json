@@ -8646,6 +8646,108 @@
    "owner": "nf.ProbeStaticCard",
    "code": "__o = new ProbeStaticCard(); __r = String(typeof __o.textSnapshot.hitTestTextNearPos(6, 10, 20));",
    "expect": "eq:number"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/ID3Info.html#",
+   "owner": "flash.media.ID3Info",
+   "code": "__o = new ID3Info(); __o.songName = \"Demo\"; __o.artist = \"NeoFlash\"; __r = (__o is ID3Info) + \":\" + __o.songName + \":\" + __o.artist;",
+   "expect": "eq:true:Demo:NeoFlash"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/Sound.html#",
+   "owner": "flash.media.Sound",
+   "code": "__o = new Sound(); __r = (__o is Sound) + \":\" + (__o.id3 is ID3Info) + \":\" + __o.isBuffering + \":\" + __o.isURLInaccessible;",
+   "expect": "eq:true:true:false:false"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/SoundChannel.html#",
+   "owner": "flash.media.SoundChannel",
+   "code": "__a = new ByteArray(); __a.writeFloat(0.5); __a.writeFloat(-0.5); __a.position = 0; __o = new Sound(); __o.loadPCMFromByteArray(__a, 1, \"float\", true, 44100); __b = __o.play(); __r = (__b is SoundChannel) + \":\" + (typeof __b.leftPeak) + \":\" + (typeof __b.rightPeak); __b.stop();",
+   "expect": "eq:true:number:number"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/SoundLoaderContext.html#",
+   "owner": "flash.media.SoundLoaderContext",
+   "code": "__o = new SoundLoaderContext(2500, true); __r = (__o is SoundLoaderContext) + \":\" + __o.bufferTime + \":\" + __o.checkPolicyFile;",
+   "expect": "eq:true:2500:true"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/SoundMixer.html#",
+   "owner": "flash.media.SoundMixer",
+   "code": "__a = new ByteArray(); SoundMixer.computeSpectrum(__a, false, 0); __r = __a.length + \":\" + SoundMixer.areSoundsInaccessible();",
+   "expect": "eq:2048:false"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/SoundTransform.html#",
+   "owner": "flash.media.SoundTransform",
+   "code": "__o = new SoundTransform(0.8, 0); __r = (__o is SoundTransform) + \":\" + __o.leftToLeft + \":\" + __o.rightToRight;",
+   "expect": "eq:true:0.8:0.8"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/Video.html#",
+   "owner": "flash.media.Video",
+   "code": "__o = new Video(320, 240); __o.deblocking = 2; __o.smoothing = true; __r = (__o is Video) + \":\" + __o.deblocking + \":\" + __o.smoothing;",
+   "expect": "eq:true:2:true"
+  },
+  {
+   "catalogId": "AS3:class:flash/media/VideoStatus.html#",
+   "owner": "flash.media.VideoStatus",
+   "code": "__r = VideoStatus.ACCELERATED + \":\" + VideoStatus.SOFTWARE + \":\" + VideoStatus.UNAVAILABLE;",
+   "expect": "eq:accelerated:software:unavailable"
+  },
+  {
+   "catalogId": "AS3:property:flash/display/DisplayObject.html#accessibilityProperties",
+   "owner": "flash.accessibility.AccessibilityProperties",
+   "code": "__o = new Sprite(); __a = new AccessibilityProperties(); __a.name = \"Hero\"; __o.accessibilityProperties = __a; __r = __o.accessibilityProperties.name;",
+   "expect": "eq:Hero"
+  },
+  {
+   "catalogId": "AS3:method:flash/text/TextField.html#getImageReference()",
+   "owner": "flash.text.TextField",
+   "code": "__o = new TextField(); __o.htmlText = \"<p><img id='badge' src='badge.png' width='20' height='12'/></p>\"; __a = __o.getImageReference(\"badge\"); __r = (__a is Loader) + \":\" + __a.name;",
+   "expect": "eq:true:badge"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#instanceof",
+   "owner": "Array",
+   "code": "__o = [1, 2]; __r = (__o instanceof Array) + \":\" + (__o instanceof Object);",
+   "expect": "eq:true:true"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#void",
+   "owner": "Object",
+   "code": "__r = String(void(1 + 2) === undefined);",
+   "expect": "eq:true"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#comma",
+   "owner": "Object",
+   "code": "__a = 1; __b = (__a += 2, __a * 3); __r = __a + \":\" + __b;",
+   "expect": "eq:3:9"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#RegExp_delimiter",
+   "owner": "RegExp",
+   "code": "__o = /^ab+c$/i; __r = (__o is RegExp) + \":\" + __o.test(\"ABBC\");",
+   "expect": "eq:true:true"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#concatenation_(XMLList)",
+   "owner": "XML",
+   "code": "__a = <item id=\"1\"/> + <item id=\"2\"/>; __r = (__a is XMLList) + \":\" + __a.length();",
+   "expect": "eq:true:2"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#concatenation_assignment_(XMLList)",
+   "owner": "XMLList",
+   "code": "__a = new XMLList(\"<item id='1'/>\"); __a += <item id=\"2\"/>; __r = (__a is XMLList) + \":\" + __a.length();",
+   "expect": "eq:true:2"
+  },
+  {
+   "catalogId": "AS3:operator:operators.html#parentheses_(XML)",
+   "owner": "XML",
+   "code": "__o = <root><item id=\"a\"/><item id=\"b\"/></root>; __a = __o.item.(@id == \"b\"); __r = __a.length() + \":\" + String(__a[0].@id);",
+   "expect": "eq:1:b"
   }
  ],
  "controls": [

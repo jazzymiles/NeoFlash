@@ -156,7 +156,15 @@
         case 'getColorBoundsRect':command={op:'color_bounds',src:dst,mask:color(args[0]),color:color(args[1]),find_color:bool(args[2]===undefined?true:args[2],'findColor')};break;
         case 'compare':command={op:'compare',dst,src:refOf(args[0])};break;
         case 'merge':command={op:'merge',...region(),multipliers:args.slice(3,7).map(value=>integer(value,'Channel multiplier'))};break;
-        case 'paletteMap':command={op:'palette_map',...region(),tables:[3,4,5,6].map(index=>args[index]==null?null:Array.isArray(args[index])?args[index].map(color):(()=>{throw new TypeError('paletteMap tables require Arrays or null.');})())};break;
+        case 'paletteMap':command={op:'palette_map',...region(),tables:[3,4,5,6].map(index=>{
+          const table=args[index];if(table==null)return null;
+          const tag=typeof table==='object'||typeof table==='function'?Object.getOwnPropertyDescriptor(table,vectorBrand):null;
+          const items=Array.isArray(table)?table:tag?.value?.version===1?tag.value.values:null;
+          if(!items)throw new TypeError('paletteMap tables require Arrays or null.');
+          const mapped=items.slice(0,256).map(color);
+          while(mapped.length<256)mapped.push(0);
+          return mapped;
+        })};break;
         case 'threshold':command={op:'threshold',...region(),operation:args[3],threshold:color(args[4]),color:color(args[5]===undefined?0:args[5]),mask:color(args[6]===undefined?0xffffffff:args[6]),copy_source:bool(args[7]===undefined?false:args[7],'copySource')};break;
         case 'noise':command={op:'noise',dst,seed:integer(args[0],'randomSeed'),low:byte(args[1]===undefined?0:args[1],'low'),high:byte(args[2]===undefined?255:args[2],'high'),channels:byte(args[3]===undefined?7:args[3],'channelOptions'),grayscale:bool(args[4]===undefined?false:args[4],'grayScale')};break;
         case 'perlinNoise':{
@@ -287,7 +295,13 @@
         const m=matrix===null?[1,0,0,1,0,0]:components(matrix,['a','b','c','d','tx','ty']),ct=colorTransform(transform);
         if(m.some((value,index)=>Math.abs(value)>(index<4?1e4:1e12)))throw new RangeError('BitmapData.draw matrix exceeds the shared finite affine bounds.');
         if(ct.multipliers.some(value=>Math.abs(value)>1e4)||ct.offsets.some(value=>Math.abs(value)>255))throw new RangeError('BitmapData.draw ColorTransform exceeds the shared multiplier/offset bounds.');
-        if(blendMode!==null&&blendMode!=='normal')throw new TypeError('BitmapData.draw currently supports normal blending only.');
+        const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight','shader']);
+        if(blendMode!==null&&!validBlendModes.has(blendMode)){const err=new TypeError(`BitmapData.draw blendMode is invalid: '${blendMode}'.`);err.name='ArgumentError';throw err;}
+        const drawBlend=blendMode===null?'normal':blendMode;
+        const commitDraw=rgba=>{
+          if(drawBlend!=='normal'&&typeof player.bitmap_draw_rgba_blended==='function')native('bitmap_draw_rgba_blended',ref,info.width,info.height,rgba,clipJSON,info.revision,drawBlend);
+          else native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
+        };
         if(typeof smoothing!=='boolean')throw new TypeError('BitmapData.draw smoothing requires a Boolean.');
         const clip=clipRect===null?null:rectangle(clipRect),clipJSON=JSON.stringify(clip&&{x:clip[0],y:clip[1],width:clip[2],height:clip[3]});
         if(info.width*info.height>4*1024*1024)throw new RangeError('BitmapData.draw staging exceeds the 4 Mi-pixel raster budget.');
@@ -317,7 +331,7 @@
               rgba[di+3]=clampByte(src[si+3]*ct.multipliers[3]+ct.offsets[3]);
             }
           }
-          native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
+          commitDraw(rgba);
           if(surface)surface.width=surface.height=0;
           return;
         }
@@ -330,7 +344,7 @@
           // Read an immutable full source before changing destination, including
           // when source and destination share the very same Rust pixel buffer.
           const rgba=target.getImageData(0,0,info.width,info.height).data;
-          native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
+          commitDraw(rgba);
         }finally{surface.width=surface.height=0;}
       }
       histogram(hRect=null){
