@@ -97,6 +97,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashAIR={...airModule,create:settings=>airModule.create({...settings,...options.air})};
   const as3NetSysModule=require(resolve(root,'web/as3-net-sys.js'));
   globals.NeoFlashAS3NetSys={...as3NetSysModule,create:settings=>as3NetSysModule.create({...settings,...options.netSys})};
+  const fte3dModule=require(resolve(root,'web/as3-fte-3d.js'));
+  globals.NeoFlashFte3D={...fte3dModule,create:settings=>fte3dModule.create({...settings,...options.fte3d})};
   const timerModule=require(resolve(root,'web/timers.js'));
   globals.NeoFlashTimers={create:settings=>timerModule.create({...settings,...options.timers})};
   globals.requestAnimationFrame=options.requestAnimationFrame||(callback=>queueMicrotask(callback));
@@ -104,7 +106,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const host = new Function('createScenePainter', 'player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport', 'semanticLayer',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, video:()=>videoHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, external:()=>externalHost, air:()=>airHost, netSys:()=>as3NetSysHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, video:()=>videoHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, external:()=>externalHost, air:()=>airHost, netSys:()=>as3NetSysHost, fte3d:()=>fte3dHost, program:()=>program, lastTrace: () => lastTrace };'
   )(createScenePainter, player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget, options.semanticLayer);
   return { host, traceCalls, hostConsole, scriptConsole };

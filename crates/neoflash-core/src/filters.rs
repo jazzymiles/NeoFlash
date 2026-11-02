@@ -120,6 +120,15 @@ pub enum FilterSpec {
         color: u32,
         alpha: f64,
     },
+    Shader {
+        left_extension: i32,
+        top_extension: i32,
+        right_extension: i32,
+        bottom_extension: i32,
+        bytecode_base64: String,
+        precision_hint: String,
+        params_json: String,
+    },
 }
 
 fn is_zero_u32(v: &u32) -> bool {
@@ -145,6 +154,33 @@ impl FilterSpec {
             return Err(error(
                 "ColorMatrix requires 20 finite coefficients within +/-65536",
             ));
+        }
+        if let Self::Shader {
+            left_extension,
+            top_extension,
+            right_extension,
+            bottom_extension,
+            bytecode_base64,
+            precision_hint,
+            ..
+        } = self
+        {
+            if [
+                *left_extension,
+                *top_extension,
+                *right_extension,
+                *bottom_extension,
+            ]
+            .iter()
+            .any(|v| !(-4096..=4096).contains(v))
+                || bytecode_base64.is_empty()
+                || !matches!(precision_hint.as_str(), "full" | "fast")
+            {
+                return Err(error(
+                    "ShaderFilter requires non-empty shader byteCode, extensions within +/-4096 and full/fast precision",
+                ));
+            }
+            return Ok(());
         }
         if let Self::Convolution {
             matrix_x,
@@ -339,9 +375,10 @@ impl FilterSpec {
                 quality,
                 ..
             } => (*blur_x, *blur_y, *quality),
-            Self::ColorMatrix { .. } | Self::Convolution { .. } | Self::Displacement { .. } => {
-                (0., 0., 0)
-            }
+            Self::ColorMatrix { .. }
+            | Self::Convolution { .. }
+            | Self::Displacement { .. }
+            | Self::Shader { .. } => (0., 0., 0),
         }
     }
     fn radii(&self) -> (usize, usize, usize) {
@@ -355,6 +392,9 @@ impl FilterSpec {
     fn work(&self) -> usize {
         if matches!(self, Self::Displacement { .. }) {
             return 4;
+        }
+        if matches!(self, Self::Shader { .. }) {
+            return 8;
         }
         if let Self::Convolution {
             matrix_x,
@@ -397,6 +437,20 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
     validate_filters(filters)?;
     let mut result = FilterPadding::default();
     for filter in filters {
+        if let FilterSpec::Shader {
+            left_extension,
+            top_extension,
+            right_extension,
+            bottom_extension,
+            ..
+        } = filter
+        {
+            result.left += (*left_extension).max(0) as u32;
+            result.top += (*top_extension).max(0) as u32;
+            result.right += (*right_extension).max(0) as u32;
+            result.bottom += (*bottom_extension).max(0) as u32;
+            continue;
+        }
         let (x, y, q) = filter.radii();
         let (x, y) = ((x * q) as f64, (y * q) as f64);
         let (dx, dy) = match filter {
@@ -492,6 +546,21 @@ pub fn filter_rgba(
             }
             FilterSpec::Convolution { .. } => {
                 convolution(&mut result, width as usize, height as usize, filter)
+            }
+            FilterSpec::Shader {
+                bytecode_base64,
+                precision_hint,
+                params_json,
+                ..
+            } => {
+                result = crate::as3_fte_3d::evaluate_shader_filter_rgba(
+                    &result,
+                    width,
+                    height,
+                    bytecode_base64,
+                    precision_hint,
+                    params_json,
+                );
             }
             FilterSpec::Bevel { .. }
             | FilterSpec::GradientGlow { .. }

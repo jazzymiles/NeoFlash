@@ -48,6 +48,9 @@ pub enum DynamicKind {
     Video,
     Loader,
     Button,
+    TextLine,
+    MorphShape,
+    Avm1Movie,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -273,6 +276,7 @@ pub(crate) struct RuntimeGraph {
     bitmap_states: HashMap<ObjectRef, bitmap::BitmapState>,
     bitmap_error: Option<BitmapError>,
     text_states: HashMap<ObjectRef, TextFieldState>,
+    fte_draws: HashMap<ObjectRef, Vec<crate::as3_fte_3d::FteDrawRunOut>>,
     video_states: HashMap<ObjectRef, VideoState>,
     input_states: HashMap<ObjectRef, DisplayInputState>,
     movieclip_pointer: input::MovieClipPointer,
@@ -323,6 +327,7 @@ impl RuntimeGraph {
         self.bitmap_states.clear();
         self.bitmap_error = None;
         self.text_states.clear();
+        self.fte_draws.clear();
         self.video_states.clear();
         self.input_states.clear();
         self.movieclip_pointer = input::MovieClipPointer::default();
@@ -386,6 +391,8 @@ impl RuntimeGraph {
         self.paths
             .retain(|reference, _| !retired.contains(reference));
         self.bitmap_states
+            .retain(|reference, _| !retired.contains(reference));
+        self.fte_draws
             .retain(|reference, _| !retired.contains(reference));
         self.retire_text(&retired);
         self.retire_video(&retired);
@@ -563,6 +570,24 @@ impl Player {
                 .insert(reference.clone(), TextFieldState::default());
         }
         Ok(reference)
+    }
+    pub fn set_text_line_draws(
+        &mut self,
+        reference: &ObjectRef,
+        runs: Vec<crate::as3_fte_3d::FteDrawRunOut>,
+    ) -> Result<(), DisplayError> {
+        let Some(node) = self.graph.dynamic.get(reference) else {
+            return Err(error(
+                "TextLine display reference is stale or belongs to another player",
+            ));
+        };
+        if node.kind != DynamicKind::TextLine {
+            return Err(error(
+                "set_text_line_draws requires a TextLine display node",
+            ));
+        }
+        self.graph.fte_draws.insert(reference.clone(), runs);
+        Ok(())
     }
     pub fn drain_display_events(&mut self) -> Result<MutationResult, DisplayError> {
         let events = std::mem::take(&mut self.graph.events);
@@ -781,6 +806,9 @@ impl Player {
                         DynamicKind::Video => "video",
                         DynamicKind::Loader => "loader",
                         DynamicKind::Button => "button",
+                        DynamicKind::TextLine => "text_line",
+                        DynamicKind::MorphShape => "morph_shape",
+                        DynamicKind::Avm1Movie => "avm1_movie",
                     };
                     let linked = linked_roots.get(&reference);
                     let movie = node.kind == DynamicKind::MovieClip;
@@ -1096,6 +1124,39 @@ impl Player {
                         },
                     });
                 }
+                if let Some(runs) = self.graph.fte_draws.get(&reference) {
+                    for (index, run) in runs.iter().enumerate() {
+                        if let Some(field) = TextFieldState::from_kind(&ElementKind::Text {
+                            text: run.text.clone(),
+                            font_family: run.font_family.clone(),
+                            font_size: run.font_size,
+                            color: run.color,
+                        }) {
+                            result.draws.push(RuntimeDrawItem {
+                                owner_ref: reference.clone(),
+                                clip_ids: vec![],
+                                filter_id: None,
+                                item: DrawItem {
+                                    element_id: format!("runtime-{}-fte-{index}", reference.id),
+                                    name: display.name.clone(),
+                                    instance_path: vec![],
+                                    layer_id: String::new(),
+                                    transform: affine_multiply(
+                                        display.world,
+                                        [1., 0., 0., 1., run.x, run.y - run.font_size * 0.8],
+                                    ),
+                                    alpha: 1.,
+                                    color_transform: ColorTransform::default(),
+                                    kind: RuntimeDrawKind::TextField {
+                                        field: Box::new(
+                                            concatenated_color_transform.transform_text(&field),
+                                        ),
+                                    },
+                                },
+                            });
+                        }
+                    }
+                }
             }
             for child in children.iter().rev() {
                 pending.push((
@@ -1283,7 +1344,7 @@ impl Player {
             .expect("live parent");
         if !matches!(
             container.display.owner.as_str(),
-            "sprite" | "movie_clip" | "graphic" | "button"
+            "sprite" | "movie_clip" | "graphic" | "button" | "text_line"
         ) {
             return Err(error("This object cannot contain children"));
         }
@@ -1672,7 +1733,7 @@ impl Player {
         }
         if !matches!(
             container.display.owner.as_str(),
-            "sprite" | "movie_clip" | "graphic"
+            "sprite" | "movie_clip" | "graphic" | "text_line"
         ) {
             return Err(error("removeChildren requires a DisplayObjectContainer"));
         }
@@ -1785,6 +1846,9 @@ impl Player {
                 | DynamicKind::Video
                 | DynamicKind::Loader
                 | DynamicKind::Button
+                | DynamicKind::TextLine
+                | DynamicKind::MorphShape
+                | DynamicKind::Avm1Movie
         ) {
             return Err(error(
                 "Bitmap, Video, TextField, Loader and SimpleButton do not own Graphics",
@@ -1858,6 +1922,9 @@ impl Player {
                     | DynamicKind::Video
                     | DynamicKind::Loader
                     | DynamicKind::Button
+                    | DynamicKind::TextLine
+                    | DynamicKind::MorphShape
+                    | DynamicKind::Avm1Movie
             )
         };
         let destination = self

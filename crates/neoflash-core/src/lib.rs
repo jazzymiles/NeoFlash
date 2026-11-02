@@ -21,6 +21,7 @@ pub mod as2_xml;
 pub mod as2d_geom;
 pub mod as3_air;
 pub mod as3_collections;
+pub mod as3_fte_3d;
 pub mod as3_geom;
 pub mod as3_net_sys;
 pub mod as3_object;

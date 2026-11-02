@@ -563,6 +563,9 @@
           mouseLock = value;
         } },
       wmodeGPU: { enumerable: true, get: () => false },
+      softKeyboardRect: { enumerable: true, get: () => options.getSoftKeyboardRect ? options.getSoftKeyboardRect() : makeRectangle(0, 0, 0, 0) },
+      stage3Ds: { enumerable: true, get: () => options.getStage3Ds ? options.getStage3Ds() : cursorVectorFactory([]) },
+      stageVideos: { enumerable: true, get: () => options.getStageVideos ? options.getStageVideos() : cursorVectorFactory([]) },
       browserZoomFactor: { enumerable: true, get: () => {
         const zoom = Number(options.browserZoomFactor ?? global.devicePixelRatio ?? 1);
         return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
