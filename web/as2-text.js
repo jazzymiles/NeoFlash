@@ -25,11 +25,50 @@
       for(const [name,item]of entries){if(!item.enumerable)continue;if(!Object.hasOwn(item,'value')||(!['string','number','boolean'].includes(typeof item.value)&&item.value!==null))throw new TypeError('StyleSheet styles require primitive own data properties.');result[name]=item.value;}
       return result;
     }
-    function stateFor(ref){active();text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:false,condense:false,style:null,source:null,revision:null,render:defaultRender()};fields.set(ref,state);}return state;}
+    function stateFor(ref){active();text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:false,condense:false,style:null,source:null,revision:null,runs:null,baseAlign:null,defaultAlign:null,render:defaultRender()};fields.set(ref,state);}return state;}
+    function ensureRuns(state,field){
+      const len=field.text.length,base={...field.format,...(state.baseAlign?{align:state.baseAlign}:{})};
+      if(!state.runs||state.runs.length!==len)state.runs=Array.from({length:len},()=>({...base,tabStops:Array.isArray(base.tabStops)?base.tabStops.slice():base.tabStops}));
+      return state.runs;
+    }
+    function as2SetTextFormat(ref,state,...args){
+      if(state.style)throw new Error('Error #2009: This method cannot be used on a text field with a style sheet.');
+      const field=text.info(ref),len=field.text.length;
+      let fmt,begin=0,end=len,whole=false;
+      if(args.length===1){fmt=args[0];whole=true;}
+      else if(args.length===2){begin=Math.trunc(Number(args[0]));end=begin+1;fmt=args[1];}
+      else if(args.length===3){begin=Math.trunc(Number(args[0]));end=Math.trunc(Number(args[1]));fmt=args[2];}
+      else throw new TypeError('setTextFormat accepts (format), (index, format), or (beginIndex, endIndex, format).');
+      const rawPatch=text.formatPatch(fmt,true),rustPatch=text.formatPatch(fmt,false);
+      const b=Math.max(0,Math.min(len,Number.isFinite(begin)?begin:0)),e=Math.max(b,Math.min(len,Number.isFinite(end)?end:len));
+      const runs=ensureRuns(state,field);
+      for(let i=b;i<e;i++)Object.assign(runs[i],rawPatch,Array.isArray(rawPatch.tabStops)?{tabStops:rawPatch.tabStops.slice()}:{});
+      if(whole||(b===0&&e===len)){
+        if(rawPatch.align!==undefined)state.baseAlign=rawPatch.align;
+        text.update(ref,{format:rustPatch});
+      }
+    }
+    function as2GetTextFormat(ref,state,...args){
+      const field=text.info(ref),len=field.text.length;
+      if(!state.runs||state.runs.length!==len||len===0){
+        const res=text.legacyFormatCopy(field.format);if(state.baseAlign)res.align=state.baseAlign;return res;
+      }
+      let b=0,e=len;
+      if(args.length===1){b=Math.max(0,Math.min(len-1,Math.trunc(Number(args[0]))));e=b+1;}
+      else if(args.length>=2){b=Math.max(0,Math.min(len,Math.trunc(Number(args[0]))));e=Math.max(b,Math.min(len,Math.trunc(Number(args[1]))));}
+      if(b>=e){const res=text.legacyFormatCopy(field.format);if(state.baseAlign)res.align=state.baseAlign;return res;}
+      const first=state.runs[b],res=text.legacyFormatCopy(first);
+      for(const k of Object.keys(first)){
+        for(let i=b+1;i<e;i++){
+          if(JSON.stringify(state.runs[i][k])!==JSON.stringify(first[k])){res[k]=null;break;}
+        }
+      }
+      return res;
+    }
     function render(ref,state,source){
       const field=text.info(ref),styles=state.style?record(state.style).state:{styles:{}};
       const parsed=execute({op:'html',source,format:field.default_format,styles,condense_white:state.condense});
-      text.update(ref,{text:parsed.text,format:parsed.format});state.source=source;state.revision=text.info(ref).revision;
+      text.update(ref,{text:parsed.text,format:parsed.format});state.source=source;state.revision=text.info(ref).revision;state.runs=null;state.baseAlign=null;
     }
     function changed(sheet){
       for(const [ref,state]of fields)if(state.style===sheet&&state.source!==null){try{if(!player.object_alive(ref)){fields.delete(ref);continue;}render(ref,state,state.source);}catch(error){throw new Error('StyleSheet change could not reflow its TextField: '+String(error),{cause:error});}}
@@ -42,7 +81,7 @@
       getStyleNames(){return execute({op:'names',state:record(this).state}).result;}
       setStyle(name,value){if(typeof name!=='string')throw new TypeError('StyleSheet selector requires a string.');commit(this,execute({op:'set_style',state:record(this).state,selector:name,style:styleRecord(value)}).state);}
       parseCSS(source){if(typeof source!=='string')throw new TypeError('StyleSheet.parseCSS requires a string.');const packet=execute({op:'parse_css',state:record(this).state,source});if(packet.result)commit(this,packet.state);return packet.result;}
-      transform(value){if(value===undefined||value===null)return null;const patch=execute({op:'transform',style:styleRecord(value)}).result;return text.legacyFormatCopy(patch);}
+      transform(value){if(value===undefined||value===null)return null;const style=styleRecord(value),patch=execute({op:'transform',style}).result,res=text.legacyFormatCopy(patch);if(typeof style.textAlign==='string'&&style.textAlign.trim().toLowerCase()==='justify')res.align='justify';return res;}
       load(url){
         if(typeof url!=='string')throw new TypeError('StyleSheet.load requires a URL string.');const net=getNet();if(!net)throw new Error('StyleSheet.load requires the publication URLLoader service.');
         const current=record(this);if(current.operation){current.operation.loader.close();loads.delete(current.operation);}
@@ -54,7 +93,7 @@
     }
     StyleSheet.__nfIs=value=>sheets.has(value);StyleSheet.__nfInitialize=()=>{throw new TypeError('AS2 StyleSheet subclassing is not supported.');};Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
     const renderProps=new Set(['embedFonts','antiAliasType','gridFitType','sharpness','thickness']);
-    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','getNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled',...renderProps]);
+    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','setTextFormat','getNewTextFormat','setNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled',...renderProps]);
     function as2Ref(ref,name){
       if(!names.has(name))return null;
       return {has:()=>true,delete:()=>false,get:()=>{
@@ -67,8 +106,10 @@
         if(name==='addListener')return listener=>{if(!state.broadcaster){state.broadcaster={};broadcasters.AsBroadcaster.initialize(state.broadcaster);}return state.broadcaster.addListener(listener);};
         if(name==='removeListener')return listener=>state.broadcaster?state.broadcaster.removeListener(listener):false;
         if(name==='onScroller')return state.onScroller;
-        if(name==='getTextFormat')return (...args)=>{text.methods(ref).getTextFormat(...args);return text.legacyFormatCopy(text.info(ref).format);};
-        if(name==='getNewTextFormat')return ()=>text.legacyFormatCopy(text.info(ref).default_format);
+        if(name==='getTextFormat')return (...args)=>as2GetTextFormat(ref,state,...args);
+        if(name==='setTextFormat')return (...args)=>{as2SetTextFormat(ref,state,...args);};
+        if(name==='getNewTextFormat')return ()=>{const res=text.legacyFormatCopy(text.info(ref).default_format);if(state.defaultAlign)res.align=state.defaultAlign;return res;};
+        if(name==='setNewTextFormat')return fmt=>{const raw=text.formatPatch(fmt,true);if(raw.align!==undefined)state.defaultAlign=raw.align;text.update(ref,{default_format:text.formatPatch(fmt,false)});};
         if(name==='text')return text.get(ref,'text');
         if(name==='html')return state.html;if(name==='condenseWhite')return state.condense;if(name==='styleSheet')return state.style;
         if(!state.html&&!state.style)return text.get(ref,'text');
@@ -89,7 +130,7 @@
         if(['maxscroll','maxhscroll','bottomScroll'].includes(name))throw new TypeError('TextField.'+name+' is read-only.');
         if(name==='html'||name==='condenseWhite'){if(typeof value!=='boolean')throw new TypeError('TextField.'+name+' requires a Boolean.');const key=name==='html'?'html':'condense';const old=state[key];state[key]=value;try{if(name==='condenseWhite'&&state.source!==null)render(ref,state,state.source);}catch(error){state[key]=old;throw error;}return value;}
         if(name==='styleSheet'){if(value!==null)record(value);const previous=state.style;state.style=value;try{if(state.source!==null)render(ref,state,state.source);}catch(error){state.style=previous;throw error;}return value;}
-        if(name==='htmlText'||name==='text'){if(typeof value!=='string')throw new TypeError('TextField text requires a string.');if(state.style||(name==='htmlText'&&state.html))render(ref,state,value);else{text.update(ref,{text:value});state.source=null;state.revision=null;}return value;}
+        if(name==='htmlText'||name==='text'){if(typeof value!=='string')throw new TypeError('TextField text requires a string.');if(state.style||(name==='htmlText'&&state.html))render(ref,state,value);else{text.update(ref,{text:value});state.source=null;state.revision=null;state.runs=null;state.baseAlign=state.defaultAlign;}return value;}
         throw new TypeError('AS2 TextField method '+name+' is read-only.');
       }};
     }

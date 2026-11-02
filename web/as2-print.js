@@ -28,8 +28,8 @@ function create(wasm,options={}){
   }
   addPage(target,printArea=null,settings=null,frameNum=undefined){
    const r=state(this);if(!r.window||r.window.closed||r.sent)return invoke(r,{op:'fail'});
-   if(settings?.printAsBitmap!==true)throw new TypeError('This PrintJob profile requires {printAsBitmap:true}; vector printing is not implemented.');
-   if(frameNum!==undefined&&frameNum!==null&&frameNum!==0)throw new TypeError('PrintJob prints the current runtime frame; explicit timeline frame selection is not implemented.');
+   if(settings!==null&&settings!==undefined&&(typeof settings!=='object'||(settings.printAsBitmap!==undefined&&typeof settings.printAsBitmap!=='boolean')))throw new TypeError('PrintJob.addPage options must be null, undefined, or an object with boolean printAsBitmap.');
+   if(frameNum!==undefined&&frameNum!==null&&(!Number.isInteger(frameNum)||frameNum<0))throw new TypeError('PrintJob.addPage frameNum must be a non-negative integer when provided.');
    const receiver=options.resolveTarget?options.resolveTarget(target):target;
    const area=printArea??options.bounds?.(receiver);if(!area)throw new TypeError('PrintJob requires a current MovieClip and a bounded print area.');
    const plan=invoke(r,{op:'plan',area});if(!plan)return false;

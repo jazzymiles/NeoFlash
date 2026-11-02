@@ -140,7 +140,13 @@
         try{
           if(record.remote){if(!Number.isInteger(minDiskSpace)||minDiskSpace<0||minDiskSpace>MAX_BYTES)throw new RangeError('Invalid minDiskSpace.');bytes(record);return true;}
           flushRecord(record,minDiskSpace);return true;
-        }catch(error){warn(error);return false;}
+        }catch(error){
+          warn(error);
+          const info={code:'SharedObject.Flush.Failed',level:'error',description:String(error?.message||error)};
+          if(typeof this.onStatus==='function'){try{Reflect.apply(this.onStatus,this,[info]);}catch(err){warn(err);}}
+          else if(typeof options.onSystemStatus==='function')options.onSystemStatus(info);
+          return false;
+        }
       }
       clear(){
         const record=state(this,true);
@@ -160,6 +166,15 @@
         if(!record.remote||typeof updatesPerSecond!=='number'||!Number.isFinite(updatesPerSecond)||updatesPerSecond<0)return false;
         record.fps=updatesPerSecond;return true;
       }
+      setDirty(propertyName){
+        const record=state(this,true);
+        if(propertyName!==undefined&&typeof propertyName!=='string')throw new TypeError('SharedObject.setDirty propertyName requires a String.');
+        record.epoch++;
+        if(record.remote&&record.peers.has(this)&&typeof propertyName==='string'&&propertyName){
+          const born=generation,targets=[...record.peers];
+          queueMicrotask(()=>{if(disposed||born!==generation)return;for(const peer of targets){if(!record.peers.has(peer))continue;try{if(typeof peer.onSync==='function')Reflect.apply(peer.onSync,peer,[[{code:'change',name:propertyName}]]);}catch(error){warn(error);}}});
+        }
+      }
       send(handlerName,...args){
         const record=state(this,true);
         if(!record.remote||!record.peers.has(this))throw new Error('SharedObject.send requires a connected remote SharedObject.');
@@ -178,7 +193,6 @@
     }
     Object.defineProperty(SharedObject,'getRemote',{value:()=>unsupported('SharedObject.getRemote')});
     for(const name of ['connect','send','setDirty','setFps'])Object.defineProperty(SharedObject.prototype,name,{value:()=>unsupported(`SharedObject.${name}`)});
-    Object.defineProperty(LegacySharedObject.prototype,'setDirty',{value:()=>unsupported('SharedObject.setDirty')});
     for(const name of ['client','fps'])Object.defineProperty(SharedObject.prototype,name,{get(){state(this);unsupported(`SharedObject.${name}`);},set(){state(this);unsupported(`SharedObject.${name}`);}});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
     function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;}

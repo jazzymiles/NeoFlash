@@ -61,13 +61,23 @@ fn statement(stmt: &Stmt) -> Exits {
         Stmt::Break(label) => one(Exit::Break(label.clone())),
         Stmt::Continue(label) => one(Exit::Continue(label.clone())),
         Stmt::Block(body) => sequence(body),
-        Stmt::If(_, yes, no) => {
-            let mut exits = statement(yes);
-            exits.extend(
-                no.as_ref()
-                    .map_or_else(|| one(Exit::Normal), |s| statement(s)),
-            );
-            exits.insert(Exit::Throw);
+        Stmt::If(_, _, _) => {
+            let mut exits = one(Exit::Throw);
+            let mut cur = Some(stmt);
+            while let Some(node) = cur {
+                if let Stmt::If(_, yes, no) = node {
+                    exits.extend(statement(yes));
+                    if let Some(next) = no.as_deref() {
+                        cur = Some(next);
+                    } else {
+                        exits.insert(Exit::Normal);
+                        break;
+                    }
+                } else {
+                    exits.extend(statement(node));
+                    break;
+                }
+            }
             exits
         }
         Stmt::While(_, body) | Stmt::For(_, _, _, body) | Stmt::ForIn(_, _, _, body) => {

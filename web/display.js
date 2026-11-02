@@ -767,7 +767,7 @@
         return {has:()=>true,delete:()=>{setLegacyCallback(target,name,null);return true;},get:()=>target[name],set:value=>{setLegacyCallback(target,name,value);return value;}};
       }
       if((owner==='text'&&['enabled','focusEnabled','tabChildren','trackAsMenu','_focusrect'].includes(name))||(name==='focusEnabled'&&owner!=='movie_clip'))return null;
-      return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{const payload=name==='_lockroot'?Boolean(value):(value===undefined?null:value);as2Input(target,{op:'set',name,value:payload});if(name!=='_lockroot')as2TabActive=true;return value;}};
+      return {has:()=>true,delete:()=>{as2Input(target,{op:'set',name,value:null});return true;},get:()=>{const value=as2Input(target)[as2InputNames[name]];return value===null?undefined:value;},set:value=>{const payload=name==='_lockroot'?Boolean(value):(value===undefined?null:value);as2Input(target,{op:'set',name,value:payload});if(name==='enabled'&&owner==='button'&&!as2Input(target).enabled){if(buttonOver===target){buttonState(target,0);buttonOver=null;}if(buttonPressed===target){buttonState(target,0);buttonPressed=null;}buttonState(target,0);}if(name!=='_lockroot')as2TabActive=true;return value;}};
     }
     function as2Tab(event={}){
       if(!as2TabActive||event.defaultPrevented)return false;
@@ -891,7 +891,7 @@
       if(fn&&alive(target))Reflect.apply(fn,target,args);
     }
     let buttonOver=null,buttonPressed=null;
-    function authoredButton(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current))if(descriptor(current).owner==='button')return current;return null;}
+    function authoredButton(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current))if(descriptor(current).owner==='button'&&as2Input(current).enabled&&nativeInput(current).button_enabled!==false)return current;return null;}
     function buttonState(target,state){if(target&&alive(target))player.object_button_state?.(referenceOf(target).key,state);}
     function movieClipPointer(type,target){
       if(typeof player.object_movieclip_pointer!=='function')throw new Error('Rust MovieClip button-state services are unavailable; rebuild and re-export this project.');
@@ -959,7 +959,7 @@
     }
     function cancelPointer(){const changed=movieClipPointer('cancel',null);buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;return changed;}
     function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner))return null;const pref=as2Input(target).focus_rect,globalPref=as2TabActive&&typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;if((pref??globalPref)!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
         getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},

@@ -163,4 +163,19 @@ fn as2_catch_scope_and_type_gates_are_explicit() {
 fn structured_nesting_limits_still_fail_before_stack_exhaustion() {
     let source = format!("{}throw 1;{}", "try{".repeat(200), "}finally{}".repeat(200));
     assert!(as3(&source).is_err());
+
+    let mut ladder = String::from("var x = 95;\nif (x == 0) { y = 0; }");
+    for i in 1..100 {
+        ladder.push_str(&format!(" else if (x == {i}) {{ y = {i}; }}"));
+    }
+    ladder.push_str(" else { y = -1; }");
+    assert!(check(&ladder, ScriptLanguage::ActionScript2).is_ok());
+    assert!(as3(&ladder).is_ok());
+    assert!(
+        check(
+            "var local = 1; delete dynVar; delete local;",
+            ScriptLanguage::ActionScript2
+        )
+        .is_ok()
+    );
 }

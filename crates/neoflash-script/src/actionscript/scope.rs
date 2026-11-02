@@ -174,10 +174,16 @@ impl<'a> Analysis<'a> {
                     self.declarations(scope, stmt, false)?;
                 }
             }
-            Stmt::If(_, yes, no) => {
-                self.declarations(scope, yes, false)?;
-                if let Some(no) = no {
-                    self.declarations(scope, no, false)?;
+            Stmt::If(_, _, _) => {
+                let mut cur = Some(stmt);
+                while let Some(node) = cur {
+                    if let Stmt::If(_, yes, no) = node {
+                        self.declarations(scope, yes, false)?;
+                        cur = no.as_deref();
+                    } else {
+                        self.declarations(scope, node, false)?;
+                        break;
+                    }
                 }
             }
             Stmt::While(_, body)
@@ -572,9 +578,9 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if name=="this" && !self.scopes[&scope].allow_this => return Err(self.error(self.scopes[&scope].offset,"Explicit this in an AS2 or nested/expression function needs receiver/global semantics not implemented yet. Use lexical locals or bare timeline fields; AS3 top-level declared methods support bound this.")),
             Expr::Call(callee,args,offset) => {
                 let binding=if let Expr::Name(name)=callee.as_ref() {self.resolve(scope,name)}else{None};
-                if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none()
-                    && matches!(callee.as_ref(),Expr::Name(name)if self.context.types.contains_key(name)&&!matches!(name.as_str(),"Array"|"String")&&!(name=="Object"&&self.context.core_type(name))&&!self.context.intrinsic_type(name,false)) {
-                    return Err(self.error(*offset,"AS2 class casts and class-as-function calls are not implemented in this profile; construct with new or use the existing instance directly."));
+                let as2_type_cast = self.is_as2_type_cast_callee(scope, callee);
+                if as2_type_cast && args.len() != 1 {
+                    return Err(self.error(*offset,"AS2 type cast requires exactly one expression argument."));
                 }
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name=="Selection" && !self.context.types.contains_key(name)) {
                     return Err(self.error(*offset,"AS2 Selection is a shared focus singleton, not a function. Call a Selection method instead."));
@@ -602,9 +608,9 @@ impl<'a> Analysis<'a> {
                 };
                 let legacy_named=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if matches!(name.as_str(),"eval"|"set"|"call"));
                 if legacy_named && binding.is_none() {let expected=if matches!(callee.as_ref(),Expr::Name(name)if name=="set"){2}else{1};if args.len()!=expected{return Err(self.error(*offset,"AS2 eval/call take one argument; set takes a path and value."));}}
-                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"loadMovie"|"unloadMovie"|"containsRectangle"|"watch"|"unwatch"|"addProperty"|"hasOwnProperty"|"isPrototypeOf"|"isPropertyEnumerable"|"valueOf"|"registerClass"|"getSWFVersion"|"getFontList"|"getTextExtent"|"getTextSnapshot"|"getCount"|"getText"|"findText"|"setSelected"|"getSelected"|"getSelectedText"|"setSelectColor"|"getTextRunInfo"|"hitTestTextNearPos"|"parseCSS"|"getStyle"|"setStyle"|"getStyleNames"|"transform"|"replaceSel"|"removeTextField"|"getDepth"|"loadBitmap"|"getPixel"|"getPixel32"|"setPixel"|"setPixel32"|"fillRect"|"copyPixels"|"copyChannel"|"floodFill"|"getColorBoundsRect"|"compare"|"merge"|"paletteMap"|"threshold"|"noise"|"perlinNoise"|"pixelDissolve"|"clone"|"scroll"|"colorTransform"|"applyFilter"|"generateFilterRect"|"draw"|"dispose"|"parseXML"|"createElement"|"createTextNode"|"cloneNode"|"removeNode"|"insertBefore"|"appendChild"|"hasChildNodes"|"getNamespaceForPrefix"|"getPrefixForNamespace"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getRemote"|"setFps"|"getSize"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"attachAudio"|"getInfo"|"play2"|"publish"|"play"|"pause"|"seek"|"close"|"beginBitmapFill"|"isActive"|"updateProperties"|"setKeyFrameInterval"|"setLoopback"|"setQuality"|"setCodec"|"setEncodeQuality"|"setFramesPerPacket"|"setClipboard"|"showSettings"|"allowDomain"|"allowInsecureDomain"|"loadPolicyFile"|"doConversion"|"getConversionMode"|"getEnabled"|"setCompositionString"|"setConversionMode"|"setEnabled"));
+                let legacy_api=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Member(_,name) if matches!(name.as_str(),"loadVariables"|"loadMovie"|"unloadMovie"|"containsRectangle"|"watch"|"unwatch"|"addProperty"|"hasOwnProperty"|"isPrototypeOf"|"isPropertyEnumerable"|"valueOf"|"registerClass"|"getSWFVersion"|"getFontList"|"getTextExtent"|"getTextSnapshot"|"getCount"|"getText"|"findText"|"setSelected"|"getSelected"|"getSelectedText"|"setSelectColor"|"getTextRunInfo"|"hitTestTextNearPos"|"parseCSS"|"getStyle"|"setStyle"|"getStyleNames"|"transform"|"replaceSel"|"removeTextField"|"setTextFormat"|"getDepth"|"loadBitmap"|"getPixel"|"getPixel32"|"setPixel"|"setPixel32"|"fillRect"|"copyPixels"|"copyChannel"|"floodFill"|"getColorBoundsRect"|"compare"|"merge"|"paletteMap"|"threshold"|"noise"|"perlinNoise"|"pixelDissolve"|"clone"|"scroll"|"colorTransform"|"applyFilter"|"generateFilterRect"|"draw"|"dispose"|"parseXML"|"createElement"|"createTextNode"|"cloneNode"|"removeNode"|"insertBefore"|"appendChild"|"hasChildNodes"|"getNamespaceForPrefix"|"getPrefixForNamespace"|"setAdvancedAntialiasingTable"|"initialize"|"broadcastMessage"|"getRGB"|"setRGB"|"getTransform"|"setTransform"|"addListener"|"removeListener"|"getCode"|"getAscii"|"isDown"|"hide"|"show"|"call"|"apply"|"decode"|"load"|"sendAndLoad"|"addRequestHeader"|"getBytesLoaded"|"getBytesTotal"|"toString"|"loadSound"|"start"|"getVolume"|"setVolume"|"getPan"|"setPan"|"loadClip"|"unloadClip"|"getProgress"|"getLocal"|"getRemote"|"setFps"|"getSize"|"setDirty"|"flush"|"clear"|"setFocus"|"getFocus"|"getBeginIndex"|"getEndIndex"|"getCaretIndex"|"setSelection"|"connect"|"attachVideo"|"attachAudio"|"getInfo"|"play2"|"publish"|"play"|"pause"|"seek"|"close"|"beginBitmapFill"|"isActive"|"updateProperties"|"setKeyFrameInterval"|"setLoopback"|"setQuality"|"setCodec"|"setEncodeQuality"|"setFramesPerPacket"|"setClipboard"|"showSettings"|"allowDomain"|"allowInsecureDomain"|"loadPolicyFile"|"doConversion"|"getConversionMode"|"getEnabled"|"setCompositionString"|"setConversionMode"|"setEnabled"));
                 let legacy_get_url=self.script.language==ScriptLanguage::ActionScript2 && matches!(callee.as_ref(),Expr::Name(name) if super::is_as2_frame_global(name) && !self.context.types.contains_key(name));
-                let builtin=binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3)));
+                let builtin=as2_type_cast||(binding.is_none() && !shadowed_math && (Frontend::builtin_call(callee)||legacy_named||legacy_api||legacy_get_url||matches!(callee.as_ref(),Expr::Name(name)if self.context.numeric_conversion(name,self.script.language==ScriptLanguage::ActionScript3)||self.context.utility_function(name,self.script.language==ScriptLanguage::ActionScript3))));
                 // AS2 permits a later frame or a parent script to install a
                 // function on this timeline. The host checks the actual value
                 // when the call executes; arbitrary member APIs stay blocked.
@@ -758,6 +764,20 @@ impl<'a> Analysis<'a> {
         if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt {
             return self.function(scope, f);
         }
+        if let Stmt::If(_, _, _) = stmt {
+            let mut cur = Some(stmt);
+            while let Some(node) = cur {
+                if let Stmt::If(cond, yes, no) = node {
+                    self.expression(scope, cond)?;
+                    self.statement(scope, yes)?;
+                    cur = no.as_deref();
+                } else {
+                    self.statement(scope, node)?;
+                    break;
+                }
+            }
+            return Ok(());
+        }
         if let Stmt::Return(value, offset) = stmt {
             let ty = self.scopes[&scope].returns.as_deref();
             if value.is_some() && matches!(ty, Some("void" | "Void")) {
@@ -781,12 +801,51 @@ impl<'a> Analysis<'a> {
         }
         Ok(())
     }
+    fn is_as2_type_cast_callee(&self, scope: usize, callee: &Expr) -> bool {
+        if self.script.language != ScriptLanguage::ActionScript2 {
+            return false;
+        }
+        let Some(name) = super::qualified_expr_name(callee) else {
+            return false;
+        };
+        let root = name.split('.').next().unwrap();
+        if self.resolve(scope, root).is_some() {
+            return false;
+        }
+        if matches!(name.as_str(), "Array" | "String")
+            || (matches!(name.as_str(), "Object" | "Number" | "Boolean")
+                && self.context.core_type(&name))
+            || (name == "Date" && self.context.intrinsic_type(&name, false))
+            || self.context.utility_function(&name, false)
+            || self.context.numeric_conversion(&name, false)
+            || self.context.functions.contains_key(&name)
+            || matches!(
+                name.as_str(),
+                "getTimer" | "setInterval" | "setTimeout" | "clearInterval" | "clearTimeout"
+            )
+        {
+            return false;
+        }
+        (self.context.types.contains_key(&name) && !self.context.intrinsic_type(&name, false))
+            || (matches!(name.as_str(), "XML" | "XMLNode")
+                && self.context.intrinsic_type(&name, false))
+            || super::is_as2_legacy_instanceof_type(&name)
+    }
 }
 fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt {
         Stmt::Expr(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
-        Stmt::If(e, _, _) | Stmt::While(e, _) | Stmt::With(e, _, _) | Stmt::TellTarget(e, _, _) => {
+        Stmt::If(_, _, _) => {
+            let mut out = Vec::new();
+            let mut cur = Some(stmt);
+            while let Some(Stmt::If(e, _, no)) = cur {
+                out.push(e);
+                cur = no.as_deref();
+            }
+            out
+        }
+        Stmt::While(e, _) | Stmt::With(e, _, _) | Stmt::TellTarget(e, _, _) => {
             vec![e]
         }
         Stmt::IfFrameLoaded(args, _) => args.iter().collect(),
@@ -803,9 +862,20 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
 fn statements(stmt: &Stmt) -> Vec<&Stmt> {
     match stmt {
         Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
-        Stmt::If(_, y, n) => std::iter::once(y.as_ref())
-            .chain(n.iter().map(Box::as_ref))
-            .collect(),
+        Stmt::If(_, _, _) => {
+            let mut out = Vec::new();
+            let mut cur = Some(stmt);
+            while let Some(node) = cur {
+                if let Stmt::If(_, y, n) = node {
+                    out.push(y.as_ref());
+                    cur = n.as_deref();
+                } else {
+                    out.push(node);
+                    break;
+                }
+            }
+            out
+        }
         Stmt::While(_, b)
         | Stmt::With(_, b, _)
         | Stmt::TellTarget(_, b, _)

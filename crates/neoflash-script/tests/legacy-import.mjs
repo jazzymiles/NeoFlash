@@ -207,6 +207,20 @@ this.triggerDataLoad = function() {
 this.disableNavBtn = function() {
   this.NAVBTN.ENABLED = false;
 };
+this.ephemeralFlag = "temp";
+function checkAs1Delete(paramKeep) {
+  var localKeepAs1 = 55;
+  this.delLocalRefused = (delete LOCALKEEPAS1) or (delete PARAMKEEP);
+  this.afterDelLocal = localKeepAs1;
+}
+this.delTimelineOk = delete EPHEMERALFLAG;
+this.delMissingOk = delete EPHEMERALFLAG;
+this.checkAs1Delete(99);
+var enumSeen = [];
+for (var k in this) {
+  if (k == "actor" || k == "rootScore") enumSeen.push(k);
+}
+this.enumCount = enumSeen.length;
 `;
 
     const actorInst=instance('actor','actor_sym');
@@ -342,5 +356,11 @@ this.disableNavBtn = function() {
     assert.equal(scene.actor.bonus,'77');
     assert.equal(scene.actor.tag,'loaded');
     assert.equal(scene.actor.dataLog,'D1:77;D2:loaded;');
+    assert.equal(scene.delTimelineOk,true,'AS1 delete <identifier> removes case-insensitive timeline variable');
+    assert.equal(scene.ephemeralFlag,undefined);
+    assert.equal(scene.delMissingOk,false,'AS1 delete <identifier> on missing variable returns false');
+    assert.equal(scene.delLocalRefused,false,'AS1 delete <identifier> on local var returns false without deleting');
+    assert.equal(scene.afterDelLocal,55);
+    assert.equal(scene.enumCount,2,'AS1 for..in on MovieClip enumerates child clips and custom timeline properties');
   } finally {host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
 }

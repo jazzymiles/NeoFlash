@@ -45,6 +45,23 @@ const __nfProgram = (() => {
         if (!is(value, name)) throw new TypeError(`AS3 ${name} value required.`);
         return value;
     }
+    function as2Cast(name, value) {
+        if (value == null || (typeof value !== 'object' && typeof value !== 'function')) return null;
+        if (definitions.has(name) || interfaces.has(name)) {
+            if (is(value, name)) return value;
+            if (!interfaces.has(name)) {
+                const facade = definitions.get(name)?.facade;
+                if (typeof facade === 'function' && __nfLegacyInstanceOf(value, facade)) return value;
+            }
+            return null;
+        }
+        const ctor = builtins[name] ?? resolveIntrinsic(name) ?? (name === 'TextField.StyleSheet' ? __nfLegacy?.TextField?.StyleSheet : undefined);
+        if (ctor == null) return null;
+        if (typeof ctor.__nfIs === 'function' && ctor.__nfIs(value)) return value;
+        if (name === 'Object') return value;
+        if (typeof ctor === 'function' && __nfLegacyInstanceOf(value, ctor)) return value;
+        return null;
+    }
     function chain(name) {
         const result = [];
         for (let current = definitions.get(name); current; current = definitions.get(current.base)) result.unshift(current);
@@ -481,7 +498,7 @@ const __nfProgram = (() => {
     function runInitClips(root) {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
-    return Object.freeze({ type, is, cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

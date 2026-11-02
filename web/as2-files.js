@@ -86,8 +86,8 @@
       const token=r.operation;
       try{
         // Invoke before awaiting: this must stay in the initiating user gesture.
-        const handle=await global.showSaveFilePicker({suggestedName:suggested});if(!valid(r,token))return;
-        const name=core({op:'name',name:handle.name});r.metadata={...name,size:0,modified:null};
+        const handle=typeof global.showSaveFilePicker==='function'?await global.showSaveFilePicker({suggestedName:suggested}):null;if(!valid(r,token))return;
+        const name=core({op:'name',name:handle?handle.name:suggested});r.metadata={...name,size:0,modified:null};
         if(!emit(r,'onSelect')||!valid(r,token))return;
         if(!emit(r,'onOpen')||!valid(r,token))return;
         token.loader=new net.URLLoader();token.loader.dataFormat='binary';listenLoader(r,token,true);
@@ -96,11 +96,20 @@
           try{
             const bytes=binary.toBytes(token.loader.data);token.loader.data.clear();
             if(bytes.length>8*1024*1024)throw new RangeError('Downloaded files must be at most 8 MiB.');
-            token.writable=await handle.createWritable();if(!valid(r,token)){await token.writable.abort();return;}
-            await token.writable.write(bytes);if(!valid(r,token)){await token.writable.abort();return;}
-            await token.writable.close();token.writable=null;if(!valid(r,token))return;
-            const saved=await handle.getFile();if(!valid(r,token))return;
-            r.file=saved;r.metadata=metadata(saved);r.operation=null;emit(r,'onComplete');
+            if(handle){
+              token.writable=await handle.createWritable();if(!valid(r,token)){await token.writable.abort();return;}
+              await token.writable.write(bytes);if(!valid(r,token)){await token.writable.abort();return;}
+              await token.writable.close();token.writable=null;if(!valid(r,token))return;
+              const saved=await handle.getFile();if(!valid(r,token))return;
+              r.file=saved;r.metadata=metadata(saved);
+            }else{
+              if(typeof global.document?.createElement==='function'&&typeof global.URL?.createObjectURL==='function'){
+                const blobUrl=global.URL.createObjectURL(new Blob([bytes])),a=global.document.createElement('a');
+                a.href=blobUrl;a.download=name.name;a.click?.();global.URL.revokeObjectURL?.(blobUrl);
+              }
+              r.metadata={...name,size:bytes.length,modified:Date.now()};
+            }
+            r.operation=null;emit(r,'onComplete');
           }catch(error){failed(r,token,error);}
         })();});
         const request=new net.URLRequest(target);if(r.postData){request.method='POST';request.data=r.postData;}token.loader.load(request);
@@ -113,7 +122,7 @@
       browse(types){return browse(state(this,files),types,false);}
       cancel(){cancel(state(this,files));}
       upload(target,field='Filedata',testUpload=false){const r=state(this,files);if(!r.file)throw new Error('Select a file before calling upload.');if(r.operation)throw new Error('A file operation is already active.');if(typeof field!=='string'||!field||field.length>128)throw new TypeError('Upload data field name must contain 1..128 characters.');if(testUpload!==false)unsupported('Windows test-upload preflight');const destination=url(target);r.operation={};void upload(r,destination,field,testUpload);return true;}
-      download(target,defaultFileName='download'){const r=state(this,files);if(!gesture())throw new Error('File download requires an actual user click.');if(r.operation)throw new Error('A file operation is already active.');if(typeof global.showSaveFilePicker!=='function')unsupported('File download: use a Chromium browser with the File System Access API');const destination=url(target),suggested=core({op:'name',name:defaultFileName}).name;r.operation={};void download(r,destination,suggested);return true;}
+      download(target,defaultFileName='download'){const r=state(this,files);if(!gesture())throw new Error('File download requires an actual user click.');if(r.operation)throw new Error('A file operation is already active.');const destination=url(target),suggested=core({op:'name',name:defaultFileName}).name;r.operation={};void download(r,destination,suggested);return true;}
       get name(){return state(this,files).metadata?.name;}get size(){return state(this,files).metadata?.size;}get type(){return state(this,files).metadata?.type;}
       get modificationDate(){const value=state(this,files).metadata?.modified;return value===null||value===undefined?undefined:new Date(value);}
       get creationDate(){const meta=state(this,files).metadata,value=meta?.created??meta?.modified;return value===null||value===undefined?undefined:new Date(value);}

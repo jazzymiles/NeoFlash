@@ -430,7 +430,21 @@
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
-      legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n",caseKey(receiver,name){
+      legacyGlobals=Object.freeze({...legacyGlobals,_global:Object.create(null),newline:"\n",
+      hasOwnDeleteTarget(receiver,name){
+        const ref=references.get(receiver);
+        if(ref)return ref.customKeys().includes(name)||(name==='_accProps'&&Boolean(display?.readAccProps?.(receiver)));
+        return receiver!==null&&receiver!==undefined&&Object.hasOwn(Object(receiver),name);
+      },
+      enumerateKeys(receiver){
+        const ref=references.get(receiver);
+        if(!ref||!display?.alive(receiver))return[];
+        const seen=new Set(ref.customKeys());
+        if(display.descriptor(receiver).owner==='movie_clip')for(const node of display.children(receiver))if(node.name)seen.add(node.name);
+        for(let p=Object.getPrototypeOf(receiver);p&&p!==Object.prototype;p=Object.getPrototypeOf(p))for(const k of Object.keys(p))seen.add(k);
+        return[...seen];
+      },
+      caseKey(receiver,name){
         if(typeof wasm.legacy_case_name_json!=='function')throw new Error('The SWF6 case-name service is missing. Re-export this project.');
         const keys=[],seen=new Set(),add=key=>{if(typeof key==='string'&&!seen.has(key)){if(keys.length>=100000)throw new RangeError('Legacy property lookup exceeds 100000 names.');seen.add(key);keys.push(key);}};
         const ref=references.get(receiver);
@@ -441,6 +455,7 @@
         }
         return wasm.legacy_case_name_json(name,JSON.stringify(keys));
       }});
+      const notifySystemStatus=info=>{const fn=as2PlatformHost?.System?.onStatus;if(typeof fn==='function')Reflect.apply(fn,as2PlatformHost.System,[info]);};
       if(as2PlatformHost)legacyGlobals=Object.freeze({...legacyGlobals,System:as2PlatformHost.System,getVersion:as2PlatformHost.getVersion,updateAfterEvent:as2PlatformHost.updateAfterEvent});
       const legacyContext=caller=>{
         if(caller!==null&&typeof caller==='object'&&Object.hasOwn(caller,'__nfTimeline')){
@@ -566,11 +581,12 @@
           const ref=references.get(target);
           if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')return false;
           const hasScene=args.length>=2,scene=hasScene?(args[0]==null?null:String(args[0])):null,raw=hasScene?args[1]:args[0];
+          const targetRef=hasScene?references.get(proxyFor([])):ref;
           let frame;
           if(typeof raw==='number'){if(!Number.isFinite(raw)||!Number.isInteger(raw))return false;frame=raw;}
           else if(typeof raw==='string')frame=raw;
           else return false;
-          return Boolean(player.as2_is_frame_loaded(ref.key,JSON.stringify({scene,frame})));
+          return Boolean(player.as2_is_frame_loaded(targetRef.key,JSON.stringify({scene,frame})));
         },
         globalPropRef:name=>{const ref=display.as2GlobalPropRef(name);if(!ref)throw new ReferenceError(`Unknown AS2 global property ${name}.`);return ref;},
         toggleHighQuality:display.toggleHighQuality,
@@ -622,7 +638,7 @@
         amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),getProgram:()=>program,isUnsupported:value=>references.has(value)});
         binaryHost.setObjectCodec(amfHost);
         if(global.NeoFlashStorage&&global.NeoFlashEvents){
-          storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error)});
+          storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error),onSystemStatus:notifySystemStatus});
           legacyGlobals=Object.freeze({...legacyGlobals,SharedObject:storageHost.LegacySharedObject});
         }
       }
@@ -641,21 +657,21 @@
       if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
       if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
-        loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
+        loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),getRoot:()=>proxyFor([]),onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
         audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],resolveSoundTarget:value=>{if(value===undefined||value===null)return null;const resolved=typeof value==='string'?(value===''?proxyFor([]):display.resolveTarget(value,proxyFor([]))):value;if(!resolved||!references.has(resolved)||!display.alive(resolved)||display.descriptor(resolved).owner!=='movie_clip')throw new TypeError('AS2 Sound target must be undefined, null, or a live MovieClip.');return resolved;},onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:stopAllSounds});
       }
-      if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,getXML:()=>xmlHost?.LegacyXML,onError:netFailure,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection,XMLSocket:as2ConnectionsHost.XMLSocket});}
+      if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,getXML:()=>xmlHost?.LegacyXML,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection,XMLSocket:as2ConnectionsHost.XMLSocket});}
       if(global.NeoFlashAS2Print&&bitmapHost){as2PrintHost=global.NeoFlashAS2Print.create(wasm,{
         resolveTarget:value=>{const target=value===0?proxyFor([]):typeof value==='string'?display.resolveTarget(value,proxyFor([])):value;if(!references.has(target)||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('PrintJob requires level 0 or a live MovieClip.');return target;},
         bounds:target=>{if(target===proxyFor([])){const [width,height]=logicalSize();return {xMin:0,yMin:0,xMax:width,yMax:height};}const b=target.getBounds(target);return {xMin:b.x,yMin:b.y,xMax:b.x+b.width,yMax:b.y+b.height};},
         capture:(target,plan)=>{const bitmap=new bitmapHost.BitmapData(plan.width,plan.height,false,0xffffff);try{bitmap.draw(target,new geometryHost.Matrix(1,0,0,1,-plan.x,-plan.y));return player.bitmap_encode_png(JSON.stringify(bitmapHost.refOf(bitmap)),0,0,plan.width,plan.height,false);}finally{bitmap.dispose();}},onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,PrintJob:as2PrintHost.PrintJob});}
-      if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
+      if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure,onSystemStatus:notifySystemStatus});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
-        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
+        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
         const LegacyVideo=function(){throw new TypeError('AS2 Video must be an authored Video placement; new Video() is not available.');};
         Object.defineProperties(LegacyVideo,{__nfIs:{value:videoHost.Video.__nfIs},[Symbol.hasInstance]:{value:videoHost.Video.__nfIs}});
         legacyGlobals=Object.freeze({...legacyGlobals,Video:LegacyVideo,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
@@ -1282,13 +1298,21 @@
       references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes',...ownerNativeKeys()],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
-      // AS2 gotoAndPlay("Scene 2", frame) names the scene first.
-      const as2Goto = command => (...args) => args.length >= 2 ? goto(command, args[1], true, args[0]) : goto(command, args[0], true);
+      // AS2 gotoAndPlay("Scene 2", frame) names the scene first and jumps on the root timeline.
+      const as2Goto = command => (...args) => {
+        if (args.length >= 2) {
+          assertAlive();
+          const root = proxyFor([]);
+          if (proxy !== root) return as2.method(root, command === 'goto_and_play' ? 'gotoAndPlay' : 'gotoAndStop')(...args);
+          return goto(command, args[1], true, args[0]);
+        }
+        return goto(command, args[0], true);
+      };
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', as2Goto('goto_and_play'));
       as2.register(methods.gotoAndStop, proxy, 'gotoAndStop', as2Goto('goto_and_stop'));
-      // AS2 nextScene/prevScene compile to a frame jump that stops the playhead.
-      as2.register(methods.nextScene, proxy, 'nextScene', () => sceneStep(1, 'goto_and_stop'));
-      as2.register(methods.prevScene, proxy, 'prevScene', () => sceneStep(-1, 'goto_and_stop'));
+      // AS2 nextScene/prevScene compile to a frame jump on the root timeline that stops the playhead.
+      as2.register(methods.nextScene, proxy, 'nextScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'nextScene')(); return sceneStep(1, 'goto_and_stop'); });
+      as2.register(methods.prevScene, proxy, 'prevScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'prevScene')(); return sceneStep(-1, 'goto_and_stop'); });
       proxies.set(key, { lifetime, proxy });
       return proxy;
     }
