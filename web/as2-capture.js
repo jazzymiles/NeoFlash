@@ -15,7 +15,7 @@ function create(wasm,options={}){
  function invoke(fn,receiver,args){try{Reflect.apply(fn,receiver,args);}catch(error){report(error);}}
  function publish(r,result){
   if(r.generation!==generation||disposed)return;const epoch=generation;r.state=result.state;
-  for(const event of result.events||[]){if(epoch!==generation||disposed)return;const fn=r.receiver[event.type==='status'?'onStatus':'onActivity'];if(typeof fn==='function')invoke(fn,r.receiver,[event.type==='status'?event.info:event.active]);}
+  for(const event of result.events||[]){if(epoch!==generation||disposed)return;const fn=r.receiver[event.type==='status'?'onStatus':'onActivity'];if(typeof fn==='function')invoke(fn,r.receiver,[event.type==='status'?event.info:event.active]);else if(event.type==='status'&&event.info?.level==='error'&&typeof options.onSystemStatus==='function')options.onSystemStatus(event.info);}
   if(epoch===generation&&(result.events?.length))options.afterEvent?.();
  }
  function command(r,request){const result=raw({id:r.id,...request});publish(r,result);return result;}

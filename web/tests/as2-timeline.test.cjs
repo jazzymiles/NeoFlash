@@ -148,8 +148,8 @@ test('scenes play as one main timeline with scene-aware goto in AS3 and AS2', as
   const sceneScripts = [
     as3('trace(currentScene.name, currentFrame, scenes.length, currentScene.numFrames); gotoAndPlay("middle", "Scene 2");'),
     as3('trace(currentScene.name, currentFrame, currentLabel, totalFrames, currentLabels.length); stop();'),
-    as2('gotoAndStop("Scene 1", 3); trace(_currentframe);'),
-    as2('prevScene(); trace(_currentframe);'),
+    as2('var nested:MovieClip = createEmptyMovieClip("nested", 10); tellTarget(nested) { gotoAndStop("Scene 1", 3); } trace(_currentframe);'),
+    as2('var nested2:MovieClip = createEmptyMovieClip("nested2", 11); tellTarget(nested2) { prevScene(); } trace(_currentframe);'),
   ];
   const key = (frame, label = '') => ({ frame, elements: [], label, tween: null });
   const layer = (id, keys) => ({ id, name: id, visible: true, locked: false, keyframes: keys });

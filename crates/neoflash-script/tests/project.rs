@@ -1557,3 +1557,117 @@ var checks:Array = [s instanceof TextField.StyleSheet, n instanceof XMLNode, new
     };
     assert!(neoflash_script::compile(&standalone).is_ok());
 }
+
+#[test]
+fn as1_and_as2_delete_identifier_class_casts_and_deep_else_if_compile_and_validate() {
+    let mut proj = Project::blank();
+    proj.format_version = 5;
+    proj.sources = vec![
+        SourceUnit {
+            id: "as2-iface".into(),
+            path: "app/ITagged.as".into(),
+            language: ScriptLanguage::ActionScript2,
+            source: "interface app.ITagged { function tag():String; }".into(),
+        },
+        SourceUnit {
+            id: "as2-base".into(),
+            path: "app/BaseItem.as".into(),
+            language: ScriptLanguage::ActionScript2,
+            source: "import app.ITagged;
+class app.BaseItem implements ITagged {
+    public function BaseItem() {}
+    public function tag():String { return \"base\"; }
+}"
+            .into(),
+        },
+        SourceUnit {
+            id: "as2-sub".into(),
+            path: "app/SubItem.as".into(),
+            language: ScriptLanguage::ActionScript2,
+            source: "import app.BaseItem;
+import app.ITagged;
+import flash.geom.Point;
+class app.SubItem extends BaseItem {
+    public function SubItem() { super(); }
+    public static function check(v:Object, clip:Object, localParam:Number):Boolean {
+        var localVar:Number = 10;
+        var delLocal:Boolean = delete localVar;
+        var delParam:Boolean = delete localParam;
+        var asBase:BaseItem = BaseItem(v);
+        var asQual:app.BaseItem = app.BaseItem(v);
+        var asSub:SubItem = SubItem(v);
+        var asIface:ITagged = ITagged(v);
+        var asPt:Point = Point(v);
+        var asMc:MovieClip = MovieClip(clip);
+        var asTf:TextField = TextField(clip);
+        var asSheet:TextField.StyleSheet = TextField.StyleSheet(v);
+        var asXml:XML = XML(v);
+        var asNode:XMLNode = XMLNode(v);
+        var asSnd:Sound = Sound(v);
+        return !delLocal && !delParam && asBase != null && asQual != null && asSub != null && asIface != null && asPt == null && asMc != null && asTf == null && asSheet == null && asXml == null && asNode == null && asSnd == null;
+    }
+}"
+            .into(),
+        },
+    ];
+    let program = neoflash_script::compile_project(&proj).expect("AS2 cast + delete project");
+    let mut ladder =
+        String::from("var branch = 88;\nvar picked = -1;\nif (branch == 0) { picked = 0; }");
+    for i in 1..100 {
+        ladder.push_str(&format!(" else if (branch == {i}) {{ picked = {i}; }}"));
+    }
+    ladder.push_str(" else { picked = 999; }\n");
+    let as2_frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: format!(
+            "import app.SubItem;
+import app.BaseItem;
+import app.ITagged;
+import flash.geom.Point;
+{ladder}
+dynTimelineVar = 42;
+var localKeep:Number = 7;
+var delDyn:Boolean = delete dynTimelineVar;
+var delLocal:Boolean = delete localKeep;
+var delThis:Boolean = delete this;
+var item:Object = new SubItem();
+var castSub:SubItem = SubItem(item);
+var castBase:BaseItem = BaseItem(item);
+var castIface:ITagged = ITagged(item);
+var castFail:Point = Point(item);
+var castMc:MovieClip = MovieClip(this);
+var castXml:XML = XML(new XML(\"<x/>\"));
+var castNode:XMLNode = XMLNode(castXml.firstChild);"
+        ),
+    };
+    let compiled_as2 = neoflash_script::compile_with_program(&as2_frame, &program);
+    assert!(compiled_as2.is_ok(), "{:?}", compiled_as2.err());
+
+    let as1_frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript1,
+        source: format!(
+            "{ladder}
+tempScore = 100;
+var localScore = 50;
+deletedTemp = delete TEMPSCORE;
+deletedLocal = delete localScore;"
+        ),
+    };
+    assert!(neoflash_script::compile_with_program(&as1_frame, &program).is_ok());
+
+    for bad_cast in [
+        "import app.SubItem; var x = SubItem();",
+        "import app.SubItem; var x = SubItem(1, 2);",
+        "var x = MovieClip();",
+        "var x = MovieClip(this, 2);",
+    ] {
+        let script = neoflash_core::Script {
+            language: ScriptLanguage::ActionScript2,
+            source: bad_cast.into(),
+        };
+        assert!(
+            neoflash_script::compile_with_program(&script, &program).is_err(),
+            "expected arity error for `{bad_cast}`"
+        );
+    }
+}

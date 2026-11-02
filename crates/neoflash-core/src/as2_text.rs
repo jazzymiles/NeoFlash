@@ -361,10 +361,10 @@ pub fn transform(style: &Style) -> Result<TextFormatPatch, TextError> {
             }
             "textAlign" => {
                 patch.align = Some(match text(value)?.to_ascii_lowercase().as_str() {
-                    "left" => TextAlign::Left,
+                    "left" | "justify" => TextAlign::Left,
                     "center" => TextAlign::Center,
                     "right" => TextAlign::Right,
-                    _ => return Err(error("CSS textAlign supports left/center/right")),
+                    _ => return Err(error("CSS textAlign supports left/center/right/justify")),
                 })
             }
             "marginLeft" => patch.left_margin = Some(number(value)?.max(0.)),
@@ -498,8 +498,8 @@ fn html(
                     }
                 }
                 "align" if tag == "p" => {
-                    next.align = match value.as_str() {
-                        "left" => TextAlign::Left,
+                    next.align = match value.to_ascii_lowercase().as_str() {
+                        "left" | "justify" => TextAlign::Left,
                         "center" => TextAlign::Center,
                         "right" => TextAlign::Right,
                         _ => return Err(error("HTML paragraph alignment is unsupported")),

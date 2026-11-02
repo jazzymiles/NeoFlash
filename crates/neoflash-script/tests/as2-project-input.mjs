@@ -1097,12 +1097,22 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    var loopSum:Number = 0; var wi:Number = 0; while (wi < 4) { wi++; if (wi == 2) continue; loopSum += wi; }',
         '    var doCount:Number = 0; do { doCount++; } while (doCount < 2);',
         '    var delObj:Object = {temp: 99}; var delOk:Boolean = delete delObj.temp;',
+        '    var localKeepVar:Number = 123;',
+        '    var delLocalRes:Boolean = delete localKeepVar;',
+        '    host.tempHostProp = 456;',
+        '    var mcKeysSeen:Number = 0;',
+        '    for (var mk:String in host) { if (mk == "tempHostProp") mcKeysSeen++; }',
+        '    var delHostPropOk:Boolean = delete host.tempHostProp;',
+        '    var delHostPropAgain:Boolean = delete host.tempHostProp;',
+        '    var primKeys:Number = 0;',
+        '    for (var pk:String in 42) { primKeys++; }',
+        '    var castMcOk:Boolean = (MovieClip(host) === host) && (MovieClip(delObj) === null) && (TextField(host) === null);',
         '    trace("batch4-trace-ok");',
         '    out.operatorStmtChecks = [',
         '      opVal == 4 && bitVal == 2 && preRes == 4 && postRes == 4 && pre == 3,',
         '      ((5 & 3) == 1) && ((5 | 2) == 7) && ((5 ^ 1) == 4) && ((~0) == -1) && ((1 << 3) == 8) && ((-8 >> 1) == -4) && ((-1 >>> 30) == 3),',
         '      ("4" == 4) && !("4" === 4) && ("4" !== 4) && (3 != 4) && (2 < 3) && (2 <= 2) && (5 > 4) && (5 >= 5) && (true && !false) && (false || true) && ((true ? 11 : 22) == 11) && (void(99) === undefined) && (typeof "abc" == "string"),',
-        '      withSum == 42 && keysSeen == 2 && swOut == "two" && loopSum == 8 && doCount == 2 && delOk && delObj.temp === undefined',
+        '      withSum == 42 && keysSeen == 2 && swOut == "two" && loopSum == 8 && doCount == 2 && delOk && delObj.temp === undefined && !delLocalRes && localKeepVar == 123 && mcKeysSeen == 1 && delHostPropOk && !delHostPropAgain && primKeys == 0 && castMcOk',
         '    ];',
         '    var xdoc:XML = new XML();',
         '    xdoc.ignoreWhite = true;',
@@ -1350,6 +1360,7 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    var snapHit:Number = snap.hitTestTextNearPos(10, 12, 60);',
         '    var tf:TextField = host.createTextField("richTf", 130, 20, 200, 160, 44);',
         '    var wrapFmt:TextFormat = new TextFormat("Arial", 16, 0x224466, true, true, true);',
+        '    wrapFmt.align = "justify";',
         '    tf.setNewTextFormat(wrapFmt);',
         '    var newFmtBack:TextFormat = tf.getNewTextFormat();',
         '    tf.type = "input"; tf.multiline = true; tf.wordWrap = true; tf.selectable = true;',
@@ -1366,6 +1377,20 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '    var afterEditText:String = tf.text;',
         '    var tfLen:Number = tf.length;',
         '    var tfDepth:Number = tf.getDepth();',
+        '    var rangeFmt1:TextFormat = new TextFormat("Courier", 20, 0xff0000, true);',
+        '    var rangeFmt2:TextFormat = new TextFormat("Times", 14, 0x00ff00, false, true);',
+        '    tf.setTextFormat(0, 2, rangeFmt1);',
+        '    tf.setTextFormat(3, 11, rangeFmt2);',
+        '    var subFmt0:TextFormat = tf.getTextFormat(0, 2);',
+        '    var subFmt1:TextFormat = tf.getTextFormat(3, 11);',
+        '    var mixedFmt:TextFormat = tf.getTextFormat(0, 11);',
+        '    var singleIdxFmt:TextFormat = tf.getTextFormat(1);',
+        '    var setAllFmt:TextFormat = new TextFormat("Verdana", 18, 0x123456);',
+        '    setAllFmt.align = "justify";',
+        '    tf.setTextFormat(setAllFmt);',
+        '    var allFmtBack:TextFormat = tf.getTextFormat();',
+        '    var rangeRunsOk:Boolean = subFmt0.size == 20 && subFmt0.color == 0xff0000 && subFmt1.size == 14 && subFmt1.color == 0x00ff00 && mixedFmt.size === null && singleIdxFmt.size == 20 && allFmtBack.size == 18 && allFmtBack.align == "justify" && newFmtBack.align == "justify";',
+        '    var castGfxOk:Boolean = (TextField(tf) === tf) && (TextField.StyleSheet(sheet) === sheet) && (Point(new Point(1, 2)) instanceof Point) && (Point(tf) === null);',
         '    var scrollerLog:Array = [];',
         '    var tfListener:Object = { onScroller: function(field:TextField):Void { scrollerLog.push("list:" + field.scroll); } };',
         '    tf.addListener(tfListener);',
@@ -1388,7 +1413,7 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '      (fmt instanceof TextFormat) && fmt.font == "Arial" && fmt.size == 16 && fmt.bold === true && fmt.italic === true && fmt.underline === true && fmt.blockIndent == 5 && fmt.bullet === true && fmt.letterSpacing == 1 && fmt.tabStops.length == 2 && ext.width > 0 && ext.textFieldWidth > 0 && ext.ascent > 0,',
         '      (sheet instanceof TextField.StyleSheet) && cssOk && tagStyle.color == "#00aa55" && styleNames.length == 2 && (txFmt instanceof TextFormat) && txFmt.color == 0x00aa55 && txFmt.bold === true && clearSheet.getStyleNames().length == 0,',
         '      (snap instanceof TextSnapshot) && snapCount >= 19 && snapText == "NeoFlash" && snapFind == 9 && snapHasSel && snapSelText == "NeoFlash" && snapRuns.length > 0 && snapHit >= 0,',
-        '      (newFmtBack instanceof TextFormat) && newFmtBack.size == 16 && afterEditText == "Hi NeoFlash" && tfLen == 11 && tfDepth == 130,',
+        '      (newFmtBack instanceof TextFormat) && newFmtBack.size == 16 && afterEditText == "Hi NeoFlash" && tfLen == 11 && tfDepth == 130 && rangeRunsOk && castGfxOk,',
         '      maxSc >= 2 && botSc >= 2 && scrollerLog.length == 2 && remTfList && tfGeomOk && !removedAlive',
         '    ];',
         '    out.cssLoadLog = cssLoadLog;',
@@ -1843,6 +1868,35 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     await until(() => Array.from(b4.core.timerLog).length === 2, 'setInterval + setTimeout fire once and cancelled timers stay silent');
     assert.ok(Array.from(b4.core.timerLog).includes('iv:tick'));
     assert.ok(Array.from(b4.core.timerLog).includes('to:once'));
+
+    // Wave 5 edge-case & conformance checks (Button.enabled state reset, NetStream bytesLoaded/receiveVideo(fps)/currentFps, SharedObject.setDirty, System.onStatus fallback, PrintJob optional args, MovieClipLoader string target)
+    b3Root.actionBtn._visible = true;
+    fHost.display().pointer('mouseMove', b3Root.actionBtn);
+    assert.equal(fHost.display().handCursor(b3Root.actionBtn), true);
+    b3Root.actionBtn.enabled = false;
+    assert.equal(fHost.display().handCursor(b3Root.actionBtn), false, 'disabled Button suppresses handCursor and resets Over/Down state');
+    b3Root.actionBtn.enabled = true;
+
+    assert.equal(typeof b3Root.streamRef.bytesLoaded, 'number');
+    assert.equal(typeof b3Root.streamRef.bytesTotal, 'number');
+    assert.equal(typeof b3Root.streamRef.currentFps, 'number');
+    b3Root.streamRef.receiveVideo(0);
+    b3Root.streamRef.receiveVideo(24);
+
+    const localSo = fHost.legacy().SharedObject.getLocal('wave5_dirty_test');
+    localSo.data.counter = 1;
+    localSo.setDirty('counter');
+    assert.equal(localSo.flush(), true);
+
+    const sysStatuses = [];
+    fHost.legacy().System.onStatus = info => sysStatuses.push(info.code || info.level);
+    const unhandledNs = new (fHost.legacy().NetStream)( (function() { const nc = new (fHost.legacy().NetConnection)(); nc.connect(null); return nc; })() );
+    unhandledNs.publish('bad_upstream', 'live');
+    await until(() => sysStatuses.includes('NetStream.Publish.BadName'), 'unhandled NetStream error status routes to System.onStatus');
+    fHost.legacy().System.onStatus = null;
+
+    const strProg = b3Root.loaderRef.getProgress('slotOk');
+    assert.equal(typeof strProg.bytesLoaded, 'number', 'MovieClipLoader accepts string target paths');
   } finally {
     if (hadLocation) globalThis.location = prevLocation;
     else delete globalThis.location;

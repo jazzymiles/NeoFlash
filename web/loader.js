@@ -165,8 +165,11 @@
     };}
     function get(target,name){const record=state(target);if(name==='content')return record.content;if(name==='contentLoaderInfo')return record.info;return undefined;}
     function targetRecord(receiver,target,createRecord){
-      const owner=legacyState(receiver),ref=referenceOf(target);
-      if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('MovieClipLoader requires a live MovieClip target; string paths and levels are unsupported.');
+      const owner=legacyState(receiver);
+      if(target===0&&typeof options.getRoot==='function')target=options.getRoot();
+      else if(typeof target==='string')target=/^_level0$/i.test(target)&&typeof options.getRoot==='function'?options.getRoot():display.resolveTarget(target,options.getRoot?.());
+      const ref=referenceOf(target);
+      if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('MovieClipLoader requires a live MovieClip target.');
       const node=display.descriptor(target);if(node.authored_path?.length===0)throw new TypeError('MovieClipLoader cannot replace the publication root.');
       let record=targets.get(key(ref.objectRef));
       if(record&&!record.as2)throw new TypeError('MovieClipLoader cannot replace an AS3 Loader.');

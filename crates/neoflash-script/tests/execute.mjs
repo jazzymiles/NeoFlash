@@ -199,6 +199,29 @@ const fixtures = [
     },
   },
   {
+    language: 'action_script2',
+    source: (() => {
+      let ladder = 'var idx:Number = 87; matched = -1; if (idx == 0) { matched = 0; }';
+      for (let i = 1; i < 95; i++) ladder += ` else if (idx == ${i}) { matched = ${i}; }`;
+      ladder += ' else { matched = -2; }';
+      return `${ladder} tempVar = "gone"; var topVar:Number = 11; function checkDel(paramVal:Number):Array { var innerLocal:Number = 22; return [delete tempVar, delete tempVar, delete topVar, delete innerLocal, delete paramVal, delete this, delete Math, innerLocal]; } delResults = checkDel(33); mcMatch = MovieClip(this); mcFail = MovieClip({}); sndFail = Sound(123);`;
+    })(),
+    context: {},
+    legacy: {
+      MovieClip: { __nfIs(v) { return v && v.__isMc === true; } },
+      Sound: { __nfIs() { return false; } },
+    },
+    verify(context) {
+      assert.equal(context.matched, 87);
+      assert.deepEqual(Array.from(context.delResults), [true, false, true, false, false, false, false, 22]);
+      assert.equal('tempVar' in context, false);
+      assert.equal('topVar' in context, false);
+      assert.equal(context.mcMatch, null);
+      assert.equal(context.mcFail, null);
+      assert.equal(context.sndFail, null);
+    },
+  },
+  {
     language: 'action_script3',
     source: 'x = 2 + 3 * 4; y = (2 + 3) * 4; sum = 0; for (var i:int = 0; i < 5; i++) { if (i == 2) continue; sum += i; }',
     context: {},

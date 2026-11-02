@@ -119,6 +119,11 @@ function __nfLegacyInstanceOf(value, ctor) {
     }
     return value instanceof ctor;
 }
+function __nfLegacyCast(ctor, value) {
+    if (value === null || value === undefined || (typeof value !== 'object' && typeof value !== 'function')) return null;
+    if (typeof ctor?.__nfIs === 'function' && ctor.__nfIs(value)) return value;
+    return __nfLegacyInstanceOf(value, ctor) ? value : null;
+}
 function __nfLegacySuperConstruct(receiver, args) {
     if (receiver == null || (typeof receiver !== 'object' && typeof receiver !== 'function')) return undefined;
     const base = __nfLegacyBaseProto(receiver);

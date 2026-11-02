@@ -629,6 +629,45 @@ impl<'a> Frontend<'a> {
         Ok(statement)
     }
     #[inline(never)]
+    fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
+        let mut branches = Vec::new();
+        let mut tail = None;
+        let mut close_braces = 0usize;
+        loop {
+            if branches.len() >= 1024 {
+                return Err(self.error("ActionScript if/else-if chain exceeds 1024 branches."));
+            }
+            self.expect("(")?;
+            let condition = self.sequence_expression()?;
+            self.expect(")")?;
+            let yes = Box::new(self.statement()?);
+            branches.push((condition, yes));
+            if self.eat("else") {
+                if self.eat("if") {
+                    continue;
+                }
+                let saved_pos = self.pos;
+                if self.eat("{") {
+                    if self.eat("if") {
+                        close_braces += 1;
+                        continue;
+                    }
+                    self.pos = saved_pos;
+                }
+                tail = Some(Box::new(self.statement()?));
+            }
+            break;
+        }
+        for _ in 0..close_braces {
+            self.expect("}")?;
+        }
+        let mut current = tail;
+        for (condition, yes) in branches.into_iter().rev() {
+            current = Some(Box::new(Stmt::If(condition, yes, current)));
+        }
+        Ok(*current.unwrap())
+    }
+    #[inline(never)]
     fn parse_initclip(&mut self) -> Result<Stmt, Diagnostic> {
         let offset = self.token().offset;
         if self.script.language != ScriptLanguage::ActionScript2 {
@@ -1049,16 +1088,7 @@ impl<'a> Frontend<'a> {
             return Ok(value);
         }
         if self.eat("if") {
-            self.expect("(")?;
-            let condition = self.sequence_expression()?;
-            self.expect(")")?;
-            let yes = Box::new(self.statement()?);
-            let no = if self.eat("else") {
-                Some(Box::new(self.statement()?))
-            } else {
-                None
-            };
-            return Ok(Stmt::If(condition, yes, no));
+            return self.parse_if();
         }
         if self.eat("while") {
             self.expect("(")?;
@@ -1632,7 +1662,9 @@ impl<'a> Frontend<'a> {
                         descendant: false,
                         ..
                     }
-            ) && !(self.with_depth > 0 && matches!(operand, Expr::Name(_)))
+            ) && !((self.with_depth > 0
+                || self.script.language == ScriptLanguage::ActionScript2)
+                && matches!(operand, Expr::Name(_)))
             {
                 return Err(self.error("delete requires a property or indexed element; deleting lexical bindings is unsupported."));
             }
@@ -2105,6 +2137,14 @@ pub(super) fn is_as2_frame_global(name: &str) -> bool {
             | "asfunction"
             | "MMExecute"
     )
+}
+
+fn qualified_expr_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Name(n) => Some(n.clone()),
+        Expr::Member(base, n) => Some(format!("{}.{}", qualified_expr_name(base)?, n)),
+        _ => None,
+    }
 }
 
 fn is_as2_legacy_instanceof_type(name: &str) -> bool {
@@ -3039,7 +3079,16 @@ impl Emitter<'_> {
                 let expression = Expr::Name(canonical.clone());
                 let value = self.name(&canonical);
                 let reference = self.reference(&expression).unwrap_or_else(|| {
-                    format!("{{get:()=>{value},set:__nfAssigned=>({value}=__nfAssigned)}}")
+                    let timeline = self.active_timeline();
+                    let delete_fn = if self.unscoped_name(&canonical) == format!("{timeline}.{canonical}") {
+                        format!(
+                            "()=>__nfContainerRef({timeline}, {canonical:?}, false{}).delete()",
+                            self.container_tail()
+                        )
+                    } else {
+                        "()=>false".into()
+                    };
+                    format!("{{get:()=>{value},set:__nfAssigned=>({value}=__nfAssigned),delete:{delete_fn}}}")
                 });
                 format!("case {key:?}: return {reference};")
             })
@@ -3386,10 +3435,25 @@ impl Emitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Expr::Delete(target, _) => format!(
-                "({}).delete()",
-                self.reference(target).expect("delete property")
-            ),
+            Expr::Delete(target, _) => {
+                if let Some(reference) = self.reference(target) {
+                    format!("({reference}).delete()")
+                } else if !self.as3
+                    && let Expr::Name(name) = target.as_ref()
+                {
+                    let timeline = self.active_timeline();
+                    if self.unscoped_name(name) == format!("{timeline}.{name}") {
+                        format!(
+                            "__nfContainerRef({timeline}, {name:?}, false{}).delete()",
+                            self.container_tail()
+                        )
+                    } else {
+                        "false".into()
+                    }
+                } else {
+                    panic!("delete property")
+                }
+            }
             Expr::Literal(value) => value.clone(),
             Expr::Name(name) if self.with_reference(name).is_some() => self.name(name),
             Expr::Name(name)
@@ -3957,6 +4021,46 @@ impl Emitter<'_> {
                             .join(", ")
                     );
                 }
+                if !self.as3
+                    && args.len() == 1
+                    && let Some(name) = qualified_expr_name(callee)
+                    && self
+                        .analysis
+                        .resolve(self.scope, name.split('.').next().unwrap())
+                        .is_none()
+                    && !matches!(name.as_str(), "Array" | "String")
+                    && !(matches!(name.as_str(), "Object" | "Number" | "Boolean")
+                        && self.analysis.context.core_type(&name))
+                    && !(name == "Date" && self.analysis.context.intrinsic_type(&name, false))
+                    && !self.analysis.context.utility_function(&name, false)
+                    && !self.analysis.context.numeric_conversion(&name, false)
+                    && !self.analysis.context.functions.contains_key(&name)
+                {
+                    if matches!(name.as_str(), "XML" | "XMLNode")
+                        && self.analysis.context.intrinsic_type(&name, false)
+                    {
+                        return format!(
+                            "__nfLegacyCast(__nfXMLClass({name:?}, false), {})",
+                            self.expression(&args[0])
+                        );
+                    }
+                    if !self.analysis.context.intrinsic_type(&name, false)
+                        && let Some(qname) = self.analysis.context.types.get(&name)
+                    {
+                        return format!(
+                            "__nfProgram.as2Cast({qname:?}, {})",
+                            self.expression(&args[0])
+                        );
+                    }
+                    if is_as2_legacy_instanceof_type(&name) {
+                        let ctor = if name == "TextField.StyleSheet" {
+                            "__nfLegacy?.TextField?.StyleSheet".to_owned()
+                        } else {
+                            format!("__nfLegacy?.{name}")
+                        };
+                        return format!("__nfLegacyCast({ctor}, {})", self.expression(&args[0]));
+                    }
+                }
                 if let Expr::Name(name) = callee.as_ref()
                     && self.analysis.resolve(self.scope, name).is_none()
                 {
@@ -4382,8 +4486,19 @@ impl Emitter<'_> {
                     self.expression(condition),
                     self.statement(yes)
                 );
-                if let Some(no) = no {
-                    output.push_str(&format!(" else {{\n{}\n}}", self.statement(no)));
+                let mut cur = no.as_deref();
+                while let Some(node) = cur {
+                    if let Stmt::If(next_cond, next_yes, next_no) = node {
+                        output.push_str(&format!(
+                            " else if ({}) {{\n{}\n}}",
+                            self.expression(next_cond),
+                            self.statement(next_yes)
+                        ));
+                        cur = next_no.as_deref();
+                    } else {
+                        output.push_str(&format!(" else {{\n{}\n}}", self.statement(node)));
+                        break;
+                    }
                 }
                 output
             }

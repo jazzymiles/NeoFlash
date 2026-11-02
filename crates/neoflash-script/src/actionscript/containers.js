@@ -104,7 +104,7 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
             };
             return legacy?.objects?legacy.objects.set(receiver,name,value,()=>scoped?scoped.get():legacyProto?(Object.getPrototypeOf(receiver)??undefined):receiver[name],write):write(value);
         },
-        delete(){const name=__nfLegacyKey(receiver,key,as3,legacyCase),scoped=scopedRef(name),removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
+        delete(){const name=__nfLegacyKey(receiver,key,as3,legacyCase),scoped=scopedRef(name);if(!as3&&!scoped){const hasOwn=typeof legacy?.hasOwnDeleteTarget==='function'?legacy.hasOwnDeleteTarget(receiver,name):Object.hasOwn(object,name);if(!hasOwn)return false;}const removed=scoped?scoped.delete():Reflect.deleteProperty(object,name);if(removed)legacy?.objects?.deleted(receiver,name);return removed;},
         has(){const name=__nfLegacyKey(receiver,key,as3,legacyCase),scoped=scopedRef(name);return scoped?scoped.has():Reflect.has(object,name);},
     };
 }
@@ -135,11 +135,24 @@ function __nfEnumerate(receiver,values,as3,legacyCase){
         const keys=__nfVectorKeys(receiver);if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
         return (function*(){for(const key of keys){const ref=__nfVectorRef(receiver,key);if(ref.has())yield values?ref.get():key;}})();
     }
+    if(!as3){
+        if(typeof receiver!=='object'&&typeof receiver!=='function')return [][Symbol.iterator]();
+        if(receiver[Symbol.toStringTag]==='NeoFlashDisplayObject'){
+            const legacy=typeof __nfLegacy!=='undefined'?__nfLegacy:null;
+            const keys=typeof legacy?.enumerateKeys==='function'?legacy.enumerateKeys(receiver):[];
+            if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
+            return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,false,undefined,legacyCase);if(ref.has())yield values?ref.get():key;}})();
+        }
+        const program=__nfContainerProgram(),fixed=program?.enumerationKeys?.(receiver)??null;
+        let keys=fixed;
+        if(keys===null){keys=[];for(const key in receiver){if(keys.length>=__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');keys.push(key);}}
+        if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
+        return (function*(){for(const key of keys){const ref=__nfContainerRef(receiver,key,false,undefined,legacyCase);if(ref.has())yield values?ref.get():key;}})();
+    }
     if(typeof receiver!=='object'||receiver[Symbol.toStringTag]==='NeoFlashDisplayObject')throw new __nfTypeError('Enumeration currently supports arrays, plain records and ordinary project objects; hidden native/display storage is unsupported.');
     const program=__nfContainerProgram(),fixed=program?.enumerationKeys?.(receiver)??null;
     const prototype=Object.getPrototypeOf(receiver);
-    const legacyUserProto=!as3&&(legacyCase!==undefined?Boolean(legacyCase):(typeof __nfLegacyCase!=='undefined'&&__nfLegacyCase===true))&&(()=>{let p=prototype,d=0;while(p!==null&&p!==Object.prototype){if(++d>256||typeof p!=='object'||Object.hasOwn(p,Symbol.toStringTag)||(typeof p.constructor==='function'&&p.constructor!==Object&&!__nfFunctionRecord(p.constructor)))return false;p=Object.getPrototypeOf(p);}return true;})();
-    if(!Array.isArray(receiver)&&fixed===null&&prototype!==null&&prototype!==Object.prototype&&!legacyUserProto)throw new __nfTypeError('Enumeration of this native or foreign object is unsupported; copy its public values into a plain record.');
+    if(!Array.isArray(receiver)&&fixed===null&&prototype!==null&&prototype!==Object.prototype)throw new __nfTypeError('Enumeration of this native or foreign object is unsupported; copy its public values into a plain record.');
     let keys=fixed;
     if(keys===null){keys=[];for(const key in receiver){if(keys.length>=__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');keys.push(key);}}
     if(keys.length>__nfContainerLimit)throw new __nfTypeError('Enumeration exceeds 1000000 entries.');
@@ -158,7 +171,7 @@ function __nfWithRef(targets,name,fallback,receiver,caller,legacyCase){
 }
 function __nfWithMethod(ref){
     const methodKey=ref.legacyCase&&ref.receiver!=null?__nfLegacyKey(ref.receiver,ref.name,false,true):ref.name;
-    if(ref.receiver!==undefined&&(methodKey==='gotoAndPlay'||methodKey==='gotoAndStop'))return __nfAs2Method(ref.receiver,methodKey,Boolean(ref.legacyCase));
+    if(ref.receiver!==undefined&&(methodKey==='gotoAndPlay'||methodKey==='gotoAndStop'||methodKey==='nextScene'||methodKey==='prevScene'))return __nfAs2Method(ref.receiver,methodKey,Boolean(ref.legacyCase));
     if(ref.withTarget){
         return __nfContainerMethod(ref.receiver,ref.name,false,ref.caller,ref.legacyCase);
     }
