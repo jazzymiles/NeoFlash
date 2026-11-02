@@ -1,0 +1,584 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "7772a7e6616082937694891449e8b98b2f4a299a471bdc9137fe55ee1c10e91a",
+  "reviews": [
+    {
+      "id": "AS3-WAVE7-GENUINE-CONFORMANCE-20261102",
+      "date": "2026-11-02",
+      "commit": "78039420e4194b83aa35d276bed6df8ad7a06dbf",
+      "title": "AS3 Wave 7 runtime conformance for native, Stage3D, media, net, display and system APIs",
+      "summary": "Promote 113 AS3 Flash Player declarations implemented and verified in the ActionScript runtime and execute.mjs (native function dispatch, NetStream.checkPolicyFile, LoaderContext/JPEGLoaderContext, Capabilities, VideoTexture & ATF compressed textures, VideoStreamSettings/H264/VP6/AudioDeviceManager, Responder, NetStreamPlayOptions, SharedObject sync, Stage/InteractiveObject soft keyboard).",
+      "tests": [
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/src/actionscript.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/display/AVM1Movie.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrection.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrectionSupport.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/VideoTexture.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/AudioOutputChangeEvent.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDecoder.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDeviceManager.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioOutputChangeReason.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Level.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Profile.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264VideoStreamSettings.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoCodec.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoStreamSettings.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayOptions.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayTransitions.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/Responder.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Capabilities.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/JPEGLoaderContext.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/LoaderContext.html#",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/H264VideoStreamSettings.html#H264VideoStreamSettings()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VP6VideoStreamSettings.html#VP6VideoStreamSettings()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VideoStreamSettings.html#VideoStreamSettings()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetStreamPlayOptions.html#NetStreamPlayOptions()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/Responder.html#Responder()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/JPEGLoaderContext.html#JPEGLoaderContext()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/LoaderContext.html#LoaderContext()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AudioDeviceManager.html#event:audioOutputChange",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:asyncError",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:netStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:sync",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVideoTexture()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadCompressedTextureFromByteArray()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadCompressedTextureFromByteArray()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachCamera()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachNetStream()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/H264VideoStreamSettings.html#setProfileLevel()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setKeyFrameInterval()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setMode()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setQuality()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setDirty()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setProperty()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Capabilities.html#hasMultiChannelAudio()",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#softKeyboardRect",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageVideos",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#supportsVideoTexture",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoHeight",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoWidth",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#codec",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#level",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#profile",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VP6VideoStreamSettings.html#codec",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#bandwidth",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#codec",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#fps",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#height",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#keyFrameInterval",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#quality",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#width",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#checkPolicyFile",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#len",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#offset",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#oldStreamName",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#start",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#streamName",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#transition",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#client",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#fps",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#avHardwareDisable",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuAddressSize",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuArchitecture",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAccessibility",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudio",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudioEncoder",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasEmbeddedVideo",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasIME",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasMP3",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasPrinting",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenBroadcast",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenPlayback",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingAudio",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingVideo",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasTLS",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasVideoEncoder",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isDebugger",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isEmbeddedInAcrobat",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#language",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#localFileReadDisable",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#manufacturer",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#maxLevelIDC",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#os",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#pixelAspectRatio",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#playerType",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenColor",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenDPI",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionX",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionY",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#serverString",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports32BitProcesses",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports64BitProcesses",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#touchscreenType",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#version",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/JPEGLoaderContext.html#deblockingFilter",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#allowCodeImport",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#applicationDomain",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#checkPolicyFile",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#imageDecodingPolicy",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#parameters",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#requestedContentParent",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#securityDomain",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#native",
+          "status": "working",
+          "note": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        }
+      ]
+    }
+  ]
+}

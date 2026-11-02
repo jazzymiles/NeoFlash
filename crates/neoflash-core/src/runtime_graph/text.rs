@@ -116,6 +116,20 @@ impl Player {
         Ok(true)
     }
 
+    /// Fit a TextField using deterministic portable font metrics without a browser host.
+    pub fn object_text_fit_portable(
+        &mut self,
+        project: &Project,
+        reference: &ObjectRef,
+    ) -> Result<bool, TextError> {
+        let state = self.object_text_info(project, reference)?;
+        if state.as2_viewport.auto_size == "none" {
+            return Ok(false);
+        }
+        let layout = state.layout_portable(None)?;
+        self.as2_text_fit(project, reference, &layout)
+    }
+
     pub fn object_text_info(
         &self,
         project: &Project,

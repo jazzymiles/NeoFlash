@@ -21,6 +21,26 @@ use neoflash_ui::metrics::LAYER_TOGGLE;
 use neoflash_ui::tokens::space;
 use neoflash_ui::{TextStyle, typography};
 
+/// Compute the visible layer row index range (`start..end`) inside `clip_top..=clip_bottom`
+/// for timeline row virtualization (with a 2-row overscan margin).
+#[allow(dead_code)]
+pub(crate) fn visible_layer_row_range(
+    clip_top: f32,
+    clip_bottom: f32,
+    list_top: f32,
+    row_height: f32,
+    total_rows: usize,
+) -> std::ops::Range<usize> {
+    if total_rows == 0 || row_height <= 0.0 || !clip_top.is_finite() || !clip_bottom.is_finite() {
+        return 0..total_rows;
+    }
+    let first = ((clip_top - list_top) / row_height).floor().max(0.0) as usize;
+    let last = ((clip_bottom - list_top) / row_height).ceil().max(0.0) as usize;
+    let start = first.saturating_sub(2).min(total_rows);
+    let end = (last + 2).min(total_rows).max(start);
+    start..end
+}
+
 impl Editor {
     /// Test helper: paint the dock edge that currently holds the Timeline.
     #[cfg(test)]

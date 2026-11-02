@@ -66,6 +66,17 @@ struct Shape {
 /// bounds (omitted at t >= 1); unpaired `to` shapes grow from theirs (omitted
 /// at t <= 0) and are appended after the `from` elements.
 pub fn shape_tween_elements(from: &[Element], to: &[Element], t: f64) -> Vec<Element> {
+    shape_tween_elements_with_hints(from, to, &[], t)
+}
+
+/// Shape tween between the shapes of two keyframes on one layer with optional correspondence
+/// hints (`ShapeHint`), at eased progress `t` (`0.0..=1.0`).
+pub fn shape_tween_elements_with_hints(
+    from: &[Element],
+    to: &[Element],
+    hints: &[crate::ShapeHint],
+    t: f64,
+) -> Vec<Element> {
     let t = if t.is_finite() { t } else { 0. };
     let from_shapes: Vec<usize> = (0..from.len())
         .filter(|&i| is_shape(&from[i].kind))
@@ -104,7 +115,7 @@ pub fn shape_tween_elements(from: &[Element], to: &[Element], t: f64) -> Vec<Ele
             continue;
         }
         match partner[fi] {
-            Some(ti) => out.push(morph_pair(element, &to[ti], t)),
+            Some(ti) => out.push(morph_pair_with_hints(element, &to[ti], hints, t)),
             // Over the segment cap the shape is held unchanged.
             None if t < 1. => {
                 out.push(collapse_shape(element, t).unwrap_or_else(|| element.clone()))
@@ -573,11 +584,46 @@ fn contour_segments(a: &Contour, b: &Contour) -> usize {
         .max(most)
 }
 
+fn contour_bounds(points: &[P]) -> ([f64; 2], [f64; 2]) {
+    let mut lo = [f64::INFINITY; 2];
+    let mut hi = [f64::NEG_INFINITY; 2];
+    for p in points {
+        lo = [lo[0].min(p[0]), lo[1].min(p[1])];
+        hi = [hi[0].max(p[0]), hi[1].max(p[1])];
+    }
+    if lo[0] > hi[0] {
+        ([0., 0.], [0., 0.])
+    } else {
+        (lo, hi)
+    }
+}
+
 /// Choose the start vertex (cyclic only) and direction of `dst` that minimise
-/// the summed squared distance to the vertices of `src` (same segment count).
-fn align(src: &Contour, dst: &Contour, cyclic: bool, allow_reverse: bool) -> Contour {
+/// the summed squared distance to the vertices of `src` (same segment count),
+/// biased by any authored shape hints.
+fn align_with_hints(
+    src: &Contour,
+    dst: &Contour,
+    cyclic: bool,
+    allow_reverse: bool,
+    hints: &[crate::ShapeHint],
+) -> Contour {
     let n = src.segs.len();
     let sv = src.vertices();
+    let (s_lo, s_hi) = contour_bounds(&sv);
+    let hint_src_indices: Vec<(usize, [f64; 2])> = hints
+        .iter()
+        .map(|h| {
+            let target = [
+                lerp(s_lo[0], s_hi[0], h.start_uv[0].clamp(0.0, 1.0)),
+                lerp(s_lo[1], s_hi[1], h.start_uv[1].clamp(0.0, 1.0)),
+            ];
+            let idx = (0..n)
+                .min_by(|&a, &b| dist2(sv[a], target).total_cmp(&dist2(sv[b], target)))
+                .unwrap_or(0);
+            (idx, h.end_uv)
+        })
+        .collect();
     let mut best: Option<(f64, Contour)> = None;
     let mut candidates = vec![dst.clone()];
     if allow_reverse {
@@ -590,14 +636,36 @@ fn align(src: &Contour, dst: &Contour, cyclic: bool, allow_reverse: bool) -> Con
     };
     for candidate in candidates {
         let dv = candidate.vertices();
+        let (d_lo, d_hi) = contour_bounds(&dv);
+        let hint_targets: Vec<(usize, P)> = hint_src_indices
+            .iter()
+            .map(|&(src_idx, end_uv)| {
+                let target = [
+                    lerp(d_lo[0], d_hi[0], end_uv[0].clamp(0.0, 1.0)),
+                    lerp(d_lo[1], d_hi[1], end_uv[1].clamp(0.0, 1.0)),
+                ];
+                (src_idx, target)
+            })
+            .collect();
         let rotations = if cyclic { n } else { 1 };
         let mut r = 0;
         while r < rotations {
-            let cost: f64 = if cyclic {
+            let mut cost: f64 = if cyclic {
                 (0..n).map(|i| dist2(sv[i], dv[(i + r) % n])).sum()
             } else {
                 sv.iter().zip(&dv).map(|(a, b)| dist2(*a, *b)).sum()
             };
+            if !hint_targets.is_empty() {
+                let hint_weight = (n as f64 * 64.0).max(64.0);
+                for &(src_idx, target) in &hint_targets {
+                    let dst_pt = if cyclic {
+                        dv[(src_idx + r) % n]
+                    } else {
+                        dv[src_idx.min(dv.len().saturating_sub(1))]
+                    };
+                    cost += hint_weight * dist2(dst_pt, target);
+                }
+            }
             if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                 best = Some((cost, candidate.rotated(r)));
             }
@@ -639,7 +707,12 @@ fn emit_toward(commands: &mut Vec<PathCommand>, c: &Contour, centre: P, amount: 
 }
 
 /// Contour-by-contour morph; `None` when the segment budget is exceeded.
-fn morph_contours(a: &Shape, b: &Shape, t: f64) -> Option<Vec<PathCommand>> {
+fn morph_contours(
+    a: &Shape,
+    b: &Shape,
+    hints: &[crate::ShapeHint],
+    t: f64,
+) -> Option<Vec<PathCommand>> {
     let pairs = a.contours.len().min(b.contours.len());
     let mut budget = 0usize;
     for i in 0..pairs {
@@ -667,7 +740,7 @@ fn morph_contours(a: &Shape, b: &Shape, t: f64) -> Option<Vec<PathCommand>> {
         }
         let n = contour_segments(ca, &cb);
         let ra = resample(ca, n);
-        let rb = align(&ra, &resample(&cb, n), cyclic, allow_reverse);
+        let rb = align_with_hints(&ra, &resample(&cb, n), cyclic, allow_reverse, hints);
         let close = if t < 0.5 { ca.closed } else { cb.closed };
         emit(
             &mut commands,
@@ -828,14 +901,14 @@ fn build(
     element
 }
 
-fn morph_pair(a: &Element, b: &Element, t: f64) -> Element {
+fn morph_pair_with_hints(a: &Element, b: &Element, hints: &[crate::ShapeHint], t: f64) -> Element {
     let (Some(sa), Some(sb)) = (parent_shape(a), parent_shape(b)) else {
         return a.clone();
     };
-    let commands = if paths_have_same_topology(&sa.commands, &sb.commands) {
+    let commands = if hints.is_empty() && paths_have_same_topology(&sa.commands, &sb.commands) {
         interpolate_commands(&sa.commands, &sb.commands, t)
     } else {
-        match morph_contours(&sa, &sb, t) {
+        match morph_contours(&sa, &sb, hints, t) {
             Some(commands) => commands,
             None => return a.clone(),
         }
@@ -1217,5 +1290,34 @@ mod tests {
         let from = [element("big", polygon(&[&points]), at(3., 4.))];
         let to = [element("small", rect(10., 10.), Transform::default())];
         assert_eq!(shape_tween_elements(&from, &to, 0.5), from.to_vec());
+    }
+
+    #[test]
+    fn shape_hints_steer_contour_vertex_alignment() {
+        let from = [element(
+            "poly",
+            polygon(&[&[[0., 0.], [100., 0.], [100., 100.], [0., 100.]]]),
+            Transform::default(),
+        )];
+        let to = [element(
+            "poly",
+            polygon(&[&[[0., 0.], [100., 0.], [100., 100.], [0., 100.]]]),
+            Transform::default(),
+        )];
+        let unhinted = &shape_tween_elements(&from, &to, 0.5)[0];
+        // Hint top-left (0,0) of start to bottom-right (1,1) of end, forcing a rotated alignment.
+        let hints = [crate::ShapeHint {
+            label: 'a',
+            start_uv: [0.0, 0.0],
+            end_uv: [1.0, 1.0],
+        }];
+        let hinted = &shape_tween_elements_with_hints(&from, &to, &hints, 0.5)[0];
+        assert_ne!(commands(unhinted), commands(hinted));
+        // At t = 0.5, the vertex starting at (0,0) is pulled toward (100,100), so its midpoint is (50,50).
+        let pts = on_curve(hinted);
+        assert!(
+            pts.iter().any(|p| dist2(*p, [50.0, 50.0]) < 1e-6),
+            "expected hinted vertex midpoint at (50, 50), got {pts:?}"
+        );
     }
 }

@@ -39,6 +39,22 @@ pub struct RuntimeClip {
     pub id: String,
     pub components: Vec<ClipComponent>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AlphaClipComponent {
+    pub commands: Vec<PathCommand>,
+    pub fill_rule: FillRule,
+    pub matrix: [f64; 6],
+    pub alpha: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_gradient: Option<crate::GradientPaint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_bitmap: Option<crate::BitmapPaint>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RuntimeAlphaMask {
+    pub clip_id: String,
+    pub components: Vec<AlphaClipComponent>,
+}
 
 impl Player {
     pub fn object_mask(&self, target: &ObjectRef) -> Result<Option<ObjectRef>, DisplayError> {
@@ -105,6 +121,93 @@ impl Player {
 }
 
 impl RuntimeGraph {
+    pub(super) fn is_cached_as_bitmap(&self, id: &ObjectRef) -> bool {
+        self.as2_render_states
+            .get(id)
+            .is_some_and(|r| r.cache_as_bitmap)
+            || self.filters.get(id).is_some_and(|f| !f.is_empty())
+    }
+    pub(super) fn collect_alpha_masks(
+        &self,
+        objects: &HashMap<&ObjectRef, &RuntimeObject>,
+        target: &ObjectRef,
+    ) -> Vec<RuntimeAlphaMask> {
+        let Some(source) = self.masks.get(target) else {
+            return vec![];
+        };
+        if !(self.is_cached_as_bitmap(target) && self.is_cached_as_bitmap(source)) {
+            return vec![];
+        }
+        let clip_id = format!("mask:{}:{}", source.generation, source.id);
+        let mut components = Vec::new();
+        for reference in self.subtree(source) {
+            let Some(node) = objects.get(&reference) else {
+                continue;
+            };
+            let matrix = node.display.world;
+            if !nonsingular(node.local_matrix) || !nonsingular(matrix) {
+                continue;
+            }
+            if let Some(dynamic) = self.dynamic.get(&reference) {
+                components.extend(dynamic.graphics.alpha_mask_components(
+                    &self.pixels,
+                    node.concatenated_color_transform,
+                    matrix,
+                ));
+            }
+            if let Some(bmp) = &node.bitmap
+                && !bmp.disposed
+                && bmp.width > 0
+                && bmp.height > 0
+            {
+                components.push(AlphaClipComponent {
+                    commands: rectangle(bmp.width as f64, bmp.height as f64),
+                    fill_rule: FillRule::NonZero,
+                    matrix,
+                    alpha: node.display.transform.alpha,
+                    fill_gradient: None,
+                    fill_bitmap: Some(crate::BitmapPaint {
+                        pixel_ref: bmp.pixel_ref.clone(),
+                        width: bmp.width,
+                        height: bmp.height,
+                        revision: bmp.revision.clone(),
+                        matrix: [1., 0., 0., 1., 0., 0.],
+                        repeat: false,
+                        smoothing: node.smoothing,
+                        color_transform: node.concatenated_color_transform,
+                    }),
+                });
+            }
+            if let Some(kind) = &node.display.kind
+                && let Some((commands, fill_rule)) = vector_path(kind)
+            {
+                let fill_alpha = match kind {
+                    ElementKind::Rectangle { fill, .. }
+                    | ElementKind::Ellipse { fill, .. }
+                    | ElementKind::Path { fill, .. } => {
+                        f64::from(node.concatenated_color_transform.apply(*fill)[3]) / 255.0
+                    }
+                    _ => node.display.transform.alpha,
+                };
+                components.push(AlphaClipComponent {
+                    commands,
+                    fill_rule,
+                    matrix,
+                    alpha: fill_alpha,
+                    fill_gradient: None,
+                    fill_bitmap: None,
+                });
+            }
+        }
+        if components.is_empty() {
+            vec![]
+        } else {
+            vec![RuntimeAlphaMask {
+                clip_id,
+                components,
+            }]
+        }
+    }
     fn require_clip_object(&self, target: &ObjectRef) -> Result<(), DisplayError> {
         if self.alive(target) {
             Ok(())
@@ -158,11 +261,15 @@ impl RuntimeGraph {
         for node in &snapshot.objects {
             let mut current = Some(node.object_ref.clone());
             let mut source_count = 0;
+            let mut source_root = None;
             let mut has_target = false;
             let mut clip_count = 0;
             let mut steps = 0;
             while let Some(id) = current {
-                source_count += usize::from(sources.contains(&id));
+                if sources.contains(&id) {
+                    source_count += 1;
+                    source_root = Some(id.clone());
+                }
                 has_target |= masks.contains_key(&id);
                 clip_count += usize::from(masks.contains_key(&id))
                     + usize::from(rectangles.contains_key(&id));
@@ -188,8 +295,15 @@ impl RuntimeGraph {
             if rectangles.contains_key(&node.object_ref) {
                 return Err(error("scrollRect inside a mask source is not supported"));
             }
+            let alpha_mask = source_root.as_ref().is_some_and(|src| {
+                self.is_cached_as_bitmap(src)
+                    && masks
+                        .iter()
+                        .any(|(tgt, s)| s == src && self.is_cached_as_bitmap(tgt))
+            });
             if node.display.total_frames > 1
-                || matches!(node.display.owner.as_str(), "text" | "bitmap" | "video")
+                || (matches!(node.display.owner.as_str(), "text" | "bitmap" | "video")
+                    && !(alpha_mask && node.display.owner == "bitmap"))
             {
                 return Err(error(
                     "Mask sources currently support vector fills and one-frame vector containers; text, bitmap, video and animated authored timelines are pending",
@@ -304,6 +418,7 @@ impl RuntimeGraph {
         }
         for (target, source) in &self.masks {
             let id = format!("mask:{}:{}", source.generation, source.id);
+            let alpha_mask = self.is_cached_as_bitmap(target) && self.is_cached_as_bitmap(source);
             let mut components = vec![];
             for reference in self.subtree(source) {
                 consumed.insert(reference.clone());
@@ -324,6 +439,18 @@ impl RuntimeGraph {
                             matrix,
                         },
                     ));
+                }
+                if alpha_mask
+                    && let Some(bmp) = &node.bitmap
+                    && !bmp.disposed
+                    && bmp.width > 0
+                    && bmp.height > 0
+                {
+                    components.push(ClipComponent {
+                        commands: rectangle(bmp.width as f64, bmp.height as f64),
+                        fill_rule: FillRule::NonZero,
+                        matrix,
+                    });
                 }
                 if let Some(kind) = &node.display.kind
                     && let Some((commands, fill_rule)) = vector_path(kind)

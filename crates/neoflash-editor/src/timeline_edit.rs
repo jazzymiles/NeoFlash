@@ -3,7 +3,8 @@ use crate::app::{Editor, ScriptTarget};
 use crate::timeline_paint::{frame_at_x, timeline_cell_at};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::{
-    FrameClipboard, FrameRange, LayerRole, TimelineEdit, copy_frames, edit_frames,
+    FrameClipboard, FrameRange, Keyframe, Layer, LayerProperties, LayerRole, TimelineEdit,
+    copy_frames, edit_frames,
 };
 
 #[derive(Default)]
@@ -228,13 +229,88 @@ impl Editor {
             .take(clip.layers.len())
             .map(|l| l.id.clone())
             .collect();
-        if layers.len() != clip.layers.len() {
-            self.message("Paste needs one existing destination layer for each copied layer.");
-            return;
-        }
+        let mut layers = layers;
+        let missing = clip.layers.len().saturating_sub(layers.len());
         let end = range
             .start
             .saturating_add(clip.frame_count.saturating_sub(1));
+        if missing > 0 {
+            let symbol_id = self.symbol_id().to_owned();
+            let mut candidate = self.project.clone();
+            {
+                let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+                    return;
+                };
+                let timeline = &mut symbol.timeline;
+                let parent = range
+                    .layers
+                    .first()
+                    .and_then(|first_id| timeline.layers.iter().find(|l| &l.id == first_id))
+                    .and_then(|l| l.properties.parent.clone());
+                for _ in 0..missing {
+                    let mut idx = timeline.layers.len() + 1;
+                    let id = loop {
+                        let cand_id = format!("layer-{idx}");
+                        if !timeline.layers.iter().any(|l| l.id == cand_id) {
+                            break cand_id;
+                        }
+                        idx += 1;
+                    };
+                    let name = format!("Layer {idx}");
+                    let new_layer = Layer {
+                        id: id.clone(),
+                        name,
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe::default()],
+                        properties: LayerProperties {
+                            parent: parent.clone(),
+                            ..Default::default()
+                        },
+                    };
+                    // Display order goes top-to-bottom (`layers.iter().enumerate().rev()`), so
+                    // inserting at index 0 places the new destination layer below existing rows.
+                    timeline.layers.insert(0, new_layer);
+                    layers.push(id);
+                }
+            }
+            if let Err(err) = edit_frames(
+                &mut candidate,
+                &symbol_id,
+                TimelineEdit::Paste {
+                    clip,
+                    layers: layers.clone(),
+                    at: range.start,
+                    include_scripts: self.timeline_edit.include_scripts,
+                },
+            ) {
+                self.message(format!("Timeline edit failed: {err}"));
+                return;
+            }
+            if let Err(err) = candidate.validate() {
+                self.message(format!("Timeline edit failed: {err}"));
+                return;
+            }
+            self.finish_edits();
+            self.playing = false;
+            let selected_layers = layers.clone();
+            self.transact(|editor| {
+                editor.project = candidate;
+                editor.layer = editor
+                    .layer
+                    .min(editor.symbol().timeline.layers.len().saturating_sub(1));
+                editor.frame = editor
+                    .frame
+                    .min(editor.symbol().timeline.frame_count.saturating_sub(1));
+                editor.normalize_selection();
+            });
+            self.select_frame_range(FrameRange {
+                layers: selected_layers,
+                start: range.start,
+                end,
+            });
+            return;
+        }
         if self.apply_frame_edit(TimelineEdit::Paste {
             clip,
             layers: layers.clone(),

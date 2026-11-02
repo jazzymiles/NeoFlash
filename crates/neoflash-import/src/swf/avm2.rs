@@ -43,45 +43,45 @@ pub(crate) fn decompile_do_abc_tag(tag_code: u16, payload: &[u8]) -> Option<Deco
     Some(reconstruct_classes(&abc))
 }
 
-struct AbcReader<'a> {
-    bytes: &'a [u8],
-    pos: usize,
+pub(crate) struct AbcReader<'a> {
+    pub(crate) bytes: &'a [u8],
+    pub(crate) pos: usize,
 }
 
 impl<'a> AbcReader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
+    pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, pos: 0 }
     }
 
-    fn u8(&mut self) -> Option<u8> {
+    pub(crate) fn u8(&mut self) -> Option<u8> {
         let b = *self.bytes.get(self.pos)?;
         self.pos += 1;
         Some(b)
     }
 
-    fn i8(&mut self) -> Option<i8> {
+    pub(crate) fn i8(&mut self) -> Option<i8> {
         Some(self.u8()? as i8)
     }
 
-    fn u16(&mut self) -> Option<u16> {
+    pub(crate) fn u16(&mut self) -> Option<u16> {
         let b = self.take(2)?;
         Some(u16::from_le_bytes([b[0], b[1]]))
     }
 
-    fn s24(&mut self) -> Option<i32> {
+    pub(crate) fn s24(&mut self) -> Option<i32> {
         let b = self.take(3)?;
         let raw = u32::from(b[0]) | (u32::from(b[1]) << 8) | (u32::from(b[2]) << 16);
         Some(((raw << 8) as i32) >> 8)
     }
 
-    fn d64(&mut self) -> Option<f64> {
+    pub(crate) fn d64(&mut self) -> Option<f64> {
         let b = self.take(8)?;
         Some(f64::from_le_bytes([
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
         ]))
     }
 
-    fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+    pub(crate) fn take(&mut self, len: usize) -> Option<&'a [u8]> {
         let end = self.pos.checked_add(len)?;
         if end > self.bytes.len() {
             return None;
@@ -93,7 +93,7 @@ impl<'a> AbcReader<'a> {
 
     /// Read AVM2 variable-length `u32` / `u30` (1..=5 bytes, 7 bits/byte).
     /// Note: Tamarin's `AbcParser::readS32` is identical to `readU32() as i32`.
-    fn u32_var(&mut self) -> Option<u32> {
+    pub(crate) fn u32_var(&mut self) -> Option<u32> {
         let mut result = 0u32;
         for shift in [0u32, 7, 14, 21, 28] {
             let b = self.u8()?;
@@ -105,17 +105,17 @@ impl<'a> AbcReader<'a> {
         Some(result)
     }
 
-    fn u30(&mut self) -> Option<usize> {
+    pub(crate) fn u30(&mut self) -> Option<usize> {
         Some((self.u32_var()? & 0x3FFF_FFFF) as usize)
     }
 
-    fn s32(&mut self) -> Option<i32> {
+    pub(crate) fn s32(&mut self) -> Option<i32> {
         Some(self.u32_var()? as i32)
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NsKind {
+pub(crate) enum NsKind {
     Private,
     Namespace,
     Package,
@@ -127,13 +127,13 @@ enum NsKind {
 }
 
 #[derive(Clone, Debug)]
-struct AbcNamespace {
-    kind: NsKind,
-    name: String,
+pub(crate) struct AbcNamespace {
+    pub(crate) kind: NsKind,
+    pub(crate) name: String,
 }
 
 #[derive(Clone, Debug)]
-enum AbcMultiname {
+pub(crate) enum AbcMultiname {
     Any,
     QName { ns: usize, name: usize },
     RTQName { name: usize },
@@ -144,23 +144,23 @@ enum AbcMultiname {
 }
 
 #[derive(Clone, Debug)]
-struct AbcMethod {
-    param_types: Vec<usize>,
-    return_type: usize,
-    flags: u8,
-    optional_values: Vec<(usize, u8)>,
-    param_names: Vec<String>,
+pub(crate) struct AbcMethod {
+    pub(crate) param_types: Vec<usize>,
+    pub(crate) return_type: usize,
+    pub(crate) flags: u8,
+    pub(crate) optional_values: Vec<(usize, u8)>,
+    pub(crate) param_names: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-struct AbcTrait {
-    name: usize,
-    attr: u8,
-    data: AbcTraitData,
+pub(crate) struct AbcTrait {
+    pub(crate) name: usize,
+    pub(crate) attr: u8,
+    pub(crate) data: AbcTraitData,
 }
 
 #[derive(Clone, Debug)]
-enum AbcTraitData {
+pub(crate) enum AbcTraitData {
     Slot {
         slot_id: usize,
         type_name: usize,
@@ -177,64 +177,69 @@ enum AbcTraitData {
     Setter {
         method: usize,
     },
-    Class,
+    Class {
+        #[allow(dead_code)]
+        class_idx: usize,
+    },
     Function {
         method: usize,
     },
 }
 
 #[derive(Clone, Debug)]
-struct AbcInstance {
-    name: usize,
-    super_name: usize,
-    flags: u8,
-    interfaces: Vec<usize>,
-    iinit: usize,
-    traits: Vec<AbcTrait>,
+pub(crate) struct AbcInstance {
+    pub(crate) name: usize,
+    pub(crate) super_name: usize,
+    pub(crate) flags: u8,
+    pub(crate) interfaces: Vec<usize>,
+    pub(crate) iinit: usize,
+    pub(crate) traits: Vec<AbcTrait>,
 }
 
 #[derive(Clone, Debug)]
-struct AbcClass {
-    cinit: usize,
-    traits: Vec<AbcTrait>,
+pub(crate) struct AbcClass {
+    pub(crate) cinit: usize,
+    pub(crate) traits: Vec<AbcTrait>,
 }
 
 #[derive(Clone, Debug)]
-struct AbcException {
-    from: usize,
-    to: usize,
-    target: usize,
-    exc_type: usize,
-    var_name: usize,
+pub(crate) struct AbcException {
+    pub(crate) from: usize,
+    pub(crate) to: usize,
+    pub(crate) target: usize,
+    pub(crate) exc_type: usize,
+    pub(crate) var_name: usize,
 }
 
 #[derive(Clone, Debug)]
-struct AbcMethodBody {
-    code: Vec<u8>,
-    exceptions: Vec<AbcException>,
-    traits: Vec<AbcTrait>,
+pub(crate) struct AbcMethodBody {
+    pub(crate) code: Vec<u8>,
+    pub(crate) exceptions: Vec<AbcException>,
+    pub(crate) traits: Vec<AbcTrait>,
 }
 
-struct AbcFile {
-    ints: Vec<i32>,
-    uints: Vec<u32>,
-    doubles: Vec<f64>,
-    strings: Vec<String>,
-    namespaces: Vec<AbcNamespace>,
-    ns_sets: Vec<Vec<usize>>,
-    multinames: Vec<AbcMultiname>,
-    methods: Vec<AbcMethod>,
-    instances: Vec<AbcInstance>,
-    classes: Vec<AbcClass>,
-    bodies_by_method: HashMap<usize, AbcMethodBody>,
+#[derive(Clone, Debug)]
+pub(crate) struct AbcFile {
+    pub(crate) ints: Vec<i32>,
+    pub(crate) uints: Vec<u32>,
+    pub(crate) doubles: Vec<f64>,
+    pub(crate) strings: Vec<String>,
+    pub(crate) namespaces: Vec<AbcNamespace>,
+    pub(crate) ns_sets: Vec<Vec<usize>>,
+    pub(crate) multinames: Vec<AbcMultiname>,
+    pub(crate) methods: Vec<AbcMethod>,
+    pub(crate) instances: Vec<AbcInstance>,
+    pub(crate) classes: Vec<AbcClass>,
+    pub(crate) scripts: Vec<(usize, Vec<AbcTrait>)>,
+    pub(crate) bodies_by_method: HashMap<usize, AbcMethodBody>,
 }
 
 impl AbcFile {
-    fn string(&self, idx: usize) -> &str {
+    pub(crate) fn string(&self, idx: usize) -> &str {
         self.strings.get(idx).map_or("", String::as_str)
     }
 
-    fn namespace(&self, idx: usize) -> &AbcNamespace {
+    pub(crate) fn namespace(&self, idx: usize) -> &AbcNamespace {
         static ANY_NS: std::sync::OnceLock<AbcNamespace> = std::sync::OnceLock::new();
         self.namespaces.get(idx).unwrap_or_else(|| {
             ANY_NS.get_or_init(|| AbcNamespace {
@@ -245,7 +250,7 @@ impl AbcFile {
     }
 
     /// Return `(package_name, short_name)` for a multiname index.
-    fn split_qname(&self, idx: usize) -> (String, String) {
+    pub(crate) fn split_qname(&self, idx: usize) -> (String, String) {
         match self.multinames.get(idx) {
             None | Some(AbcMultiname::Any) => (String::new(), "*".into()),
             Some(AbcMultiname::QName { ns, name }) => {
@@ -334,7 +339,7 @@ impl AbcFile {
     }
 
     /// Number of runtime items popped from the stack before the receiver object for a multiname.
-    fn runtime_multiname_parts(&self, idx: usize) -> (bool, bool) {
+    pub(crate) fn runtime_multiname_parts(&self, idx: usize) -> (bool, bool) {
         match self.multinames.get(idx) {
             Some(AbcMultiname::MultinameL) => (false, true),
             Some(AbcMultiname::RTQName { .. }) => (true, false),
@@ -344,7 +349,7 @@ impl AbcFile {
     }
 }
 
-fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
+pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
     let mut r = AbcReader::new(bytes);
     let _minor = r.u16()?;
     let _major = r.u16()?;
@@ -521,9 +526,11 @@ fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
     }
 
     let script_count = r.u30()?;
+    let mut scripts = Vec::with_capacity(script_count.min(1024));
     for _ in 0..script_count {
-        let _init = r.u30()?;
-        let _traits = parse_traits(&mut r)?;
+        let init = r.u30()?;
+        let traits = parse_traits(&mut r)?;
+        scripts.push((init, traits));
     }
 
     let body_count = r.u30()?;
@@ -569,6 +576,7 @@ fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
         methods,
         instances,
         classes,
+        scripts,
         bodies_by_method,
     })
 }
@@ -609,8 +617,8 @@ fn parse_traits(r: &mut AbcReader<'_>) -> Option<Vec<AbcTrait>> {
             }
             4 => {
                 let _slot_id = r.u30()?;
-                let _class_idx = r.u30()?;
-                AbcTraitData::Class
+                let class_idx = r.u30()?;
+                AbcTraitData::Class { class_idx }
             }
             5 => {
                 let _slot_id = r.u30()?;

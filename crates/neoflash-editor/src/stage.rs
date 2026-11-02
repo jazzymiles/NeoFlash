@@ -549,6 +549,22 @@ impl Editor {
                     self.workspace.drawing.precise_cursors,
                 ));
                 if response.hovered() {
+                    let zoom_delta = ctx.input(|input| input.zoom_delta());
+                    if (zoom_delta - 1.0).abs() > 1e-4 {
+                        self.end_vector_pointer_phase();
+                        self.cancel_selection_gesture();
+                        self.shape_draft = None;
+                        if self.vector.point_drag.is_some() {
+                            self.cancel_vector();
+                        }
+                        let old_zoom = self.zoom;
+                        let new_zoom = (old_zoom * zoom_delta).clamp(0.1, 8.0);
+                        if let Some(pointer) = ctx.input(|i| i.pointer.latest_pos()) {
+                            let rel = pointer - rect.center() - self.pan;
+                            self.pan -= rel * (new_zoom / old_zoom - 1.0);
+                        }
+                        self.zoom = new_zoom;
+                    }
                     let delta = ctx.input(|input| input.smooth_scroll_delta);
                     if delta != Vec2::ZERO {
                         self.end_vector_pointer_phase();

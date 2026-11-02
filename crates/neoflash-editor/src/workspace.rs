@@ -1460,6 +1460,9 @@ pub struct WorkspacePrefs {
     pub clipboard_prefs: ClipboardPrefs,
     pub publish: PublishPrefs,
     pub shortcuts: ShortcutPrefs,
+    /// Named user-saved workspace layout presets (`Window ▸ Workspace ▸ Save Workspace…`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub named_presets: std::collections::BTreeMap<String, DockLayout>,
 }
 
 /// Preferences ▸ General (besides theme, UI scale, undo levels and Shift-select).
@@ -2132,7 +2135,42 @@ impl Default for WorkspacePrefs {
             clipboard_prefs: ClipboardPrefs::default(),
             publish: PublishPrefs::default(),
             shortcuts: ShortcutPrefs::default(),
+            named_presets: std::collections::BTreeMap::new(),
         }
+    }
+}
+
+impl WorkspacePrefs {
+    /// Save the current `DockLayout` under `name` (up to 32 user presets).
+    #[allow(dead_code)]
+    pub fn save_named_preset(&mut self, name: &str) -> bool {
+        let trimmed = name.trim();
+        if trimmed.is_empty() || trimmed.len() > 64 {
+            return false;
+        }
+        if !self.named_presets.contains_key(trimmed) && self.named_presets.len() >= 32 {
+            return false;
+        }
+        self.named_presets
+            .insert(trimmed.to_owned(), self.dock.clone());
+        true
+    }
+
+    /// Apply a previously saved named workspace layout preset.
+    #[allow(dead_code)]
+    pub fn apply_named_preset(&mut self, name: &str) -> bool {
+        let Some(mut layout) = self.named_presets.get(name).cloned() else {
+            return false;
+        };
+        layout.sanitize(self.detached);
+        self.dock = layout;
+        true
+    }
+
+    /// Delete a user-saved workspace layout preset.
+    #[allow(dead_code)]
+    pub fn delete_named_preset(&mut self, name: &str) -> bool {
+        self.named_presets.remove(name.trim()).is_some()
     }
 }
 

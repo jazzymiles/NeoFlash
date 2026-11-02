@@ -1,5 +1,8 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
+pub mod fonts;
+pub use fonts::*;
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};
 use serde::Serialize;
@@ -11,6 +14,7 @@ use std::{
 use thiserror::Error;
 
 const HOST: &str = include_str!("../../../web/runtime.js");
+const DOM_LAYOUT: &str = include_str!("../../../web/dom-layout.js");
 const PATH_GEOMETRY: &str = include_str!("../../../web/path.js");
 const ACCESSIBILITY: &str = include_str!("../../../web/accessibility.js");
 const PREVIEW: &str = include_str!("../../../web/preview.js");
@@ -281,6 +285,7 @@ struct Bundle<'a> {
     warnings: Vec<String>,
     load_summary: LoadSummary,
     size_report: String,
+    fonts: FontBundle,
 }
 
 #[derive(Serialize)]
@@ -291,6 +296,7 @@ struct ProgramBundle<'a> {
 
 /// Reports current publish limitations before the user exports their work.
 pub fn export_warnings(project: &Project) -> Vec<String> {
+    let embedded = embedded_font_families(project);
     let mut fonts = BTreeSet::new();
     for symbol in &project.symbols {
         for layer in &symbol.timeline.layers {
@@ -309,10 +315,19 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
             }
         }
     }
-    let mut warnings: Vec<_> = fonts.into_iter().map(|font| format!(
-        "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
-    )).collect();
-    if !project.resources.is_empty() {
+    let mut warnings: Vec<_> = fonts
+        .into_iter()
+        .filter(|font| !embedded.contains(&font.to_ascii_lowercase()))
+        .map(|font| format!(
+            "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
+        ))
+        .collect();
+    let non_font_resources = project
+        .resources
+        .iter()
+        .filter(|res| !is_font_resource(res))
+        .count();
+    if non_font_resources > 0 {
         warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", project.resources.len()));
     }
     warnings
@@ -576,11 +591,7 @@ fn build_size_report_and_summary(
             format_bytes(runtime_js_bytes)
         );
     } else {
-        let _ = writeln!(
-            out,
-            "JS Runtime Host: {}",
-            format_bytes(runtime_js_bytes)
-        );
+        let _ = writeln!(out, "JS Runtime Host: {}", format_bytes(runtime_js_bytes));
     }
     let _ = writeln!(out);
 
@@ -691,16 +702,22 @@ fn build_size_report_and_summary(
     if font_stats.is_empty() {
         let _ = writeln!(out, "(no text fonts referenced)");
     } else {
+        let embedded = embedded_font_families(project);
         let _ = writeln!(
             out,
             "{:<28} {:>12} {:>12} {:<16}",
             "Font Family", "Placements", "Characters", "Delivery"
         );
         for (font, (placements, chars)) in &font_stats {
+            let delivery = if embedded.contains(&font.to_ascii_lowercase()) {
+                "embedded (@font-face)"
+            } else {
+                "system reference"
+            };
             let _ = writeln!(
                 out,
                 "{:<28} {:>12} {:>12} {:<16}",
-                font, placements, chars, "system reference"
+                font, placements, chars, delivery
             );
         }
     }
@@ -890,6 +907,16 @@ pub fn export_project(
     output_dir: &Path,
     runtime_dir: &Path,
 ) -> Result<PathBuf, ExportError> {
+    export_project_with_policy(project, output_dir, runtime_dir, FontExportPolicy::Embed)
+}
+
+/// Export an HTML5 package with an explicit font export policy (`Device`, `Embed`, `Subset`, `Outlines`).
+pub fn export_project_with_policy(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+) -> Result<PathBuf, ExportError> {
     let issues = neoflash_core::validate(project);
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
@@ -926,7 +953,9 @@ pub fn export_project(
     let warnings = export_warnings(project);
     let (size_report, load_summary) =
         build_size_report_and_summary(project, Some(wasm.len()), Some(bindings.len()))?;
-    let published = publishable(&published).unwrap_or(published);
+    let mut published = publishable(&published).unwrap_or(published);
+    let font_bundle = apply_font_policy(&mut published, font_policy);
+    let font_css = font_bundle.css_rules.clone();
     let bundle = Bundle {
         project: &published,
         scenes,
@@ -939,13 +968,14 @@ pub fn export_project(
         warnings: warnings.clone(),
         load_summary,
         size_report,
+        fonts: font_bundle,
     };
     let bundle_js = format!(
         "globalThis.NeoFlashBundle = {};\n",
         serde_json::to_string(&bundle)?
     );
     let title = html_escape(&project.name);
-    let html = html_document(&title);
+    let html = html_document(&title, &font_css);
     let marker =
         serde_json::json!({"generator":"NeoFlash", "format_version":1, "project":project.name});
     let readme = format!(
@@ -974,6 +1004,7 @@ pub fn export_project(
     for (name, contents) in [
         ("neoflash_web.js", bindings.as_str()),
         ("runtime.js", HOST),
+        ("dom-layout.js", DOM_LAYOUT),
         ("path.js", PATH_GEOMETRY),
         ("accessibility.js", ACCESSIBILITY),
         ("preview.js", PREVIEW),
@@ -1055,7 +1086,12 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn html_document(title: &str) -> String {
+fn html_document(title: &str, font_css: &str) -> String {
+    let font_rules = if font_css.is_empty() {
+        String::new()
+    } else {
+        format!("\n    {font_css}")
+    };
     format!(
         r##"<!doctype html>
 <html lang="en">
@@ -1091,7 +1127,7 @@ fn html_document(title: &str) -> String {
     #size-report {{ position: fixed; inset: 24px 24px 72px 24px; max-height: calc(100vh - 96px); overflow: auto; margin: 0; z-index: 2; padding: 20px 24px; border: 1px solid #555a64; border-radius: 6px; background: #1d1f24f2; color: #d8dee9; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; display: none; box-shadow: 0 16px 48px #0009; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}
-    @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}
+    @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}{font_rules}
   </style>
   <script defer src="neoflash_web.js"></script>
   <script defer src="bundle.js"></script>
@@ -1147,6 +1183,7 @@ fn html_document(title: &str) -> String {
   <script defer src="as3-net-sys.js"></script>
   <script defer src="as3-media-events.js"></script>
   <script defer src="display.js"></script>
+  <script defer src="dom-layout.js"></script>
   <script defer src="runtime.js"></script>
 </head>
 <body>
@@ -1461,5 +1498,116 @@ mod tests {
         assert_eq!(summary.bitmap_count, 1);
         assert!(summary.summary_line().contains("Project weight:"));
         assert!(summary.summary_line().contains("Loads:"));
+    }
+
+    #[test]
+    fn font_policies_embed_subset_and_convert_static_text_to_outlines() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+
+        let mut project = Project::demo();
+        project.format_version = 7;
+        let codepoints: std::collections::BTreeSet<u32> =
+            "NeoFlash HTML5!".chars().map(|c| c as u32).collect();
+        let ttf_bytes = neoflash_core::TextFormat::subset_font_bytes(
+            b"not-an-sfnt-use-portable-metrics",
+            &codepoints,
+        )
+        .unwrap();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "font-neo",
+                "fonts/NeoFont.ttf",
+                "font/ttf",
+                &ttf_bytes,
+            )
+            .unwrap(),
+        );
+        // Set the demo text element to use NeoFont
+        if let Some(elem) = project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .iter_mut()
+            .find(|e| matches!(e.kind, ElementKind::Text { .. }))
+            && let ElementKind::Text { font_family, .. } = &mut elem.kind
+        {
+            *font_family = "NeoFont".into();
+        }
+
+        // 1. Embed policy injects @font-face CSS and suppresses unembedded font warning
+        let warnings = export_warnings(&project);
+        assert!(
+            !warnings.iter().any(|w| w.contains("NeoFont")),
+            "embedded font resource suppresses missing-font warning: {warnings:?}"
+        );
+        let out_embed = dir.join("out-embed");
+        export_project_with_policy(&project, &out_embed, &rt, FontExportPolicy::Embed).unwrap();
+        let html_embed = fs::read_to_string(out_embed.join("index.html")).unwrap();
+        assert!(html_embed.contains("@font-face"));
+        assert!(html_embed.contains("font-family: \"NeoFont\""));
+        assert!(html_embed.contains("src=\"dom-layout.js\""));
+        assert!(
+            fs::read_to_string(out_embed.join("dom-layout.js"))
+                .unwrap()
+                .contains("NeoFlashDomLayout")
+        );
+
+        // 2. Subset policy subsets embedded font resource to used characters
+        let out_subset = dir.join("out-subset");
+        export_project_with_policy(&project, &out_subset, &rt, FontExportPolicy::Subset).unwrap();
+        let bundle_subset: serde_json::Value = serde_json::from_str(
+            fs::read_to_string(out_subset.join("bundle.js"))
+                .unwrap()
+                .strip_prefix("globalThis.NeoFlashBundle = ")
+                .unwrap()
+                .strip_suffix(";\n")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(bundle_subset["fonts"]["policy"], "subset");
+        assert_eq!(
+            bundle_subset["fonts"]["subset_stats"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            bundle_subset["fonts"]["subset_stats"][0]["codepoint_count"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+
+        // 3. Outlines policy converts static text placements into vector Path elements
+        let out_outlines = dir.join("out-outlines");
+        export_project_with_policy(&project, &out_outlines, &rt, FontExportPolicy::Outlines)
+            .unwrap();
+        let bundle_outlines: serde_json::Value = serde_json::from_str(
+            fs::read_to_string(out_outlines.join("bundle.js"))
+                .unwrap()
+                .strip_prefix("globalThis.NeoFlashBundle = ")
+                .unwrap()
+                .strip_suffix(";\n")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(bundle_outlines["fonts"]["policy"], "outlines");
+        assert!(
+            bundle_outlines["fonts"]["outlined_elements"]
+                .as_u64()
+                .unwrap()
+                >= 1
+        );
+        let published: Project =
+            serde_json::from_value(bundle_outlines["project"].clone()).unwrap();
+        assert!(
+            !published.symbols[0].timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .any(|e| matches!(e.kind, ElementKind::Text { .. })),
+            "static text was converted to vector path outlines"
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 }

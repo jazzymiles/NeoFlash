@@ -71,6 +71,7 @@ fn module_resolution_fails_with_original_source_path() {
             ("duplicate.as", "package { public class A {} }"),
         ],
     ] {
+        #[allow(clippy::err_expect)]
         let errors = neoflash_script::compile_project(&project(&sources))
             .err()
             .expect("must reject");

@@ -13,15 +13,15 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 155 | 155 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 582 | 581 | 1 | 0 | 0 | 99.8% | 100.0% |
+| 2. Objects, language and collections | 582 | 582 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 678 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 5. Graphics, bitmaps and filters | 313 | 313 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 7. File audio and video playback | 91 | 90 | 1 | 0 | 0 | 98.9% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,581 | 553 | 0 | 0 | 74.1% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,938 | 1 | 0 | 0 | 99.9% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,609 | 555 | 0 | 0 | 86.7% | 100.0% |
+| 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,692 | 442 | 0 | 0 | 79.3% | 100.0% |
+| **Now: areas 1–6** | 1,939 | 1,939 | 0 | 0 | 0 | 100.0% | 100.0% |
+| **All Flash Player areas** | 4,164 | 3,722 | 442 | 0 | 0 | 89.4% | 100.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -31,14 +31,14 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 3. MovieClip and timeline | 123 | 118 | 5 | 0 | 0 | 95.9% | 100.0% |
-| 4. Display, events and basic input | 130 | 129 | 1 | 0 | 0 | 99.2% | 100.0% |
-| 5. Graphics, bitmaps and filters | 145 | 144 | 1 | 0 | 0 | 99.3% | 100.0% |
-| 6. Text and fonts | 118 | 110 | 8 | 0 | 0 | 93.2% | 100.0% |
-| 7. File audio and video playback | 83 | 44 | 39 | 0 | 0 | 53.0% | 100.0% |
-| 8. Services and advanced Player APIs | 230 | 67 | 163 | 0 | 0 | 29.1% | 100.0% |
-| **Now: areas 1–6** | 925 | 910 | 15 | 0 | 0 | 98.4% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,021 | 217 | 0 | 0 | 82.5% | 100.0% |
+| 3. MovieClip and timeline | 123 | 123 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
+| **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,204 | 34 | 0 | 0 | 97.3% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -51,15 +51,15 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | component | 1,044 | 0 | 416 | 628 | 0 |
 | AS2 | core | 145 | 145 | 0 | 0 | 0 |
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
-| AS2 | language | 185 | 173 | 12 | 0 | 0 |
+| AS2 | language | 185 | 184 | 1 | 0 | 0 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 703 | 205 | 0 | 0 |
+| AS2 | runtime | 908 | 875 | 33 | 0 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
 | AS3 | core | 376 | 376 | 0 | 0 | 0 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
-| AS3 | language | 124 | 123 | 1 | 0 | 0 |
+| AS3 | language | 124 | 124 | 0 | 0 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 3,983 | 1,141 | 126 | 0 |
+| AS3 | runtime | 5,250 | 4,095 | 1,029 | 126 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-WAVE7-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `78039420e419` | 113 → working |
+| `AS2-WAVE7-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `78039420e419` | 183 → working |
 | `AS3-WAVE6-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `47cc262baa7a` | 1194 → working |
 | `AS2-WAVE6-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `f7c7cd284aed` | 76 → working |
 | `AS2-STATUS-CALIBRATION-A01-20261102` | 2026-11-02 | `85f993a02473` | 293 → partial |
@@ -12479,3 +12481,317 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:statement:statements.html#with` — **working**: Full AS3 statement, directive, class/interface inheritance, access control (public/protected/internal/private), and control-flow semantics execute in both script and multi-unit project compilation.
 
 Evidence: [crates/neoflash-core/src/as3_net_sys.rs](../../crates/neoflash-core/src/as3_net_sys.rs), [crates/neoflash-script/tests/as3_fte_3d_surface.rs](../../crates/neoflash-script/tests/as3_fte_3d_surface.rs), [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs), [web/tests/as3-net-sys.test.cjs](../../web/tests/as3-net-sys.test.cjs), [web/tests/stage.test.cjs](../../web/tests/stage.test.cjs), [crates/neoflash-script/tests/as3_net_sys_surface.rs](../../crates/neoflash-script/tests/as3_net_sys_surface.rs), [crates/neoflash-core/src/as3_fte_3d.rs](../../crates/neoflash-core/src/as3_fte_3d.rs), [crates/neoflash-core/src/as3_media_events.rs](../../crates/neoflash-core/src/as3_media_events.rs), [crates/neoflash-script/tests/as3_media_events_surface.rs](../../crates/neoflash-script/tests/as3_media_events_surface.rs), [web/tests/as3-media-events.test.cjs](../../web/tests/as3-media-events.test.cjs), [web/tests/accessibility.test.cjs](../../web/tests/accessibility.test.cjs), [crates/neoflash-script/tests/air_surface.rs](../../crates/neoflash-script/tests/air_surface.rs), [web/tests/air.test.cjs](../../web/tests/air.test.cjs)
+
+### AS2-WAVE7-GENUINE-CONFORMANCE-20261102 — AS2 Wave 7 runtime conformance for timeline, text, media, net and system APIs
+
+Promote 183 AS2 Target declarations implemented and verified in the ActionScript runtime and execute.mjs (_soundbuftime, getSWFVersion, getURL, loadVariables/Num, _level, load/unloadMovieNum, showRedrawRegions, TextField FlashType & TextRenderer, NetConnection/NetStream, Camera/Microphone, FileReference/List, System.capabilities, SharedObject, print); keep 34 OS/socket/IME entries partial.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:Button.html#_soundbuftime` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#activityLevel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#bandwidth` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#currentFps` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#event:onActivity` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#event:onStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#fps` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#get()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#height` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#index` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#keyFrameInterval` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#loopback` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#motionLevel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#motionTimeOut` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#muted` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#name` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#names` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#quality` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#setKeyFrameInterval()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#setLoopback()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#setMode()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#setMotionLevel()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#setQuality()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Camera.html#width` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#activityLevel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#codec` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#encodeQuality` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#event:onActivity` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#event:onStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#framesPerPacket` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#gain` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#get()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#index` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#muted` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#name` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#names` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#rate` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setCodec()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setEncodeQuality()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setFramesPerPacket()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setGain()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setRate()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setSilenceLevel()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#setUseEchoSuppression()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#silenceLevel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#silenceTimeOut` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Microphone.html#useEchoSuppression` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:MovieClip.html#_soundbuftime` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:MovieClip.html#getSWFVersion()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:MovieClip.html#getURL()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:MovieClip.html#loadVariables()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:MovieClipLoader.html#checkPolicyFile` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#NetConnection()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#call()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#close()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#connect()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#event:onResult` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#event:onStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#isConnected` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetConnection.html#uri` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#NetStream()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#attachAudio()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#attachVideo()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#bufferLength` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#bufferTime` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#bytesLoaded` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#bytesTotal` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#checkPolicyFile` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#close()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#currentFps` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#event:onMetaData` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#event:onPlayStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#event:onStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#getInfo()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#liveDelay` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#maxPauseBufferTime` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#pause()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#play()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#play2()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#publish()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#receiveAudio()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#receiveVideo()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#seek()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#send()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#setBufferTime()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:NetStream.html#time` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#close()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#connect()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#event:onSync` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#getRemote()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#send()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:SharedObject.html#setFps()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Sound.html#checkPolicyFile` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System.html#event:onStatus` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System.html#exactSettings` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System.html#showSettings()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System.html#useCodepage` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#avHardwareDisable` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasAccessibility` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasAudio` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasAudioEncoder` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasEmbeddedVideo` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasIME` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasMP3` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasPrinting` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasScreenBroadcast` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasScreenPlayback` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasStreamingAudio` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasStreamingVideo` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#hasVideoEncoder` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#isDebugger` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#language` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#localFileReadDisable` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#manufacturer` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#os` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#pixelAspectRatio` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#playerType` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#screenColor` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#screenDPI` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#screenResolutionX` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#screenResolutionY` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#serverString` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:System/capabilities.html#version` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:TextField.html#antiAliasType` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:TextField.html#embedFonts` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:TextField.html#gridFitType` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:TextField.html#sharpness` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:TextField.html#thickness` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:Video.html#deblocking` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/external/ExternalInterface.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#FileReference()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#addListener()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#browse()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#cancel()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#creationDate` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#creator` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#download()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onCancel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onComplete` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onHTTPError` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onIOError` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onOpen` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onProgress` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onSecurityError` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onSelect` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#event:onUploadCompleteData` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#modificationDate` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#name` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#postData` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#removeListener()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#size` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#type` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReference.html#upload()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#FileReferenceList()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#addListener()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#browse()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#class` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#event:onCancel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#event:onSelect` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#fileList` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/net/FileReferenceList.html#removeListener()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/text/TextRenderer.html#displayMode` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/text/TextRenderer.html#maxLevel` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#loadMovieNum()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#loadVariables()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#loadVariablesNum()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#print()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#printAsBitmap()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#printAsBitmapNum()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#printNum()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#showRedrawRegions()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_functions.html#unloadMovieNum()` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_props.html#_level` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+- `as2:global_props.html#_soundbuftime` — **working**: Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs).
+
+Evidence: [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs)
+
+### AS3-WAVE7-GENUINE-CONFORMANCE-20261102 — AS3 Wave 7 runtime conformance for native, Stage3D, media, net, display and system APIs
+
+Promote 113 AS3 Flash Player declarations implemented and verified in the ActionScript runtime and execute.mjs (native function dispatch, NetStream.checkPolicyFile, LoaderContext/JPEGLoaderContext, Capabilities, VideoTexture & ATF compressed textures, VideoStreamSettings/H264/VP6/AudioDeviceManager, Responder, NetStreamPlayOptions, SharedObject sync, Stage/InteractiveObject soft keyboard).
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:class:flash/display/AVM1Movie.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/display/ColorCorrection.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/display/ColorCorrectionSupport.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/display3D/textures/VideoTexture.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/events/AudioOutputChangeEvent.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/AudioDecoder.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/AudioDeviceManager.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/AudioOutputChangeReason.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/H264Level.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/H264Profile.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/H264VideoStreamSettings.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/VideoCodec.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/media/VideoStreamSettings.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/net/NetStreamPlayOptions.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/net/NetStreamPlayTransitions.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/net/Responder.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/system/Capabilities.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/system/JPEGLoaderContext.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:class:flash/system/LoaderContext.html#` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/media/H264VideoStreamSettings.html#H264VideoStreamSettings()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/media/VP6VideoStreamSettings.html#VP6VideoStreamSettings()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/media/VideoStreamSettings.html#VideoStreamSettings()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/net/NetStreamPlayOptions.html#NetStreamPlayOptions()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/net/Responder.html#Responder()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/system/JPEGLoaderContext.html#JPEGLoaderContext()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:constructor:flash/system/LoaderContext.html#LoaderContext()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:event:flash/media/AudioDeviceManager.html#event:audioOutputChange` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:event:flash/net/SharedObject.html#event:asyncError` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:event:flash/net/SharedObject.html#event:netStatus` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:event:flash/net/SharedObject.html#event:sync` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display3D/Context3D.html#createVideoTexture()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display3D/textures/CubeTexture.html#uploadCompressedTextureFromByteArray()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display3D/textures/Texture.html#uploadCompressedTextureFromByteArray()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display3D/textures/VideoTexture.html#attachCamera()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/display3D/textures/VideoTexture.html#attachNetStream()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/media/H264VideoStreamSettings.html#setProfileLevel()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/media/VideoStreamSettings.html#setKeyFrameInterval()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/media/VideoStreamSettings.html#setMode()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/media/VideoStreamSettings.html#setQuality()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/net/SharedObject.html#setDirty()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/net/SharedObject.html#setProperty()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:method:flash/system/Capabilities.html#hasMultiChannelAudio()` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display/Stage.html#softKeyboardRect` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display/Stage.html#stageVideos` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display3D/Context3D.html#supportsVideoTexture` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display3D/textures/VideoTexture.html#videoHeight` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/display3D/textures/VideoTexture.html#videoWidth` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/H264VideoStreamSettings.html#codec` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/H264VideoStreamSettings.html#level` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/H264VideoStreamSettings.html#profile` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VP6VideoStreamSettings.html#codec` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#bandwidth` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#codec` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#fps` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#height` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#keyFrameInterval` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#quality` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/media/VideoStreamSettings.html#width` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStream.html#checkPolicyFile` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#len` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#offset` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#oldStreamName` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#start` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#streamName` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/NetStreamPlayOptions.html#transition` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/SharedObject.html#client` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/net/SharedObject.html#fps` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#avHardwareDisable` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#cpuAddressSize` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#cpuArchitecture` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasAccessibility` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasAudio` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasAudioEncoder` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasEmbeddedVideo` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasIME` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasMP3` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasPrinting` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasScreenBroadcast` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasScreenPlayback` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasStreamingAudio` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasStreamingVideo` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasTLS` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#hasVideoEncoder` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#isDebugger` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#isEmbeddedInAcrobat` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#language` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#localFileReadDisable` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#manufacturer` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#maxLevelIDC` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#os` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#pixelAspectRatio` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#playerType` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#screenColor` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#screenDPI` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#screenResolutionX` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#screenResolutionY` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#serverString` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#supports32BitProcesses` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#supports64BitProcesses` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#touchscreenType` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/Capabilities.html#version` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/JPEGLoaderContext.html#deblockingFilter` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#allowCodeImport` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#applicationDomain` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#checkPolicyFile` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#imageDecodingPolicy` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#parameters` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#requestedContentParent` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:property:flash/system/LoaderContext.html#securityDomain` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+- `AS3:statement:statements.html#native` — **working**: Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs).
+
+Evidence: [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs)

@@ -782,8 +782,151 @@
       if(target===stage||alive(target))options.onLegacyInput?.(type,target,domEvent);
       options.onPointerTarget?.(target,type);options.afterInput?.();return result;
     }
+    const activeTouches = new Map();
+    let imeComposing = false, imeText = '';
+    function buildTouchEvent(type, target, point, touchId, isPrimary, domEvent, touchItem = {}, related = null) {
+      const local = target === stage ? point : (options.localPoint?.(target, point[0], point[1]) || point);
+      const bubbles = !['touchRollOver', 'touchRollOut'].includes(type);
+      const sizeX = Number.isFinite(touchItem.radiusX) ? Number(touchItem.radiusX) * 2 : (Number.isFinite(touchItem.width) ? Number(touchItem.width) : 1);
+      const sizeY = Number.isFinite(touchItem.radiusY) ? Number(touchItem.radiusY) * 2 : (Number.isFinite(touchItem.height) ? Number(touchItem.height) : 1);
+      const pressure = Number.isFinite(touchItem.force) ? Number(touchItem.force) : (Number.isFinite(touchItem.pressure) ? Number(touchItem.pressure) : 1);
+      const ctrl = Boolean(domEvent.ctrlKey || domEvent.metaKey);
+      const alt = Boolean(domEvent.altKey);
+      const shift = Boolean(domEvent.shiftKey);
+      const cmd = Boolean(domEvent.metaKey);
+      const control = Boolean(domEvent.ctrlKey);
+      const TE = options.TouchEvent;
+      if (typeof TE === 'function') {
+        const evt = new TE(type, bubbles, false, touchId, Boolean(isPrimary), local[0], local[1], sizeX, sizeY, pressure, related, ctrl, alt, shift, cmd, control);
+        return setStagePoint(evt, point[0], point[1]);
+      }
+      const evt = new Event(type, bubbles, false);
+      Object.assign(evt, {
+        touchPointID: Number(touchId) | 0,
+        isPrimaryTouchPoint: Boolean(isPrimary),
+        localX: Number(local[0]) || 0,
+        localY: Number(local[1]) || 0,
+        stageX: Number(point[0]) || 0,
+        stageY: Number(point[1]) || 0,
+        sizeX,
+        sizeY,
+        pressure,
+        relatedObject: related,
+        ctrlKey: ctrl,
+        altKey: alt,
+        shiftKey: shift,
+        commandKey: cmd,
+        controlKey: control,
+        updateAfterEvent() { stage.invalidate(); },
+      });
+      evt.clone = () => buildTouchEvent(evt.type, target, point, touchId, isPrimary, domEvent, touchItem, related);
+      return evt;
+    }
+    function handleTouch(type, domEvent = {}, explicitTarget = null) {
+      if (!enabled()) return true;
+      const mapped = {
+        touchstart: 'touchBegin',
+        touchmove: 'touchMove',
+        touchend: 'touchEnd',
+        touchcancel: 'touchEnd',
+        pointerdown: 'touchBegin',
+        pointermove: 'touchMove',
+        pointerup: 'touchEnd',
+        pointercancel: 'touchEnd',
+        touchBegin: 'touchBegin',
+        touchMove: 'touchMove',
+        touchEnd: 'touchEnd',
+      }[type];
+      if (!mapped) throw new Error(`Unsupported touch event '${type}'.`);
+      const list = Array.from(domEvent.changedTouches || domEvent.touches || [domEvent]);
+      let allAllowed = true;
+      for (const item of list) {
+        const touchId = Number.isInteger(item.identifier) ? item.identifier : (Number.isInteger(item.pointerId) ? item.pointerId : (Number.isInteger(item.touchPointID) ? item.touchPointID : 0));
+        const coords = options.coordinates?.(item) || options.coordinates?.(domEvent) || [
+          Number.isFinite(item.stageX) ? Number(item.stageX) : (Number.isFinite(item.clientX) ? Number(item.clientX) : mouseX),
+          Number.isFinite(item.stageY) ? Number(item.stageY) : (Number.isFinite(item.clientY) ? Number(item.clientY) : mouseY),
+        ];
+        const pt = [Number(coords[0]) || 0, Number(coords[1]) || 0];
+        const target = targetAt(item?.target ? item : domEvent, explicitTarget);
+        if (mapped === 'touchBegin') {
+          const isPrimary = activeTouches.size === 0 || item.isPrimary === true || item.isPrimaryTouchPoint === true;
+          activeTouches.set(touchId, { target, startTarget: target, stageX: pt[0], stageY: pt[1], isPrimary });
+          if (isPrimary) { [mouseX, mouseY] = pt; }
+          if (target !== stage && alive(target)) {
+            for (const anc of [...chain(target)].reverse()) {
+              if (alive(anc)) deliver(anc, buildTouchEvent('touchRollOver', anc, pt, touchId, isPrimary, domEvent, item, null), domEvent);
+            }
+            deliver(target, buildTouchEvent('touchOver', target, pt, touchId, isPrimary, domEvent, item, null), domEvent);
+          }
+          if (!deliver(target, buildTouchEvent('touchBegin', target, pt, touchId, isPrimary, domEvent, item, null), domEvent)) allAllowed = false;
+        } else if (mapped === 'touchMove') {
+          const prev = activeTouches.get(touchId);
+          const isPrimary = prev ? prev.isPrimary : (touchId === 0 || item.isPrimary === true);
+          if (isPrimary) { [mouseX, mouseY] = pt; }
+          if (prev && prev.target !== target) {
+            const oldTarget = prev.target;
+            prev.target = target;
+            if (oldTarget && oldTarget !== stage && alive(oldTarget)) {
+              deliver(oldTarget, buildTouchEvent('touchOut', oldTarget, pt, touchId, isPrimary, domEvent, item, target), domEvent);
+            }
+            const oldChain = chain(oldTarget), nextChain = chain(target);
+            for (const anc of oldChain) if (!nextChain.includes(anc) && alive(anc)) deliver(anc, buildTouchEvent('touchRollOut', anc, pt, touchId, isPrimary, domEvent, item, target), domEvent);
+            for (const anc of [...nextChain].reverse()) if (!oldChain.includes(anc) && alive(anc)) deliver(anc, buildTouchEvent('touchRollOver', anc, pt, touchId, isPrimary, domEvent, item, oldTarget), domEvent);
+            if (target !== stage && alive(target)) {
+              deliver(target, buildTouchEvent('touchOver', target, pt, touchId, isPrimary, domEvent, item, oldTarget), domEvent);
+            }
+          } else if (prev) {
+            prev.stageX = pt[0]; prev.stageY = pt[1];
+          }
+          if (!deliver(target, buildTouchEvent('touchMove', target, pt, touchId, isPrimary, domEvent, item, null), domEvent)) allAllowed = false;
+        } else if (mapped === 'touchEnd') {
+          const prev = activeTouches.get(touchId);
+          activeTouches.delete(touchId);
+          const isPrimary = prev ? prev.isPrimary : (touchId === 0 || item.isPrimary === true);
+          if (isPrimary) { [mouseX, mouseY] = pt; }
+          if (!deliver(target, buildTouchEvent('touchEnd', target, pt, touchId, isPrimary, domEvent, item, null), domEvent)) allAllowed = false;
+          if (prev && prev.startTarget === target && type !== 'touchcancel' && type !== 'pointercancel') {
+            deliver(target, buildTouchEvent('touchTap', target, pt, touchId, isPrimary, domEvent, item, null), domEvent);
+          }
+          if (target !== stage && alive(target)) {
+            deliver(target, buildTouchEvent('touchOut', target, pt, touchId, isPrimary, domEvent, item, null), domEvent);
+            for (const anc of chain(target)) if (alive(anc)) deliver(anc, buildTouchEvent('touchRollOut', anc, pt, touchId, isPrimary, domEvent, item, null), domEvent);
+          }
+        }
+      }
+      options.afterInput?.();
+      return allAllowed;
+    }
+    function handleComposition(type, domEvent = {}, explicitTarget = null) {
+      if (!enabled()) return true;
+      const text = typeof domEvent.data === 'string' ? domEvent.data : (typeof domEvent.text === 'string' ? domEvent.text : '');
+      const target = explicitTarget || stage.focus || stage;
+      if (type === 'compositionstart' || type === 'imeStartComposition') {
+        imeComposing = true;
+        imeText = text;
+        const startEvt = new (eventsAPI.TextEvent || Event)('imeStartComposition', false, true, text);
+        const res = deliver(target, startEvt, domEvent);
+        options.afterInput?.();
+        return res;
+      }
+      if (type === 'compositionupdate' || type === 'compositionend' || type === 'imeComposition') {
+        imeText = text;
+        if (type === 'compositionend') imeComposing = false;
+        const IME = options.IMEEvent || eventsAPI.TextEvent || Event;
+        const imeEvt = new IME('imeComposition', false, true, text);
+        if (imeEvt.text === undefined) imeEvt.text = text;
+        const res = deliver(target, imeEvt, domEvent);
+        if (type === 'compositionend' && res && text.length > 0 && !options.ownsTextInput?.(domEvent.target)) {
+          const textEvt = new (eventsAPI.TextEvent || Event)(eventsAPI.TextEvent?.TEXT_INPUT || 'textInput', true, true, text);
+          deliver(target, textEvt, domEvent);
+        }
+        options.afterInput?.();
+        return res;
+      }
+      throw new Error(`Unsupported IME composition event '${type}'.`);
+    }
     function handleKey(type, domEvent = {}) {
-      if (!enabled() || domEvent.isComposing) return true;
+      if (!enabled() || domEvent.isComposing || imeComposing) return true;
       const nativeTarget = domEvent.target;
       if (nativeTarget && nativeTarget !== options.canvas && !options.ownsTextInput?.(nativeTarget) &&
         (nativeTarget.isContentEditable || /^(?:INPUT|TEXTAREA|SELECT)$/.test(nativeTarget.tagName || ''))) return true;
@@ -837,6 +980,7 @@
       if (attached) return;
       attached = true;
       for (const type of ['pointerdown','pointerup','pointermove','pointercancel','lostpointercapture','pointerleave']) listen(options.canvas,type,event=>handlePointer(type,event));
+      for (const type of ['touchstart','touchmove','touchend','touchcancel']) listen(options.canvas, type, event => handleTouch(type, event), { passive: false });
       const outside=options.pointerTarget||global;
       for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
       listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
@@ -847,11 +991,15 @@
           const wasInteractive = displayState === 'fullScreenInteractive';
           displayState = 'normal'; mouseLock = false;
           emitFullScreen(false, wasInteractive);
+        } else if (doc()?.fullscreenElement && displayState === 'normal') {
+          displayState = 'fullScreen';
+          emitFullScreen(true, false);
         }
       });
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));
       for (const type of ['keydown', 'keyup']) listen(options.keyboardTarget || options.canvas, type, event => handleKey(type, event));
+      for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) listen(options.keyboardTarget || options.canvas, type, event => handleComposition(type, event));
       if (options.getSize) listen(options.resizeTarget || global, 'resize', () => {
         const dimensions = options.getSize(); resize(dimensions[0], dimensions[1]);
       });
@@ -868,6 +1016,7 @@
       stageColor = initial.color; colorAssigned = false;
       mouseChildren = true; tabChildren = true; doubleClickEnabled = false; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
       keyboardState.capsLock = Boolean(options.capsLock); keyboardState.numLock = Boolean(options.numLock);
+      activeTouches.clear(); imeComposing = false; imeText = '';
       Mouse[resetMouseToken]?.();
       mouseStateRecord.cursor = 'auto'; mouseStateRecord.visible = true;
       fallbackChildren.splice(0, fallbackChildren.length, ...(Array.isArray(options.initialChildren) ? options.initialChildren : []));
@@ -884,7 +1033,7 @@
       hub.release(stage);
     }
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
-      colorAssigned: () => colorAssigned, flushRender, handlePointer, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       tick(targets = [], onConstructed = null) {
         const list = [stage, ...targets];
         hub.broadcast(Event.ENTER_FRAME || 'enterFrame', list);

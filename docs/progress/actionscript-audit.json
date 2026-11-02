@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "133837bc36409dcde8e1ab269860dab7a6ee783b46fe4cee28db28c2dd345955",
+  "catalogSha256": "d5cf9ace03f1fb9846d07773b3ed9a5769ddd72aabe65aa10dcb4b85ac1c138c",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35461,6 +35461,22 @@
         "reviewIds": [
           "AS3-WAVE6-GENUINE-CONFORMANCE-20261102"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-02-as2-wave7-conformance.json",
+        "sha256": "93b0f580a0b1e44aae31c5f682595024fc9ddca23f6dc5d04e4acfb71dccd55b",
+        "baseCatalogSha256": "133837bc36409dcde8e1ab269860dab7a6ee783b46fe4cee28db28c2dd345955",
+        "reviewIds": [
+          "AS2-WAVE7-GENUINE-CONFORMANCE-20261102"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-02-as3-wave7-conformance.json",
+        "sha256": "a4eed8488662238ebb5294a57d76caa1057751b768a33fe21606d84e0ecfff61",
+        "baseCatalogSha256": "7772a7e6616082937694891449e8b98b2f4a299a471bdc9137fe55ee1c10e91a",
+        "reviewIds": [
+          "AS3-WAVE7-GENUINE-CONFORMANCE-20261102"
+        ]
       }
     ],
     "statusReviews": [
@@ -35699,28 +35715,46 @@
         "changes": {
           "working": 1194
         }
+      },
+      {
+        "id": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+        "date": "2026-11-02",
+        "commit": "78039420e4194b83aa35d276bed6df8ad7a06dbf",
+        "path": "docs/progress/reviews/2026-11-02-as2-wave7-conformance.json",
+        "changes": {
+          "working": 183
+        }
+      },
+      {
+        "id": "AS3-WAVE7-GENUINE-CONFORMANCE-20261102",
+        "date": "2026-11-02",
+        "commit": "78039420e4194b83aa35d276bed6df8ad7a06dbf",
+        "path": "docs/progress/reviews/2026-11-02-as3-wave7-conformance.json",
+        "changes": {
+          "working": 113
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5503,
-      "partial": 1914,
+      "implemented_subset": 5799,
+      "partial": 1618,
       "missing": 38630,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1021,
-        "partial": 648,
+        "implemented_subset": 1204,
+        "partial": 465,
         "missing": 638,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4482,
-        "partial": 1266,
+        "implemented_subset": 4595,
+        "partial": 1153,
         "missing": 37992,
         "needs_review": 0,
         "total": 43740
@@ -35749,8 +35783,8 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 296,
-        "partial": 13,
+        "implemented_subset": 308,
+        "partial": 1,
         "missing": 0,
         "needs_review": 0,
         "total": 309
@@ -35763,8 +35797,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4686,
-        "partial": 1346,
+        "implemented_subset": 4970,
+        "partial": 1062,
         "missing": 126,
         "needs_review": 0,
         "total": 6158
@@ -35794,8 +35828,8 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 173,
-          "partial": 12,
+          "implemented_subset": 184,
+          "partial": 1,
           "missing": 0,
           "needs_review": 0,
           "total": 185
@@ -35808,8 +35842,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 703,
-          "partial": 205,
+          "implemented_subset": 875,
+          "partial": 33,
           "missing": 0,
           "needs_review": 0,
           "total": 908
@@ -35838,8 +35872,8 @@
           "total": 35790
         },
         "language": {
-          "implemented_subset": 123,
-          "partial": 1,
+          "implemented_subset": 124,
+          "partial": 0,
           "missing": 0,
           "needs_review": 0,
           "total": 124
@@ -35852,8 +35886,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 3983,
-          "partial": 1141,
+          "implemented_subset": 4095,
+          "partial": 1029,
           "missing": 126,
           "needs_review": 0,
           "total": 5250
@@ -170143,6 +170177,3302 @@
         },
         {
           "catalogId": "AS3:statement:statements.html#with",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+      "title": "AS2 Wave 7 runtime conformance for timeline, text, media, net and system APIs",
+      "reason": "Promote 183 AS2 Target declarations implemented and verified in the ActionScript runtime and execute.mjs (_soundbuftime, getSWFVersion, getURL, loadVariables/Num, _level, load/unloadMovieNum, showRedrawRegions, TextField FlashType & TextRenderer, NetConnection/NetStream, Camera/Microphone, FileReference/List, System.capabilities, SharedObject, print); keep 34 OS/socket/IME entries partial.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "8523389823e096b34f5fd30681de3aa13220243d1efa0a25887d81e89a9567a7"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "43659ec6fc9c0509e5fb3860de39e53029499b359bffc637f543200d00d2a386"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadVariables()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#FileReference()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#addListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#browse()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#cancel()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#download()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onCancel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onComplete",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onHTTPError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onIOError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onOpen",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onProgress",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSecurityError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSelect",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onUploadCompleteData",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#modificationDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#name",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#postData",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#removeListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#size",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#type",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#upload()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#FileReferenceList()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#addListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#browse()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onCancel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onSelect",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#fileList",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#removeListener()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariables()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariablesNum()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadVariables()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#FileReference()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#addListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#browse()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#cancel()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#download()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onCancel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onComplete",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onHTTPError",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onIOError",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onOpen",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onProgress",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSecurityError",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSelect",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onUploadCompleteData",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#modificationDate",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#name",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#postData",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#removeListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#size",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#type",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#upload()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#FileReferenceList()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#addListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#browse()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onCancel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onSelect",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#fileList",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#removeListener()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariables()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariablesNum()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "partial",
+          "ruleId": "AS2-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-WAVE7-GENUINE-CONFORMANCE-20261102",
+      "title": "AS3 Wave 7 runtime conformance for native, Stage3D, media, net, display and system APIs",
+      "reason": "Promote 113 AS3 Flash Player declarations implemented and verified in the ActionScript runtime and execute.mjs (native function dispatch, NetStream.checkPolicyFile, LoaderContext/JPEGLoaderContext, Capabilities, VideoTexture & ATF compressed textures, VideoStreamSettings/H264/VP6/AudioDeviceManager, Responder, NetStreamPlayOptions, SharedObject sync, Stage/InteractiveObject soft keyboard).",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "8523389823e096b34f5fd30681de3aa13220243d1efa0a25887d81e89a9567a7"
+        },
+        {
+          "path": "crates/neoflash-script/src/actionscript.rs",
+          "sha256": "43659ec6fc9c0509e5fb3860de39e53029499b359bffc637f543200d00d2a386"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/AVM1Movie.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrection.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrectionSupport.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/VideoTexture.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/AudioOutputChangeEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDecoder.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDeviceManager.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioOutputChangeReason.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Level.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Profile.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264VideoStreamSettings.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoCodec.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoStreamSettings.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayOptions.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayTransitions.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/Responder.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Capabilities.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/JPEGLoaderContext.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/LoaderContext.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/H264VideoStreamSettings.html#H264VideoStreamSettings()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VP6VideoStreamSettings.html#VP6VideoStreamSettings()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VideoStreamSettings.html#VideoStreamSettings()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetStreamPlayOptions.html#NetStreamPlayOptions()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/Responder.html#Responder()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/JPEGLoaderContext.html#JPEGLoaderContext()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/LoaderContext.html#LoaderContext()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AudioDeviceManager.html#event:audioOutputChange",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:asyncError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:netStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:sync",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVideoTexture()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadCompressedTextureFromByteArray()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadCompressedTextureFromByteArray()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachCamera()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachNetStream()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/H264VideoStreamSettings.html#setProfileLevel()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setKeyFrameInterval()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setMode()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setQuality()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setDirty()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setProperty()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Capabilities.html#hasMultiChannelAudio()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#softKeyboardRect",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageVideos",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#supportsVideoTexture",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoHeight",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoWidth",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#codec",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#level",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#profile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VP6VideoStreamSettings.html#codec",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#bandwidth",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#codec",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#fps",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#height",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#keyFrameInterval",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#quality",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#width",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#checkPolicyFile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#len",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#offset",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#oldStreamName",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#start",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#streamName",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#transition",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#client",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#fps",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#avHardwareDisable",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuAddressSize",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuArchitecture",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAccessibility",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudioEncoder",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasEmbeddedVideo",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasIME",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasMP3",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasPrinting",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenBroadcast",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenPlayback",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingAudio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingVideo",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasTLS",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasVideoEncoder",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isDebugger",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isEmbeddedInAcrobat",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#language",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#localFileReadDisable",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#manufacturer",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#maxLevelIDC",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#os",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#pixelAspectRatio",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#playerType",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenColor",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenDPI",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionX",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionY",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#serverString",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports32BitProcesses",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports64BitProcesses",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#touchscreenType",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#version",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/JPEGLoaderContext.html#deblockingFilter",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#allowCodeImport",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#applicationDomain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#checkPolicyFile",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#imageDecodingPolicy",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#parameters",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#requestedContentParent",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#securityDomain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#native",
+          "status": "implemented_subset",
+          "scopeNote": "Verified in ActionScript 3 runtime and compiler conformance suite (execute.mjs)."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/AVM1Movie.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrection.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/ColorCorrectionSupport.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display3D/textures/VideoTexture.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/AudioOutputChangeEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDecoder.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioDeviceManager.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AudioOutputChangeReason.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Level.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264Profile.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/H264VideoStreamSettings.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoCodec.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/VideoStreamSettings.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayOptions.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamPlayTransitions.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/Responder.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Capabilities.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/JPEGLoaderContext.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/LoaderContext.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/H264VideoStreamSettings.html#H264VideoStreamSettings()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VP6VideoStreamSettings.html#VP6VideoStreamSettings()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/VideoStreamSettings.html#VideoStreamSettings()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetStreamPlayOptions.html#NetStreamPlayOptions()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/Responder.html#Responder()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/JPEGLoaderContext.html#JPEGLoaderContext()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/LoaderContext.html#LoaderContext()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AudioDeviceManager.html#event:audioOutputChange",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:asyncError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:netStatus",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SharedObject.html#event:sync",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/InteractiveObject.html#requestSoftKeyboard()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/Context3D.html#createVideoTexture()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/CubeTexture.html#uploadCompressedTextureFromByteArray()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/Texture.html#uploadCompressedTextureFromByteArray()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachCamera()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display3D/textures/VideoTexture.html#attachNetStream()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/H264VideoStreamSettings.html#setProfileLevel()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setKeyFrameInterval()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setMode()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/VideoStreamSettings.html#setQuality()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setDirty()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#setProperty()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Capabilities.html#hasMultiChannelAudio()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#needsSoftKeyboard",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/InteractiveObject.html#softKeyboardInputAreaOfInterest",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#softKeyboardRect",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#stageVideos",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/Context3D.html#supportsVideoTexture",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoHeight",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display3D/textures/VideoTexture.html#videoWidth",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#codec",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#level",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/H264VideoStreamSettings.html#profile",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VP6VideoStreamSettings.html#codec",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#bandwidth",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#codec",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#fps",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#height",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#keyFrameInterval",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#quality",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/VideoStreamSettings.html#width",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#checkPolicyFile",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#len",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#offset",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#oldStreamName",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#start",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#streamName",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamPlayOptions.html#transition",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#client",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SharedObject.html#fps",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#avHardwareDisable",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuAddressSize",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#cpuArchitecture",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAccessibility",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudio",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasAudioEncoder",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasEmbeddedVideo",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasIME",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasMP3",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasPrinting",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenBroadcast",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasScreenPlayback",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingAudio",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasStreamingVideo",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasTLS",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#hasVideoEncoder",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isDebugger",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#isEmbeddedInAcrobat",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#language",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#localFileReadDisable",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#manufacturer",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#maxLevelIDC",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#os",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#pixelAspectRatio",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#playerType",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenColor",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenDPI",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionX",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#screenResolutionY",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#serverString",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports32BitProcesses",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#supports64BitProcesses",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#touchscreenType",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Capabilities.html#version",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/JPEGLoaderContext.html#deblockingFilter",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#allowCodeImport",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#applicationDomain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#checkPolicyFile",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#imageDecodingPolicy",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#parameters",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#requestedContentParent",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/LoaderContext.html#securityDomain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#native",
           "status": "partial",
           "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
           "evidenceKind": "test_backed_review"

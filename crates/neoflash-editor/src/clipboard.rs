@@ -242,6 +242,8 @@ impl Editor {
             Ok(None) => {
                 if is_svg_clipboard_text(text) {
                     self.paste_svg(text, in_place);
+                } else if let Some((media_type, bytes)) = parse_image_data_url(text) {
+                    self.paste_image_bytes(ctx, &bytes, &media_type, in_place);
                 } else {
                     self.message("The clipboard does not contain NeoFlash objects.");
                 }
@@ -385,7 +387,171 @@ impl Editor {
         let suffix = graphic.notice.map(|n| format!(" {n}")).unwrap_or_default();
         self.message(format!("Pasted {count} object(s).{suffix}"));
     }
+    pub(crate) fn paste_image_bytes(
+        &mut self,
+        ctx: &egui::Context,
+        bytes: &[u8],
+        media_type: &str,
+        in_place: bool,
+    ) -> bool {
+        let in_place = in_place || self.workspace.paste_in_place;
+        self.finish_edits();
+        if !self.layer_editable() {
+            self.message("Paste failed: destination layer is locked or hidden.");
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        if self.frame >= self.symbol().timeline.frame_count {
+            self.message("Paste failed: destination frame is outside the timeline.");
+            return false;
+        }
+        let (width, height) = match image::load_from_memory(bytes) {
+            Ok(decoded) => (decoded.width().max(1), decoded.height().max(1)),
+            Err(error) => {
+                self.message(format!("Paste failed: invalid bitmap image ({error})."));
+                return false;
+            }
+        };
+        let ext = match media_type {
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "png",
+        };
+        let mut index = self.project.resources.len() + 1;
+        let (resource_id, path) = loop {
+            let cand_id = format!("res-pasted-{index}");
+            let cand_path = format!("bitmaps/pasted-{index}.{ext}");
+            if !self
+                .project
+                .resources
+                .iter()
+                .any(|r| r.id == cand_id || r.path == cand_path)
+            {
+                break (cand_id, cand_path);
+            }
+            index += 1;
+        };
+        let unit = match neoflash_core::ResourceUnit::from_bytes(
+            resource_id.clone(),
+            path,
+            media_type.to_owned(),
+            bytes,
+        ) {
+            Ok(unit) => unit,
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                return false;
+            }
+        };
+        let mut candidate = self.project.clone();
+        candidate.resources.push(unit);
+        candidate.format_version = candidate.format_version.max(3);
+        let element_id = neoflash_core::new_id("bitmap");
+        let (x, y) = if in_place {
+            (0.0, 0.0)
+        } else {
+            let center = self.paste_center();
+            (
+                center[0] - f64::from(width) / 2.0,
+                center[1] - f64::from(height) / 2.0,
+            )
+        };
+        let element = neoflash_core::Element {
+            id: element_id.clone(),
+            name: String::new(),
+            transform: neoflash_core::Transform {
+                x,
+                y,
+                ..Default::default()
+            },
+            kind: neoflash_core::ElementKind::Bitmap {
+                resource_id,
+                width,
+                height,
+                smoothing: true,
+            },
+            ..Default::default()
+        };
+        let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
+            .id
+            .clone();
+        {
+            let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
+            if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
+                let elements = neoflash_core::sample_layer(layer, self.frame);
+                let tween = layer.key_at(self.frame).and_then(|k| k.tween);
+                layer.keyframes.push(neoflash_core::Keyframe {
+                    frame: self.frame,
+                    elements,
+                    tween,
+                    label: String::new(),
+                    ..Default::default()
+                });
+                layer.keyframes.sort_by_key(|k| k.frame);
+            }
+            layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == self.frame)
+                .unwrap()
+                .elements
+                .push(element);
+            layer.normalize_motion_keys();
+        }
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Paste failed: {error}"));
+            return false;
+        }
+        self.playing = false;
+        self.transact_named("Paste bitmap", |editor| {
+            editor.project = candidate;
+            editor.set_selection(vec![SelectionTarget {
+                layer: layer_id.clone(),
+                element: element_id,
+            }]);
+        });
+        let _ = ctx;
+        self.message("Pasted 1 bitmap.");
+        true
+    }
     pub(crate) fn request_clipboard(&mut self, ctx: &egui::Context, command: ClipboardCommand) {
+        if matches!(
+            command,
+            ClipboardCommand::Paste | ClipboardCommand::PasteInPlace
+        ) {
+            let target = self
+                .clipboard
+                .menu_target
+                .as_ref()
+                .filter(|target| target.viewport == ctx.viewport_id())
+                .cloned()
+                .unwrap_or_else(|| self.clipboard_target(ctx));
+            if !target.is_text()
+                && let Ok(mut cb) = arboard::Clipboard::new()
+                && cb.get_text().map_or(true, |t| t.trim().is_empty())
+                && let Ok(img) = cb.get_image()
+                && let Some(rgba) = image::RgbaImage::from_raw(
+                    img.width as u32,
+                    img.height as u32,
+                    img.bytes.into_owned(),
+                )
+            {
+                let mut cursor = std::io::Cursor::new(Vec::new());
+                if image::DynamicImage::ImageRgba8(rgba)
+                    .write_to(&mut cursor, image::ImageFormat::Png)
+                    .is_ok()
+                {
+                    self.paste_image_bytes(
+                        ctx,
+                        &cursor.into_inner(),
+                        "image/png",
+                        command == ClipboardCommand::PasteInPlace,
+                    );
+                    return;
+                }
+            }
+        }
         self.request_clipboard_with(ctx, command, || {
             arboard::Clipboard::new()
                 .and_then(|mut clipboard| clipboard.get_text())
@@ -533,4 +699,30 @@ fn is_svg_clipboard_text(text: &str) -> bool {
             || lower.starts_with("<!doctype")
             || lower.starts_with("<!--"))
             && lower.contains("<svg"))
+}
+
+fn parse_image_data_url(text: &str) -> Option<(String, Vec<u8>)> {
+    let trimmed = text.trim();
+    let rest = trimmed.strip_prefix("data:")?;
+    let (meta, payload) = rest.split_once(',')?;
+    let meta_lower = meta.to_ascii_lowercase();
+    let media_type = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+        .into_iter()
+        .find(|m| meta_lower.starts_with(m))?
+        .to_owned();
+    if !meta_lower.ends_with(";base64") {
+        return None;
+    }
+    let clean: String = payload
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    let unit = neoflash_core::ResourceUnit {
+        id: "tmp".into(),
+        path: "tmp.png".into(),
+        media_type: media_type.clone(),
+        data_base64: clean.into(),
+    };
+    let bytes = unit.decoded_bytes().ok()?;
+    Some((media_type, bytes))
 }

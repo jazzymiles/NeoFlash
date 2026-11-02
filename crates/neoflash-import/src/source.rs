@@ -31,18 +31,22 @@ fn is_xfl_actionscript(name: &str) -> bool {
 }
 
 fn is_xfl_binary_media(name: &str) -> bool {
-    if !(name.starts_with("LIBRARY/") || name.starts_with("bin/")) {
-        return false;
-    }
-    Path::new(name)
+    let ext_match = Path::new(name)
         .extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "bmp" | "wav" | "mp3" | "dat"
+                "png" | "jpg" | "jpeg" | "bmp" | "wav" | "mp3" | "dat" | "swf"
             )
-        })
+        });
+    if name.to_ascii_lowercase().ends_with(".swf") {
+        return true;
+    }
+    if !(name.starts_with("LIBRARY/") || name.starts_with("bin/") || name.starts_with("assets/")) {
+        return ext_match && !name.contains('/');
+    }
+    ext_match
 }
 
 pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
@@ -182,6 +186,8 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         }
         let format = if files.contains_key("DOMDocument.xml") {
             ImportFormat::XflArchive
+        } else if files.contains_key("catalog.xml") {
+            ImportFormat::Swc
         } else {
             ImportFormat::Unknown
         };

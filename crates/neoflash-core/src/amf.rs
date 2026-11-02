@@ -844,3 +844,205 @@ impl Reader<'_> {
         Ok(AmfValue::Ref(id))
     }
 }
+
+impl AmfGraph {
+    /// Encode this object graph as a Flash Local Shared Object (`.sol` / `TCSO`) binary container.
+    pub fn encode_sol(&self, name: &str, format: u8) -> Result<Vec<u8>, AmfError> {
+        if !matches!(format, 0 | 3) {
+            return Err(fail("objectEncoding must be 0 or 3"));
+        }
+        if name.is_empty() {
+            return Err(fail("SOL name cannot be empty"));
+        }
+        let name_len =
+            u16::try_from(name.len()).map_err(|_| fail("SOL name exceeds 65535 UTF-8 bytes"))?;
+        self.validate()?;
+
+        let entries: &[(String, AmfValue)] = match &self.root {
+            AmfValue::Null | AmfValue::Undefined => &[],
+            AmfValue::Ref(root_id) => match self.nodes.get(*root_id) {
+                Some(AmfNode::Object { entries, .. }) => entries.as_slice(),
+                _ => return Err(fail("SOL root must be an Object node")),
+            },
+            _ => return Err(fail("SOL root must be an Object node")),
+        };
+
+        let mut w = Writer {
+            out: vec![],
+            graph: self,
+            refs0: HashMap::new(),
+            refs3: HashMap::new(),
+            strings: HashMap::new(),
+            traits: HashMap::new(),
+        };
+        for (prop_name, prop_val) in entries {
+            if prop_name.is_empty() {
+                return Err(fail("SOL property name cannot be empty"));
+            }
+            if format == 0 {
+                w.name0(prop_name)?;
+                w.value(prop_val, 0, 1)?;
+                w.byte(0)?;
+            } else {
+                w.string3(prop_name)?;
+                w.value(prop_val, 3, 1)?;
+                w.byte(0)?;
+            }
+        }
+
+        let body_len = 4usize
+            .saturating_add(6)
+            .saturating_add(2)
+            .saturating_add(name.len())
+            .saturating_add(4)
+            .saturating_add(w.out.len());
+        let body_len_u32 =
+            u32::try_from(body_len).map_err(|_| fail("SOL container exceeds 4 GiB"))?;
+
+        let mut out = Vec::with_capacity(6 + body_len);
+        out.extend_from_slice(&[0x00, 0xBF]);
+        out.extend_from_slice(&body_len_u32.to_be_bytes());
+        out.extend_from_slice(b"TCSO");
+        out.extend_from_slice(&[0x00, 0x04, 0x00, 0x00, 0x00, 0x00]);
+        out.extend_from_slice(&name_len.to_be_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&u32::from(format).to_be_bytes());
+        out.extend_from_slice(&w.out);
+        Ok(out)
+    }
+}
+
+impl AmfDecoded {
+    /// Decode a Flash Local Shared Object (`.sol` / `TCSO`) binary container into `(name, format, decoded)`.
+    pub fn decode_sol(bytes: &[u8]) -> Result<(String, u8, AmfDecoded), AmfError> {
+        if bytes.len() < 18 {
+            return Err(fail("truncated SOL header"));
+        }
+        if bytes[0..2] != [0x00, 0xBF] || &bytes[6..10] != b"TCSO" {
+            return Err(fail("invalid SOL magic header (expected 0x00BF ... TCSO)"));
+        }
+        if bytes[10..16] != [0x00, 0x04, 0x00, 0x00, 0x00, 0x00] {
+            return Err(fail("unsupported SOL version header"));
+        }
+        let declared_body = u32::from_be_bytes(bytes[2..6].try_into().unwrap()) as usize;
+        let end = 6usize
+            .checked_add(declared_body)
+            .ok_or_else(|| fail("SOL length overflow"))?;
+        if end > bytes.len() {
+            return Err(fail("truncated SOL body"));
+        }
+        let slice = &bytes[..end];
+        let mut r = Reader {
+            data: slice,
+            pos: 16,
+            nodes: vec![],
+            refs0: vec![],
+            refs3: vec![],
+            strings: vec![],
+            traits: vec![],
+            budget: Budget::default(),
+        };
+        let result = (|| -> Result<(String, u8, usize), AmfError> {
+            let name_len = r.u16()? as usize;
+            let name = r.text(name_len)?;
+            if name.is_empty() {
+                return Err(fail("SOL name cannot be empty"));
+            }
+            let format_u32 = r.u32()?;
+            let format = match format_u32 {
+                0 => 0u8,
+                3 => 3u8,
+                _ => return Err(fail("SOL objectEncoding must be 0 or 3")),
+            };
+            r.budget.items(1)?;
+            let root_id = r.nodes.len();
+            r.nodes.push(AmfNode::Object {
+                class_name: None,
+                entries: vec![],
+            });
+            let mut entries = Vec::new();
+            let mut seen = HashSet::new();
+            while r.pos < r.data.len() {
+                let prop_name = if format == 0 {
+                    let klen = r.u16()? as usize;
+                    r.text(klen)?
+                } else {
+                    r.string3()?
+                };
+                if prop_name.is_empty() {
+                    return Err(fail("SOL property name cannot be empty"));
+                }
+                if !seen.insert(prop_name.clone()) {
+                    return Err(fail("duplicate SOL property name"));
+                }
+                let val = r.value(format, 1)?;
+                let trailer = r.byte()?;
+                if trailer != 0 {
+                    return Err(fail("SOL property entry must end with 0x00 trailer"));
+                }
+                entries.push((prop_name, val));
+            }
+            r.nodes[root_id] = AmfNode::Object {
+                class_name: None,
+                entries,
+            };
+            Ok((name, format, root_id))
+        })()
+        .map_err(|mut err| {
+            err.offset = r.pos;
+            err
+        })?;
+        let (name, format, root_id) = result;
+        Ok((
+            name,
+            format,
+            AmfDecoded {
+                graph: AmfGraph {
+                    root: AmfValue::Ref(root_id),
+                    nodes: r.nodes,
+                },
+                consumed: r.pos,
+            },
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sol_binary_container_roundtrips_amf0_and_amf3_with_typed_aliases() {
+        let graph = AmfGraph {
+            root: AmfValue::Ref(0),
+            nodes: vec![
+                AmfNode::Object {
+                    class_name: None,
+                    entries: vec![
+                        ("score".into(), AmfValue::Number("4200".into())),
+                        ("player".into(), AmfValue::String("Ada".into())),
+                        ("profile".into(), AmfValue::Ref(1)),
+                    ],
+                },
+                AmfNode::Object {
+                    class_name: Some("com.example.SaveProfile".into()),
+                    entries: vec![
+                        ("level".into(), AmfValue::Number("7".into())),
+                        ("active".into(), AmfValue::Bool(true)),
+                    ],
+                },
+            ],
+        };
+
+        for format in [0u8, 3u8] {
+            let bytes = graph.encode_sol("arcade/save", format).unwrap();
+            assert_eq!(&bytes[0..2], &[0x00, 0xBF]);
+            assert_eq!(&bytes[6..10], b"TCSO");
+            let (name, decoded_format, decoded) = AmfDecoded::decode_sol(&bytes).unwrap();
+            assert_eq!(name, "arcade/save");
+            assert_eq!(decoded_format, format);
+            assert_eq!(decoded.consumed, bytes.len());
+            assert_eq!(decoded.graph, graph);
+        }
+    }
+}

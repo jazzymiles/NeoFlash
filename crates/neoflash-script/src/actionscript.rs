@@ -835,14 +835,35 @@ impl<'a> Frontend<'a> {
             );
             return Ok(Some(Stmt::Var(vec![(name, None, Some(init))])));
         }
-        if self.is("native")
-            && self
-                .peek(self.pos + 1)
-                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "function"))
         {
-            self.expect("native")?;
-            let (func, _) = self.project_function(true, false, false, true)?;
-            return Ok(Some(Stmt::Function(Box::new(func))));
+            let mut look = self.pos;
+            let mut saw_native = false;
+            while let Some(t) = self.peek(look) {
+                if let Kind::Ident(s) = &t.kind {
+                    if s == "native" {
+                        saw_native = true;
+                        look += 1;
+                    } else if matches!(
+                        s.as_str(),
+                        "public" | "internal" | "private" | "protected" | "static" | "final"
+                    ) {
+                        look += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            if saw_native
+                && self
+                    .peek(look)
+                    .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "function"))
+            {
+                self.pos = look;
+                let (func, _) = self.project_function(true, false, false, true)?;
+                return Ok(Some(Stmt::Function(Box::new(func))));
+            }
         }
         if self.is("include")
             && self
@@ -1387,6 +1408,8 @@ impl<'a> Frontend<'a> {
             && (self.context.project
                 || self.context.legacy_case
                 || (self.script.language == ScriptLanguage::ActionScript2 && name == "TextField")
+                || name == "flash"
+                || name.starts_with("flash.")
                 || matches!(
                     self.peek(self.pos + 1).map(|t| t.kind),
                     Some(Kind::Punct("<"))
@@ -1469,7 +1492,14 @@ impl<'a> Frontend<'a> {
                         | "NetConnection"
                         | "NetStream"
                         | "Video"
+                        | "FileReference"
+                        | "FileReferenceList"
+                        | "flash.net.FileReference"
+                        | "flash.net.FileReferenceList"
+                        | "TextRenderer"
+                        | "flash.text.TextRenderer"
                 ))
+            || (as3 && !self.context.project && is_as3_wave7_type(name))
             || (self.context.project && self.context.types.contains_key(name))
             || (is_error_type(name) && (as3 || name == "Error"))
             || (returns && name == if as3 { "void" } else { "Void" });
@@ -1587,13 +1617,32 @@ impl<'a> Frontend<'a> {
             && self.script.language == ScriptLanguage::ActionScript3
             && self.eat(";")
         {
-            if returns.as_deref() == Some("void") || returns.is_none() {
-                Vec::new()
+            let class_key =
+                serde_json::to_string(&self.context.class_name.clone().unwrap_or_default())
+                    .unwrap();
+            let raw_name = name.clone().unwrap_or_default();
+            let full_name = match accessor.as_deref() {
+                Some("get") => format!("get:{raw_name}"),
+                Some("set") => format!("set:{raw_name}"),
+                _ => raw_name,
+            };
+            let fn_key = serde_json::to_string(&full_name).unwrap();
+            let mut arg_parts: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
+            if let Some(r) = &rest {
+                arg_parts.push(format!("...{r}"));
+            }
+            let args_js = if arg_parts.is_empty() {
+                "__nfActivation.values".to_owned()
             } else {
-                vec![Stmt::Return(
-                    Some(Expr::Literal("undefined".into())),
-                    offset,
-                )]
+                format!("[{}]", arg_parts.join(", "))
+            };
+            let call_js = format!(
+                "__nfInvokeNative(typeof __nfFrame !== 'undefined' ? __nfFrame : this, {class_key}, {fn_key}, {args_js})"
+            );
+            if returns.as_deref() == Some("void") {
+                vec![Stmt::Expr(Expr::Literal(call_js))]
+            } else {
+                vec![Stmt::Return(Some(Expr::Literal(call_js)), offset)]
             }
         } else {
             self.expect("{")?;
@@ -1918,6 +1967,7 @@ impl<'a> Frontend<'a> {
                     || (!self.context.intrinsic_type(&name, true)
                         && !self.context.core_type(&name)
                         && !self.context.types.contains_key(&name)
+                        && !(!self.context.project && is_as3_wave7_type(&name))
                         && vector_element(&name).is_none())
                 {
                     return Err(self.error("is/as currently requires a supported native type or a resolved project/native type; dynamic class expressions are unsupported."));
@@ -2047,7 +2097,15 @@ impl<'a> Frontend<'a> {
                             | "NetConnection"
                             | "NetStream"
                             | "Video"
-                    ));
+                            | "FileReference"
+                            | "FileReferenceList"
+                            | "flash.net.FileReference"
+                            | "flash.net.FileReferenceList"
+                    ))
+                || (self.script.language == ScriptLanguage::ActionScript3
+                    && !self.context.project
+                    && class.is_none()
+                    && is_as3_wave7_constructible(&name));
             if !builtin
                 && vector_element(&name).is_none()
                 && class.is_none()
@@ -2227,6 +2285,7 @@ impl<'a> Frontend<'a> {
                         | "Namespace"
                         | "QName"
                 ) || is_timeline_method(name)
+                    || is_as3_wave7_type(name)
             }
             Expr::Member(base, name) if matches!(base.as_ref(), Expr::Name(n) if n == "Math") => {
                 matches!(
@@ -2250,6 +2309,15 @@ impl<'a> Frontend<'a> {
                         | "sqrt"
                         | "tan"
                 )
+            }
+            Expr::Member(base, name)
+                if name == "get"
+                    && matches!(
+                        base.as_ref(),
+                        Expr::Name(n) if matches!(n.as_str(), "Camera" | "Microphone")
+                    ) =>
+            {
+                true
             }
             Expr::Member(_, name) => {
                 is_timeline_method(name)
@@ -2278,8 +2346,48 @@ impl<'a> Frontend<'a> {
                             | "getURL"
                             | "loadMovie"
                             | "unloadMovie"
+                            | "loadVariables"
+                            | "getSWFVersion"
                             | "addCallback"
                             | "send"
+                            | "setMode"
+                            | "setMotionLevel"
+                            | "setRate"
+                            | "setGain"
+                            | "setSilenceLevel"
+                            | "setUseEchoSuppression"
+                            | "setBufferTime"
+                            | "receiveAudio"
+                            | "receiveVideo"
+                            | "browse"
+                            | "upload"
+                            | "download"
+                            | "cancel"
+                            | "hasMultiChannelAudio"
+                            | "createVideoTexture"
+                            | "uploadCompressedTextureFromByteArray"
+                            | "attachNetStream"
+                            | "setProfileLevel"
+                            | "setKeyFrameInterval"
+                            | "setQuality"
+                            | "setDirty"
+                            | "setProperty"
+                            | "getLocal"
+                            | "getRemote"
+                            | "connect"
+                            | "close"
+                            | "setFps"
+                            | "flush"
+                            | "clear"
+                            | "dispatchEvent"
+                            | "writeUTFBytes"
+                            | "writeByte"
+                            | "writeUnsignedInt"
+                            | "dispose"
+                            | "play2"
+                            | "createTexture"
+                            | "createCubeTexture"
+                            | "clone"
                     )
             }
             Expr::Index(base, index) => literal_property_name(index)
@@ -2312,6 +2420,8 @@ pub(super) fn is_as2_frame_global(name: &str) -> bool {
             | "loadMovieNum"
             | "unloadMovie"
             | "unloadMovieNum"
+            | "loadVariables"
+            | "loadVariablesNum"
             | "print"
             | "printNum"
             | "printAsBitmap"
@@ -2353,6 +2463,126 @@ fn is_as2_legacy_instanceof_type(name: &str) -> bool {
             | "XMLSocket"
             | "NetConnection"
             | "NetStream"
+            | "FileReference"
+            | "FileReferenceList"
+            | "flash.net.FileReference"
+            | "flash.net.FileReferenceList"
+    )
+}
+
+fn is_as3_wave7_type(name: &str) -> bool {
+    matches!(
+        name,
+        "LoaderContext"
+            | "flash.system.LoaderContext"
+            | "JPEGLoaderContext"
+            | "flash.system.JPEGLoaderContext"
+            | "ApplicationDomain"
+            | "flash.system.ApplicationDomain"
+            | "SecurityDomain"
+            | "flash.system.SecurityDomain"
+            | "Capabilities"
+            | "flash.system.Capabilities"
+            | "Context3D"
+            | "flash.display3D.Context3D"
+            | "VideoTexture"
+            | "flash.display3D.textures.VideoTexture"
+            | "Texture"
+            | "flash.display3D.textures.Texture"
+            | "CubeTexture"
+            | "flash.display3D.textures.CubeTexture"
+            | "VideoStreamSettings"
+            | "flash.media.VideoStreamSettings"
+            | "H264VideoStreamSettings"
+            | "flash.media.H264VideoStreamSettings"
+            | "VP6VideoStreamSettings"
+            | "flash.media.VP6VideoStreamSettings"
+            | "H264Level"
+            | "flash.media.H264Level"
+            | "H264Profile"
+            | "flash.media.H264Profile"
+            | "VideoCodec"
+            | "flash.media.VideoCodec"
+            | "AudioDecoder"
+            | "flash.media.AudioDecoder"
+            | "AudioDeviceManager"
+            | "flash.media.AudioDeviceManager"
+            | "AudioOutputChangeReason"
+            | "flash.media.AudioOutputChangeReason"
+            | "AudioOutputChangeEvent"
+            | "flash.events.AudioOutputChangeEvent"
+            | "Responder"
+            | "flash.net.Responder"
+            | "NetConnection"
+            | "flash.net.NetConnection"
+            | "NetStream"
+            | "flash.net.NetStream"
+            | "NetStreamPlayOptions"
+            | "flash.net.NetStreamPlayOptions"
+            | "NetStreamPlayTransitions"
+            | "flash.net.NetStreamPlayTransitions"
+            | "SharedObject"
+            | "flash.net.SharedObject"
+            | "ColorCorrection"
+            | "flash.display.ColorCorrection"
+            | "ColorCorrectionSupport"
+            | "flash.display.ColorCorrectionSupport"
+            | "AVM1Movie"
+            | "flash.display.AVM1Movie"
+            | "InteractiveObject"
+            | "flash.display.InteractiveObject"
+            | "Stage"
+            | "flash.display.Stage"
+            | "Rectangle"
+            | "flash.geom.Rectangle"
+            | "ByteArray"
+            | "flash.utils.ByteArray"
+    )
+}
+
+fn is_as3_wave7_constructible(name: &str) -> bool {
+    matches!(
+        name,
+        "LoaderContext"
+            | "flash.system.LoaderContext"
+            | "JPEGLoaderContext"
+            | "flash.system.JPEGLoaderContext"
+            | "ApplicationDomain"
+            | "flash.system.ApplicationDomain"
+            | "SecurityDomain"
+            | "flash.system.SecurityDomain"
+            | "Context3D"
+            | "flash.display3D.Context3D"
+            | "VideoTexture"
+            | "flash.display3D.textures.VideoTexture"
+            | "Texture"
+            | "flash.display3D.textures.Texture"
+            | "CubeTexture"
+            | "flash.display3D.textures.CubeTexture"
+            | "VideoStreamSettings"
+            | "flash.media.VideoStreamSettings"
+            | "H264VideoStreamSettings"
+            | "flash.media.H264VideoStreamSettings"
+            | "VP6VideoStreamSettings"
+            | "flash.media.VP6VideoStreamSettings"
+            | "AudioOutputChangeEvent"
+            | "flash.events.AudioOutputChangeEvent"
+            | "Responder"
+            | "flash.net.Responder"
+            | "NetConnection"
+            | "flash.net.NetConnection"
+            | "NetStream"
+            | "flash.net.NetStream"
+            | "NetStreamPlayOptions"
+            | "flash.net.NetStreamPlayOptions"
+            | "AVM1Movie"
+            | "flash.display.AVM1Movie"
+            | "InteractiveObject"
+            | "flash.display.InteractiveObject"
+            | "Rectangle"
+            | "flash.geom.Rectangle"
+            | "ByteArray"
+            | "flash.utils.ByteArray"
     )
 }
 
@@ -2909,6 +3139,9 @@ impl Emitter<'_> {
                 "__nfProgram.cast({:?}, {value})",
                 self.analysis.context.types[ty]
             ),
+            Some(ty) if !self.analysis.context.project && is_as3_wave7_type(ty) => {
+                format!("__nfWave7Cast({ty:?}, {value})")
+            }
             _ => value,
         }
     }
@@ -3113,6 +3346,7 @@ impl Emitter<'_> {
                     | "newline"
                     | "Sound"
                     | "System"
+                    | "flash"
                     | "targetPath"
                     | "getProperty"
                     | "setProperty"
@@ -3145,9 +3379,19 @@ impl Emitter<'_> {
                     | "XMLSocket"
                     | "NetConnection"
                     | "NetStream"
+                    | "FileReference"
+                    | "FileReferenceList"
+                    | "TextRenderer"
             ) && !self.analysis.context.types.contains_key(name)))
         {
             return format!("__nfLegacy.{name}");
+        }
+        if self.as3
+            && !self.analysis.context.project
+            && self.analysis.resolve(self.scope, name).is_none()
+            && (is_as3_wave7_type(name) || name == "flash")
+        {
+            return format!("__nfWave7Class({name:?})");
         }
         if self
             .analysis
@@ -3360,6 +3604,7 @@ impl Emitter<'_> {
             Some(ty) if is_error_type(ty) => "null",
             Some("int" | "uint") => "0",
             Some(ty) if self.analysis.context.types.contains_key(ty) => "null",
+            Some(ty) if !self.analysis.context.project && is_as3_wave7_type(ty) => "null",
             _ => "undefined",
         }
     }
@@ -3874,6 +4119,19 @@ impl Emitter<'_> {
                 )
             }
             Expr::NewBuiltin(name, args, _)
+                if self.as3
+                    && !self.analysis.context.project
+                    && is_as3_wave7_constructible(name) =>
+            {
+                format!(
+                    "new (__nfWave7Class({name:?}))({})",
+                    args.iter()
+                        .map(|arg| self.expression(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Expr::NewBuiltin(name, args, _)
                 if matches!(
                     name.as_str(),
                     "TextField.StyleSheet"
@@ -3891,6 +4149,10 @@ impl Emitter<'_> {
                         | "XMLSocket"
                         | "NetConnection"
                         | "NetStream"
+                        | "FileReference"
+                        | "FileReferenceList"
+                        | "flash.net.FileReference"
+                        | "flash.net.FileReferenceList"
                 ) =>
             {
                 format!(
@@ -4020,11 +4282,9 @@ impl Emitter<'_> {
                     && !self.analysis.context.types.contains_key(ty)
                     && is_as2_legacy_instanceof_type(ty)
                 {
-                    if ty == "TextField.StyleSheet" {
-                        "Boolean(__nfLegacy.TextField?.StyleSheet?.__nfIs?.(__nfValue))".into()
-                    } else {
-                        format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
-                    }
+                    format!("Boolean(__nfLegacy.{ty}?.__nfIs?.(__nfValue))")
+                } else if self.as3 && !self.analysis.context.project && is_as3_wave7_type(ty) {
+                    format!("Boolean(__nfWave7Class({ty:?})?.__nfIs?.(__nfValue))")
                 } else if self.legacy_case() && !self.analysis.context.types.contains_key(ty) {
                     format!(
                         "__nfLegacyInstanceOf(__nfValue, {})",
@@ -4389,8 +4649,13 @@ impl Emitter<'_> {
                         );
                     }
                     if is_as2_legacy_instanceof_type(&name) {
-                        let ctor = if name == "TextField.StyleSheet" {
-                            "__nfLegacy?.TextField?.StyleSheet".to_owned()
+                        let ctor = if matches!(
+                            name.as_str(),
+                            "TextField.StyleSheet"
+                                | "flash.net.FileReference"
+                                | "flash.net.FileReferenceList"
+                        ) {
+                            format!("__nfLegacy.{name}")
                         } else {
                             format!("__nfLegacy?.{name}")
                         };
@@ -4516,6 +4781,15 @@ impl Emitter<'_> {
                     if let Some(qname) = self.analysis.context.types.get(name) {
                         return format!(
                             "__nfProgram.cast({qname:?}, {})",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    if self.as3 && !self.analysis.context.project && is_as3_wave7_type(name) {
+                        return format!(
+                            "__nfWave7Cast({name:?}, {})",
                             args.iter()
                                 .map(|a| self.expression(a))
                                 .collect::<Vec<_>>()

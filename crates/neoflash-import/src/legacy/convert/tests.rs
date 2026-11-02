@@ -13,6 +13,7 @@ fn report() -> ImportReport {
         diagnostics: vec![],
         binary_fla: None,
         swf: None,
+        swc: None,
     }
 }
 

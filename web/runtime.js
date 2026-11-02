@@ -197,7 +197,7 @@
     function draw(context,snapshot,{width=context.canvas.width,height=context.canvas.height,semantic=true}={}) {
       const scene=snapshot.draws;
       clippings.beginFrame();
-      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[]),objects=snapshot?new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node])):null;
+      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[],snapshot?.filter_groups||[]),objects=snapshot?new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node])):null;
       const semanticOwners=new Set((semantic?snapshot?.semantics||[]:[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
       const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
       const paintBoundsCache=new Map(),geometryBoundsCache=new Map();
@@ -206,12 +206,12 @@
         const clip_ids=(item.clip_ids||[]).filter(id=>!deferred.includes(id));
         if(!clip_ids.length){paintItem(target,item);return;}
         const readBounds=!item.filter_id&&semanticCoverage(item);
-        const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds});
+        const visible=clippings.draw(target,{...item,clip_ids},clips,paths,canvas=>paintItem(canvas,item),{bounds:bounded(item),readBounds,bitmaps:bitmapHost?.cache});
         if(readBounds)clippedBounds.set(item,visible||null);
       };
       const composite=(target,surface,bounds,clip_ids,operation='source-over')=>{
         target.save();try{target.globalCompositeOperation=operation;const draw=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
-          if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds});else draw(target);
+          if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds,bitmaps:bitmapHost?.cache});else draw(target);
         }finally{target.restore();}
       };
       if(snapshot?.filter_groups?.length){
@@ -221,7 +221,7 @@
         // fully clipped source only for semantic ancestors, even on cache hits.
         for(const item of scene)if(item.filter_id&&item.clip_ids?.length&&semanticCoverage(item)){
           const area=bounded(item),visible=area&&{left:Math.max(0,area.left),top:Math.max(0,area.top),right:Math.min(width,area.right),bottom:Math.min(height,area.bottom)};
-          const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true}));
+          const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true,bitmaps:bitmapHost?.cache}));
           clippedBounds.set(item,result||null);
         }
       }else{
@@ -415,7 +415,7 @@
         eventHub=global.NeoFlashEvents.create({alive,parentOf:target=>(target===stageHost?.stage||frameLabelType?.__nfIs(target))?null:target.parent,
           localPoint:local,globalPoint:(target,x,y)=>{const p=(target===stageHost?.stage||frameLabelType?.__nfIs(target))?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
         const initialStageColor=typeof project!=='undefined'&&Array.isArray(project.background)?(((project.background[0]&255)<<16)|((project.background[1]&255)<<8)|(project.background[2]&255))>>>0:0xffffff;
-        stageHost=global.NeoFlashStage.create({events:eventHub,FullScreenEvent:eventFamilies.FullScreenEvent,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
+        stageHost=global.NeoFlashStage.create({events:eventHub,FullScreenEvent:eventFamilies.FullScreenEvent,TouchEvent:eventFamilies.TouchEvent,IMEEvent:eventFamilies.IMEEvent,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
           color:initialStageColor,viewport:typeof viewport==='undefined'?null:viewport,screen:global.screen,devicePixelRatio:global.devicePixelRatio,
           stageContainer:display.stageContainer,getStageContentSize:()=>display.stageContainer.contentSize(),
           getStage3Ds:()=>fte3dHost?.getStage3Ds()||[],getStageVideos:()=>as3MediaEventsHost?as3MediaEventsHost.getStageVideos():(fte3dHost?.getStageVideos()||[]),getSoftKeyboardRect:()=>fte3dHost?fte3dHost.getSoftKeyboardRect():new geometryHost.Rectangle(0,0,0,0),
@@ -635,7 +635,7 @@
         printNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);},
         printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
-        textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:global.NeoFlashEvents,hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
+        textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
@@ -647,7 +647,7 @@
       if(global.NeoFlashBroadcaster){broadcasterHost=global.NeoFlashBroadcaster.create(wasm);legacyGlobals=Object.freeze({...legacyGlobals,AsBroadcaster:broadcasterHost.AsBroadcaster});}
       if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create({wasm});
       if(global.NeoFlashAMF&&binaryHost&&typeof player.amf_encode==='function'){
-        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),getProgram:()=>program,isUnsupported:value=>references.has(value)});
+        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),encodeSol:typeof wasm?.sol_encode==='function'?(format,name,graph)=>wasm.sol_encode(format,name,graph):undefined,decodeSol:typeof wasm?.sol_decode==='function'?bytes=>wasm.sol_decode(bytes):undefined,getProgram:()=>program,isUnsupported:value=>references.has(value)});
         binaryHost.setObjectCodec(amfHost);
         if(global.NeoFlashStorage&&global.NeoFlashEvents){
           storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error),onSystemStatus:notifySystemStatus});
@@ -673,7 +673,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
-        audioHost=global.NeoFlashAudio.create({player,wasm,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],resolveSoundTarget:value=>{if(value===undefined||value===null)return null;const resolved=typeof value==='string'?(value===''?proxyFor([]):display.resolveTarget(value,proxyFor([]))):value;if(!resolved||!references.has(resolved)||!display.alive(resolved)||display.descriptor(resolved).owner!=='movie_clip')throw new TypeError('AS2 Sound target must be undefined, null, or a live MovieClip.');return resolved;},onStopAll:stopTimelineSounds,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
+        audioHost=global.NeoFlashAudio.create({player,wasm,events:{...global.NeoFlashEvents,...eventFamilies},net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],resolveSoundTarget:value=>{if(value===undefined||value===null)return null;const resolved=typeof value==='string'?(value===''?proxyFor([]):display.resolveTarget(value,proxyFor([]))):value;if(!resolved||!references.has(resolved)||!display.alive(resolved)||display.descriptor(resolved).owner!=='movie_clip')throw new TypeError('AS2 Sound target must be undefined, null, or a live MovieClip.');return resolved;},onStopAll:stopTimelineSounds,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
         legacyGlobals=Object.freeze({...legacyGlobals,Sound:audioHost.LegacySound,stopAllSounds:stopAllSounds});
       }
       if(global.NeoFlashAS2Connections&&netHost&&amfHost&&binaryHost){as2ConnectionsHost=global.NeoFlashAS2Connections.create({wasm,amf:amfHost,net:netHost,binary:binaryHost,getXML:()=>xmlHost?.LegacyXML,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent});legacyGlobals=Object.freeze({...legacyGlobals,LocalConnection:as2ConnectionsHost.LocalConnection,XMLSocket:as2ConnectionsHost.XMLSocket});}
@@ -683,7 +683,7 @@
         capture:(target,plan)=>{const bitmap=new bitmapHost.BitmapData(plan.width,plan.height,false,0xffffff);try{bitmap.draw(target,new geometryHost.Matrix(1,0,0,1,-plan.x,-plan.y));return player.bitmap_encode_png(JSON.stringify(bitmapHost.refOf(bitmap)),0,0,plan.width,plan.height,false);}finally{bitmap.dispose();}},onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,PrintJob:as2PrintHost.PrintJob});}
       if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure,onSystemStatus:notifySystemStatus});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
-        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getAs3Camera:()=>as3MediaEventsHost?.cameraVideoAdapter,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
+        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getAs3Camera:()=>as3MediaEventsHost?.cameraVideoAdapter,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,getFrameRate:()=>runtimeFrameRate,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
         const LegacyVideo=function(){throw new TypeError('AS2 Video must be an authored Video placement; new Video() is not available.');};
         Object.defineProperties(LegacyVideo,{__nfIs:{value:videoHost.Video.__nfIs},[Symbol.hasInstance]:{value:videoHost.Video.__nfIs}});
         legacyGlobals=Object.freeze({...legacyGlobals,Video:LegacyVideo,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});

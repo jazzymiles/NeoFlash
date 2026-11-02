@@ -524,6 +524,41 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         check_easing(ease, format!("{kp}.property_eases[{pi}]"), &mut add);
                     }
                 }
+                if !key.shape_hints.is_empty() {
+                    if !(key.tween.is_some() && key.tween_kind == TweenKind::Shape) {
+                        add(
+                            format!("{kp}.shape_hints"),
+                            "shape hints are only valid on a shape tween start keyframe".into(),
+                        );
+                    }
+                    if key.shape_hints.len() > ShapeHint::MAX_HINTS {
+                        add(
+                            format!("{kp}.shape_hints"),
+                            format!("shape hints count exceeds {}", ShapeHint::MAX_HINTS),
+                        );
+                    }
+                    let mut seen_labels = HashSet::new();
+                    for (hi, hint) in key.shape_hints.iter().enumerate() {
+                        if !hint.label.is_ascii_lowercase() || !seen_labels.insert(hint.label) {
+                            add(
+                                format!("{kp}.shape_hints[{hi}].label"),
+                                "shape hint labels must be unique lowercase ASCII letters 'a'..='z'"
+                                    .into(),
+                            );
+                        }
+                        if !hint
+                            .start_uv
+                            .iter()
+                            .chain(&hint.end_uv)
+                            .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                        {
+                            add(
+                                format!("{kp}.shape_hints[{hi}]"),
+                                "shape hint coordinates must be finite and within 0..=1".into(),
+                            );
+                        }
+                    }
+                }
                 if let Some(sound) = &key.sound {
                     match project.resources.iter().find(|r| r.id == sound.resource) {
                         Some(resource) if resource.is_audio() => {}

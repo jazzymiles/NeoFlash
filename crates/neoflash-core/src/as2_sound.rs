@@ -322,21 +322,16 @@ pub fn metadata(bytes: &[u8]) -> Result<Metadata, SoundError> {
 }
 
 pub fn resource_path(project: &crate::Project, id: &str) -> Result<Option<String>, SoundError> {
-    let Some(resource) = project
-        .resources
-        .iter()
-        .find(|r| r.id == id)
-        .or_else(|| {
-            project.resources.iter().find(|r| {
-                r.path == id
-                    || r.path
-                        .rsplit('/')
-                        .next()
-                        .and_then(|file| file.split('.').next())
-                        == Some(id)
-            })
+    let Some(resource) = project.resources.iter().find(|r| r.id == id).or_else(|| {
+        project.resources.iter().find(|r| {
+            r.path == id
+                || r.path
+                    .rsplit('/')
+                    .next()
+                    .and_then(|file| file.split('.').next())
+                    == Some(id)
         })
-    else {
+    }) else {
         return Ok(None);
     };
     if !matches!(

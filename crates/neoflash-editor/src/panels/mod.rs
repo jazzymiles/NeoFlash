@@ -65,7 +65,7 @@ pub(crate) mod scene;
 pub(crate) mod sound_properties;
 mod swatches;
 pub(crate) mod symbols_popover;
-mod timeline;
+pub(crate) mod timeline;
 mod timeline_controls;
 mod tools;
 mod view_settings;

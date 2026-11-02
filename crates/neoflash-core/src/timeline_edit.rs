@@ -213,6 +213,56 @@ fn subdivide_cubic_bezier([x1, y1, x2, y2]: [f64; 4], t0: f64, t1: f64) -> Optio
     })
 }
 
+fn subdivide_single_ease(ease: Easing, t0: f64, t1: f64) -> Option<Easing> {
+    if t1 - t0 <= 1e-9 {
+        return None;
+    }
+    if (t0 - 0.0).abs() <= 1e-9 && (t1 - 1.0).abs() <= 1e-9 {
+        return Some(ease);
+    }
+    match ease {
+        Easing::Linear => Some(Easing::Linear),
+        Easing::EaseIn => subdivide_cubic_bezier([1.0 / 3.0, 0.0, 2.0 / 3.0, 1.0 / 3.0], t0, t1),
+        Easing::EaseOut => subdivide_cubic_bezier([1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 1.0], t0, t1),
+        Easing::Flash { acceleration } => {
+            let a = (acceleration / 100.0).clamp(-1.0, 1.0);
+            subdivide_cubic_bezier(
+                [1.0 / 3.0, (1.0 + a) / 3.0, 2.0 / 3.0, (2.0 + a) / 3.0],
+                t0,
+                t1,
+            )
+        }
+        Easing::CubicBezier { x1, y1, x2, y2 } => subdivide_cubic_bezier([x1, y1, x2, y2], t0, t1),
+        Easing::EaseInOut => {
+            if t1 <= 0.5 {
+                subdivide_cubic_bezier([1.0 / 3.0, 0.0, 2.0 / 3.0, 1.0 / 3.0], 2.0 * t0, 2.0 * t1)
+            } else if t0 >= 0.5 {
+                subdivide_cubic_bezier(
+                    [1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 1.0],
+                    2.0 * t0 - 1.0,
+                    2.0 * t1 - 1.0,
+                )
+            } else {
+                subdivide_cubic_bezier([0.42, 0.0, 0.58, 1.0], t0, t1)
+            }
+        }
+        Easing::Bounce | Easing::Elastic => None,
+    }
+}
+
+fn subdivide_motion_eases(
+    first_key: &Keyframe,
+    t0: f64,
+    t1: f64,
+) -> Option<(Easing, Vec<(TweenProperty, Easing)>)> {
+    let base = subdivide_single_ease(first_key.tween?, t0, t1)?;
+    let mut prop_eases = Vec::with_capacity(first_key.property_eases.len());
+    for &(prop, ease) in &first_key.property_eases {
+        prop_eases.push((prop, subdivide_single_ease(ease, t0, t1)?));
+    }
+    Some((base, prop_eases))
+}
+
 /// Subdivide a classic tween `[first, last]` onto `[sub_start, sub_end]`, returning
 /// the tweened start key(s) in `sub_start..sub_end` (excluding the endpoint key at `sub_end`).
 fn subdivide_classic_subrange(
@@ -481,7 +531,29 @@ fn isolate_range_impl(
                         .property_eases
                         .iter()
                         .all(|(_, e)| *e == Easing::Linear);
-                if all_linear && original.properties.motion_guide.is_none() {
+                let span_len = (end_frame - first).max(1) as f64;
+                let can_subdivide_nonlinear = !all_linear
+                    && !bake_interior
+                    && original.properties.motion_guide.is_none()
+                    && (first >= cut_start
+                        || cut_start - 1 == first
+                        || subdivide_motion_eases(
+                            first_key,
+                            0.0,
+                            (cut_start - first) as f64 / span_len,
+                        )
+                        .is_some())
+                    && (cut_end >= end_frame
+                        || cut_end + 1 == end_frame
+                        || subdivide_motion_eases(
+                            first_key,
+                            (cut_end - first) as f64 / span_len,
+                            1.0,
+                        )
+                        .is_some());
+                if (all_linear || can_subdivide_nonlinear)
+                    && original.properties.motion_guide.is_none()
+                {
                     let mut replacement = Vec::new();
                     if first < cut_start {
                         let left_last = cut_start - 1;
@@ -495,7 +567,18 @@ fn isolate_range_impl(
                             k.orient_to_path = false;
                             replacement.push(k);
                         } else {
-                            replacement.push(first_key.clone());
+                            let mut left_start = first_key.clone();
+                            if !all_linear
+                                && let Some((sub_tween, sub_props)) = subdivide_motion_eases(
+                                    first_key,
+                                    0.0,
+                                    (cut_start - first) as f64 / span_len,
+                                )
+                            {
+                                left_start.tween = Some(sub_tween);
+                                left_start.property_eases = sub_props;
+                            }
+                            replacement.push(left_start.clone());
                             for k in &original.keyframes[start_idx + 1..] {
                                 if k.frame >= end_frame || k.keyed_properties.is_none() {
                                     break;
@@ -511,7 +594,7 @@ fn isolate_range_impl(
                                 .cloned()
                                 .unwrap_or_else(|| sampled_key(timeline, &original, left_last));
                             end_prop.elements = sample_layer_in(timeline, &original, left_last);
-                            end_prop.tween = first_key.tween;
+                            end_prop.tween = left_start.tween;
                             end_prop.tween_kind = TweenKind::Motion;
                             end_prop.keyed_properties = Some(TweenProperty::ALL.to_vec());
                             end_prop.property_eases.clear();
@@ -544,11 +627,21 @@ fn isolate_range_impl(
                             {
                                 right_start.sound = old.sound.clone();
                             }
-                            right_start.tween = first_key.tween;
+                            let (right_tween, right_props) = if !all_linear
+                                && let Some((sub_t, sub_p)) = subdivide_motion_eases(
+                                    first_key,
+                                    (cut_end - first) as f64 / span_len,
+                                    1.0,
+                                ) {
+                                (Some(sub_t), sub_p)
+                            } else {
+                                (first_key.tween, first_key.property_eases.clone())
+                            };
+                            right_start.tween = right_tween;
                             right_start.tween_kind = TweenKind::Motion;
                             right_start.keyed_properties = None;
                             right_start.orient_to_path = first_key.orient_to_path;
-                            right_start.property_eases = first_key.property_eases.clone();
+                            right_start.property_eases = right_props;
                             right_start.sync_symbols = first_key.sync_symbols;
                             right_start.snap_to_guide = first_key.snap_to_guide;
                             replacement.push(right_start);

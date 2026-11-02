@@ -2849,6 +2849,53 @@ impl Parser<'_> {
                     || node.attribute("rotationY").is_some()
                     || node.attribute("rotationZ").is_some()
                 {
+                    if let Some(m3d_str) = node.attribute("matrix3D") {
+                        let vals: Vec<f64> = m3d_str
+                            .split(|c: char| c.is_ascii_whitespace() || c == ',')
+                            .filter(|s| !s.is_empty())
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
+                        if vals.len() == 16 && vals.iter().all(|v| v.is_finite()) {
+                            let persp = (1.0 / (1.0 + vals[14] / 1000.0)).clamp(0.1, 10.0);
+                            let mat2d = [
+                                vals[0] * persp,
+                                vals[1] * persp,
+                                vals[4] * persp,
+                                vals[5] * persp,
+                                vals[12],
+                                vals[13],
+                            ];
+                            if let Some(mut projected) = Transform::from_matrix(mat2d) {
+                                projected.alpha = transform.alpha;
+                                projected.color_transform = transform.color_transform;
+                                transform = projected;
+                            }
+                        }
+                    }
+                    if node.attribute("rotationZ").is_some() {
+                        let rz = self.number(node, "rotationZ", 0.0, file);
+                        if rz.is_finite() {
+                            transform.rotation = (transform.rotation + rz).clamp(-1e6, 1e6);
+                        }
+                    }
+                    if node.attribute("rotationX").is_some() {
+                        let rx = self.number(node, "rotationX", 0.0, file);
+                        if rx.is_finite() {
+                            let cos_x = rx.to_radians().cos();
+                            if cos_x.abs() >= 0.05 {
+                                transform.scale_y *= cos_x;
+                            }
+                        }
+                    }
+                    if node.attribute("rotationY").is_some() {
+                        let ry = self.number(node, "rotationY", 0.0, file);
+                        if ry.is_finite() {
+                            let cos_y = ry.to_radians().cos();
+                            if cos_y.abs() >= 0.05 {
+                                transform.scale_x *= cos_y;
+                            }
+                        }
+                    }
                     self.report.warning(
                         "xfl_3d_approximated",
                         &location,

@@ -38,7 +38,7 @@ const __nfProgram = (() => {
     });
     Object.defineProperty(FlashProxy, '__nfInitialize', { value: function() {} });
     Object.defineProperty(FlashProxy, '__nfIs', { value: function(v) { return v instanceof FlashProxy; } });
-    const builtins = { Object, Class: __nfClassMetaclass, Function: __nfFunctionClass, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), 'flash.utils.Proxy': FlashProxy, 'flash.utils.flash_proxy': flashProxyNs, 'mx.utils.object_proxy': objectProxyNs, ...__nfFlashErrors, ...__nfBuiltins };
+    const builtins = { Object, Class: __nfClassMetaclass, Function: __nfFunctionClass, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), 'flash.utils.Proxy': FlashProxy, 'flash.utils.flash_proxy': flashProxyNs, 'mx.utils.object_proxy': objectProxyNs, ...__nfFlashErrors, ...__nfBuiltins, ...(typeof __nfWave7Builtins === 'function' ? __nfWave7Builtins(__nfBuiltins) : {}) };
     function resolveIntrinsic(name) {
         let cur = __nfLegacy?._global;
         for (const part of name.split('.')) {

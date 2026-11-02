@@ -215,8 +215,26 @@
     }
   }
 
-  function clipTable(clips=[]) {
-    const result=new Map();for(const clip of clips){if(typeof clip.id!=='string'||!Array.isArray(clip.components)||result.has(clip.id))throw new Error('Invalid runtime clip table.');result.set(clip.id,clip);}return result;
+  function clipTable(clips=[], filterGroups=[]) {
+    const alphaByClipId=new Map();
+    if(Array.isArray(filterGroups)){
+      for(const group of filterGroups){
+        if(Array.isArray(group?.alpha_masks)){
+          for(const am of group.alpha_masks){
+            if(typeof am?.clip_id==='string'&&Array.isArray(am.components)){
+              alphaByClipId.set(am.clip_id,am.components);
+            }
+          }
+        }
+      }
+    }
+    const result=new Map();
+    for(const clip of clips){
+      if(typeof clip.id!=='string'||!Array.isArray(clip.components)||result.has(clip.id))throw new Error('Invalid runtime clip table.');
+      const alphaComponents=alphaByClipId.get(clip.id);
+      result.set(clip.id,alphaComponents?{...clip,components:alphaComponents}:clip);
+    }
+    return result;
   }
   function clipGroups(ids,table) {
     return [...new Set(ids||[])].map(id=>{const clip=table.get(id);if(!clip)throw new Error(`Runtime clip '${id}' is missing; re-export this project.`);return clip;});
@@ -225,6 +243,7 @@
     context.save();try{
       context.setTransform(1,0,0,1,0,0);
       return clipGroups(ids,table).every(clip=>clip.components.some(component=>{
+        if(typeof component.alpha==='number'&&component.alpha<=0)return false;
         const m=component.matrix,det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return false;
         const p=point(inverse(m),x,y);return context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero');
       }));
@@ -247,7 +266,7 @@
       const ctx=surface.getContext('2d');if(!ctx)throw new Error('Canvas 2D clipping surface is unavailable.');
       ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,width,height);return ctx;
     }
-    draw(context,item,table,cache,draw,{bounds=null,readBounds=false}={}) {
+    draw(context,item,table,cache,draw,{bounds=null,readBounds=false,bitmaps=null}={}) {
       const groups=clipGroups(item.clip_ids,table);if(!groups.length){draw(context);return undefined;}if(groups.some(g=>!g.components.length))return null;
       const base=matrixOf(context),det=base[0]*base[3]-base[1]*base[2];if(!Number.isFinite(det)||det===0)return null;
       const viewport={left:0,top:0,right:context.canvas.width,bottom:context.canvas.height};
@@ -262,7 +281,24 @@
       const content=this.surface(0,width,height),shifted=[base[0],base[1],base[2],base[3],base[4]-left,base[5]-top];content.setTransform(...shifted);draw(content);
       for(const group of groups){
         const mask=this.surface(1,width,height);mask.fillStyle='#fff';
-        for(const component of group.components){const m=multiply(shifted,component.matrix),d=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(d)||d===0)continue;mask.setTransform(...m);mask.fill(cache.get(component.commands),component.fill_rule||'nonzero');}
+        for(const component of group.components){
+          const m=multiply(shifted,component.matrix),d=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(d)||d===0)continue;
+          mask.save();
+          try{
+            mask.setTransform(...m);
+            if(typeof component.alpha==='number')mask.globalAlpha=Math.max(0,Math.min(1,component.alpha));
+            const p=cache.get(component.commands),rule=component.fill_rule||'nonzero';
+            if(component.fill_gradient){
+              mask.clip(p,rule);
+              brush(mask,component.fill_gradient,width,height);
+            }else if(component.fill_bitmap&&bitmaps){
+              mask.clip(p,rule);
+              bitmapBrush(mask,component.fill_bitmap,bitmaps,width,height);
+            }else{
+              mask.fill(p,rule);
+            }
+          }finally{mask.restore();}
+        }
         content.setTransform(1,0,0,1,0,0);content.globalAlpha=1;content.globalCompositeOperation='destination-in';content.drawImage(mask.canvas,0,0);
       }
       content.globalCompositeOperation='source-over';

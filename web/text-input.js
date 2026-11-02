@@ -110,8 +110,9 @@
       const on=(name,fn)=>record.cleanups.push(listen(control,name,fn));
       on('beforeinput',()=>{if(!record.composing){selection(record);record.base=text.info(record.key);}});
       on('input',event=>{if(!record.composing&&!event.isComposing)acceptDom(record);});
-      on('compositionstart',()=>{selection(record);record.base=text.info(record.key);record.composing=true;});
-      on('compositionend',()=>{record.composing=false;acceptDom(record);});
+      on('compositionstart',event=>{selection(record);record.base=text.info(record.key);record.composing=true;const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeStartComposition',false,false,textValue));});
+      on('compositionupdate',event=>{const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));});
+      on('compositionend',event=>{record.composing=false;const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));acceptDom(record);});
       on('select',()=>selection(record));
       on('wheel',event=>{if(text.wheel?.(record.key,event))options.afterInput?.();});
       on('blur',()=>{if(domSuppressed||active!==record)return;if(record.composing)record.composing=false;acceptDom(record);if(stage.stage.focus===record.target)stage.changeFocus(null);options.afterInput?.();});

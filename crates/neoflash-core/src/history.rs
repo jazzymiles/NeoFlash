@@ -8,6 +8,19 @@ fn next_revision() -> u64 {
     REVISIONS.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Deduplicate `Arc<str>` resource buffers against `reference` so history snapshots
+/// share identical resource allocations even after reload or copy-on-write edits.
+fn share_resources_from(reference: &Project, target: &mut Project) {
+    for unit in &mut target.resources {
+        if let Some(existing) = reference.resources.iter().find(|r| r.id == unit.id)
+            && !std::sync::Arc::ptr_eq(&existing.data_base64, &unit.data_base64)
+            && *existing.data_base64 == *unit.data_base64
+        {
+            unit.data_base64 = existing.data_base64.clone();
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct HistoryEntry {
     project: Project,
@@ -15,7 +28,7 @@ struct HistoryEntry {
 }
 
 /// Snapshot history with explicit transaction boundaries. A drag is one transaction.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct History {
     undo: Vec<HistoryEntry>,
     redo: Vec<HistoryEntry>,
@@ -117,11 +130,15 @@ impl History {
     }
 
     pub fn commit(&mut self, project: &Project) -> bool {
-        let Some(entry) = self.pending.take() else {
+        let Some(mut entry) = self.pending.take() else {
             return false;
         };
         if entry.project == *project {
             return false;
+        }
+        share_resources_from(project, &mut entry.project);
+        if let Some(prev) = self.undo.last() {
+            share_resources_from(&prev.project, &mut entry.project);
         }
         self.redo.clear();
         self.revision = next_revision();
@@ -233,5 +250,36 @@ impl History {
     /// content key on it.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ResourceUnit;
+    use std::sync::Arc;
+
+    #[test]
+    fn history_deduplicates_resource_arc_buffers_across_snapshots() {
+        let mut project = Project::blank();
+        project.format_version = 3;
+        let bytes = vec![42u8; 4096];
+        let unit =
+            ResourceUnit::from_bytes("res-1", "images/hero.png", "image/png", &bytes).unwrap();
+        project.resources.push(unit);
+
+        let mut history = History::new(50);
+        // Simulate a round-trip / distinct Arc<str> allocation with identical base64 content.
+        history.begin(&project);
+        project.name = "Edited".into();
+        project.resources[0].data_base64 = Arc::from(project.resources[0].data_base64.as_ref());
+        assert!(history.commit(&project));
+
+        let live_arc = project.resources[0].data_base64.clone();
+        assert!(history.undo(&mut project));
+        assert!(
+            Arc::ptr_eq(&project.resources[0].data_base64, &live_arc),
+            "Undo snapshot must share the same Arc<str> buffer pointer"
+        );
     }
 }

@@ -96,6 +96,72 @@ pub fn amf_decode(format: u8, bytes: &[u8]) -> Result<String, JsValue> {
     serde_json::to_string(&neoflash_core::amf_decode(format, bytes).map_err(display_error)?)
         .map_err(display_error)
 }
+#[wasm_bindgen]
+pub fn sol_encode(format: u8, name: &str, graph_json: &str) -> Result<Vec<u8>, JsValue> {
+    if graph_json.len() > neoflash_core::MAX_AMF_JSON_BYTES {
+        return Err(JsValue::from_str("AMF graph JSON exceeds 64 MiB"));
+    }
+    let graph: neoflash_core::AmfGraph = serde_json::from_str(graph_json).map_err(display_error)?;
+    graph.encode_sol(name, format).map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn sol_decode(bytes: &[u8]) -> Result<String, JsValue> {
+    let (name, format, decoded) =
+        neoflash_core::AmfDecoded::decode_sol(bytes).map_err(display_error)?;
+    serde_json::to_string(&serde_json::json!({
+        "name": name,
+        "format": format,
+        "decoded": decoded,
+    }))
+    .map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn portable_measure_text_json(
+    strings_json: &str,
+    format_json: &str,
+) -> Result<String, JsValue> {
+    if strings_json.len() > 8 * 1024 * 1024 || format_json.len() > 64 * 1024 {
+        return Err(JsValue::from_str(
+            "Portable text measurement input exceeds size budget",
+        ));
+    }
+    let strings: Vec<String> = serde_json::from_str(strings_json).map_err(display_error)?;
+    let format: neoflash_core::TextFormat =
+        serde_json::from_str(format_json).map_err(display_error)?;
+    serde_json::to_string(&neoflash_core::TextFormat::portable_measure_strings(
+        &strings, &format, None,
+    ))
+    .map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn parse_html_text_json(field_json: &str, html: &str) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024 || html.len() > 8 * 1024 * 1024 {
+        return Err(JsValue::from_str("HTML text input exceeds 8 MiB"));
+    }
+    let mut field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    let condense = field.condense_white;
+    field
+        .set_html_text(html, None, condense)
+        .map_err(display_error)?;
+    serde_json::to_string(&field).map_err(display_error)
+}
+#[wasm_bindgen]
+pub fn serialize_html_text_json(field_json: &str) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024 {
+        return Err(JsValue::from_str("Text field state exceeds 8 MiB"));
+    }
+    let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    Ok(field.to_html_text())
+}
+#[wasm_bindgen]
+pub fn text_to_outlines_json(field_json: &str) -> Result<String, JsValue> {
+    if field_json.len() > 8 * 1024 * 1024 {
+        return Err(JsValue::from_str("Text field state exceeds 8 MiB"));
+    }
+    let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    let commands = field.to_outline_commands(None);
+    serde_json::to_string(&commands).map_err(display_error)
+}
 
 #[wasm_bindgen]
 pub struct WebPlayer {
@@ -283,6 +349,12 @@ impl WebPlayer {
     }
     pub fn amf_decode(&self, format: u8, bytes: &[u8]) -> Result<String, JsValue> {
         amf_decode(format, bytes)
+    }
+    pub fn sol_encode(&self, format: u8, name: &str, graph_json: &str) -> Result<Vec<u8>, JsValue> {
+        sol_encode(format, name, graph_json)
+    }
+    pub fn sol_decode(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        sol_decode(bytes)
     }
     pub fn scene_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.runtime_snapshot(&self.project).draws)
@@ -614,6 +686,29 @@ impl WebPlayer {
         measure: &js_sys::Function,
     ) -> Result<String, JsValue> {
         text_query_json(field_json, query_json, measure)
+    }
+    pub fn portable_measure_text_json(
+        &self,
+        strings_json: &str,
+        format_json: &str,
+    ) -> Result<String, JsValue> {
+        portable_measure_text_json(strings_json, format_json)
+    }
+    pub fn parse_html_text_json(&self, field_json: &str, html: &str) -> Result<String, JsValue> {
+        parse_html_text_json(field_json, html)
+    }
+    pub fn serialize_html_text_json(&self, field_json: &str) -> Result<String, JsValue> {
+        serialize_html_text_json(field_json)
+    }
+    pub fn text_to_outlines_json(&self, field_json: &str) -> Result<String, JsValue> {
+        text_to_outlines_json(field_json)
+    }
+    pub fn object_text_fit_portable(&mut self, target: &str) -> Result<String, JsValue> {
+        let layout = self
+            .player
+            .object_text_fit_portable(&self.project, &object_ref(target)?)
+            .map_err(display_error)?;
+        serde_json::to_string(&layout).map_err(display_error)
     }
     pub fn pixel_decode(&mut self, encoded: &[u8]) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.pixel_decode(encoded).map_err(display_error)?)

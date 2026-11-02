@@ -1389,13 +1389,6 @@ impl Context<'_> {
                         }
                     }
                 }
-                if i.matrix_3d.is_some_and(|m| {
-                    m != [
-                        1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
-                    ]
-                }) {
-                    self.report.warning("fla_3d_transform",&location,"3D transforms are not rendered; the instance uses its 2D placement matrix.");
-                }
                 element.name = optional_text(
                     &s.original_bytes,
                     i.instance_name.as_ref().or(i.legacy_name.as_ref()),
@@ -1404,6 +1397,36 @@ impl Context<'_> {
                     i.matrix_words.ok_or("Missing instance matrix")?,
                 ))
                 .ok_or("Invalid instance matrix")?;
+                if let Some(m) = i.matrix_3d
+                    && m != [
+                        1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+                    ]
+                {
+                    self.report.warning("fla_3d_transform",&location,"3D transforms are not rendered; the instance uses its 2D placement matrix.");
+                    let m64: Vec<f64> = m.iter().map(|&v| f64::from(v)).collect();
+                    if m64.iter().all(|v| v.is_finite()) {
+                        let persp = (1.0 / (1.0 + m64[14] / 1000.0)).clamp(0.1, 10.0);
+                        let mat2d = [
+                            m64[0] * persp,
+                            m64[1] * persp,
+                            m64[4] * persp,
+                            m64[5] * persp,
+                            if m64[12] != 0.0 {
+                                m64[12] / 20.0
+                            } else {
+                                element.transform.x
+                            },
+                            if m64[13] != 0.0 {
+                                m64[13] / 20.0
+                            } else {
+                                element.transform.y
+                            },
+                        ];
+                        if let Some(projected) = Transform::from_matrix(mat2d) {
+                            element.transform = projected;
+                        }
+                    }
+                }
                 if let Some(c) = &i.color_transform {
                     let mut value = color_transform(c)?;
                     if value.validate().is_err() {

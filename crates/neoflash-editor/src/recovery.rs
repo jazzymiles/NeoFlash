@@ -46,6 +46,10 @@ pub(crate) struct RecoveryManager {
     dirty_anchor_secs: Option<f64>,
     /// Crash-recovery snapshots awaiting a user `Restore` / `Discard` decision.
     prompts: VecDeque<RecoveryCandidate>,
+    /// Last known on-disk modification timestamp (seconds) for the active document path.
+    last_disk_mtime_secs: Option<u64>,
+    /// Whether an external modification to the active file on disk has been detected.
+    external_change_detected: bool,
 }
 
 impl Default for RecoveryManager {
@@ -57,6 +61,8 @@ impl Default for RecoveryManager {
             active_id,
             dirty_anchor_secs: None,
             prompts: VecDeque::new(),
+            last_disk_mtime_secs: None,
+            external_change_detected: false,
         }
     }
 }
@@ -97,6 +103,8 @@ impl RecoveryManager {
         }
         self.active_id = id;
         self.dirty_anchor_secs = None;
+        self.last_disk_mtime_secs = path.and_then(|p| p.exists().then(|| file_mtime_unix_secs(p)));
+        self.external_change_detected = false;
     }
 
     /// Adopt a restored recovery candidate so its file stays protected until saved or discarded.
@@ -310,6 +318,7 @@ impl Editor {
     /// Advance the autosave timer using monotonic `now_secs`; returns time until next check when
     /// a dirty document is waiting for autosave.
     pub(crate) fn tick_autosave(&mut self, now_secs: f64, wall_unix_secs: u64) -> Option<Duration> {
+        let _ = self.check_external_modification();
         if !self.dirty() || !self.workspace.general.autosave {
             self.recovery.reset_timer();
             return None;
@@ -420,6 +429,50 @@ impl Editor {
                 self.message(format!("Recovery cleanup failed: {err}"));
             }
         }
+    }
+
+    /// Record the current on-disk modification timestamp of `self.path` (called after open/save).
+    #[allow(dead_code)]
+    pub(crate) fn sync_disk_mtime(&mut self) {
+        self.recovery.last_disk_mtime_secs = self
+            .path
+            .as_deref()
+            .and_then(|p| p.exists().then(|| file_mtime_unix_secs(p)));
+        self.recovery.external_change_detected = false;
+    }
+
+    /// Check whether the open document file on disk was modified externally since it was opened/saved.
+    pub(crate) fn check_external_modification(&mut self) -> bool {
+        let Some(path) = self.path.as_deref() else {
+            return false;
+        };
+        if !path.exists() {
+            return false;
+        }
+        let current_mtime = file_mtime_unix_secs(path);
+        let Some(previous_mtime) = self.recovery.last_disk_mtime_secs else {
+            self.recovery.last_disk_mtime_secs = Some(current_mtime);
+            return false;
+        };
+        if current_mtime > previous_mtime {
+            self.recovery.external_change_detected = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reload the open document from disk after an external modification (when clean or confirmed).
+    #[allow(dead_code)]
+    pub(crate) fn reload_external_modification(&mut self, ctx: &egui::Context) -> bool {
+        let Some(path) = self.path.clone() else {
+            return false;
+        };
+        let ok = self.try_open_path(path, ctx);
+        if ok {
+            self.sync_disk_mtime();
+        }
+        ok
     }
 }
 

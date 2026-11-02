@@ -123,6 +123,25 @@ pub struct Editor {
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
     /// Autosave timer and crash-recovery storage (`recovery.rs`).
     pub(crate) recovery: crate::recovery::RecoveryManager,
+    /// Open document sessions for multi-document tabs (`sessions[active_session]` mirrors inactive tabs).
+    #[allow(dead_code)]
+    pub(crate) sessions: Vec<DocumentSession>,
+    #[allow(dead_code)]
+    pub(crate) active_session: usize,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub(crate) struct DocumentSession {
+    pub project: Project,
+    pub history: History,
+    pub path: Option<PathBuf>,
+    pub saved_project: Option<Project>,
+    pub editing: Vec<String>,
+    pub frame: u32,
+    pub layer: usize,
+    pub zoom: f32,
+    pub pan: Vec2,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -303,11 +322,121 @@ impl Editor {
             timeline_thumbnails: Default::default(),
             timeline_audio: Default::default(),
             recovery: Default::default(),
+            sessions: Vec::new(),
+            active_session: 0,
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
         s.normalize_selection();
         s
+    }
+
+    #[allow(dead_code)]
+    fn snapshot_current_session(&self) -> DocumentSession {
+        DocumentSession {
+            project: self.project.clone(),
+            history: self.history.clone(),
+            path: self.path.clone(),
+            saved_project: self.saved_project.clone(),
+            editing: self.editing.clone(),
+            frame: self.frame,
+            layer: self.layer,
+            zoom: self.zoom,
+            pan: self.pan,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn apply_session_snapshot(&mut self, ctx: &egui::Context, snap: DocumentSession) {
+        self.cancel_edits();
+        self.project = snap.project;
+        self.history = snap.history;
+        self.path = snap.path;
+        self.saved_project = snap.saved_project;
+        self.editing = if snap.editing.is_empty() {
+            vec![self.project.root.clone()]
+        } else {
+            snap.editing
+        };
+        self.frame = snap.frame;
+        self.layer = snap.layer;
+        self.zoom = snap.zoom;
+        self.pan = snap.pan;
+        self.clear_selection();
+        self.playing = false;
+        self.load_project_fonts(ctx);
+        self.normalize_selection();
+        self.recovery.retarget(self.path.as_deref());
+    }
+
+    /// Number of open document tabs (always at least 1).
+    #[allow(dead_code)]
+    pub(crate) fn session_count(&self) -> usize {
+        self.sessions.len().max(1)
+    }
+
+    /// Open `project` in a new document tab without closing the current document.
+    #[allow(dead_code)]
+    pub(crate) fn open_new_session_tab(
+        &mut self,
+        ctx: &egui::Context,
+        project: Project,
+        path: Option<PathBuf>,
+    ) -> usize {
+        if self.sessions.is_empty() {
+            self.sessions.push(self.snapshot_current_session());
+            self.active_session = 0;
+        } else if self.active_session < self.sessions.len() {
+            self.sessions[self.active_session] = self.snapshot_current_session();
+        }
+        let new_session = DocumentSession {
+            saved_project: Some(project.clone()),
+            editing: vec![project.root.clone()],
+            project,
+            history: History::new(self.workspace.undo_levels as usize),
+            path,
+            frame: 0,
+            layer: 0,
+            zoom: 0.75,
+            pan: Vec2::ZERO,
+        };
+        self.sessions.push(new_session.clone());
+        let new_idx = self.sessions.len() - 1;
+        self.active_session = new_idx;
+        self.apply_session_snapshot(ctx, new_session);
+        new_idx
+    }
+
+    /// Switch the active document tab to `index`.
+    #[allow(dead_code)]
+    pub(crate) fn switch_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
+        if self.sessions.is_empty() || index >= self.sessions.len() || index == self.active_session
+        {
+            return false;
+        }
+        self.sessions[self.active_session] = self.snapshot_current_session();
+        self.active_session = index;
+        let snap = self.sessions[index].clone();
+        self.apply_session_snapshot(ctx, snap);
+        true
+    }
+
+    /// Close document tab `index` (when more than one tab is open).
+    #[allow(dead_code)]
+    pub(crate) fn close_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
+        if self.sessions.len() <= 1 || index >= self.sessions.len() {
+            return false;
+        }
+        self.sessions[self.active_session] = self.snapshot_current_session();
+        self.sessions.remove(index);
+        if self.active_session >= self.sessions.len() {
+            self.active_session = self.sessions.len() - 1;
+        } else if index < self.active_session {
+            self.active_session -= 1;
+        }
+        let snap = self.sessions[self.active_session].clone();
+        self.apply_session_snapshot(ctx, snap);
+        true
     }
     /// Apply `Preferences ▸ General ▸ On launch` when no startup document path was given.
     pub(crate) fn apply_on_launch(&mut self, ctx: &egui::Context) {
@@ -966,6 +1095,7 @@ impl Editor {
                             self.load_project_fonts(ctx);
                             let label = match report.format {
                                 neoflash_import::ImportFormat::Swf => "SWF movie",
+                                neoflash_import::ImportFormat::Swc => "SWC library",
                                 neoflash_import::ImportFormat::LegacyBinaryFla => {
                                     "binary FLA document"
                                 }

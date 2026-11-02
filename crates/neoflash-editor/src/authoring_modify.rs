@@ -283,6 +283,8 @@ impl Editor {
     }
 
     fn write_modified(&mut self, changes: Vec<(SelectionTarget, Element)>) {
+        let multiple = self.timeline_edit.edit_multiple;
+        let (onion_start, onion_end) = self.onion_range();
         for (target, element) in changes {
             self.ensure_key_for(&target.layer, false);
             let Some(index) = self.target_layer_index(&target) else {
@@ -295,6 +297,13 @@ impl Editor {
                 self.project.format_version = self.project.format_version.max(5);
             }
             let frame = self.frame;
+            let prev_transform = self.symbol().timeline.layers[index]
+                .key_at(frame)
+                .and_then(|key| key.elements.iter().find(|e| e.id == target.element))
+                .map(|e| e.transform);
+            let own_key_frame = self.symbol().timeline.layers[index]
+                .key_at(frame)
+                .map(|key| key.frame);
             if let Some(current) = self.symbol_mut().timeline.layers[index]
                 .key_at_mut(frame)
                 .and_then(|key| key.elements.iter_mut().find(|e| e.id == target.element))
@@ -302,7 +311,78 @@ impl Editor {
                 current.transform = element.transform;
                 current.kind = element.kind;
             }
+            if multiple && let Some(old_t) = prev_transform {
+                let dx = element.transform.x - old_t.x;
+                let dy = element.transform.y - old_t.y;
+                let sx_ratio = if old_t.scale_x.abs() > 1e-9 {
+                    element.transform.scale_x / old_t.scale_x
+                } else {
+                    1.0
+                };
+                let sy_ratio = if old_t.scale_y.abs() > 1e-9 {
+                    element.transform.scale_y / old_t.scale_y
+                } else {
+                    1.0
+                };
+                let drot = element.transform.rotation - old_t.rotation;
+                let dskew = element.transform.skew - old_t.skew;
+                for key in &mut self.symbol_mut().timeline.layers[index].keyframes {
+                    if !(onion_start..=onion_end).contains(&key.frame)
+                        || Some(key.frame) == own_key_frame
+                    {
+                        continue;
+                    }
+                    if let Some(other) = key.elements.iter_mut().find(|e| e.id == target.element) {
+                        let mut candidate = other.transform;
+                        candidate.x += dx;
+                        candidate.y += dy;
+                        candidate.scale_x *= sx_ratio;
+                        candidate.scale_y *= sy_ratio;
+                        candidate.rotation += drot;
+                        candidate.skew += dskew;
+                        if valid_transform(candidate) {
+                            other.transform = candidate;
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn skew_selection(
+        &mut self,
+        ctx: &egui::Context,
+        skew_x_deg: f64,
+        skew_y_deg: f64,
+    ) -> bool {
+        let placements = self.modify_placements(ctx);
+        if placements.is_empty() {
+            return false;
+        }
+        let pivot = self
+            .authoring_modify
+            .group_pivot
+            .as_ref()
+            .filter(|(targets, _)| *targets == self.selection.targets)
+            .map(|(_, p)| Pos2::new(p[0] as f32, p[1] as f32))
+            .unwrap_or_else(|| {
+                placements
+                    .iter()
+                    .fold(Rect::NOTHING, |b, p| b.union(p.bounds))
+                    .center()
+            });
+        let shx = skew_x_deg.to_radians().tan();
+        let shy = skew_y_deg.to_radians().tan();
+        if !shx.is_finite() || !shy.is_finite() {
+            return false;
+        }
+        let matrix = around(pivot, [1.0, shy, shx, 1.0, 0.0, 0.0]);
+        let Some(changes) = transformed(&placements, matrix) else {
+            return false;
+        };
+        self.apply_modified(changes, None);
+        true
     }
 
     fn apply_modified(
@@ -1687,6 +1767,74 @@ impl Editor {
                             vec![(item.target.clone(), element)],
                             Some(response.id),
                         );
+                    }
+                }
+            } else if placements.len() > 1 {
+                let mut values = [100.0_f64, 100.0_f64, 0.0_f64, 0.0_f64];
+                overline(ui, "Scale");
+                let [ref mut sx, ref mut sy, ref mut rotation, ref mut skew] = values;
+                let linked = &mut self.authoring_modify.linked_scale;
+                let [rsx, rsy] = field_pair(
+                    ui,
+                    ["W", "H"],
+                    [sx, sy],
+                    -1_000_000. ..=1_000_000.,
+                    " %",
+                    Some(linked),
+                );
+                overline(ui, "Rotate and skew");
+                let [rr, rk] = field_pair(
+                    ui,
+                    ["Rotate", "Skew"],
+                    [rotation, skew],
+                    -360_000. ..=360_000.,
+                    "°",
+                    None,
+                );
+                let pivot = self
+                    .authoring_modify
+                    .group_pivot
+                    .as_ref()
+                    .filter(|(targets, _)| *targets == self.selection.targets)
+                    .map(|(_, p)| Pos2::new(p[0] as f32, p[1] as f32))
+                    .unwrap_or_else(|| bounds.center());
+                for (index, response) in [rsx, rsy, rr, rk].into_iter().enumerate() {
+                    if !response.changed() {
+                        continue;
+                    }
+                    let value = values[index];
+                    let matrix = match index {
+                        0 => {
+                            let s = value / 100.0;
+                            let sy_f = if self.authoring_modify.linked_scale {
+                                s
+                            } else {
+                                1.0
+                            };
+                            around(pivot, [s, 0.0, 0.0, sy_f, 0.0, 0.0])
+                        }
+                        1 => {
+                            let s = value / 100.0;
+                            let sx_f = if self.authoring_modify.linked_scale {
+                                s
+                            } else {
+                                1.0
+                            };
+                            around(pivot, [sx_f, 0.0, 0.0, s, 0.0, 0.0])
+                        }
+                        2 => {
+                            let (sin, cos) = value.to_radians().sin_cos();
+                            around(pivot, [cos, sin, -sin, cos, 0.0, 0.0])
+                        }
+                        _ => {
+                            let shx = value.to_radians().tan();
+                            around(pivot, [1.0, 0.0, shx, 1.0, 0.0, 0.0])
+                        }
+                    };
+                    if let Some(changes) = transformed(&placements, matrix) {
+                        self.apply_modified(changes, Some(response.id));
+                    } else {
+                        self.message("This transformation exceeds transform limits.");
                     }
                 }
             }

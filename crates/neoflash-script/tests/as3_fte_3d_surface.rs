@@ -334,6 +334,7 @@ fn as3_fte_ime_and_stage3d_diagnostics_reject_incomplete_interfaces_and_final_su
         }
         "#,
     )]);
+    #[allow(clippy::err_expect)]
     let err = neoflash_script::compile_project(&bad_ime)
         .err()
         .expect("Incomplete IIMEClient implementation must fail compilation");

@@ -330,6 +330,7 @@ impl Project {
             .any(|k| {
                 matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
                     || !k.property_eases.is_empty()
+                    || !k.shape_hints.is_empty()
                     || k.sync_symbols
                     || k.snap_to_guide
                     || k.sound.as_ref().is_some_and(|s| {
@@ -400,6 +401,23 @@ pub struct Keyframe {
     /// (document version 6). The layer then shows as a Sound layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<FrameSound>,
+    /// Authoring correspondence hints for a shape tween span starting here (document version 7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shape_hints: Vec<ShapeHint>,
+}
+
+/// Authoring correspondence marker for a shape tween span (document version 7).
+/// Maps a normalized `[0.0..=1.0, 0.0..=1.0]` UV position on the start shape's bounds
+/// to a normalized `[0.0..=1.0, 0.0..=1.0]` UV position on the end shape's bounds.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShapeHint {
+    pub label: char,
+    pub start_uv: [f64; 2],
+    pub end_uv: [f64; 2],
+}
+
+impl ShapeHint {
+    pub const MAX_HINTS: usize = 26;
 }
 
 /// A library audio resource attached to a keyframe (Flash frame sound).
@@ -1240,6 +1258,59 @@ impl Project {
     pub fn symbol_mut(&mut self, id: &str) -> Option<&mut Symbol> {
         self.symbols.iter_mut().find(|s| s.id == id)
     }
+
+    pub const SWATCHES_RESOURCE_PATH: &'static str = "palette/swatches.json";
+
+    /// Document-specific custom colour swatches stored portably in the project.
+    pub fn custom_swatches(&self) -> Vec<Color> {
+        let Some(unit) = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::SWATCHES_RESOURCE_PATH))
+        else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<Color>>(&bytes).unwrap_or_default()
+    }
+
+    /// Persist document-specific custom colour swatches in the project.
+    pub fn set_custom_swatches(&mut self, swatches: &[Color]) {
+        if swatches.is_empty() {
+            self.resources
+                .retain(|r| !r.path.eq_ignore_ascii_case(Self::SWATCHES_RESOURCE_PATH));
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(swatches) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::SWATCHES_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::SWATCHES_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::SWATCHES_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
 }
 
 impl Layer {
@@ -1251,6 +1322,9 @@ impl Layer {
         for key in &mut self.keyframes {
             if key.keyed_properties.is_some() && !in_motion {
                 key.keyed_properties = None;
+            }
+            if !(key.tween.is_some() && key.tween_kind == TweenKind::Shape) {
+                key.shape_hints.clear();
             }
             if key.keyed_properties.is_none() {
                 in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;

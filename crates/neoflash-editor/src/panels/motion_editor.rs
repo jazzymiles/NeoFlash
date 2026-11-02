@@ -270,6 +270,24 @@ impl Editor {
                                         ui.close();
                                     }
                                 });
+                            } else if *label == "Colour effect" {
+                                let add = ui.add_enabled(
+                                    editable,
+                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
+                                );
+                                c::popup_below(&add, 160.0, |ui| {
+                                    let has_color =
+                                        self.motion_key_frames(&span, TweenProperty::Color).len()
+                                            > 1;
+                                    if ui
+                                        .add(c::MenuItem::new("Tint / Colour").checked(has_color))
+                                        .clicked()
+                                    {
+                                        state.selected = TweenProperty::Alpha;
+                                        self.toggle_motion_key(&span, TweenProperty::Color);
+                                        ui.close();
+                                    }
+                                });
                             } else {
                                 let add = ui.add_enabled(
                                     false,

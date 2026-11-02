@@ -13,6 +13,8 @@ pub struct RuntimeFilterGroup {
     pub composite_operation: String,
     pub opaque_background: Option<Color>,
     pub cache_as_bitmap: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alpha_masks: Vec<crate::runtime_graph::clipping::RuntimeAlphaMask>,
 }
 impl Player {
     pub fn object_filters(&self, reference: &ObjectRef) -> Result<Vec<FilterSpec>, FilterError> {
@@ -164,6 +166,11 @@ impl RuntimeGraph {
     pub(super) fn apply_filters(&self, snapshot: &mut RuntimeSnapshot) {
         // Objects are emitted parent-first. A single optional ID per object/draw
         // avoids cloning an inherited chain into every descendant primitive.
+        let objects: HashMap<_, _> = snapshot
+            .objects
+            .iter()
+            .map(|n| (&n.object_ref, n))
+            .collect();
         let mut nearest: HashMap<ObjectRef, Option<String>> = HashMap::new();
         for object in &snapshot.objects {
             let parent = object
@@ -184,6 +191,7 @@ impl RuntimeGraph {
                     "filter-{}-{}",
                     object.object_ref.generation, object.object_ref.id
                 );
+                let alpha_masks = self.collect_alpha_masks(&objects, &object.object_ref);
                 snapshot.filter_groups.push(RuntimeFilterGroup {
                     id: id.clone(),
                     owner_ref: object.object_ref.clone(),
@@ -200,6 +208,7 @@ impl RuntimeGraph {
                         ])
                     }),
                     cache_as_bitmap: render.cache_as_bitmap || !object.filters.is_empty(),
+                    alpha_masks,
                 });
                 Some(id)
             };

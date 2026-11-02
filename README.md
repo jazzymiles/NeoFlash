@@ -20,15 +20,15 @@ The editor foundation works: nested timelines, vector tools, scripting and stand
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 155 | 155 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 582 | 581 | 1 | 0 | 0 | 99.8% | 100.0% |
+| 2. Objects, language and collections | 582 | 582 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 678 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 5. Graphics, bitmaps and filters | 313 | 313 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 7. File audio and video playback | 91 | 90 | 1 | 0 | 0 | 98.9% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,581 | 553 | 0 | 0 | 74.1% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,938 | 1 | 0 | 0 | 99.9% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,609 | 555 | 0 | 0 | 86.7% | 100.0% |
+| 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,692 | 442 | 0 | 0 | 79.3% | 100.0% |
+| **Now: areas 1–6** | 1,939 | 1,939 | 0 | 0 | 0 | 100.0% | 100.0% |
+| **All Flash Player areas** | 4,164 | 3,722 | 442 | 0 | 0 | 89.4% | 100.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -38,14 +38,14 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 3. MovieClip and timeline | 123 | 118 | 5 | 0 | 0 | 95.9% | 100.0% |
-| 4. Display, events and basic input | 130 | 129 | 1 | 0 | 0 | 99.2% | 100.0% |
-| 5. Graphics, bitmaps and filters | 145 | 144 | 1 | 0 | 0 | 99.3% | 100.0% |
-| 6. Text and fonts | 118 | 110 | 8 | 0 | 0 | 93.2% | 100.0% |
-| 7. File audio and video playback | 83 | 44 | 39 | 0 | 0 | 53.0% | 100.0% |
-| 8. Services and advanced Player APIs | 230 | 67 | 163 | 0 | 0 | 29.1% | 100.0% |
-| **Now: areas 1–6** | 925 | 910 | 15 | 0 | 0 | 98.4% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,021 | 217 | 0 | 0 | 82.5% | 100.0% |
+| 3. MovieClip and timeline | 123 | 123 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
+| **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,204 | 34 | 0 | 0 | 97.3% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 90 of 119 | 12 | 17 | 4 / 8 / 0 |
-| Timelines and animation | 61 of 75 | 9 | 5 | 5 / 5 / 0 |
-| HTML5 and interactivity | 52 of 77 | 2 | 23 | 5 / 5 / 2 |
-| Import and file compatibility | 47 of 67 | 13 | 7 | 2 / 7 / 1 |
-| Platform and quality | 35 of 51 | 0 | 16 | 4 / 5 / 1 |
-| **All areas** | 285 of 389 | 36 | 68 | 20 / 30 / 4 |
+| Editor and graphics | 106 of 119 | 5 | 8 | 6 / 6 / 0 |
+| Timelines and animation | 70 of 75 | 3 | 2 | 6 / 4 / 0 |
+| HTML5 and interactivity | 77 of 77 | 0 | 0 | 12 / 0 / 0 |
+| Import and file compatibility | 60 of 67 | 7 | 0 | 6 / 4 / 0 |
+| Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
+| **All areas** | 352 of 389 | 15 | 22 | 35 / 18 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

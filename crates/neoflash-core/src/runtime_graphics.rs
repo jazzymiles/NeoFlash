@@ -920,6 +920,73 @@ impl GraphicsState {
             .filter(|group| group.fill.is_some() && group.commands.len() > 1)
             .map(|group| (group.commands.as_slice(), group.fill_rule))
     }
+    pub(crate) fn alpha_mask_components(
+        &self,
+        pixels: &crate::pixels::PixelArena,
+        color: crate::ColorTransform,
+        matrix: [f64; 6],
+    ) -> Vec<crate::runtime_graph::clipping::AlphaClipComponent> {
+        let mut out = Vec::new();
+        for group in &self.groups {
+            let Some(fill) = &group.fill else {
+                continue;
+            };
+            if group.commands.len() <= 1 {
+                continue;
+            }
+            match fill {
+                Paint::Solid(c) => {
+                    let applied = color.apply(*c);
+                    out.push(crate::runtime_graph::clipping::AlphaClipComponent {
+                        commands: group.commands.clone(),
+                        fill_rule: group.fill_rule,
+                        matrix,
+                        alpha: f64::from(applied[3]) / 255.0,
+                        fill_gradient: None,
+                        fill_bitmap: None,
+                    });
+                }
+                Paint::Gradient(paint) => {
+                    let mut gradient = paint.clone();
+                    for stop in &mut gradient.stops {
+                        stop.color = color.apply(stop.color);
+                    }
+                    out.push(crate::runtime_graph::clipping::AlphaClipComponent {
+                        commands: group.commands.clone(),
+                        fill_rule: group.fill_rule,
+                        matrix,
+                        alpha: 1.0,
+                        fill_gradient: Some(gradient),
+                        fill_bitmap: None,
+                    });
+                }
+                Paint::Bitmap(spec) => {
+                    if let Ok(info) = pixels.info(&spec.pixel_ref)
+                        && !info.disposed
+                    {
+                        out.push(crate::runtime_graph::clipping::AlphaClipComponent {
+                            commands: group.commands.clone(),
+                            fill_rule: group.fill_rule,
+                            matrix,
+                            alpha: 1.0,
+                            fill_gradient: None,
+                            fill_bitmap: Some(BitmapPaint {
+                                pixel_ref: spec.pixel_ref.clone(),
+                                width: info.width,
+                                height: info.height,
+                                revision: info.revision,
+                                matrix: spec.matrix,
+                                repeat: spec.repeat,
+                                smoothing: spec.smoothing,
+                                color_transform: color,
+                            }),
+                        });
+                    }
+                }
+            }
+        }
+        out
+    }
     pub(crate) fn paints(&self, pixels: &crate::pixels::PixelArena) -> Vec<RuntimeDrawKind> {
         self.paints_with_color(pixels, crate::ColorTransform::default())
     }

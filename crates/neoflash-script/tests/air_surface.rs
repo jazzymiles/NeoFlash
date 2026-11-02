@@ -323,6 +323,7 @@ fn as3_air_timeline_auto_imports_and_interface_diagnostics_work() {
         }
         "#,
     )]);
+    #[allow(clippy::err_expect)]
     let err = neoflash_script::compile_project(&bad_promise)
         .err()
         .expect("Missing IFilePromise methods must fail compilation");
@@ -365,6 +366,7 @@ fn as3_air_timeline_auto_imports_and_interface_diagnostics_work() {
         }
         "#,
     )]);
+    #[allow(clippy::err_expect)]
     let deref_err = neoflash_script::compile_project(&bad_deref)
         .err()
         .expect("Missing IURIDereferencer.dereference must fail compilation");

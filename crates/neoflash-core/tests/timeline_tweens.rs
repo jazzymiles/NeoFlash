@@ -1151,3 +1151,68 @@ fn timeline_edits_sample_guided_classic_tween_along_motion_guide_and_charge_budg
         "60,000-frame guided tween ConvertToKeyframes must not double-charge MAX_BAKED_RECORDS",
     );
 }
+
+#[test]
+fn nonlinear_motion_tween_subdivision_and_shape_hints_and_swatches_roundtrip() {
+    use neoflash_core::{FrameRange, ShapeHint, TimelineEdit, edit_frames};
+
+    // 1. Non-linear motion tween preserves TweenKind::Motion and subdivides eases on Clear.
+    let mut m0 = key(0, vec![rect("box", 0.0, 0.0)]);
+    m0.tween = Some(Easing::EaseInOut);
+    m0.tween_kind = TweenKind::Motion;
+    m0.property_eases = vec![(TweenProperty::X, Easing::EaseIn)];
+    let mut m20 = key(20, vec![rect("box", 200.0, 100.0)]);
+    m20.tween = Some(Easing::EaseInOut);
+    m20.tween_kind = TweenKind::Motion;
+    m20.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    let mut proj = project(21, vec![layer("motion", vec![m0, m20])]);
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+    let root = proj.root.clone();
+    edit_frames(
+        &mut proj,
+        &root,
+        TimelineEdit::Clear {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 8,
+                end: 12,
+            },
+            include_scripts: false,
+        },
+    )
+    .unwrap();
+    proj.validate().unwrap();
+    let keys = &proj.symbols[0].timeline.layers[0].keyframes;
+    assert_eq!(keys[0].tween_kind, TweenKind::Motion);
+    assert!(
+        keys.iter()
+            .any(|k| k.frame == 13 && k.tween_kind == TweenKind::Motion)
+    );
+
+    // 2. Shape hints on a shape tween round-trip and require format 7.
+    let mut s0 = key(0, vec![rect("s", 0.0, 0.0)]);
+    s0.tween = Some(Easing::Linear);
+    s0.tween_kind = TweenKind::Shape;
+    s0.shape_hints = vec![ShapeHint {
+        label: 'a',
+        start_uv: [0.0, 0.0],
+        end_uv: [1.0, 1.0],
+    }];
+    let s10 = key(10, vec![rect("s", 50.0, 50.0)]);
+    let mut shape_proj = project(11, vec![layer("shape", vec![s0, s10])]);
+    shape_proj.upgrade_format_for_features();
+    assert_eq!(shape_proj.format_version, 7);
+    shape_proj.validate().unwrap();
+    let reloaded = Project::from_json(&shape_proj.to_json().unwrap()).unwrap();
+    assert_eq!(reloaded, shape_proj);
+
+    // 3. Document-level custom swatches round-trip cleanly.
+    let mut swatch_proj = Project::blank();
+    let palette = vec![[12, 34, 56, 255], [200, 100, 50, 128]];
+    swatch_proj.set_custom_swatches(&palette);
+    swatch_proj.validate().unwrap();
+    assert_eq!(swatch_proj.custom_swatches(), palette);
+    swatch_proj.set_custom_swatches(&[]);
+    assert!(swatch_proj.custom_swatches().is_empty());
+}

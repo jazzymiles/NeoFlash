@@ -408,6 +408,7 @@ fn as3_media_events_timeline_auto_imports_and_compile_diagnostics_work() {
         }
         "#,
     )]);
+    #[allow(clippy::err_expect)]
     let err_search = neoflash_script::compile_project(&bad_searchable)
         .err()
         .expect("Missing ISearchableText.searchText getter must fail compilation");
@@ -430,6 +431,7 @@ fn as3_media_events_timeline_auto_imports_and_compile_diagnostics_work() {
         }
         "#,
     )]);
+    #[allow(clippy::err_expect)]
     let err_sel = neoflash_script::compile_project(&bad_selection)
         .err()
         .expect("Missing ISimpleTextSelection.selectionAnchorIndex getter must fail compilation");

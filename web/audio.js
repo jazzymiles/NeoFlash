@@ -215,10 +215,55 @@
         return Math.max(0,Math.min(1,t.rightToRight+t.leftToRight));
       }
     }
+    function pumpSampleData(sound,startSample=0,maxIterations=8){
+      const chunks=[];
+      let samplePos=startSample,totalFrames=0;
+      for(let iter=0;iter<maxIterations;iter++){
+        if(!sound.receiver.hasEventListener('sampleData'))break;
+        const ba=typeof binary?.ByteArray==='function'?new binary.ByteArray():null;
+        if(!ba)break;
+        let ev;
+        if(typeof events?.SampleDataEvent==='function'){
+          ev=new events.SampleDataEvent('sampleData',false,false,samplePos,ba);
+        }else{
+          ev=new events.Event('sampleData',false,false);
+          ev.position=samplePos;
+          ev.data=ba;
+        }
+        emit(sound.receiver,ev);
+        const bytes=binary.toBytes(ev.data||ba);
+        const frames=bytes.byteLength>>>3;
+        if(frames<=0)break;
+        chunks.push(bytes.slice(0,frames*8));
+        samplePos+=frames;
+        totalFrames+=frames;
+        if(frames<2048)break;
+      }
+      if(totalFrames>0){
+        const merged=new Uint8Array(totalFrames*8);
+        let offset=0;
+        for(const c of chunks){merged.set(c,offset);offset+=c.byteLength;}
+        sound.pcmBytes=merged;
+        sound.bytes=merged.byteLength;
+        sound.buffer=createPcmAudioBuffer(merged,totalFrames,44100);
+        return true;
+      }
+      return false;
+    }
     function play(sound,startTime=0,loops=0,soundTransform=null,matrix=null){
       number(startTime,'Sound startTime',0,2147483647);if(!Number.isInteger(loops)||loops<0||loops>10000)throw new RangeError('Sound loops requires an integer from 0 through 10000.');
       const value=soundTransform===null?{volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1}:transformCopy(soundTransform);
-      if(!sound.buffer&&!sound.load)throw new Error('Load a Sound before calling play().');
+      if(!sound.buffer&&!sound.load){
+        if(sound.receiver?.hasEventListener?.('sampleData')){
+          const startSample=Math.max(0,Math.round((startTime/1000)*44100));
+          if(!pumpSampleData(sound,startSample)){
+            sound.pcmBytes=new Uint8Array(0);
+            sound.buffer=createPcmAudioBuffer(sound.pcmBytes,0,44100);
+          }
+        }else{
+          throw new Error('Load a Sound before calling play().');
+        }
+      }
       if(sound.buffer&&startTime>sound.buffer.duration*1000)throw new RangeError('Sound startTime is beyond the decoded duration.');
       if(playing.size>=maxChannels)throw new RangeError(`This publication supports at most ${maxChannels} active or pending sound channels.`);
       ensureContext();used=true;

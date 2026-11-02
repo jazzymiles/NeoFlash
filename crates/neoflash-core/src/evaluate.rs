@@ -541,7 +541,12 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
         ease,
     );
     if key.tween_kind == TweenKind::Shape {
-        return crate::shape_tween::shape_tween_elements(&key.elements, &next.elements, t);
+        return crate::shape_tween::shape_tween_elements_with_hints(
+            &key.elements,
+            &next.elements,
+            &key.shape_hints,
+            t,
+        );
     }
     key.elements
         .iter()

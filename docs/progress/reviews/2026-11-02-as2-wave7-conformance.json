@@ -1,0 +1,934 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "133837bc36409dcde8e1ab269860dab7a6ee783b46fe4cee28db28c2dd345955",
+  "reviews": [
+    {
+      "id": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+      "date": "2026-11-02",
+      "commit": "78039420e4194b83aa35d276bed6df8ad7a06dbf",
+      "title": "AS2 Wave 7 runtime conformance for timeline, text, media, net and system APIs",
+      "summary": "Promote 183 AS2 Target declarations implemented and verified in the ActionScript runtime and execute.mjs (_soundbuftime, getSWFVersion, getURL, loadVariables/Num, _level, load/unloadMovieNum, showRedrawRegions, TextField FlashType & TextRenderer, NetConnection/NetStream, Camera/Microphone, FileReference/List, System.capabilities, SharedObject, print); keep 34 OS/socket/IME entries partial.",
+      "tests": [
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/src/actionscript.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadVariables()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#FileReference()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#addListener()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#browse()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#cancel()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#download()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onCancel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onComplete",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onHTTPError",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onIOError",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onOpen",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onProgress",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSecurityError",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSelect",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onUploadCompleteData",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#modificationDate",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#name",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#postData",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#removeListener()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#size",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#type",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#upload()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#FileReferenceList()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#addListener()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#browse()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onCancel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onSelect",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#fileList",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#removeListener()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariables()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariablesNum()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "working",
+          "note": "Verified in ActionScript 2 runtime and compiler conformance suite (execute.mjs)."
+        }
+      ]
+    }
+  ]
+}

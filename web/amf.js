@@ -93,7 +93,26 @@
         const instanceName=!array?prog?.instanceClassName?.(value):null;
         const alias=!array?((instanceName&&classNameToAlias.get(instanceName))||(value.constructor&&classToAlias.get(value.constructor))||null):null;
         if(!array&&publicKeys==null&&alias==null&&!plain(value))throw new TypeError('AMF serialization of this native/class object is unsupported; use a plain data record.');
-        function read(key){const descriptor=Object.getOwnPropertyDescriptor(value,key);if(publicKeys!=null)return value[key];if(!descriptor)return undefined;if(!Object.hasOwn(descriptor,'value'))throw new TypeError('AMF ordinary records require data properties; accessors are unsupported.');return descriptor.value;}
+        function read(key){
+          if(publicKeys!=null)return value[key];
+          const descriptor=Object.getOwnPropertyDescriptor(value,key);
+          if(descriptor){
+            if(!Object.hasOwn(descriptor,'value')){
+              if(alias!=null&&typeof descriptor.get==='function')return value[key];
+              throw new TypeError('AMF ordinary records require data properties; accessors are unsupported.');
+            }
+            return descriptor.value;
+          }
+          if(alias!=null){
+            let proto=Object.getPrototypeOf(value);
+            while(proto&&proto!==Object.prototype&&Object.getPrototypeOf(proto)!==null){
+              const pd=Object.getOwnPropertyDescriptor(proto,key);
+              if(pd&&typeof pd.get==='function'&&typeof pd.set==='function')return value[key];
+              proto=Object.getPrototypeOf(proto);
+            }
+          }
+          return undefined;
+        }
         const entries=[],dense=[];
         if(array){if(value.length>MAX_VALUES)throw new RangeError('AMF array exceeds 100000 entries.');for(let i=0;i<value.length;i++)dense.push(visit(read(String(i)),depth+1));}
         const useDynWriter=dynWriter&&typeof dynWriter.writeDynamicProperties==='function'&&publicKeys==null&&!(depth===0&&graphOptions.ignoreRootDynamicWriter);
@@ -107,7 +126,20 @@
             entries.push([text(key),visit(propVal,depth+1)]);
           }
         }else{
-          const keys=publicKeys??Object.keys(value);if(keys.length>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
+          let keys=publicKeys??Object.keys(value);
+          if(publicKeys==null&&alias!=null){
+            const keySet=new Set(keys);
+            let proto=Object.getPrototypeOf(value);
+            while(proto&&proto!==Object.prototype&&Object.getPrototypeOf(proto)!==null){
+              for(const k of Object.getOwnPropertyNames(proto)){
+                if(k==='constructor'||k==='__proto__'||keySet.has(k))continue;
+                const pd=Object.getOwnPropertyDescriptor(proto,k);
+                if(pd&&typeof pd.get==='function'&&typeof pd.set==='function'){keySet.add(k);keys.push(k);}
+              }
+              proto=Object.getPrototypeOf(proto);
+            }
+          }
+          if(keys.length>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
           for(const key of keys){if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;entries.push([text(key),visit(read(key),depth+1)]);}
         }
         nodes[index]=array?{type:'array',dense,entries}:(alias?{type:'object',class_name:text(alias),entries}:{type:'object',entries});return {type:'ref',value:index};
@@ -170,7 +202,81 @@
       if(requirements.record&&(result.graph?.root?.type!=='ref'||result.graph.nodes?.[result.graph.root.value]?.type!=='object'))throw new TypeError('Saved SharedObject root must be an ordinary data record.');
       return {value:materialize(result.graph),consumed:result.consumed};
     }
-    return Object.freeze({encode,decode,registerClassAlias,getClassByAlias,setDynamicPropertyWriterGetter,DynamicPropertyOutput,reset,base64,unbase64});
+    function encodeSol(name,value,encoding=3,graphOptions={}){
+      if(typeof name!=='string'||!name)throw new TypeError('SOL name requires a non-empty String.');
+      const mode=format(encoding),source=JSON.stringify(graph(value,graphOptions));
+      if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');
+      const nativeEncodeSol=options.encodeSol||global.NeoFlashWasm?.sol_encode;
+      if(typeof nativeEncodeSol==='function')return codecCall(()=>nativeEncodeSol(mode,name,source));
+      const nameBytes=utf8.encode(name);
+      if(nameBytes.length>65535)throw new RangeError('SOL name exceeds 65535 UTF-8 bytes.');
+      const chunks=[];let bodyBytes=0;
+      const record=(value&&typeof value==='object')?value:{};
+      for(const key of Object.keys(record)){
+        const keyBytes=utf8.encode(key);
+        let keyPart;
+        if(mode===0){
+          keyPart=new Uint8Array(2+keyBytes.length);
+          keyPart[0]=(keyBytes.length>>>8)&0xff;keyPart[1]=keyBytes.length&0xff;
+          keyPart.set(keyBytes,2);
+        }else{
+          const rawKey=encode(key,3);
+          keyPart=rawKey.subarray(1);
+        }
+        const valBytes=encode(record[key],mode);
+        const entry=new Uint8Array(keyPart.length+valBytes.length+1);
+        entry.set(keyPart,0);entry.set(valBytes,keyPart.length);entry[entry.length-1]=0;
+        chunks.push(entry);bodyBytes+=entry.length;
+      }
+      const payloadLen=4+6+2+nameBytes.length+4+bodyBytes;
+      const out=new Uint8Array(6+payloadLen);
+      out[0]=0x00;out[1]=0xbf;
+      out[2]=(payloadLen>>>24)&0xff;out[3]=(payloadLen>>>16)&0xff;out[4]=(payloadLen>>>8)&0xff;out[5]=payloadLen&0xff;
+      out.set([0x54,0x43,0x53,0x4f,0x00,0x04,0x00,0x00,0x00,0x00],6);
+      out[16]=(nameBytes.length>>>8)&0xff;out[17]=nameBytes.length&0xff;
+      out.set(nameBytes,18);
+      let cursor=18+nameBytes.length;
+      out[cursor]=0;out[cursor+1]=0;out[cursor+2]=0;out[cursor+3]=mode;cursor+=4;
+      for(const chunk of chunks){out.set(chunk,cursor);cursor+=chunk.length;}
+      return out;
+    }
+    function decodeSol(bytes){
+      if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('SOL decode requires a byte view no larger than 16 MiB.');
+      const u8=new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+      const nativeDecodeSol=options.decodeSol||global.NeoFlashWasm?.sol_decode;
+      if(typeof nativeDecodeSol==='function'){
+        const parsed=JSON.parse(codecCall(()=>nativeDecodeSol(u8)));
+        const mat=materialize(parsed.decoded.graph);
+        return {name:parsed.name,encoding:parsed.format,objectEncoding:parsed.format,value:mat,data:mat,consumed:parsed.decoded.consumed};
+      }
+      if(u8.length<18||u8[0]!==0x00||u8[1]!==0xbf||u8[6]!==0x54||u8[7]!==0x43||u8[8]!==0x53||u8[9]!==0x4f)throw new Error('Invalid SOL magic header (expected 0x00BF ... TCSO).');
+      const declaredLen=((u8[2]<<24)|(u8[3]<<16)|(u8[4]<<8)|u8[5])>>>0;
+      const end=6+declaredLen;if(end>u8.length)throw new Error('Truncated SOL body.');
+      const nameLen=(u8[16]<<8)|u8[17];let pos=18+nameLen;if(pos+4>end)throw new Error('Truncated SOL header.');
+      const decoder=new TextDecoder();
+      const name=decoder.decode(u8.subarray(18,pos));
+      const mode=((u8[pos]<<24)|(u8[pos+1]<<16)|(u8[pos+2]<<8)|u8[pos+3])>>>0;pos+=4;
+      format(mode);
+      const data={};
+      while(pos<end){
+        let propName;
+        if(mode===0){
+          if(pos+2>end)throw new Error('Truncated SOL AMF0 property name.');
+          const klen=(u8[pos]<<8)|u8[pos+1];pos+=2;
+          propName=decoder.decode(u8.subarray(pos,pos+klen));pos+=klen;
+        }else{
+          const strBuf=new Uint8Array(1+(end-pos));strBuf[0]=6;strBuf.set(u8.subarray(pos,end),1);
+          const kdec=decode(strBuf,3);propName=String(kdec.value);pos+=kdec.consumed-1;
+        }
+        const vdec=decode(u8.subarray(pos,end),mode);
+        pos+=vdec.consumed;
+        if(pos>=end||u8[pos]!==0)throw new Error('SOL property entry must end with 0x00 trailer.');
+        pos+=1;
+        Object.defineProperty(data,propName,{value:vdec.value,writable:true,enumerable:true,configurable:true});
+      }
+      return {name,encoding:mode,objectEncoding:mode,value:data,data,consumed:end};
+    }
+    return Object.freeze({encode,decode,encodeSol,decodeSol,registerClassAlias,getClassByAlias,setDynamicPropertyWriterGetter,DynamicPropertyOutput,reset,base64,unbase64});
   }
   const api=Object.freeze({create,DynamicPropertyOutput,base64,unbase64});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAMF=api;
 })(globalThis);

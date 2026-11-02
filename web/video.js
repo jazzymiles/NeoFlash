@@ -161,6 +161,23 @@
       constructor(connection,peerID='connectToFMS'){super();const nc=state(connection,connections);if(peerID!==undefined&&peerID!==null&&typeof peerID!=='string')throw new TypeError('NetStream peerID requires a String.');if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,peerID:peerID||'connectToFMS',sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));onStreamCreated?.(this,r);if(new.target===NetStream)Object.seal(this);}
       play(url,...extra){if(extra.length)unsupported('NetStream.play playlist/start/length/reset arguments');load(state(this,streams),url);}
       pause(){pause(state(this,streams));}resume(){resume(state(this,streams));}togglePause(){const r=state(this,streams);if(r.wanted||r.playing)pause(r);else resume(r);}seek(seconds){seek(state(this,streams),seconds);}
+      step(frames){
+        const r=state(this,streams),n=Math.trunc(Number(frames)||0),fps=Math.max(1,Number(options.getFrameRate?.())||24);
+        const cur=r.media?Number(r.media.currentTime)||0:r.time;
+        const maxDur=r.metadata&&r.duration>0?r.duration:86400*365;
+        const next=Math.max(0,Math.min(maxDur,cur+n/fps));
+        r.time=next;if(r.media)r.media.currentTime=next;r.serial=++serial;
+        later(r,()=>emit(r,'NetStream.Step.Notify'));repaint();
+      }
+      syncToTimeline(frame,fps=24){
+        const r=state(this,streams),f=Math.max(0,Number(frame)||0),rate=Math.max(1,Number(fps)||Number(options.getFrameRate?.())||24);
+        const targetSec=f/rate;
+        const clamped=r.metadata&&r.duration>0?Math.min(r.duration,targetSec):targetSec;
+        r.time=clamped;
+        if(r.media){if(Math.abs((Number(r.media.currentTime)||0)-clamped)>1e-4)r.media.currentTime=clamped;}
+        r.serial=++serial;repaint();
+        return clamped;
+      }
       close(){stopMedia(state(this,streams),true);}
       get time(){const r=state(this,streams);return r.media?Number(r.media.currentTime)||0:r.time;}
       get client(){return state(this,streams).client;}set client(value){if(value===null||(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('NetStream.client requires an object.');state(this,streams).client=value;}
@@ -294,9 +311,20 @@
       });
     }
     const _as3Hook=Object.freeze({connections,streams,connectionRecords,streamRecords,hub,NetStatusEvent,setOnStreamCreated:fn=>{onStreamCreated=fn;},state:(v,m)=>state(v,m),emit:(r,code,level,extra)=>emit(r,code,level,extra),later:(r,fn)=>later(r,fn),load:(r,url)=>load(r,url),stopMedia:(r,retain)=>stopMedia(r,retain),seek:(r,sec)=>seek(r,sec),pause:r=>pause(r),resume:r=>resume(r),audio:r=>audio(r),freeze:r=>freeze(r),setAppendFrame:(r,w,h,idx)=>setAppendFrame(r,w,h,idx),collectFrames:()=>collectFrames(),repaint:()=>repaint(),bumpSerial:()=>++serial,getGeneration:()=>generation,isDisposed:()=>disposed});
+    function syncTimeline(frame,fps=24){
+      open();const f=Math.max(0,Number(frame)||0),rate=Math.max(1,Number(fps)||Number(options.getFrameRate?.())||24);
+      const targetSec=f/rate;
+      for(const r of streamRecords){
+        if(!r.timelineSync)continue;
+        const clamped=r.metadata&&r.duration>0?Math.min(r.duration,targetSec):targetSec;
+        r.time=clamped;
+        if(r.media&&Math.abs((Number(r.media.currentTime)||0)-clamped)>1e-4)r.media.currentTime=clamped;
+        r.serial=++serial;
+      }
+    }
     function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
+    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

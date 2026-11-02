@@ -258,9 +258,336 @@ const fixtures = [
     context: {},
     verify(context) { assert.equal(context.x, 7); },
   },
+  {
+    language: 'action_script2',
+    source: `
+      _soundbuftime = 9;
+      this.mcBuf = this._soundbuftime;
+      var btn = this.placedBtn;
+      this.btnBuf = btn._soundbuftime;
+      btn._soundbuftime = 12;
+      this.globalBufAfterBtn = _soundbuftime;
+      this.swfVer = this.getSWFVersion();
+      this.score = 42;
+      this.getURL("https://example.test/submit", "_blank", "GET");
+      this.loadVariables("user=ada&role=engineer", "POST");
+      loadVariables("mode=turbo", this, "GET");
+      loadMovieNum("hud.swf", 2, "GET");
+      loadVariablesNum("hudReady=yes&lives=3", 2, "POST");
+      this.lvl0Identity = (_level0 === this);
+      this.lvl2Url = _level2._url;
+      this.lvl2Lives = _level2.lives;
+      unloadMovieNum(2);
+      this.lvl2AfterUnload = _level2;
+      this.redrawOn = showRedrawRegions(true, 0x00FF00);
+      var tf = this.createTextField("headline", 1, 10, 20, 240, 40);
+      tf.antiAliasType = "advanced";
+      tf.embedFonts = true;
+      tf.gridFitType = "subpixel";
+      tf.sharpness = 125;
+      tf.thickness = -50;
+      this.tfProps = [tf.antiAliasType, tf.embedFonts, tf.gridFitType, tf.sharpness, tf.thickness];
+      flash.text.TextRenderer.displayMode = "lcd";
+      flash.text.TextRenderer.maxLevel = 7;
+      flash.text.TextRenderer.setAdvancedAntialiasingTable("Verdana", "none", "dark", [{ fontSize: 12, insideCutoff: 0.6, outsideCutoff: -0.4 }]);
+      this.trMode = flash.text.TextRenderer.displayMode;
+      this.trMax = flash.text.TextRenderer.maxLevel;
+    `,
+    context: { placedBtn: {} },
+    verify(context) {
+      assert.equal(context.mcBuf, 9);
+      assert.equal(context.btnBuf, 9);
+      assert.equal(context.globalBufAfterBtn, 12);
+      assert.equal(context.swfVer, 8);
+      assert.ok(context.__nfLastURLRequest.url.includes('https://example.test/submit?'));
+      assert.ok(context.__nfLastURLRequest.url.includes('score=42'));
+      assert.equal(context.__nfLastURLRequest.window, '_blank');
+      assert.equal(context.user, 'ada');
+      assert.equal(context.role, 'engineer');
+      assert.equal(context.mode, 'turbo');
+      assert.equal(context.lvl0Identity, true);
+      assert.equal(context.lvl2Url, 'hud.swf');
+      assert.equal(context.lvl2Lives, '3');
+      assert.equal(context.lvl2AfterUnload, undefined);
+      assert.equal(context.redrawOn, true);
+      assert.deepEqual(context.tfProps, ['advanced', true, 'subpixel', 125, -50]);
+      assert.equal(context.trMode, 'lcd');
+      assert.equal(context.trMax, 7);
+    },
+  },
+  {
+    language: 'action_script2',
+    source: `
+      var statuses = [];
+      var nc = new NetConnection();
+      nc.onStatus = function(info) { statuses.push(info.code); };
+      var rpcResult = null;
+      nc.onResult = function(res) { rpcResult = res.method; };
+      nc.connect(null);
+      this.ncConnected = nc.isConnected;
+      nc.call("pingService", { onResult: function(r) { statuses.push("rpc:" + r.method); } }, 101);
+      var ns = new NetStream(nc);
+      ns.checkPolicyFile = true;
+      ns.setBufferTime(2.5);
+      var metaDuration = 0;
+      var playCode = "";
+      ns.onStatus = function(info) { statuses.push(info.code); };
+      ns.onMetaData = function(meta) { metaDuration = meta.duration; };
+      ns.onPlayStatus = function(info) { playCode = info.code; };
+      var cam = Camera.get(0);
+      cam.setMode(320, 240, 30, true);
+      cam.setQuality(32768, 85);
+      cam.setKeyFrameInterval(12);
+      cam.setLoopback(true);
+      var camActive = null;
+      cam.onActivity = function(act) { camActive = act; };
+      cam.setMotionLevel(35, 1500);
+      var mic = Microphone.get(0);
+      mic.setRate(22);
+      mic.setGain(75);
+      mic.setCodec("Speex");
+      mic.setEncodeQuality(8);
+      mic.setFramesPerPacket(1);
+      mic.setUseEchoSuppression(true);
+      var micActive = null;
+      mic.onActivity = function(act) { micActive = act; };
+      mic.setSilenceLevel(15, 1200);
+      ns.attachAudio(mic);
+      ns.attachVideo(cam, 0);
+      ns.publish("liveFeed", "live");
+      ns.send("onCue", "marker1");
+      ns.play("clip.flv", 0, 14, true);
+      ns.play2({ streamName: "clip_hd.flv", start: 2 });
+      ns.receiveAudio(false);
+      ns.receiveVideo(24);
+      ns.pause(true);
+      ns.pause(false);
+      ns.seek(4.5);
+      var infoObj = ns.getInfo();
+      this.nsSummary = [ns.bufferTime, ns.checkPolicyFile, metaDuration, playCode, ns.time, ns.currentFps, infoObj.byteCount, rpcResult];
+      this.camSummary = [Camera.names.length, cam.name, cam.width, cam.height, cam.fps, cam.bandwidth, cam.quality, cam.keyFrameInterval, cam.loopback, cam.motionLevel, cam.motionTimeOut, camActive, cam.muted, cam.index];
+      this.micSummary = [Microphone.names.length, mic.name, mic.rate, mic.gain, mic.codec, mic.encodeQuality, mic.framesPerPacket, mic.useEchoSuppression, mic.silenceLevel, mic.silenceTimeOut, micActive, mic.muted, mic.index];
+      ns.close();
+      nc.close();
+      this.statuses = statuses;
+    `,
+    context: {},
+    verify(context) {
+      assert.equal(context.ncConnected, true);
+      assert.deepEqual(context.nsSummary, [2.5, true, 14, 'NetStream.Play.TransitionComplete', 4.5, 24, 2048, 'pingService']);
+      assert.deepEqual(context.camSummary, [1, 'Default Camera', 320, 240, 30, 32768, 85, 12, true, 35, 1500, false, false, 0]);
+      assert.deepEqual(context.micSummary, [1, 'Default Microphone', 22, 75, 'Speex', 8, 1, true, 15, 1200, false, false, 0]);
+      assert.ok(context.statuses.includes('NetConnection.Connect.Success'));
+      assert.ok(context.statuses.includes('NetStream.Publish.Start'));
+      assert.ok(context.statuses.includes('NetStream.Play.Start'));
+      assert.ok(context.statuses.includes('NetStream.Seek.Notify'));
+      assert.ok(context.statuses.includes('NetConnection.Connect.Closed'));
+    },
+  },
+  {
+    language: 'action_script2',
+    source: `
+      var events = [];
+      var fr = new flash.net.FileReference();
+      var listener = {
+        onSelect: function(f) { events.push("select:" + f.name); },
+        onOpen: function(f) { events.push("open"); },
+        onProgress: function(f, loaded, total) { events.push("progress:" + loaded + "/" + total); },
+        onComplete: function(f) { events.push("complete"); },
+        onCancel: function(f) { events.push("cancel"); }
+      };
+      fr.addListener(listener);
+      fr.browse([{ description: "Text", extension: "*.txt" }]);
+      fr.upload("https://example.test/upload", "Filedata", false);
+      fr.download("https://example.test/report.pdf", "saved.pdf");
+      fr.cancel();
+      this.frMeta = [fr.name, fr.size, fr.type, fr.creator, fr.creationDate instanceof Date, fr.modificationDate instanceof Date, fr.removeListener(listener)];
+      var frl = new flash.net.FileReferenceList();
+      var listCount = 0;
+      frl.addListener({ onSelect: function(listObj) { listCount = listObj.fileList.length; } });
+      frl.browse();
+      this.listCount = listCount;
+      System.exactSettings = false;
+      System.useCodepage = true;
+      System.showSettings(2);
+      this.sysProps = [System.exactSettings, System.useCodepage, System.capabilities.hasAudio, System.capabilities.hasStreamingVideo, System.capabilities.screenResolutionX, System.capabilities.screenResolutionY, System.capabilities.serverString.indexOf("R=1920x1080") >= 0];
+      var nc = new NetConnection();
+      nc.connect(null);
+      var rso = SharedObject.getRemote("roomState", nc.uri, false, false);
+      var syncEvents = 0;
+      rso.onSync = function(list) { syncEvents += list.length; };
+      rso.connect(nc);
+      rso.setFps(15);
+      rso.setProperty("topic", "Wave7");
+      rso.setDirty("topic");
+      var msgOut = "";
+      rso.onChat = function(msg) { msgOut = msg; };
+      rso.send("onChat", "hello-rso");
+      rso.close();
+      this.rsoSummary = [rso.data.topic, syncEvents > 0, msgOut];
+      var mcl = new MovieClipLoader();
+      mcl.checkPolicyFile = true;
+      var snd = new Sound(this);
+      snd.checkPolicyFile = true;
+      var vid = this.placedVideo;
+      vid.deblocking = 4;
+      flash.external.ExternalInterface.addCallback("echoMethod", this, function(v) { return "echo:" + v; });
+      var extRes = flash.external.ExternalInterface.call("echoMethod", "42");
+      print(this, "bmovie");
+      printNum(0, "bmax");
+      printAsBitmap(this, "bframe");
+      printAsBitmapNum(0, "bmovie");
+      this.miscSummary = [mcl.checkPolicyFile, snd.checkPolicyFile, vid.deblocking, extRes, events.join(",")];
+    `,
+    context: { placedVideo: {} },
+    verify(context) {
+      assert.deepEqual(context.frMeta, ['saved.pdf', 512, '.pdf', 'NF2', true, true, true]);
+      assert.equal(context.listCount, 2);
+      assert.deepEqual(context.sysProps, [false, true, true, true, 1920, 1080, true]);
+      assert.deepEqual(context.rsoSummary, ['Wave7', true, 'hello-rso']);
+      assert.deepEqual(context.miscSummary, [
+        true,
+        true,
+        4,
+        'echo:42',
+        'select:document.txt,open,progress:256/256,complete,select:saved.pdf,open,progress:512/512,complete,cancel',
+      ]);
+    },
+  },
+  {
+    language: 'action_script3',
+    source: `
+      native function nativeAdd(a:int, b:int = 7):int;
+      native function nativeClamp(v:Number, lo:Number, hi:Number):Number;
+      this.nativeSum = nativeAdd(15);
+      this.nativeClamped = nativeClamp(140, 0, 100);
+      var appDom:ApplicationDomain = ApplicationDomain.currentDomain;
+      var secDom:SecurityDomain = SecurityDomain.currentDomain;
+      var lc:LoaderContext = new LoaderContext(true, appDom, secDom);
+      lc.allowCodeImport = false;
+      lc.imageDecodingPolicy = "onLoad";
+      lc.parameters = { theme: "dark" };
+      var jlc:JPEGLoaderContext = new JPEGLoaderContext(0.75, true, appDom, secDom);
+      this.loaderSummary = [lc.checkPolicyFile, lc.allowCodeImport, lc.imageDecodingPolicy, lc.parameters.theme, jlc.deblockingFilter, jlc is LoaderContext];
+      this.capSummary = [
+        Capabilities.cpuAddressSize,
+        Capabilities.cpuArchitecture,
+        Capabilities.hasAudio,
+        Capabilities.hasTLS,
+        Capabilities.maxLevelIDC,
+        Capabilities.screenResolutionX,
+        Capabilities.screenResolutionY,
+        Capabilities.supports64BitProcesses,
+        Capabilities.supports32BitProcesses,
+        Capabilities.touchscreenType,
+        Capabilities.hasMultiChannelAudio(AudioDecoder.DOLBY_DIGITAL),
+        Capabilities.hasMultiChannelAudio("unknownCodec"),
+        Capabilities.serverString.indexOf("PR64=t") >= 0
+      ];
+      var ctx3d:Context3D = new Context3D();
+      var vtex:VideoTexture = ctx3d.createVideoTexture();
+      var nc:NetConnection = new NetConnection();
+      nc.connect(null);
+      var ns:NetStream = new NetStream(nc);
+      ns.checkPolicyFile = true;
+      vtex.attachNetStream(ns);
+      var vtexDims = [Context3D.supportsVideoTexture, vtex.videoWidth, vtex.videoHeight, ns.checkPolicyFile];
+      vtex.dispose();
+      var atf:ByteArray = new ByteArray();
+      atf.writeUTFBytes("ATF");
+      atf.writeByte(0);
+      atf.writeByte(0);
+      atf.writeByte(0);
+      atf.writeByte(2);
+      atf.writeByte(8);
+      atf.writeByte(8);
+      atf.writeByte(4);
+      var tex:Texture = new Texture(256, 256);
+      tex.uploadCompressedTextureFromByteArray(atf, 0, true);
+      var cube:CubeTexture = new CubeTexture(128);
+      cube.uploadCompressedTextureFromByteArray(atf, 0, false);
+      this.stage3dSummary = [vtexDims[0], vtexDims[1], vtexDims[2], vtexDims[3], vtex.videoWidth, tex.compressedUploaded, tex.width, tex.mipCount, cube.compressedUploaded];
+    `,
+    context: {},
+    verify(context) {
+      assert.equal(context.nativeSum, 22);
+      assert.equal(context.nativeClamped, 100);
+      assert.deepEqual(context.loaderSummary, [true, false, 'onLoad', 'dark', 0.75, true]);
+      assert.deepEqual(context.capSummary, [64, 'ARM', true, true, '5.1', 1920, 1080, true, false, 'none', true, false, true]);
+      assert.deepEqual(context.stage3dSummary, [true, 320, 240, true, 0, true, 256, 4, true]);
+    },
+  },
+  {
+    language: 'action_script3',
+    source: `
+      var vss:VideoStreamSettings = new VideoStreamSettings();
+      vss.setMode(640, 480, 60);
+      vss.setQuality(65536, 90);
+      vss.setKeyFrameInterval(24);
+      var h264:H264VideoStreamSettings = new H264VideoStreamSettings();
+      h264.setProfileLevel(H264Profile.MAIN, H264Level.LEVEL_4_1);
+      var vp6:VP6VideoStreamSettings = new VP6VideoStreamSettings();
+      var adm:AudioDeviceManager = AudioDeviceManager.deviceManager;
+      var evtReason:String = "";
+      var admEvt:AudioOutputChangeEvent = new AudioOutputChangeEvent(AudioOutputChangeEvent.AUDIO_OUTPUT_CHANGE, false, false, AudioOutputChangeReason.USER_SELECTION);
+      evtReason = admEvt.reason;
+      adm.selectedDeviceIndex = 1;
+      var rpcVal:String = "";
+      var resp:Responder = new Responder(function(r):void { rpcVal = r.command; });
+      var nc:NetConnection = new NetConnection();
+      nc.connect(null);
+      nc.call("getScore", resp, 99);
+      var nspo:NetStreamPlayOptions = new NetStreamPlayOptions();
+      nspo.oldStreamName = "low.mp4";
+      nspo.streamName = "high.mp4";
+      nspo.start = 0;
+      nspo.len = 30;
+      nspo.offset = 5;
+      nspo.transition = NetStreamPlayTransitions.SWITCH;
+      var ns:NetStream = new NetStream(nc);
+      ns.play2(nspo);
+      var so:SharedObject = SharedObject.getLocal("wave7Prefs");
+      so.fps = 30;
+      var clientMsg:String = "";
+      so.client = { onBroadcast: function(m:String):void { clientMsg = m; } };
+      so.setProperty("volume", 80);
+      so.setDirty("volume");
+      so.send("onBroadcast", "synced");
+      var io:InteractiveObject = new InteractiveObject();
+      io.needsSoftKeyboard = true;
+      io.softKeyboardInputAreaOfInterest = new Rectangle(10, 20, 400, 300);
+      var skOk:Boolean = io.requestSoftKeyboard();
+      var avm1:AVM1Movie = new AVM1Movie();
+      this.mediaNetDisplaySummary = [
+        vss.width, vss.height, vss.fps, vss.bandwidth, vss.quality, vss.keyFrameInterval,
+        h264.codec, h264.profile, h264.level,
+        vp6.codec,
+        AudioDeviceManager.isSupported, adm.deviceNames.length, adm.selectedDeviceIndex, evtReason,
+        rpcVal, nspo.transition, ns.playingUrl,
+        so.data.volume, so.fps, clientMsg,
+        ColorCorrection.ON, ColorCorrectionSupport.DEFAULT_ON,
+        skOk, Stage.softKeyboardRect.width, Stage.stageVideos.length,
+        avm1 is InteractiveObject
+      ];
+    `,
+    context: {},
+    verify(context) {
+      assert.deepEqual(context.mediaNetDisplaySummary, [
+        640, 480, 60, 65536, 90, 24,
+        'H264Avc', 'main', '4.1',
+        'On2 VP6',
+        true, 2, 1, 'userSelection',
+        'getScore', 'switch', 'high.mp4',
+        80, 30, 'synced',
+        'on', 'defaultOn',
+        true, 400, 1,
+        true,
+      ]);
+    },
+  },
 ];
 const result = spawnSync(cargo, ['run', '--quiet', '-p', 'neoflash-script', '--example', 'compile_batch'], {
-  cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   input: JSON.stringify(fixtures.map(({ language, source }) => ({ language, source }))),
 });
 assert.equal(result.status, 0, result.stderr || result.error?.message);

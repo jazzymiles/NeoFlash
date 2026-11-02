@@ -16,6 +16,28 @@ pub(crate) enum EraserMode {
     Objects,
     Fills,
     Strokes,
+    StrokeSegments,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[allow(dead_code)]
+pub(crate) enum GapCloseMode {
+    #[default]
+    None,
+    Small,
+    Medium,
+    Large,
+}
+
+impl GapCloseMode {
+    pub(crate) fn max_gap_px(self) -> f64 {
+        match self {
+            Self::None => 0.0,
+            Self::Small => 6.0,
+            Self::Medium => 14.0,
+            Self::Large => 28.0,
+        }
+    }
 }
 
 pub(crate) struct AuthoringToolsState {
@@ -23,6 +45,7 @@ pub(crate) struct AuthoringToolsState {
     pub brush_size: f32,
     pub eraser_size: f32,
     pub eraser_mode: EraserMode,
+    pub gap_close: GapCloseMode,
     pub lasso_contact: bool,
     pub zoom_out: bool,
     pub polystar_star: bool,
@@ -39,6 +62,7 @@ impl Default for AuthoringToolsState {
             brush_size: 12.,
             eraser_size: 16.,
             eraser_mode: EraserMode::Objects,
+            gap_close: GapCloseMode::None,
             lasso_contact: true,
             zoom_out: false,
             polystar_star: false,
@@ -312,14 +336,13 @@ impl Editor {
             true,
             self.show_layer_masking(p.ctx()),
         );
+        let max_gap =
+            (self.authoring_tools.gap_close.max_gap_px() / f64::from(self.zoom.max(0.05))).max(0.0);
         scene.iter().rev().find_map(|item| {
             if item.instance_path.len() != 1 {
                 return None;
             }
             let target = eligible.get(item.instance_path.first()?)?;
-            if !authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64]) {
-                return None;
-            }
             let local = inverse(item.transform, point)?;
             let (commands, rule, closed) = path_geometry(&item.kind)?;
             let (_, stroke, width) = paint_parts(&item.kind)?;
@@ -331,13 +354,42 @@ impl Editor {
                     Some(width.max(5. / self.zoom as f64)),
                     local,
                 );
-            let inside = closed && geometry_contains(&commands, rule, None, local);
-            ((inside || outline) && (!closed_only || closed)).then(|| PaintHit {
-                target: target.clone(),
-                kind: item.kind.clone(),
-                local,
-                stroke: outline,
-                matrix: item.transform,
+            let gap_closed_cmds = if !closed && max_gap > 0.0 {
+                try_close_open_path(&commands, max_gap)
+            } else {
+                None
+            };
+            let inside = if closed {
+                authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+                    && geometry_contains(&commands, rule, None, local)
+            } else if let Some(ref closed_cmds) = gap_closed_cmds {
+                geometry_contains(closed_cmds, rule, None, local)
+            } else {
+                false
+            };
+            let is_effectively_closed = closed || gap_closed_cmds.is_some();
+            if !closed
+                && gap_closed_cmds.is_none()
+                && !authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+            {
+                return None;
+            }
+            ((inside || outline) && (!closed_only || is_effectively_closed)).then(|| {
+                let mut kind = item.kind.clone();
+                if let Some(closed_cmds) = gap_closed_cmds {
+                    match &mut kind {
+                        ElementKind::Path { commands: c, .. }
+                        | ElementKind::PaintedPath { commands: c, .. } => *c = closed_cmds,
+                        _ => {}
+                    }
+                }
+                PaintHit {
+                    target: target.clone(),
+                    kind,
+                    local,
+                    stroke: outline,
+                    matrix: item.transform,
+                }
             })
         })
     }
@@ -417,7 +469,27 @@ impl Editor {
                     .find(|e| e.id == hit.target.element)
                     .map(|e| e.kind)
             })
-            .unwrap_or(hit.kind);
+            .unwrap_or_else(|| hit.kind.clone());
+        if tool == Tool::Bucket
+            && let (
+                ElementKind::Path {
+                    commands: hit_c, ..
+                }
+                | ElementKind::PaintedPath {
+                    commands: hit_c, ..
+                },
+                ElementKind::Path {
+                    commands: dst_c, ..
+                }
+                | ElementKind::PaintedPath {
+                    commands: dst_c, ..
+                },
+            ) = (&hit.kind, &mut kind)
+            && matches!(hit_c.last(), Some(PathCommand::Close))
+            && !matches!(dst_c.last(), Some(PathCommand::Close))
+        {
+            *dst_c = hit_c.clone();
+        }
         apply_paint(
             &mut kind,
             (tool == Tool::Bucket).then_some(self.fill),
@@ -747,6 +819,10 @@ impl Editor {
                     };
                     let kind = if mode == EraserMode::Objects {
                         None
+                    } else if mode == EraserMode::StrokeSegments {
+                        let radius =
+                            f64::from(self.authoring_tools.eraser_size / 2. / g.zoom.max(0.05));
+                        erase_stroke_segments_in_element(&element, &g.points, radius)
                     } else {
                         if paint_parts(&element.kind).is_none() {
                             continue;
@@ -1093,6 +1169,193 @@ fn brush_outline(points: &[Pos2], width: f32) -> Vec<PathCommand> {
         commands.push(PathCommand::Close);
     }
     commands
+}
+
+#[allow(dead_code)]
+pub(crate) fn brush_outline_with_pressure(
+    points: &[Pos2],
+    pressures: &[f32],
+    width: f32,
+) -> Vec<PathCommand> {
+    if points.is_empty() {
+        return vec![];
+    }
+    if pressures.len() != points.len()
+        || pressures
+            .iter()
+            .all(|&p| (p - pressures[0]).abs() < 1e-3 && (p - 1.0).abs() < 1e-3)
+    {
+        return brush_outline(points, width);
+    }
+    if points.len() == 1 {
+        let p = pressures[0].clamp(0.1, 2.0);
+        return brush_outline(points, (width * p).max(0.5));
+    }
+    let mut left_side = Vec::with_capacity(points.len());
+    let mut right_side = Vec::with_capacity(points.len());
+    for i in 0..points.len() {
+        let dir = if i + 1 < points.len() {
+            points[i + 1] - points[i]
+        } else {
+            points[i] - points[i - 1]
+        };
+        let len = dir.length();
+        let normal = if len > 1e-4 {
+            Vec2::new(-dir.y / len, dir.x / len)
+        } else {
+            Vec2::new(0.0, 1.0)
+        };
+        let radius = (width * pressures[i].clamp(0.1, 2.0) * 0.5).max(0.25);
+        left_side.push(points[i] + normal * radius);
+        right_side.push(points[i] - normal * radius);
+    }
+    right_side.reverse();
+    left_side.extend(right_side);
+    polyline(&left_side, true)
+}
+
+fn try_close_open_path(commands: &[PathCommand], max_gap: f64) -> Option<Vec<PathCommand>> {
+    if commands.len() < 3 || matches!(commands.last(), Some(PathCommand::Close)) {
+        return None;
+    }
+    let PathCommand::MoveTo { x: sx, y: sy } = *commands.first()? else {
+        return None;
+    };
+    let (ex, ey) = match *commands.last()? {
+        PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => (x, y),
+        _ => return None,
+    };
+    let gap = (ex - sx).hypot(ey - sy);
+    if gap > max_gap {
+        return None;
+    }
+    let mut closed = commands.to_vec();
+    if gap > 1e-4 {
+        closed.push(PathCommand::LineTo { x: sx, y: sy });
+    }
+    closed.push(PathCommand::Close);
+    Some(closed)
+}
+
+fn erase_stroke_segments_in_element(
+    element: &Element,
+    eraser_points: &[Pos2],
+    radius: f64,
+) -> Option<ElementKind> {
+    let (commands, fill_rule, _) = path_geometry(&element.kind)?;
+    let (fill, stroke, stroke_width) = paint_parts(&element.kind)?;
+    let inv_mat = transform_matrix(element.transform);
+    let mut out = Vec::new();
+    let mut cur = [0.0_f64, 0.0_f64];
+    let mut sub_start = [0.0_f64, 0.0_f64];
+    let mut pen_down = false;
+    let hits_eraser = |lx: f64, ly: f64| -> bool {
+        let world = affine(inv_mat, Pos2::new(lx as f32, ly as f32));
+        eraser_points
+            .iter()
+            .any(|ep| f64::from(ep.distance(world)) <= radius)
+    };
+    for cmd in commands {
+        match cmd {
+            PathCommand::MoveTo { x, y } => {
+                cur = [x, y];
+                sub_start = [x, y];
+                pen_down = false;
+            }
+            PathCommand::LineTo { x, y } => {
+                let mid = [(cur[0] + x) * 0.5, (cur[1] + y) * 0.5];
+                if hits_eraser(cur[0], cur[1]) || hits_eraser(mid[0], mid[1]) || hits_eraser(x, y) {
+                    pen_down = false;
+                } else {
+                    if !pen_down {
+                        out.push(PathCommand::MoveTo {
+                            x: cur[0],
+                            y: cur[1],
+                        });
+                        pen_down = true;
+                    }
+                    out.push(PathCommand::LineTo { x, y });
+                }
+                cur = [x, y];
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                if hits_eraser(cur[0], cur[1]) || hits_eraser(cx, cy) || hits_eraser(x, y) {
+                    pen_down = false;
+                } else {
+                    if !pen_down {
+                        out.push(PathCommand::MoveTo {
+                            x: cur[0],
+                            y: cur[1],
+                        });
+                        pen_down = true;
+                    }
+                    out.push(PathCommand::QuadraticTo { cx, cy, x, y });
+                }
+                cur = [x, y];
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                if hits_eraser(cur[0], cur[1])
+                    || hits_eraser(cx1, cy1)
+                    || hits_eraser(cx2, cy2)
+                    || hits_eraser(x, y)
+                {
+                    pen_down = false;
+                } else {
+                    if !pen_down {
+                        out.push(PathCommand::MoveTo {
+                            x: cur[0],
+                            y: cur[1],
+                        });
+                        pen_down = true;
+                    }
+                    out.push(PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    });
+                }
+                cur = [x, y];
+            }
+            PathCommand::Close => {
+                if !hits_eraser(cur[0], cur[1]) && !hits_eraser(sub_start[0], sub_start[1]) {
+                    if !pen_down {
+                        out.push(PathCommand::MoveTo {
+                            x: cur[0],
+                            y: cur[1],
+                        });
+                    }
+                    out.push(PathCommand::LineTo {
+                        x: sub_start[0],
+                        y: sub_start[1],
+                    });
+                }
+                pen_down = false;
+            }
+        }
+    }
+    if out.len() < 2 {
+        None
+    } else {
+        Some(ElementKind::Path {
+            commands: out,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+        })
+    }
 }
 fn inside_polygon(points: &[Pos2], point: Pos2) -> bool {
     let mut inside = false;

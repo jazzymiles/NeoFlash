@@ -9,9 +9,15 @@ mod avm2;
 mod bits;
 mod lzma;
 mod media;
+pub mod player;
 mod shape;
 mod text;
 mod timeline;
+
+pub use player::{
+    SwfAudioEvent, SwfBytecodePlayer, SwfDisplayEntry, SwfFrameState, SwfPlaybackResult, SwfVmKind,
+    play_swf_bytes, play_swf_path,
+};
 
 use crate::{ImportError, ImportReport};
 use neoflash_core::Project;
@@ -92,8 +98,6 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
     if header.len() < 8 {
         return Err(ImportError::Container("truncated SWF header".into()));
     }
-    let sig = &header[..3];
-    let swf_version = header[3];
     let declared = u32::from_le_bytes(header[4..8].try_into().unwrap());
     if declared < 8 {
         return Err(ImportError::Container("invalid SWF declared length".into()));
@@ -113,6 +117,10 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
     File::open(path)?
         .take(MAX_SWF_BYTES as u64 + 1)
         .read_to_end(&mut raw)?;
+    read_container_from_bytes(raw)
+}
+
+pub(crate) fn read_container_from_bytes(raw: Vec<u8>) -> Result<SwfContainer, ImportError> {
     if raw.len() > MAX_SWF_BYTES {
         return Err(ImportError::Container(
             "SWF container exceeds 64 MiB limit".into(),
@@ -121,8 +129,19 @@ pub(crate) fn read_container(path: &Path, header: &[u8]) -> Result<SwfContainer,
     if raw.len() < 8 {
         return Err(ImportError::Container("truncated SWF header".into()));
     }
+    let sig: [u8; 3] = raw[..3].try_into().unwrap();
+    let swf_version = raw[3];
+    let declared = u32::from_le_bytes(raw[4..8].try_into().unwrap());
+    if declared < 8 {
+        return Err(ImportError::Container("invalid SWF declared length".into()));
+    }
+    if (declared as usize) > MAX_SWF_BYTES {
+        return Err(ImportError::Container(
+            "SWF declared length exceeds 64 MiB limit".into(),
+        ));
+    }
 
-    match sig {
+    match &sig {
         b"FWS" => {
             if raw.len() != declared as usize {
                 return Err(ImportError::Container(

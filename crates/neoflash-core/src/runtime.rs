@@ -674,9 +674,16 @@ impl Player {
                 if frame >= count {
                     return false;
                 }
+                let old_frame = clock.frame;
                 clock.frame = frame;
                 clock.playing = matches!(command, PlaybackCommand::GotoAndPlay(_));
                 clock.programmatically_played |= clock.playing && count > 1;
+                if old_frame != frame {
+                    self.scripts.retain(|d| {
+                        !(d.target_path == path
+                            && matches!(d.event, ScriptEvent::Frame(f) if f != frame))
+                    });
+                }
                 let mut forced = HashSet::new();
                 forced.insert(path.to_vec());
                 self.refresh(project, false, &forced);

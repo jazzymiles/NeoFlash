@@ -604,6 +604,65 @@ impl Parser<'_> {
                     });
                 }
                 stops.sort_by_key(|s| s.ratio);
+                if interp == "linearRGB" && (2..=7).contains(&stops.len()) {
+                    let mut expanded = Vec::with_capacity(stops.len() * 2 - 1);
+                    for i in 0..stops.len() {
+                        expanded.push(stops[i].clone());
+                        if i + 1 < stops.len() && stops[i + 1].ratio > stops[i].ratio + 1 {
+                            let mid_ratio = ((u16::from(stops[i].ratio)
+                                + u16::from(stops[i + 1].ratio))
+                                / 2) as u8;
+                            let lin_mid = |a: u8, b: u8| -> u8 {
+                                let la = (f64::from(a) / 255.0).powf(2.2);
+                                let lb = (f64::from(b) / 255.0).powf(2.2);
+                                (((la + lb) * 0.5).powf(1.0 / 2.2) * 255.0).round() as u8
+                            };
+                            let c0 = stops[i].color;
+                            let c1 = stops[i + 1].color;
+                            expanded.push(GradientStop {
+                                ratio: mid_ratio,
+                                color: [
+                                    lin_mid(c0[0], c1[0]),
+                                    lin_mid(c0[1], c1[1]),
+                                    lin_mid(c0[2], c1[2]),
+                                    ((u16::from(c0[3]) + u16::from(c1[3])) / 2) as u8,
+                                ],
+                            });
+                        }
+                    }
+                    if expanded.len() <= 15 {
+                        stops = expanded;
+                    }
+                }
+                if matches!(spread, "reflect" | "repeat") && (2..=5).contains(&stops.len()) {
+                    let mut tiled = Vec::with_capacity(stops.len() * 2);
+                    for s in &stops {
+                        tiled.push(GradientStop {
+                            ratio: (u16::from(s.ratio) * 127 / 255) as u8,
+                            color: s.color,
+                        });
+                    }
+                    if spread == "reflect" {
+                        for s in stops.iter().rev() {
+                            tiled.push(GradientStop {
+                                ratio: 128 + ((255 - u16::from(s.ratio)) * 127 / 255) as u8,
+                                color: s.color,
+                            });
+                        }
+                    } else {
+                        for s in &stops {
+                            tiled.push(GradientStop {
+                                ratio: 128 + (u16::from(s.ratio) * 127 / 255) as u8,
+                                color: s.color,
+                            });
+                        }
+                    }
+                    tiled.sort_by_key(|s| s.ratio);
+                    tiled.dedup_by_key(|s| s.ratio);
+                    if tiled.len() >= 2 && tiled.len() <= 15 {
+                        stops = tiled;
+                    }
+                }
                 let fallback = stops[0].color;
                 let paint = GradientPaint {
                     kind: if is_radial {
@@ -635,11 +694,50 @@ impl Parser<'_> {
                 );
                 self.boolean(paint_node, "bitmapIsClipped", false, file);
                 let _ = self.parse_gradient_matrix(paint_node, file);
+                let sampled_color = paint_node
+                    .attribute("bitmapPath")
+                    .and_then(|bmp_path| self.bitmaps.get(bmp_path))
+                    .and_then(|asset| {
+                        self.resources
+                            .iter()
+                            .find(|r| r.id == asset.resource_id)
+                            .and_then(|r| r.decoded_bytes().ok())
+                    })
+                    .and_then(|bytes| image::load_from_memory(&bytes).ok())
+                    .map(|img| {
+                        let rgba = img.to_rgba8();
+                        let mut r_sum = 0u64;
+                        let mut g_sum = 0u64;
+                        let mut b_sum = 0u64;
+                        let mut a_sum = 0u64;
+                        let mut count = 0u64;
+                        for px in rgba.pixels() {
+                            if px[3] > 0 {
+                                r_sum += u64::from(px[0]);
+                                g_sum += u64::from(px[1]);
+                                b_sum += u64::from(px[2]);
+                                a_sum += u64::from(px[3]);
+                                count += 1;
+                            }
+                        }
+                        #[allow(clippy::manual_checked_ops)]
+                        if count > 0 {
+                            [
+                                (r_sum / count) as u8,
+                                (g_sum / count) as u8,
+                                (b_sum / count) as u8,
+                                (a_sum / count) as u8,
+                            ]
+                        } else {
+                            [128, 128, 128, 255]
+                        }
+                    })
+                    .unwrap_or([128, 128, 128, 255]);
                 warn_approximated.get_or_insert(
-                    "BitmapFill is approximated as neutral gray; use DOMBitmapInstance for full bitmap rendering.",
+                    "BitmapFill is approximated as a sampled solid fill; use DOMBitmapInstance for full bitmap rendering.",
                 );
                 Ok(ParsedPaint {
-                    color: [128, 128, 128, 255],
+                    color: sampled_color,
                     gradient: None,
                 })
             }

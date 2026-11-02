@@ -235,7 +235,7 @@ impl Editor {
         }
     }
 
-    /// Add the active fill/stroke colour to `WorkspacePrefs::custom_swatches` (`Add swatch`).
+    /// Add the active fill/stroke colour to `WorkspacePrefs::custom_swatches` and document swatches (`Add swatch`).
     pub(crate) fn add_active_swatch(&mut self, ctx: &egui::Context) {
         let mut color = self.active_swatch_color(ctx);
         if color[3] == 0 {
@@ -245,6 +245,40 @@ impl Editor {
             self.workspace.custom_swatches.push(color);
             self.workspace.custom_swatches.truncate(64);
         }
+        let mut doc_swatches = self.project.custom_swatches();
+        if !doc_swatches.contains(&color) {
+            doc_swatches.push(color);
+            doc_swatches.truncate(64);
+            self.transact_named("Add swatch", |editor| {
+                editor.project.set_custom_swatches(&doc_swatches);
+            });
+        }
+    }
+
+    /// Delete a custom swatch from both document swatches and `WorkspacePrefs::custom_swatches`.
+    #[allow(dead_code)]
+    pub(crate) fn delete_custom_swatch(&mut self, color: Color) -> bool {
+        let opaque = [
+            color[0],
+            color[1],
+            color[2],
+            if color[3] == 0 { 255 } else { color[3] },
+        ];
+        let before_ws = self.workspace.custom_swatches.len();
+        self.workspace
+            .custom_swatches
+            .retain(|c| *c != opaque && *c != color);
+        let removed_ws = self.workspace.custom_swatches.len() != before_ws;
+        let mut doc_swatches = self.project.custom_swatches();
+        let before_doc = doc_swatches.len();
+        doc_swatches.retain(|c| *c != opaque && *c != color);
+        let removed_doc = doc_swatches.len() != before_doc;
+        if removed_doc {
+            self.transact_named("Delete swatch", |editor| {
+                editor.project.set_custom_swatches(&doc_swatches);
+            });
+        }
+        removed_ws || removed_doc
     }
 
     fn record_recent_color(&mut self, ctx: &egui::Context, color: Color) {
@@ -268,6 +302,9 @@ impl Editor {
     /// Unique solid colours used across the document (plus custom swatches), in stable order.
     pub(crate) fn document_swatch_colors(&self) -> Vec<Color> {
         let mut colors = Vec::new();
+        for custom in self.project.custom_swatches() {
+            push_unique_color(&mut colors, custom);
+        }
         for &custom in &self.workspace.custom_swatches {
             push_unique_color(&mut colors, custom);
         }

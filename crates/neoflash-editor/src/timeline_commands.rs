@@ -670,4 +670,91 @@ impl Editor {
             }
         });
     }
+
+    /// Add a shape hint (`Modify ▸ Shape ▸ Add Shape Hint`, `a`..=`z`) on the active shape tween start keyframe.
+    #[allow(dead_code)]
+    pub(crate) fn add_shape_hint(&mut self) -> Option<char> {
+        self.finish_edits();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let layer = self.symbol().timeline.layers.get(layer_idx)?;
+        let key_idx = layer.keyframes.iter().position(|k| {
+            k.frame <= frame && {
+                let next_f = layer
+                    .keyframes
+                    .iter()
+                    .find(|n| n.frame > k.frame)
+                    .map(|n| n.frame)
+                    .unwrap_or(self.symbol().timeline.frame_count);
+                frame < next_f
+            }
+        })?;
+        let key = &layer.keyframes[key_idx];
+        if key.tween.is_none() || key.tween_kind != TweenKind::Shape {
+            self.message("Shape hints require an active shape tween span.");
+            return None;
+        }
+        if key.shape_hints.len() >= ShapeHint::MAX_HINTS {
+            self.message("A shape tween can have at most 26 shape hints (a–z).");
+            return None;
+        }
+        let label = ('a'..='z').find(|&ch| !key.shape_hints.iter().any(|h| h.label == ch))?;
+        let step = (key.shape_hints.len() as f64 + 1.0) / 27.0;
+        let hint = ShapeHint {
+            label,
+            start_uv: [step, 0.5],
+            end_uv: [step, 0.5],
+        };
+        self.transact_named("Add shape hint", |editor| {
+            if let Some(k) = editor
+                .symbol_mut()
+                .timeline
+                .layers
+                .get_mut(layer_idx)
+                .and_then(|l| l.keyframes.get_mut(key_idx))
+            {
+                k.shape_hints.push(hint);
+            }
+        });
+        Some(label)
+    }
+
+    /// Remove all shape hints from the active shape tween start keyframe (`Modify ▸ Shape ▸ Remove All Hints`).
+    #[allow(dead_code)]
+    pub(crate) fn remove_shape_hints(&mut self) -> bool {
+        self.finish_edits();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some(layer) = self.symbol().timeline.layers.get(layer_idx) else {
+            return false;
+        };
+        let Some(key_idx) = layer.keyframes.iter().position(|k| {
+            k.frame <= frame && {
+                let next_f = layer
+                    .keyframes
+                    .iter()
+                    .find(|n| n.frame > k.frame)
+                    .map(|n| n.frame)
+                    .unwrap_or(self.symbol().timeline.frame_count);
+                frame < next_f
+            }
+        }) else {
+            return false;
+        };
+        if layer.keyframes[key_idx].shape_hints.is_empty() {
+            return false;
+        }
+        self.transact_named("Remove shape hints", |editor| {
+            if let Some(k) = editor
+                .symbol_mut()
+                .timeline
+                .layers
+                .get_mut(layer_idx)
+                .and_then(|l| l.keyframes.get_mut(key_idx))
+            {
+                k.shape_hints.clear();
+            }
+        });
+        true
+    }
 }

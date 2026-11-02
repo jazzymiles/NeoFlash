@@ -291,6 +291,7 @@ mod tests {
             diagnostics: vec![],
             binary_fla: None,
             swf: None,
+            swc: None,
         };
         (stream, text, report)
     }

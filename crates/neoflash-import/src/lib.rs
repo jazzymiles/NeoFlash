@@ -1,6 +1,7 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
 mod legacy;
 mod source;
+pub mod swc;
 mod swf;
 mod xfl;
 mod xfl_export;
@@ -14,7 +15,17 @@ pub use legacy::{
     BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument, RecordCounts,
     read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
-pub use swf::{SwfCompression, SwfInspection, SwfTagCounts};
+pub use swc::{
+    SwcAssetFile, SwcCatalog, SwcComponent, SwcConflictPolicy, SwcDependency, SwcDependencyKind,
+    SwcFeatures, SwcInspection, SwcLibrary, SwcLibraryEntry, SwcLinkReport, SwcScriptDef,
+    SwcVersionConflict, SwcVersions, build_swc_inspection, import_swc, import_swc_bytes,
+    is_flash_builtin_definition, link_swc_into_project, normalize_catalog_id, parse_swc_catalog,
+    resolve_swc_dependencies,
+};
+pub use swf::{
+    SwfAudioEvent, SwfBytecodePlayer, SwfCompression, SwfDisplayEntry, SwfFrameState,
+    SwfInspection, SwfPlaybackResult, SwfTagCounts, SwfVmKind, play_swf_bytes, play_swf_path,
+};
 pub use xfl_export::{export_fla, export_fla_bytes};
 
 use neoflash_core::Project;
@@ -29,6 +40,7 @@ pub enum ImportFormat {
     XflArchive,
     LegacyBinaryFla,
     Swf,
+    Swc,
     Unknown,
 }
 
@@ -71,6 +83,9 @@ pub struct ImportReport {
     /// Bounded read-only SWF header and tag inspection, without bytecode execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swf: Option<SwfInspection>,
+    /// SWC catalog and embedded library inspection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swc: Option<SwcInspection>,
 }
 
 #[derive(Debug, Error)]
@@ -143,6 +158,7 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         diagnostics: vec![],
         binary_fla: None,
         swf: None,
+        swc: None,
     };
     let project = match source.format {
         ImportFormat::XflDirectory | ImportFormat::XflArchive => {
@@ -164,6 +180,10 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
                 );
                 None
             }
+        }
+        ImportFormat::Swc => {
+            let location = path.display().to_string();
+            swc::convert(&source.files, &source.binary_files, &location, &mut report)
         }
         ImportFormat::Unknown => {
             report.error(

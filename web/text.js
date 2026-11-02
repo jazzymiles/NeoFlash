@@ -128,8 +128,21 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,onUpdate=()=>{},onScroll=null}={}){
-    if(!player||typeof measureText!=='function')throw new TypeError('TextField requires the shared Player and font measurement service.');
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,onUpdate=()=>{},onScroll=null}={}){
+    if(!player)throw new TypeError('TextField requires the shared Player.');
+    const defaultPortableMeasure=(textValue,style)=>{
+      const runtimeWasm=wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
+      const fn=player?.portable_measure_text_json?.bind(player)||runtimeWasm?.portable_measure_text_json;
+      if(typeof fn==='function'){
+        try{return JSON.parse(fn(JSON.stringify([String(textValue)]),JSON.stringify(style)))[0]??0;}catch(_){}
+      }
+      const size=Number(style?.size)||16;
+      return String(textValue).length*size*0.56;
+    };
+    if(typeof measureText!=='function')measureText=defaultPortableMeasure;
+    else if(portableMetrics){
+      measureText=defaultPortableMeasure;
+    }
     let as2Execute=null,as2Layout=null,as2Wheel=null;
     const fieldStates=new Map();
     function stateFor(ref){
@@ -352,7 +365,12 @@
       if(!family)return false;
       const wanted=String(family).toLowerCase();
       if(registeredFonts.some(f=>String(f?.fontName||'').toLowerCase()===wanted))return true;
-      if(Array.isArray(project?.resources)&&project.resources.some(r=>String(r?.mime||'').startsWith('font/')&&String(r?.name||r?.id||'').toLowerCase().includes(wanted)))return true;
+      if(Array.isArray(project?.resources)&&project.resources.some(r=>{
+        const mime=String(r?.media_type||r?.mime||'').toLowerCase();
+        const name=String(r?.path||r?.name||r?.id||'').toLowerCase();
+        const isFont=mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
+        return isFont&&name.includes(wanted);
+      }))return true;
       return false;
     }
     function draw(context,field){
@@ -624,9 +642,17 @@
       return Font.enumerateFonts(true).some(f=>f.fontName===wanted&&(f.fontType===FontType.DEVICE||f.fontStyle===style));
     }
 
+    function toOutlines(ref){
+      active();
+      const field=info(ref);
+      const runtimeWasm=wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
+      const fn=player?.text_to_outlines_json?.bind(player)||runtimeWasm?.text_to_outlines_json;
+      if(typeof fn!=='function')throw new Error('Text outline conversion kernel is unavailable.');
+      return JSON.parse(fn(JSON.stringify(field)));
+    }
     function reset(){active();cache.clear();cacheBytes=0;fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),portableMeasure:(strings,format)=>strings.map(value=>defaultPortableMeasure(value,format)),toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
   const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;

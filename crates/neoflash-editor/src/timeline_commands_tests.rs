@@ -970,3 +970,177 @@ fn edit_multiple_frames_selects_other_keyframe_only_objects_and_transforms_range
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &baseline);
 }
+
+#[test]
+fn multi_layer_paste_auto_creates_layers_and_shape_hints_swatches_bitmap_paste_and_sessions_work() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. Multi-layer frame copy & paste into a timeline with fewer destination layers auto-creates layers.
+    editor.symbol_mut().timeline.layers.push(Layer {
+        id: "layer-extra".into(),
+        name: "Layer 2".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![Keyframe::default()],
+        properties: Default::default(),
+    });
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    let l0 = editor.symbol().timeline.layers[0].id.clone();
+    let l1 = editor.symbol().timeline.layers[1].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![l1.clone(), l0.clone()],
+        start: 0,
+        end: 2,
+    });
+    assert!(editor.copy_frame_range(false));
+    // Select the bottom row (`l0`) where only 1 destination layer exists from `first..`.
+    let before_paste = editor.project.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![l0.clone()],
+        start: 3,
+        end: 3,
+    });
+    editor.paste_frame_range();
+    assert_eq!(
+        editor.symbol().timeline.layers.len(),
+        3,
+        "missing destination layer should be auto-created"
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_paste);
+
+    // 2. Shape hints (`add_shape_hint` / `remove_shape_hints`) on a shape tween span.
+    let rect_el = |id: &str, x: f64, y: f64| Element {
+        id: id.into(),
+        transform: Transform {
+            x,
+            y,
+            ..Default::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 30.0,
+            height: 20.0,
+            fill: [255, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Default::default()
+    };
+    editor.layer = 0;
+    editor.frame = 0;
+    editor.symbol_mut().timeline.frame_count = 10;
+    editor.symbol_mut().timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Shape,
+            elements: vec![rect_el("s1", 10.0, 10.0)],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 9,
+            elements: vec![rect_el("s2", 80.0, 80.0)],
+            ..Default::default()
+        },
+    ];
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+    let before_hints = editor.project.clone();
+    assert_eq!(editor.add_shape_hint(), Some('a'));
+    assert_eq!(editor.add_shape_hint(), Some('b'));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .shape_hints
+            .len(),
+        2
+    );
+    editor.project.validate().unwrap();
+    assert!(editor.remove_shape_hints());
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .shape_hints
+            .is_empty()
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, before_hints);
+
+    // 3. Document-level custom swatches (`add_active_swatch` / `delete_custom_swatch`).
+    editor.fill = [12, 34, 56, 255];
+    editor.add_active_swatch(&ctx);
+    assert!(
+        editor
+            .project
+            .custom_swatches()
+            .contains(&[12, 34, 56, 255])
+    );
+    assert!(editor.document_swatch_colors().contains(&[12, 34, 56, 255]));
+    editor.project.validate().unwrap();
+    assert!(editor.delete_custom_swatch([12, 34, 56, 255]));
+    assert!(
+        !editor
+            .project
+            .custom_swatches()
+            .contains(&[12, 34, 56, 255])
+    );
+
+    // 4. Bitmap paste (`paste_image_bytes` and `data:image/png;base64,...`).
+    let mut png_buf = std::io::Cursor::new(Vec::new());
+    let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 128, 255]));
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut png_buf, image::ImageFormat::Png)
+        .unwrap();
+    let png_bytes = png_buf.into_inner();
+    let before_bmp = editor.project.clone();
+    assert!(editor.paste_image_bytes(&ctx, &png_bytes, "image/png", true));
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_bmp);
+
+    // 5. Variable-width pressure brush outline & timeline row virtualization range.
+    let pts = vec![
+        egui::pos2(0.0, 0.0),
+        egui::pos2(20.0, 0.0),
+        egui::pos2(40.0, 10.0),
+    ];
+    let outline = crate::authoring_tools::brush_outline_with_pressure(&pts, &[0.3, 0.8, 1.4], 12.0);
+    assert!(outline.len() >= 6);
+    let vis = crate::panels::timeline::visible_layer_row_range(100.0, 220.0, 0.0, 24.0, 50);
+    assert!(vis.start >= 2 && vis.end <= 12);
+
+    // 6. Named workspace presets and multi-document session tabs.
+    assert!(editor.workspace.save_named_preset("My Studio"));
+    assert!(editor.workspace.apply_named_preset("My Studio"));
+    assert!(editor.workspace.delete_named_preset("My Studio"));
+    assert_eq!(editor.session_count(), 1);
+    let mut second = Project::blank();
+    second.name = "Second Tab".into();
+    let idx = editor.open_new_session_tab(&ctx, second, None);
+    assert_eq!(idx, 1);
+    assert_eq!(editor.session_count(), 2);
+    assert_eq!(editor.project.name, "Second Tab");
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_ne!(editor.project.name, "Second Tab");
+    assert!(editor.close_session_tab(&ctx, 1));
+    assert_eq!(editor.session_count(), 1);
+
+    // 7. Group/multi-selection skew, gap closing modes, stroke-segment eraser mode, and external modification reload.
+    editor.select_all();
+    assert!(editor.skew_selection(&ctx, 15.0, 0.0));
+    editor.project.validate().unwrap();
+    for mode in [
+        crate::authoring_tools::GapCloseMode::None,
+        crate::authoring_tools::GapCloseMode::Small,
+        crate::authoring_tools::GapCloseMode::Medium,
+        crate::authoring_tools::GapCloseMode::Large,
+    ] {
+        editor.authoring_tools.gap_close = mode;
+        assert!(editor.authoring_tools.gap_close.max_gap_px() >= 0.0);
+    }
+    editor.authoring_tools.eraser_mode = crate::authoring_tools::EraserMode::StrokeSegments;
+    editor.sync_disk_mtime();
+    assert!(!editor.check_external_modification());
+    assert!(!editor.reload_external_modification(&ctx));
+}

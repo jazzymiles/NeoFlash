@@ -63,6 +63,8 @@ struct ButtonRecord {
     matrix: [f64; 6],
     color_transform: ColorTransform,
     alpha: f64,
+    blend_mode: neoflash_core::BlendMode,
+    filters: Vec<neoflash_core::FilterSpec>,
 }
 
 struct PendingButton {
@@ -82,6 +84,9 @@ struct ActiveSlot {
     name: String,
     clip_depth: Option<u16>,
     visible: bool,
+    cache_as_bitmap: bool,
+    blend_mode: neoflash_core::BlendMode,
+    filters: Vec<neoflash_core::FilterSpec>,
     handlers: Vec<DecompiledObjectHandler>,
 }
 
@@ -96,6 +101,9 @@ impl ActiveSlot {
             && self.name == other.name
             && self.clip_depth == other.clip_depth
             && self.visible == other.visible
+            && self.cache_as_bitmap == other.cache_as_bitmap
+            && self.blend_mode == other.blend_mode
+            && self.filters == other.filters
             && self.handlers.len() == other.handlers.len()
     }
 }
@@ -1052,13 +1060,20 @@ impl SwfBuilder<'_> {
             } else {
                 (ColorTransform::default(), 1.0)
             };
+            let mut filters = Vec::new();
+            let mut blend_mode = neoflash_core::BlendMode::Normal;
             if is_button2 && (flags & 0x10) != 0 {
-                let _ = skip_swf_filter_list(&mut r);
-                self.warn_filter_once();
+                let (parsed, unmodeled) = parse_swf_filter_list(&mut r);
+                filters = parsed;
+                if unmodeled {
+                    self.warn_filter_once();
+                }
             }
             if is_button2 && (flags & 0x20) != 0 {
                 let blend = r.u8().unwrap_or(0);
-                if blend > 1 {
+                if let Some(bm) = parse_swf_blend_mode(blend) {
+                    blend_mode = bm;
+                } else if blend > 1 {
                     self.warn_blend_once();
                 }
             }
@@ -1069,6 +1084,8 @@ impl SwfBuilder<'_> {
                 matrix,
                 color_transform,
                 alpha,
+                blend_mode,
+                filters,
             });
         }
 
@@ -1198,6 +1215,9 @@ impl SwfBuilder<'_> {
                                 name: String::new(),
                                 clip_depth: None,
                                 visible: true,
+                                cache_as_bitmap: false,
+                                blend_mode: rec.blend_mode,
+                                filters: rec.filters.clone(),
                                 handlers: Vec::new(),
                             },
                         );
@@ -1268,6 +1288,9 @@ impl SwfBuilder<'_> {
                     name: String::new(),
                     clip_depth: None,
                     visible: true,
+                    cache_as_bitmap: false,
+                    blend_mode: neoflash_core::BlendMode::Normal,
+                    filters: Vec::new(),
                     handlers: Vec::new(),
                 },
             );
@@ -1317,19 +1340,27 @@ impl SwfBuilder<'_> {
         let new_clip_depth = if has_clip_depth { r.u16() } else { None };
 
         let mut new_visible: Option<bool> = None;
+        let mut new_filters: Option<Vec<neoflash_core::FilterSpec>> = None;
+        let mut new_blend_mode: Option<neoflash_core::BlendMode> = None;
+        let mut new_cache_as_bitmap: Option<bool> = None;
         if tag_code == 70 {
             if (flags2 & 0x01) != 0 {
-                let _ = skip_swf_filter_list(&mut r);
-                self.warn_filter_once();
+                let (parsed, unmodeled) = parse_swf_filter_list(&mut r);
+                new_filters = Some(parsed);
+                if unmodeled {
+                    self.warn_filter_once();
+                }
             }
             if (flags2 & 0x02) != 0 {
                 let blend = r.u8().unwrap_or(0);
-                if blend > 1 {
+                if let Some(bm) = parse_swf_blend_mode(blend) {
+                    new_blend_mode = Some(bm);
+                } else if blend > 1 {
                     self.warn_blend_once();
                 }
             }
             if (flags2 & 0x04) != 0 {
-                let _bitmap_cache = r.u8();
+                new_cache_as_bitmap = r.u8().map(|v| v != 0);
             }
             if (flags2 & 0x20) != 0 {
                 new_visible = r.u8().map(|v| v != 0);
@@ -1388,6 +1419,15 @@ impl SwfBuilder<'_> {
             if let Some(vis) = new_visible {
                 existing.visible = vis;
             }
+            if let Some(cab) = new_cache_as_bitmap {
+                existing.cache_as_bitmap = cab;
+            }
+            if let Some(bm) = new_blend_mode {
+                existing.blend_mode = bm;
+            }
+            if let Some(fl) = new_filters {
+                existing.filters = fl;
+            }
             if let Some(hs) = new_handlers {
                 existing.handlers = hs;
             }
@@ -1414,6 +1454,9 @@ impl SwfBuilder<'_> {
                 name: new_name.unwrap_or_default(),
                 clip_depth: new_clip_depth.filter(|&cd| cd > 0),
                 visible: new_visible.unwrap_or(true),
+                cache_as_bitmap: new_cache_as_bitmap.unwrap_or(false),
+                blend_mode: new_blend_mode.unwrap_or(neoflash_core::BlendMode::Normal),
+                filters: new_filters.unwrap_or_default(),
                 handlers: new_handlers.unwrap_or_default(),
             },
         );
@@ -1473,7 +1516,8 @@ impl SwfBuilder<'_> {
                 let mut elements = Vec::new();
                 if let Some(slot) = cur_slot
                     && self.total_elements < MAX_AUTHORED_ELEMENTS
-                    && let Some((el, el_vec)) = self.instantiate_slot(sym_uid, depth, slot)
+                    && let Some((el, el_vec)) =
+                        self.instantiate_slot(sym_uid, depth, slot, is_button)
                 {
                     if !el_vec {
                         layer_pure_vector = false;
@@ -1499,23 +1543,10 @@ impl SwfBuilder<'_> {
                 });
             }
 
-            // Connect consecutive 1-frame step poses of the same continuous symbol instance with linear Classic tweens
-            // so frame-by-frame baked motion tracks preserve `element.id` continuity across `.fla` export & re-import.
+            // Connect consecutive 1-frame step poses of the same continuous symbol instance with Classic tweens
+            // and collapse smooth linear/eased runs into start + end keyframes with recovered Easing.
             if !is_button {
-                for ki in 0..keyframes.len().saturating_sub(1) {
-                    let next_frame = keyframes[ki + 1].frame;
-                    let cur_frame = keyframes[ki].frame;
-                    if next_frame == cur_frame + 1
-                        && keyframes[ki].elements.len() == 1
-                        && keyframes[ki + 1].elements.len() == 1
-                        && keyframes[ki].elements[0].id == keyframes[ki + 1].elements[0].id
-                        && matches!(keyframes[ki].elements[0].kind, ElementKind::Instance { .. })
-                        && keyframes[ki].elements[0].transform
-                            != keyframes[ki + 1].elements[0].transform
-                    {
-                        keyframes[ki].tween = Some(Easing::Linear);
-                    }
-                }
+                recover_classic_tween_spans(&mut keyframes);
             }
 
             let layer_idx = layers.len();
@@ -1722,6 +1753,7 @@ impl SwfBuilder<'_> {
         sym_uid: &str,
         depth: u16,
         slot: &ActiveSlot,
+        is_button: bool,
     ) -> Option<(Element, bool)> {
         let mut transform = Transform::from_matrix(slot.matrix)?;
         transform.color_transform = slot.color_transform;
@@ -1733,6 +1765,14 @@ impl SwfBuilder<'_> {
         let elem_id = format!("swf-el-{sym_uid}-d{depth}-s{}", slot.span_id);
         let mut scripts: Vec<ObjectScript> =
             slot.handlers.iter().map(|h| h.script.clone()).collect();
+        let filters = if is_button {
+            Vec::new()
+        } else {
+            slot.filters.clone()
+        };
+        let has_filters = !filters.is_empty();
+        let blend_mode = slot.blend_mode;
+        let cache_as_bitmap = slot.cache_as_bitmap;
 
         match self.characters.get(&slot.character_id)? {
             SwfCharacter::InlineText {
@@ -1756,6 +1796,10 @@ impl SwfBuilder<'_> {
                             transform: tf,
                             kind: element.kind.clone(),
                             scripts,
+                            visible: slot.visible,
+                            cache_as_bitmap,
+                            blend_mode,
+                            filters,
                             ..Element::default()
                         },
                         false,
@@ -1772,6 +1816,10 @@ impl SwfBuilder<'_> {
                                     playback: InstancePlayback::SingleFrame(0),
                                 },
                                 scripts,
+                                visible: slot.visible,
+                                cache_as_bitmap,
+                                blend_mode,
+                                filters,
                                 ..Element::default()
                             },
                             false,
@@ -1801,9 +1849,15 @@ impl SwfBuilder<'_> {
                             playback,
                         },
                         scripts,
+                        visible: slot.visible,
+                        cache_as_bitmap,
+                        blend_mode,
+                        filters,
                         ..Element::default()
                     },
-                    *is_pure_vector,
+                    *is_pure_vector
+                        && !has_filters
+                        && blend_mode == neoflash_core::BlendMode::Normal,
                 ))
             }
             SwfCharacter::Button {
@@ -1832,9 +1886,15 @@ impl SwfBuilder<'_> {
                             playback: InstancePlayback::Independent,
                         },
                         scripts,
+                        visible: slot.visible,
+                        cache_as_bitmap,
+                        blend_mode,
+                        filters,
                         ..Element::default()
                     },
-                    *is_pure_vector,
+                    *is_pure_vector
+                        && !has_filters
+                        && blend_mode == neoflash_core::BlendMode::Normal,
                 ))
             }
             SwfCharacter::Sprite {
@@ -1850,9 +1910,13 @@ impl SwfBuilder<'_> {
                         playback: InstancePlayback::Independent,
                     },
                     scripts,
+                    visible: slot.visible,
+                    cache_as_bitmap,
+                    blend_mode,
+                    filters,
                     ..Element::default()
                 },
-                *is_pure_vector,
+                *is_pure_vector && !has_filters && blend_mode == neoflash_core::BlendMode::Normal,
             )),
         }
     }
@@ -1976,39 +2040,616 @@ fn mul_matrix(p: [f64; 6], l: [f64; 6]) -> [f64; 6] {
     ]
 }
 
-fn skip_swf_filter_list(r: &mut SwfSlice<'_>) -> Option<()> {
-    let count = usize::from(r.u8()?);
+fn parse_swf_blend_mode(blend: u8) -> Option<neoflash_core::BlendMode> {
+    use neoflash_core::BlendMode;
+    match blend {
+        0 | 1 => Some(BlendMode::Normal),
+        2 => Some(BlendMode::Layer),
+        3 => Some(BlendMode::Multiply),
+        4 => Some(BlendMode::Screen),
+        5 => Some(BlendMode::Lighten),
+        6 => Some(BlendMode::Darken),
+        7 => Some(BlendMode::Difference),
+        8 => Some(BlendMode::Add),
+        9 => Some(BlendMode::Subtract),
+        10 => Some(BlendMode::Invert),
+        11 => Some(BlendMode::Alpha),
+        12 => Some(BlendMode::Erase),
+        13 => Some(BlendMode::Overlay),
+        14 => Some(BlendMode::Hardlight),
+        _ => None,
+    }
+}
+
+fn parse_swf_filter_list(r: &mut SwfSlice<'_>) -> (Vec<neoflash_core::FilterSpec>, bool) {
+    use neoflash_core::{FilterSpec, MAX_OBJECT_FILTERS};
+    let Some(count) = r.u8().map(usize::from) else {
+        return (Vec::new(), true);
+    };
+    let mut filters = Vec::new();
+    let mut unmodeled = false;
+
     for _ in 0..count {
-        let filter_id = r.u8()?;
-        match filter_id {
+        let Some(filter_id) = r.u8() else {
+            unmodeled = true;
+            break;
+        };
+        let parsed = match filter_id {
             0 => {
-                r.take(23)?;
+                // DropShadowFilter (23 bytes)
+                let Some(rgba) = r.rgba() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(bx) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(by) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(angle_rad) = r.i32().map(|v| f64::from(v) / 65536.0) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(distance) = r
+                    .i32()
+                    .map(|v| (f64::from(v) / 65536.0).clamp(-255.0, 255.0))
+                else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(strength) = r.fixed8().map(|v| v.clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let color =
+                    (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+                let alpha = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let composite_source = (flags & 0x20) != 0;
+                let hide_object = !composite_source;
+                let quality = (flags & 0x1F).clamp(1, 15);
+                let angle = angle_rad.to_degrees().rem_euclid(360.0);
+                Some(FilterSpec::DropShadow {
+                    distance,
+                    angle,
+                    color,
+                    alpha,
+                    blur_x: bx,
+                    blur_y: by,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                    hide_object,
+                })
             }
             1 => {
-                r.take(9)?;
+                // BlurFilter (9 bytes)
+                let Some(bx) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(by) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let passes = if (flags >> 3) != 0 {
+                    flags >> 3
+                } else {
+                    flags & 0x1F
+                };
+                let quality = passes.clamp(1, 15);
+                Some(FilterSpec::Blur {
+                    blur_x: bx,
+                    blur_y: by,
+                    quality,
+                })
             }
             2 => {
-                r.take(15)?;
+                // GlowFilter (15 bytes)
+                let Some(rgba) = r.rgba() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(bx) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(by) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(strength) = r.fixed8().map(|v| v.clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let color =
+                    (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+                let alpha = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let quality = (flags & 0x1F).clamp(1, 15);
+                Some(FilterSpec::Glow {
+                    color,
+                    alpha,
+                    blur_x: bx,
+                    blur_y: by,
+                    strength,
+                    quality,
+                    inner,
+                    knockout,
+                })
             }
             3 => {
-                r.take(27)?;
+                // BevelFilter (27 bytes): ShadowColor (RGBA), HighlightColor (RGBA)
+                let Some(s_rgba) = r.rgba() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(h_rgba) = r.rgba() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(bx) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(by) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(angle_rad) = r.i32().map(|v| f64::from(v) / 65536.0) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(distance) = r
+                    .i32()
+                    .map(|v| (f64::from(v) / 65536.0).clamp(-255.0, 255.0))
+                else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(strength) = r.fixed8().map(|v| v.clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let shadow_color = (u32::from(s_rgba[0]) << 16)
+                    | (u32::from(s_rgba[1]) << 8)
+                    | u32::from(s_rgba[2]);
+                let shadow_alpha = (f64::from(s_rgba[3]) / 255.0).clamp(0.0, 1.0);
+                let highlight_color = (u32::from(h_rgba[0]) << 16)
+                    | (u32::from(h_rgba[1]) << 8)
+                    | u32::from(h_rgba[2]);
+                let highlight_alpha = (f64::from(h_rgba[3]) / 255.0).clamp(0.0, 1.0);
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let on_top = (flags & 0x10) != 0;
+                let placement = if on_top {
+                    "full".to_owned()
+                } else if inner {
+                    "inner".to_owned()
+                } else {
+                    "outer".to_owned()
+                };
+                let quality = (flags & 0x0F).clamp(1, 15);
+                let angle = angle_rad.to_degrees().rem_euclid(360.0);
+                Some(FilterSpec::Bevel {
+                    distance,
+                    angle,
+                    highlight_color,
+                    highlight_alpha,
+                    shadow_color,
+                    shadow_alpha,
+                    blur_x: bx,
+                    blur_y: by,
+                    strength,
+                    quality,
+                    placement,
+                    knockout,
+                })
             }
             4 | 7 => {
-                let n = usize::from(r.u8()?);
-                r.take(n * 5 + 19)?;
+                // GradientGlowFilter (4) / GradientBevelFilter (7)
+                let Some(num_colors) = r.u8().map(usize::from) else {
+                    unmodeled = true;
+                    break;
+                };
+                let mut raw_colors = Vec::with_capacity(num_colors);
+                for _ in 0..num_colors {
+                    let Some(rgba) = r.rgba() else {
+                        unmodeled = true;
+                        break;
+                    };
+                    raw_colors.push(rgba);
+                }
+                if raw_colors.len() != num_colors {
+                    break;
+                }
+                let mut raw_ratios = Vec::with_capacity(num_colors);
+                for _ in 0..num_colors {
+                    let Some(rat) = r.u8() else {
+                        unmodeled = true;
+                        break;
+                    };
+                    raw_ratios.push(rat);
+                }
+                if raw_ratios.len() != num_colors {
+                    break;
+                }
+                let Some(bx) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(by) = r.i32().map(|v| (f64::from(v) / 65536.0).clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(angle_rad) = r.i32().map(|v| f64::from(v) / 65536.0) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(distance) = r
+                    .i32()
+                    .map(|v| (f64::from(v) / 65536.0).clamp(-255.0, 255.0))
+                else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(strength) = r.fixed8().map(|v| v.clamp(0.0, 255.0)) else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let inner = (flags & 0x80) != 0;
+                let knockout = (flags & 0x40) != 0;
+                let on_top = (flags & 0x10) != 0;
+                let placement = if on_top {
+                    "full".to_owned()
+                } else if inner {
+                    "inner".to_owned()
+                } else {
+                    "outer".to_owned()
+                };
+                let quality = (flags & 0x0F).clamp(1, 15);
+                let angle = angle_rad.to_degrees().rem_euclid(360.0);
+                let mut stops: Vec<(u32, f64, u8)> = raw_colors
+                    .into_iter()
+                    .zip(raw_ratios)
+                    .map(|(rgba, rat)| {
+                        let c = (u32::from(rgba[0]) << 16)
+                            | (u32::from(rgba[1]) << 8)
+                            | u32::from(rgba[2]);
+                        let a = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
+                        (c, a, rat)
+                    })
+                    .collect();
+                stops.sort_by_key(|s| s.2);
+                stops.truncate(16);
+                if stops.is_empty() {
+                    stops.push((0x000000, 0.0, 0));
+                    stops.push((0xFFFFFF, 1.0, 255));
+                }
+                let colors: Vec<u32> = stops.iter().map(|s| s.0).collect();
+                let alphas: Vec<f64> = stops.iter().map(|s| s.1).collect();
+                let ratios: Vec<u8> = stops.iter().map(|s| s.2).collect();
+                if filter_id == 4 {
+                    Some(FilterSpec::GradientGlow {
+                        distance,
+                        angle,
+                        colors,
+                        alphas,
+                        ratios,
+                        blur_x: bx,
+                        blur_y: by,
+                        strength,
+                        quality,
+                        placement,
+                        knockout,
+                    })
+                } else {
+                    Some(FilterSpec::GradientBevel {
+                        distance,
+                        angle,
+                        colors,
+                        alphas,
+                        ratios,
+                        blur_x: bx,
+                        blur_y: by,
+                        strength,
+                        quality,
+                        placement,
+                        knockout,
+                    })
+                }
             }
             5 => {
-                let mx = usize::from(r.u8()?);
-                let my = usize::from(r.u8()?);
-                r.take(13 + 4 * mx * my)?;
+                // ConvolutionFilter
+                let Some(mx) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(my) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(div_bytes) = r.take(4) else {
+                    unmodeled = true;
+                    break;
+                };
+                let divisor = f64::from(f32::from_le_bytes(div_bytes.try_into().unwrap()));
+                let Some(bias_bytes) = r.take(4) else {
+                    unmodeled = true;
+                    break;
+                };
+                let bias = f64::from(f32::from_le_bytes(bias_bytes.try_into().unwrap()));
+                let cell_count = usize::from(mx) * usize::from(my);
+                let mut matrix = Vec::with_capacity(cell_count);
+                for _ in 0..cell_count {
+                    let Some(mb) = r.take(4) else {
+                        unmodeled = true;
+                        break;
+                    };
+                    let val = f64::from(f32::from_le_bytes(mb.try_into().unwrap()));
+                    matrix.push(if val.is_finite() { val } else { 0.0 });
+                }
+                if matrix.len() != cell_count {
+                    break;
+                }
+                let Some(rgba) = r.rgba() else {
+                    unmodeled = true;
+                    break;
+                };
+                let Some(flags) = r.u8() else {
+                    unmodeled = true;
+                    break;
+                };
+                let color =
+                    (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+                let alpha = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
+                let clamp = (flags & 0x02) != 0;
+                let preserve_alpha = (flags & 0x01) != 0;
+                if (1..=15).contains(&mx) && (1..=15).contains(&my) {
+                    Some(FilterSpec::Convolution {
+                        matrix_x: mx,
+                        matrix_y: my,
+                        matrix,
+                        divisor: if divisor.is_finite() && divisor != 0.0 {
+                            divisor
+                        } else {
+                            1.0
+                        },
+                        bias: if bias.is_finite() { bias } else { 0.0 },
+                        preserve_alpha,
+                        clamp,
+                        color,
+                        alpha,
+                    })
+                } else {
+                    unmodeled = true;
+                    None
+                }
             }
             6 => {
-                r.take(80)?;
+                // ColorMatrixFilter (80 bytes = 20 x f32)
+                let Some(raw) = r.take(80) else {
+                    unmodeled = true;
+                    break;
+                };
+                let mut matrix = [0.0f64; 20];
+                for (i, chunk) in raw.as_chunks::<4>().0.iter().enumerate() {
+                    let val = f64::from(f32::from_le_bytes(*chunk));
+                    matrix[i] = if val.is_finite() {
+                        val.clamp(-10_000.0, 10_000.0)
+                    } else {
+                        0.0
+                    };
+                }
+                Some(FilterSpec::ColorMatrix { matrix })
             }
-            _ => return None,
+            _ => {
+                unmodeled = true;
+                break;
+            }
+        };
+        if let Some(f) = parsed {
+            if filters.len() < MAX_OBJECT_FILTERS {
+                filters.push(f);
+            } else {
+                unmodeled = true;
+            }
         }
     }
-    Some(())
+
+    (filters, unmodeled)
+}
+
+fn recover_classic_tween_spans(keyframes: &mut Vec<Keyframe>) {
+    if keyframes.len() < 2 {
+        return;
+    }
+    // First mark all 1-frame step intervals of the same continuous instance as Linear tweens.
+    for ki in 0..keyframes.len().saturating_sub(1) {
+        let next_frame = keyframes[ki + 1].frame;
+        let cur_frame = keyframes[ki].frame;
+        if next_frame == cur_frame + 1
+            && keyframes[ki].elements.len() == 1
+            && keyframes[ki + 1].elements.len() == 1
+            && keyframes[ki].elements[0].id == keyframes[ki + 1].elements[0].id
+            && matches!(keyframes[ki].elements[0].kind, ElementKind::Instance { .. })
+            && keyframes[ki].elements[0].transform != keyframes[ki + 1].elements[0].transform
+        {
+            keyframes[ki].tween = Some(Easing::Linear);
+        }
+    }
+
+    // Now scan for multi-frame runs [start_idx ..= end_idx] (end_idx - start_idx >= 2)
+    // where intermediate frames match a single Classic tween curve (Linear, EaseIn/Out, or Flash acceleration).
+    let mut out = Vec::with_capacity(keyframes.len());
+    let mut i = 0usize;
+    while i < keyframes.len() {
+        let mut run_end = i;
+        while run_end + 1 < keyframes.len()
+            && keyframes[run_end + 1].frame == keyframes[run_end].frame + 1
+            && keyframes[run_end].elements.len() == 1
+            && keyframes[run_end + 1].elements.len() == 1
+            && keyframes[run_end].elements[0].id == keyframes[i].elements[0].id
+            && keyframes[run_end + 1].elements[0].id == keyframes[i].elements[0].id
+            && keyframes[run_end + 1].elements[0].kind == keyframes[i].elements[0].kind
+            && keyframes[run_end + 1].elements[0].filters == keyframes[i].elements[0].filters
+            && keyframes[run_end + 1].elements[0].blend_mode == keyframes[i].elements[0].blend_mode
+            && (run_end == i
+                || (keyframes[run_end].label.is_empty() && keyframes[run_end].sound.is_none()))
+        {
+            run_end += 1;
+        }
+
+        if run_end >= i + 2 {
+            // Try fitting the longest prefix [i ..= end_cand] (or full run [i ..= run_end])
+            if let Some(fitted_ease) = fit_classic_tween_easing(&keyframes[i..=run_end]) {
+                let mut start_kf = keyframes[i].clone();
+                start_kf.tween = Some(fitted_ease);
+                out.push(start_kf);
+                i = run_end;
+                continue;
+            }
+        }
+
+        out.push(keyframes[i].clone());
+        i += 1;
+    }
+    *keyframes = out;
+}
+
+fn fit_classic_tween_easing(run: &[Keyframe]) -> Option<Easing> {
+    if run.len() < 3 {
+        return None;
+    }
+    let a = &run.first()?.elements.first()?.transform;
+    let b = &run.last()?.elements.first()?.transform;
+    let total_frames = f64::from(run.last()?.frame.saturating_sub(run.first()?.frame));
+    if total_frames < 2.0 {
+        return None;
+    }
+
+    // Check that start and end poses are actually distinct (not a stationary wiggle that happens to end at start).
+    let dx = (b.x - a.x).abs();
+    let dy = (b.y - a.y).abs();
+    let dsx = (b.scale_x - a.scale_x).abs();
+    let dsy = (b.scale_y - a.scale_y).abs();
+    let drot = (b.rotation - a.rotation).abs();
+    let dalpha = (b.alpha - a.alpha).abs();
+    if dx < 1e-3 && dy < 1e-3 && dsx < 1e-4 && dsy < 1e-4 && drot < 1e-3 && dalpha < 1e-4 {
+        return None;
+    }
+
+    let eval_candidate = |ease: Easing| -> Option<f64> {
+        let mut max_norm_err = 0.0f64;
+        for kf in &run[1..run.len() - 1] {
+            let t = f64::from(kf.frame - run[0].frame) / total_frames;
+            let p = neoflash_core::easing(t, ease);
+            let cur = &kf.elements[0].transform;
+
+            let ex = (cur.x - (a.x + (b.x - a.x) * p)).abs();
+            let ey = (cur.y - (a.y + (b.y - a.y) * p)).abs();
+            let esx = (cur.scale_x - (a.scale_x + (b.scale_x - a.scale_x) * p)).abs();
+            let esy = (cur.scale_y - (a.scale_y + (b.scale_y - a.scale_y) * p)).abs();
+            let erot = (cur.rotation - (a.rotation + (b.rotation - a.rotation) * p)).abs();
+            let eskew = (cur.skew - (a.skew + (b.skew - a.skew) * p)).abs();
+            let ealpha = (cur.alpha - (a.alpha + (b.alpha - a.alpha) * p)).abs();
+
+            // Allow up to 0.15 px for integer-twip rounding, 0.015 for scale/alpha, 0.5 deg for rotation.
+            if ex > 0.15
+                || ey > 0.15
+                || esx > 0.015
+                || esy > 0.015
+                || erot > 0.5
+                || eskew > 0.5
+                || ealpha > 0.015
+            {
+                return None;
+            }
+            for ci in 0..4 {
+                let em = (cur.color_transform.multipliers[ci]
+                    - (a.color_transform.multipliers[ci]
+                        + (b.color_transform.multipliers[ci] - a.color_transform.multipliers[ci])
+                            * p))
+                    .abs();
+                let eo = (cur.color_transform.offsets[ci]
+                    - (a.color_transform.offsets[ci]
+                        + (b.color_transform.offsets[ci] - a.color_transform.offsets[ci]) * p))
+                    .abs();
+                if em > 0.02 || eo > 2.0 {
+                    return None;
+                }
+            }
+            let norm = (ex / 0.15)
+                .max(ey / 0.15)
+                .max(esx / 0.015)
+                .max(esy / 0.015)
+                .max(erot / 0.5)
+                .max(ealpha / 0.015);
+            max_norm_err = max_norm_err.max(norm);
+        }
+        Some(max_norm_err)
+    };
+
+    if let Some(lin_err) = eval_candidate(Easing::Linear)
+        && lin_err <= 0.45
+    {
+        return Some(Easing::Linear);
+    }
+
+    let mut best: Option<(f64, Easing)> =
+        eval_candidate(Easing::Linear).map(|e| (e, Easing::Linear));
+    for named in [Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut] {
+        if let Some(err) = eval_candidate(named)
+            && best.is_none_or(|(b_err, _)| err + 0.02 < b_err)
+        {
+            best = Some((err, named));
+        }
+    }
+    for acc in -100..=100 {
+        if acc == 0 {
+            continue;
+        }
+        let cand = Easing::Flash {
+            acceleration: f64::from(acc),
+        };
+        if let Some(err) = eval_candidate(cand)
+            && best.is_none_or(|(b_err, _)| err + 0.01 < b_err)
+        {
+            best = Some((err, cand));
+        }
+    }
+
+    best.map(|(_, ease)| match ease {
+        Easing::Flash { acceleration } if (acceleration - (-100.0)).abs() < 1e-6 => Easing::EaseIn,
+        Easing::Flash { acceleration } if (acceleration - 100.0).abs() < 1e-6 => Easing::EaseOut,
+        other => other,
+    })
 }
 
 fn attach_stream_sound(

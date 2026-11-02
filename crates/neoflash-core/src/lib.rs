@@ -113,7 +113,9 @@ pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,
     resolve_goto, scene_ranges, scene_step,
 };
-pub use shape_tween::{MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements};
+pub use shape_tween::{
+    MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements, shape_tween_elements_with_hints,
+};
 pub use text::{
     MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
     TextFormat, TextFormatPatch, TextFormatRangePatch, TextFormatRun, TextInputEdit, TextLayout,
