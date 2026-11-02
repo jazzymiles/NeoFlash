@@ -92,6 +92,182 @@ struct CompiledScript {
     location: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceLoadItem {
+    pub path: String,
+    pub category: String,
+    pub media_type: String,
+    pub raw_bytes: usize,
+    pub b64_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LoadSummary {
+    pub project_name: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub scenes_count: usize,
+    pub frames_count: u32,
+    pub symbols_count: usize,
+    pub movie_clips_count: usize,
+    pub graphics_count: usize,
+    pub buttons_count: usize,
+    pub symbols_bytes: usize,
+    pub resources_count: usize,
+    pub audio_count: usize,
+    pub audio_bytes: usize,
+    pub bitmap_count: usize,
+    pub bitmap_bytes: usize,
+    pub data_count: usize,
+    pub data_bytes: usize,
+    pub resources_raw_bytes: usize,
+    pub resources_b64_bytes: usize,
+    pub resources: Vec<ResourceLoadItem>,
+    pub fonts: Vec<String>,
+    pub source_files_count: usize,
+    pub handler_scripts_count: usize,
+    pub scripts_source_bytes: usize,
+    pub scripts_compiled_bytes: usize,
+    pub published_project_bytes: usize,
+    pub bundle_payload_bytes: usize,
+    pub runtime_js_bytes: usize,
+    pub wasm_bytes: usize,
+    pub total_package_bytes: usize,
+}
+
+impl LoadSummary {
+    pub fn summary_line(&self) -> String {
+        let weight = if self.total_package_bytes > 0 {
+            format!(
+                "Project weight: {} (total HTML5 package: {}, WASM: {}, JS runtime: {})",
+                format_bytes(self.bundle_payload_bytes),
+                human_unit(self.total_package_bytes),
+                human_unit(self.wasm_bytes),
+                human_unit(self.runtime_js_bytes),
+            )
+        } else {
+            format!(
+                "Project weight: {} (JS runtime: {})",
+                format_bytes(self.bundle_payload_bytes),
+                human_unit(self.runtime_js_bytes),
+            )
+        };
+        let res_detail = if self.resources_count == 0 {
+            "0 resources".to_string()
+        } else {
+            format!(
+                "{} resource(s) [Audio: {} ({}), Bitmap: {} ({}), Data: {} ({})]",
+                self.resources_count,
+                self.audio_count,
+                human_unit(self.audio_bytes),
+                self.bitmap_count,
+                human_unit(self.bitmap_bytes),
+                self.data_count,
+                human_unit(self.data_bytes),
+            )
+        };
+        let fonts_detail = if self.fonts.is_empty() {
+            "0 fonts".to_string()
+        } else {
+            format!("{} font(s) ({})", self.fonts.len(), self.fonts.join(", "))
+        };
+        format!(
+            "{weight} | Loads: {} scene(s) ({} frame(s)), {} symbol(s) ({} MC / {} Graphic / {} Button, {}), {}, {}, {} script(s) ({})",
+            self.scenes_count,
+            self.frames_count,
+            self.symbols_count,
+            self.movie_clips_count,
+            self.graphics_count,
+            self.buttons_count,
+            human_unit(self.symbols_bytes),
+            res_detail,
+            fonts_detail,
+            self.source_files_count + self.handler_scripts_count,
+            human_unit(self.scripts_compiled_bytes),
+        )
+    }
+}
+
+fn human_unit(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+pub fn format_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else {
+        format!("{} ({bytes} B)", human_unit(bytes))
+    }
+}
+
+fn static_runtime_js_bytes() -> usize {
+    [
+        HOST,
+        PATH_GEOMETRY,
+        ACCESSIBILITY,
+        PREVIEW,
+        EVENTS,
+        STAGE,
+        LEGACY_INPUT,
+        GEOMETRY,
+        GEOMETRY_3D,
+        AS2_STRINGS,
+        AS2_PLATFORM,
+        AS2_OBJECT,
+        AS2_TRANSITIONS,
+        AS2_DEPTH_MANAGER,
+        AS2_PRINT,
+        AS2_BOXING,
+        AS2_CAPTURE,
+        AS2_CONNECTIONS,
+        AS2_STAGE,
+        AS2_MEDIA,
+        AS2_SERVICES,
+        AS2_LOCALE,
+        AS2_FILES,
+        AS2_NETWORK,
+        AS2_TEXT,
+        AS2_DATA,
+        AS2_BINDING,
+        AS3_STRINGS,
+        AS3_FTE_3D,
+        SCRIPT_EASING,
+        SCRIPT_MATH,
+        SCRIPT_DATE,
+        SCRIPT_NUMBER_FORMAT,
+        SCRIPT_BROADCASTER,
+        TIMERS,
+        BYTE_ARRAY,
+        NET,
+        EXTERNAL,
+        BITMAP,
+        TEXT,
+        TEXT_INPUT,
+        FILTERS,
+        AUDIO_FORMATS,
+        AUDIO,
+        VIDEO,
+        XML,
+        LOADER,
+        AMF,
+        STORAGE,
+        AIR,
+        AS3_NET_SYS,
+        AS3_MEDIA_EVENTS,
+        DISPLAY,
+    ]
+    .iter()
+    .map(|s| s.len())
+    .sum()
+}
+
 #[derive(Serialize)]
 struct Bundle<'a> {
     /// Single main timeline: authored scenes are concatenated before publishing.
@@ -103,6 +279,8 @@ struct Bundle<'a> {
     program: ProgramBundle<'a>,
     wasm: String,
     warnings: Vec<String>,
+    load_summary: LoadSummary,
+    size_report: String,
 }
 
 #[derive(Serialize)]
@@ -156,9 +334,24 @@ fn decoded_base64_len(encoded: &str) -> usize {
     )
 }
 
+/// Compute a structured project weight and asset load breakdown.
+pub fn compute_load_summary(project: &Project) -> Result<LoadSummary, ExportError> {
+    let (_, summary) = build_size_report_and_summary(project, None, None)?;
+    Ok(summary)
+}
+
 /// Generate a human-readable classic Flash `Size Report` text breakdown by scenes/frames,
 /// library symbols, referenced fonts, embedded audio/bitmap/data resources, and scripts.
 pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
+    let (report, _) = build_size_report_and_summary(project, None, None)?;
+    Ok(report)
+}
+
+fn build_size_report_and_summary(
+    project: &Project,
+    wasm_bytes_opt: Option<usize>,
+    bindings_bytes_opt: Option<usize>,
+) -> Result<(String, LoadSummary), ExportError> {
     use std::collections::BTreeMap;
     use std::fmt::Write as _;
 
@@ -187,17 +380,6 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
     };
     let scene_id_set: BTreeSet<&str> = scene_ids.iter().copied().collect();
 
-    let mut out = String::new();
-    let _ = writeln!(out, "NeoFlash Size Report — {}", project.name);
-    let _ = writeln!(
-        out,
-        "================================================================"
-    );
-    let _ = writeln!(
-        out,
-        "Dimensions:      {} x {} px @ {} fps (format v{})",
-        project.width, project.height, project.fps, project.format_version
-    );
     let total_frames: u32 = if flattened_ranges.is_empty() {
         project
             .symbol(&project.root)
@@ -210,6 +392,161 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         .iter()
         .filter(|s| !scene_id_set.contains(s.id.as_str()))
         .collect();
+
+    let mut movie_clips_count = 0usize;
+    let mut graphics_count = 0usize;
+    let mut buttons_count = 0usize;
+    let mut symbol_rows = Vec::with_capacity(library_symbols.len());
+    let mut symbol_total = 0usize;
+    for sym in &library_symbols {
+        let elems: usize = sym
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .map(|k| k.elements.len())
+            .sum();
+        let bytes = serde_json::to_string(sym)?.len();
+        symbol_total += bytes;
+        let kind = match sym.kind {
+            neoflash_core::SymbolKind::MovieClip => {
+                movie_clips_count += 1;
+                "MovieClip"
+            }
+            neoflash_core::SymbolKind::Graphic => {
+                graphics_count += 1;
+                "Graphic"
+            }
+            neoflash_core::SymbolKind::Button => {
+                buttons_count += 1;
+                "Button"
+            }
+        };
+        symbol_rows.push((
+            sym.name.as_str(),
+            kind,
+            sym.timeline.frame_count,
+            sym.timeline.layers.len(),
+            elems,
+            bytes,
+        ));
+    }
+
+    let mut font_stats: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    match &element.kind {
+                        ElementKind::Text {
+                            font_family, text, ..
+                        } => {
+                            let entry = font_stats.entry(font_family.clone()).or_default();
+                            entry.0 += 1;
+                            entry.1 += text.chars().count();
+                        }
+                        ElementKind::TextBox { format, text, .. } => {
+                            let entry = font_stats.entry(format.font.clone()).or_default();
+                            entry.0 += 1;
+                            entry.1 += text.chars().count();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    let (mut audio_count, mut bitmap_count, mut data_count) = (0usize, 0usize, 0usize);
+    let (mut audio_raw, mut bitmap_raw, mut other_raw, mut total_b64) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut resource_items = Vec::with_capacity(project.resources.len());
+    for res in &project.resources {
+        let raw = decoded_base64_len(&res.data_base64);
+        let b64 = res.data_base64.len();
+        total_b64 += b64;
+        let category = if res.is_audio() {
+            audio_count += 1;
+            audio_raw += raw;
+            "Audio"
+        } else if res.media_type.starts_with("image/") {
+            bitmap_count += 1;
+            bitmap_raw += raw;
+            "Bitmap"
+        } else {
+            data_count += 1;
+            other_raw += raw;
+            "Data"
+        };
+        resource_items.push(ResourceLoadItem {
+            path: res.path.clone(),
+            category: category.to_string(),
+            media_type: res.media_type.clone(),
+            raw_bytes: raw,
+            b64_bytes: b64,
+        });
+    }
+
+    let source_unit_bytes: usize = project.sources.iter().map(|u| u.source.len()).sum();
+    let handler_source_bytes: usize = compiled_scripts.iter().map(|s| s.source.len()).sum();
+    let handler_compiled_bytes: usize = compiled_scripts.iter().map(|s| s.code.len()).sum();
+    let program_compiled_bytes = program.code.len();
+    let bundle_payload_bytes =
+        published_project_bytes + program_compiled_bytes + handler_compiled_bytes;
+    let runtime_js_bytes = static_runtime_js_bytes() + bindings_bytes_opt.unwrap_or(0);
+    let wasm_bytes = wasm_bytes_opt.unwrap_or(0);
+    let wasm_b64_bytes = wasm_bytes.div_ceil(3) * 4;
+    let total_package_bytes = if wasm_bytes > 0 {
+        bundle_payload_bytes + wasm_b64_bytes + wasm_bytes + runtime_js_bytes
+    } else {
+        0
+    };
+
+    let summary = LoadSummary {
+        project_name: project.name.clone(),
+        width: project.width,
+        height: project.height,
+        fps: project.fps,
+        scenes_count: scene_ids.len(),
+        frames_count: total_frames,
+        symbols_count: library_symbols.len(),
+        movie_clips_count,
+        graphics_count,
+        buttons_count,
+        symbols_bytes: symbol_total,
+        resources_count: project.resources.len(),
+        audio_count,
+        audio_bytes: audio_raw,
+        bitmap_count,
+        bitmap_bytes: bitmap_raw,
+        data_count,
+        data_bytes: other_raw,
+        resources_raw_bytes: audio_raw + bitmap_raw + other_raw,
+        resources_b64_bytes: total_b64,
+        resources: resource_items,
+        fonts: font_stats.keys().cloned().collect(),
+        source_files_count: project.sources.len(),
+        handler_scripts_count: compiled_scripts.len(),
+        scripts_source_bytes: source_unit_bytes + handler_source_bytes,
+        scripts_compiled_bytes: program_compiled_bytes + handler_compiled_bytes,
+        published_project_bytes,
+        bundle_payload_bytes,
+        runtime_js_bytes,
+        wasm_bytes,
+        total_package_bytes,
+    };
+
+    let mut out = String::new();
+    let _ = writeln!(out, "NeoFlash Size Report — {}", project.name);
+    let _ = writeln!(
+        out,
+        "================================================================"
+    );
+    let _ = writeln!(
+        out,
+        "Dimensions:      {} x {} px @ {} fps (format v{})",
+        project.width, project.height, project.fps, project.format_version
+    );
     let _ = writeln!(
         out,
         "Scenes / Frames: {} scene(s), {} total main-timeline frame(s)",
@@ -224,6 +561,27 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         project.sources.len(),
         compiled_scripts.len()
     );
+    let _ = writeln!(
+        out,
+        "Project Weight:  {}",
+        format_bytes(bundle_payload_bytes)
+    );
+    if wasm_bytes > 0 {
+        let _ = writeln!(
+            out,
+            "HTML5 Package:   {} total (Project {} + WASM {} + JS Runtime {})",
+            format_bytes(total_package_bytes),
+            format_bytes(bundle_payload_bytes),
+            format_bytes(wasm_bytes),
+            format_bytes(runtime_js_bytes)
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "JS Runtime Host: {}",
+            format_bytes(runtime_js_bytes)
+        );
+    }
     let _ = writeln!(out);
 
     // 1. Scenes & Frames breakdown.
@@ -300,7 +658,7 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         out,
         "----------------------------------------------------------------"
     );
-    if library_symbols.is_empty() {
+    if symbol_rows.is_empty() {
         let _ = writeln!(out, "(no library symbols)");
     } else {
         let _ = writeln!(
@@ -308,34 +666,19 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
             "{:<24} {:<12} {:>7} {:>7} {:>9} {:>12}",
             "Symbol", "Kind", "Frames", "Layers", "Elements", "Bytes"
         );
-        let mut symbol_total = 0usize;
-        for sym in &library_symbols {
-            let elems: usize = sym
-                .timeline
-                .layers
-                .iter()
-                .flat_map(|l| &l.keyframes)
-                .map(|k| k.elements.len())
-                .sum();
-            let bytes = serde_json::to_string(sym)?.len();
-            symbol_total += bytes;
-            let kind = match sym.kind {
-                neoflash_core::SymbolKind::MovieClip => "MovieClip",
-                neoflash_core::SymbolKind::Graphic => "Graphic",
-                neoflash_core::SymbolKind::Button => "Button",
-            };
+        for (name, kind, frames, layers, elems, bytes) in &symbol_rows {
             let _ = writeln!(
                 out,
                 "{:<24} {:<12} {:>7} {:>7} {:>9} {:>12}",
-                sym.name,
-                kind,
-                sym.timeline.frame_count,
-                sym.timeline.layers.len(),
-                elems,
-                bytes
+                name, kind, frames, layers, elems, bytes
             );
         }
-        let _ = writeln!(out, "Library Symbols Subtotal: {} B", symbol_total);
+        let _ = writeln!(
+            out,
+            "Library Symbols Subtotal: {} B ({})",
+            symbol_total,
+            human_unit(symbol_total)
+        );
     }
     let _ = writeln!(out);
 
@@ -345,30 +688,6 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         out,
         "----------------------------------------------------------------"
     );
-    let mut font_stats: BTreeMap<String, (usize, usize)> = BTreeMap::new();
-    for symbol in &project.symbols {
-        for layer in &symbol.timeline.layers {
-            for key in &layer.keyframes {
-                for element in &key.elements {
-                    match &element.kind {
-                        ElementKind::Text {
-                            font_family, text, ..
-                        } => {
-                            let entry = font_stats.entry(font_family.clone()).or_default();
-                            entry.0 += 1;
-                            entry.1 += text.chars().count();
-                        }
-                        ElementKind::TextBox { format, text, .. } => {
-                            let entry = font_stats.entry(format.font.clone()).or_default();
-                            entry.0 += 1;
-                            entry.1 += text.chars().count();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
     if font_stats.is_empty() {
         let _ = writeln!(out, "(no text fonts referenced)");
     } else {
@@ -393,7 +712,7 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         out,
         "----------------------------------------------------------------"
     );
-    if project.resources.is_empty() {
+    if summary.resources.is_empty() {
         let _ = writeln!(out, "(no embedded resources)");
     } else {
         let _ = writeln!(
@@ -401,26 +720,11 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
             "{:<24} {:<10} {:<20} {:>10} {:>12}",
             "Path", "Category", "Media Type", "Raw Bytes", "Bundle B64"
         );
-        let (mut audio_raw, mut bitmap_raw, mut other_raw, mut total_b64) =
-            (0usize, 0usize, 0usize, 0usize);
-        for res in &project.resources {
-            let raw = decoded_base64_len(&res.data_base64);
-            let b64 = res.data_base64.len();
-            total_b64 += b64;
-            let category = if res.is_audio() {
-                audio_raw += raw;
-                "Audio"
-            } else if res.media_type.starts_with("image/") {
-                bitmap_raw += raw;
-                "Bitmap"
-            } else {
-                other_raw += raw;
-                "Data"
-            };
+        for item in &summary.resources {
             let _ = writeln!(
                 out,
                 "{:<24} {:<10} {:<20} {:>10} {:>12}",
-                res.path, category, res.media_type, raw, b64
+                item.path, item.category, item.media_type, item.raw_bytes, item.b64_bytes
             );
         }
         let _ = writeln!(
@@ -441,10 +745,6 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
         out,
         "----------------------------------------------------------------"
     );
-    let source_unit_bytes: usize = project.sources.iter().map(|u| u.source.len()).sum();
-    let handler_source_bytes: usize = compiled_scripts.iter().map(|s| s.source.len()).sum();
-    let handler_compiled_bytes: usize = compiled_scripts.iter().map(|s| s.code.len()).sum();
-    let program_compiled_bytes = program.code.len();
     if project.sources.is_empty() && compiled_scripts.is_empty() {
         let _ = writeln!(out, "(no authored scripts)");
     } else {
@@ -493,10 +793,11 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "Published Bundle Payload (excluding WASM engine): {} B",
-        published_project_bytes + program_compiled_bytes + handler_compiled_bytes
+        "Published Bundle Payload (excluding WASM engine): {} B ({})",
+        bundle_payload_bytes,
+        human_unit(bundle_payload_bytes)
     );
-    Ok(out)
+    Ok((out, summary))
 }
 
 fn compile_scripts(
@@ -623,6 +924,8 @@ pub fn export_project(
         ));
     }
     let warnings = export_warnings(project);
+    let (size_report, load_summary) =
+        build_size_report_and_summary(project, Some(wasm.len()), Some(bindings.len()))?;
     let published = publishable(&published).unwrap_or(published);
     let bundle = Bundle {
         project: &published,
@@ -634,6 +937,8 @@ pub fn export_project(
         },
         wasm: STANDARD.encode(wasm),
         warnings: warnings.clone(),
+        load_summary,
+        size_report,
     };
     let bundle_js = format!(
         "globalThis.NeoFlashBundle = {};\n",
@@ -781,7 +1086,9 @@ fn html_document(title: &str) -> String {
     #name {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     #audio-status {{ color: #c6d8ef; }}
     #status {{ font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }}
+    #load-info {{ font-variant-numeric: tabular-nums; color: #9db4d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     #trace {{ flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }}
+    #size-report {{ position: fixed; inset: 24px 24px 72px 24px; max-height: calc(100vh - 96px); overflow: auto; margin: 0; z-index: 2; padding: 20px 24px; border: 1px solid #555a64; border-radius: 6px; background: #1d1f24f2; color: #d8dee9; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; display: none; box-shadow: 0 16px 48px #0009; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}
     @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}
@@ -844,8 +1151,8 @@ fn html_document(title: &str) -> String {
 </head>
 <body>
   <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
-  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
-  <div id="loading" role="status">Loading project…</div><pre id="error" role="alert"></pre>
+  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="load-info"></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
+  <div id="loading" role="status">Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>
 </html>
 "##
@@ -1134,6 +1441,7 @@ mod tests {
             });
         let report = format_size_report(&project).expect("size report succeeds");
         assert!(report.contains("NeoFlash Size Report —"));
+        assert!(report.contains("Project Weight:"));
         assert!(report.contains("Scenes & Frames"));
         assert!(report.contains("Frame 1"));
         assert!(report.contains("Symbols"));
@@ -1146,5 +1454,12 @@ mod tests {
         assert!(report.contains("Scripts"));
         assert!(report.contains("AppHelper.as"));
         assert!(report.contains("Scripts Subtotal:"));
+        let summary = compute_load_summary(&project).expect("load summary succeeds");
+        assert_eq!(summary.scenes_count, 1);
+        assert_eq!(summary.resources_count, 2);
+        assert_eq!(summary.audio_count, 1);
+        assert_eq!(summary.bitmap_count, 1);
+        assert!(summary.summary_line().contains("Project weight:"));
+        assert!(summary.summary_line().contains("Loads:"));
     }
 }

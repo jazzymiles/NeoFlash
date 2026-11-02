@@ -198,12 +198,6 @@ impl StageState {
                     "wmodeGPU" => return Err("Stage.wmodeGPU is read-only".into()),
                     _ => return Err("Unknown AS2 Stage property".into()),
                 }
-                if next.mode == "noScale" && next.align != "TL" {
-                    return Err(
-                        "This Stage noScale profile requires align='TL' before scaleMode='noScale'"
-                            .into(),
-                    );
-                }
                 *self = next;
                 Ok(self.state())
             }
@@ -287,13 +281,13 @@ mod tests {
         assert_eq!(view["scale"], 1.5);
         assert_eq!(view["scaleY"], 1.0);
         assert!(
-            s.command(r#"{"op":"set","name":"scaleMode","value":"noScale"}"#)
+            s.command(r#"{"op":"set","name":"scaleMode","value":"bogus"}"#)
                 .is_err()
         );
         assert_eq!(s.state()["scaleMode"], "exactFit");
-        s.command(r#"{"op":"set","name":"align","value":"lt"}"#)
-            .unwrap();
         s.command(r#"{"op":"set","name":"scaleMode","value":"noScale"}"#)
+            .unwrap();
+        s.command(r#"{"op":"set","name":"align","value":"lt"}"#)
             .unwrap();
         let view = s
             .command(r#"{"op":"layout","width":1200,"height":700}"#)

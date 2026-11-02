@@ -149,7 +149,10 @@ function __nfQualifiedMethod(receiver,namespace,key,as3,caller){
     return __nfContainerMethod(receiver,name,true,caller);
 }
 function __nfContainerRef(receiver,key,as3,caller,legacyCase){
-    if(receiver==null)throw new __nfTypeError('Cannot access a property on null or undefined.');
+    if(receiver==null){
+        if(as3)throw new __nfTypeError('Cannot access a property on null or undefined.');
+        return {get(){return undefined;},set(value){return value;},delete(){return false;},has(){return false;}};
+    }
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.ref(receiver,key,as3);
     if(__nfDictionaryIs(receiver)){if(!as3)throw new __nfTypeError('Dictionary access requires AS3.');return __nfDictionaryRef(receiver,key);}
     if(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver)){if(!as3)throw new __nfTypeError('Vector access requires AS3.');return __nfVectorRef(receiver,key);}
@@ -202,6 +205,7 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
     };
 }
 function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
+    if(!as3&&receiver==null)return ()=>undefined;
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.method(receiver,key,as3);
     if(__nfDictionaryIs(receiver)||(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver))){
         const method=__nfContainerRef(receiver,key,as3).get();

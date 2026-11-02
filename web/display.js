@@ -731,6 +731,7 @@
           placeAtDepth(target,text,depth);return text;
         },
         createEmptyMovieClip:(name,depth)=>{
+          if(name===undefined||name===null)name=String(name);
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createEmptyMovieClip requires a name of at most 4096 UTF-8 bytes.');
           legacyDepth(depth);
           const clip=proxyForRef(JSON.parse(player.create_display('movie_clip')));clip.name=name;
@@ -1368,11 +1369,11 @@
         if(!invoke(target,'set_name',value))throw new RangeError('Display name must be at most 4096 UTF-8 bytes.');return true;
       }
       if(name==='width'||name==='height'||name==='_width'||name==='_height') {
-        const node=descriptor(target);if(name[0]==='_')value=Number(value);
+        const node=descriptor(target);if(name[0]==='_'){value=Number(value);if(!Number.isFinite(value)||value<0)return true;}
         if(!Number.isFinite(value)||value<0)throw new RangeError('Display dimensions must be finite nonnegative numbers.');
         if(nonAxisAligned(node))throw new RangeError('Setting dimensions of a rotated object or skewed object is not supported yet. Set scaleX/scaleY explicitly; transformed bounds remain available.');
         const axis=name.includes('width')?'width':'height',local=bounds(target,target,true)[axis];
-        if(local===0){if(value===0)return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
+        if(local===0){if(value===0||name[0]==='_')return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
         if(!invoke(target,'set_property',axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
       }
       if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner)))throw new TypeError(`${name} is read-only.`);

@@ -114,6 +114,7 @@
     }
     function resolve(frame,path,lexical,writing,value,legacyCase=false){
       if(!writing&&object(path))return path;
+      if(!writing&&typeof path!=='string')return undefined;
       if(typeof path!=='string')throw new TypeError('AS2 eval/set requires a variable path string or an object reference for eval.');
       const parts=JSON.parse(wasm.as2_reference_path_json(path));if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
       const first=parts.shift(),firstLookup=legacyCase?first.toLowerCase():first;

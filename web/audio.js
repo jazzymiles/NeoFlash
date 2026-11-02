@@ -400,7 +400,8 @@
       loadSound(url,isStreaming=false){const record=state(this,legacy);if(typeof isStreaming!=='boolean')throw new TypeError('AS2 Sound.loadSound isStreaming requires a Boolean.');stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;record.id3=undefined;record.channel=null;record.attachedId=null;record.streaming=isStreaming;record.sound.load(new net.URLRequest(url));}
       start(offset=0,loops=1){
         const record=state(this,legacy);number(offset,'AS2 Sound secondOffset',0,2147483.647);if(!Number.isInteger(loops)||loops<1||loops>10001)throw new RangeError('AS2 Sound loops requires a total play count from 1 through 10001.');
-        const channel=play(state(record.sound,sounds),offset*1000,loops-1,new SoundTransform(record.volume/100,record.pan/100),record.matrix);record.channel=channel;record.owned.add(channel);
+        const sound=state(record.sound,sounds);if(!sound.buffer&&!sound.load)return;
+        const channel=play(sound,offset*1000,loops-1,new SoundTransform(record.volume/100,record.pan/100),record.matrix);record.channel=channel;record.owned.add(channel);
         channel.addEventListener('soundComplete',()=>{record.owned.delete(channel);legacyCallback(record,'onSoundComplete',[]);});
       }
       stop(...args){
@@ -425,8 +426,9 @@
       attachSound(id){
         const record=state(this,legacy);if(typeof id!=='string')throw new TypeError('AS2 attachSound requires a bundled audio resource ID.');
         if(typeof player?.as2_sound_resource!=='function')throw new Error('AS2 attachSound requires the current Rust runtime; re-export this publication.');
-        const path=JSON.parse(player.as2_sound_resource(id));if(path===null)throw new Error(`No bundled audio resource has ID ${id}. Use a project resource ID; FLA/SWF linkage import is not available.`);
-        stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;record.id3=undefined;record.channel=null;record.attachedId=id;record.streaming=false;
+        const path=JSON.parse(player.as2_sound_resource(id));
+        stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;record.id3=undefined;record.channel=null;record.attachedId=path===null?null:id;record.streaming=false;
+        if(path===null)return;
         record.sound.load(new net.URLRequest(path));
       }
       getTransform(){const record=state(this,legacy),value=(record.matrix||legacyMatrix(record)).state;return {ll:value.ll,lr:value.lr,rl:value.rl,rr:value.rr};}

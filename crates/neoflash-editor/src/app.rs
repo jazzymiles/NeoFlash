@@ -1155,6 +1155,19 @@ impl Editor {
         }
         Some(PathBuf::from(raw))
     }
+    fn log_export_report(&mut self, project: &Project) {
+        if let Ok(summary) = neoflash_export::compute_load_summary(project) {
+            self.output.push(summary.summary_line());
+        }
+        if let Ok(report) = neoflash_export::format_size_report(project) {
+            for line in report.lines() {
+                if !line.trim().is_empty() {
+                    self.output.push(line.to_string());
+                }
+            }
+        }
+    }
+
     pub(crate) fn publish_html5_to(
         &mut self,
         output: &std::path::Path,
@@ -1177,6 +1190,8 @@ impl Editor {
         match neoflash_export::export_project(&self.project, output, runtime_dir) {
             Ok(index) => {
                 self.message(format!("HTML5 exported: {}", index.display()));
+                let project_snapshot = self.project.clone();
+                self.log_export_report(&project_snapshot);
                 for warning in warnings {
                     self.message(warning);
                 }
@@ -1198,9 +1213,12 @@ impl Editor {
             match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
                 Ok(index) => {
                     self.message(format!("HTML5 exported: {}", index.display()));
+                    let project_snapshot = self.project.clone();
+                    self.log_export_report(&project_snapshot);
                     for warning in neoflash_export::export_warnings(&self.project) {
                         self.message(warning);
                     }
+                    self.show_panel(PanelId::Output);
                     if let Err(e) = std::process::Command::new("open").arg(&index).spawn() {
                         self.message(format!("Cannot open preview: {e}"));
                     }
@@ -1264,9 +1282,11 @@ impl Editor {
         match neoflash_export::export_project(&project, &output, &Self::runtime_dir()) {
             Ok(index) => {
                 self.message(format!("HTML5 scene exported: {}", index.display()));
+                self.log_export_report(&project);
                 for warning in neoflash_export::export_warnings(&project) {
                     self.message(warning);
                 }
+                self.show_panel(PanelId::Output);
                 if !cfg!(test)
                     && let Err(e) = std::process::Command::new("open").arg(&index).spawn()
                 {

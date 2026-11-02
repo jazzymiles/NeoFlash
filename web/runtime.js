@@ -75,9 +75,10 @@
       setResolver(resolver) { resolve = resolver; },
       setKeyResolver(resolver) { resolveKey = resolver; },
       method(receiver, name, legacyCase = false) {
+        if (receiver === null || receiver === undefined) return () => undefined;
         // Resolve the getter before arguments, then check callability after
         // argument evaluation, preserving ordinary call evaluation order.
-        const actual = legacyCase && receiver !== null && receiver !== undefined ? resolveKey(receiver, name) : name;
+        const actual = legacyCase ? resolveKey(receiver, name) : name;
         const method = resolve(receiver, actual);
         return (...args) => {
           if (typeof method !== 'function') {
@@ -114,10 +115,17 @@
   }
   function describeThrown(value, includeStack = false) {
     if (value !== null && value !== undefined) {
+      let message = null;
+      try { if (typeof value.message === 'string') message = value.message; } catch (_) {}
       if (includeStack) {
-        try { const stack = value.stack; if (typeof stack === 'string' && stack) return stack; } catch (_) {}
+        try {
+          const stack = value.stack;
+          if (typeof stack === 'string' && stack) {
+            return message && !stack.includes(message) ? `${message}\n\n${stack}` : stack;
+          }
+        } catch (_) {}
       }
-      try { const message = value.message; if (typeof message === 'string') return message; } catch (_) {}
+      if (message !== null) return message;
     }
     try { return String(value); } catch (_) { return '<unprintable thrown value>'; }
   }
@@ -320,7 +328,7 @@
       if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(display.nodes().map(node=>display.nodeProxy(node)));
       else stageHost.flushRender([]);
     }
-    function afterTimerEvent() {dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
+    function afterTimerEvent() {if(inDispatch)return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
     function timerFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else {stopTimers();throw failure;}
@@ -1340,7 +1348,10 @@
             }
           } else if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
-            if (name.startsWith('_')) value = Number(value);
+            if (name.startsWith('_')) {
+              value = Number(value);
+              if (!Number.isFinite(value)) return true;
+            }
             if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${name} must be a finite number.`);
             if (!call('set_property',propertyMap[name],percentage.has(name)?value/100:value)) {
               throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
@@ -1557,6 +1568,37 @@
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    const loadInfoElement = document.getElementById('load-info');
+    const reportToggle = document.getElementById('report-toggle');
+    const sizeReportElement = document.getElementById('size-report');
+    const fmtBytes = b => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`;
+    if (bundle.load_summary) {
+      const s = bundle.load_summary;
+      const weightText = s.total_package_bytes > 0
+        ? `Weight: ${fmtBytes(s.bundle_payload_bytes)} (package ${fmtBytes(s.total_package_bytes)})`
+        : `Weight: ${fmtBytes(s.bundle_payload_bytes)}`;
+      const resParts = [];
+      if (s.audio_count) resParts.push(`Audio ${s.audio_count} (${fmtBytes(s.audio_bytes)})`);
+      if (s.bitmap_count) resParts.push(`Bitmap ${s.bitmap_count} (${fmtBytes(s.bitmap_bytes)})`);
+      if (s.data_count) resParts.push(`Data ${s.data_count} (${fmtBytes(s.data_bytes)})`);
+      const resText = s.resources_count ? `${s.resources_count} res [${resParts.join(', ')}]` : '0 res';
+      const scriptsTotal = (s.source_files_count || 0) + (s.handler_scripts_count || 0);
+      const summaryText = `${weightText} · Loads: ${s.scenes_count} scene(s) (${s.frames_count}f), ${s.symbols_count} sym (${fmtBytes(s.symbols_bytes)}), ${resText}, ${(s.fonts || []).length} font(s), ${scriptsTotal} script(s) (${fmtBytes(s.scripts_compiled_bytes)})`;
+      if (loadInfoElement) {
+        loadInfoElement.textContent = summaryText;
+        loadInfoElement.title = summaryText;
+      }
+      console.info(`[NeoFlash] ${summaryText}`);
+    }
+    if (bundle.size_report && sizeReportElement && reportToggle) {
+      sizeReportElement.textContent = bundle.size_report;
+      reportToggle.hidden = false;
+      reportToggle.addEventListener('click', () => {
+        const open = sizeReportElement.style.display !== 'block';
+        sizeReportElement.style.display = open ? 'block' : 'none';
+        reportToggle.setAttribute('aria-pressed', String(open));
+      });
+    }
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
     new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
