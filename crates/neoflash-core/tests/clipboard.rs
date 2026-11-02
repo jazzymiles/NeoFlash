@@ -1009,3 +1009,147 @@ fn pasted_nested_movieclips_run_independent_clocks_dispatch_and_overrides_after_
     let reopened = Project::from_json(&project.to_json().unwrap()).unwrap();
     assert_eq!(exercise(&reopened), first);
 }
+
+#[test]
+fn format_7_display_features_and_cross_session_motion_guide_and_sound_paste_round_trip() {
+    // 1. Format-7 display features on top-level elements (filters, blend_mode, cache_as_bitmap, visible: false)
+    let mut filtered_el = shape("filtered-shape", 10.0);
+    filtered_el.visible = false;
+    filtered_el.cache_as_bitmap = true;
+    filtered_el.blend_mode = BlendMode::Multiply;
+    filtered_el.filters = vec![FilterSpec::Blur {
+        blur_x: 4.0,
+        blur_y: 4.0,
+        quality: 1,
+    }];
+    let mut src_doc = Project::blank();
+    src_doc.format_version = 7;
+    src_doc.symbols[0].timeline.layers[0].keyframes[0].elements = vec![filtered_el.clone()];
+    src_doc.validate().unwrap();
+
+    let captured_display =
+        ClipboardPayload::capture(&src_doc, vec![filtered_el], "session-fmt7", [0.0, 0.0])
+            .expect("capture format-7 display element");
+    let dst_blank = Project::blank();
+    let dst_layer = dst_blank.symbols[0].timeline.layers[0].id.clone();
+    let pasted_display = captured_display
+        .paste_into(
+            &dst_blank,
+            "other-session",
+            &dst_blank.root,
+            &dst_layer,
+            0,
+            [0.0, 0.0],
+        )
+        .expect("paste format-7 display element");
+    assert_eq!(pasted_display.project.format_version, 7);
+    let pasted_el = &pasted_display.project.symbols[0].timeline.layers[0].keyframes[0].elements[0];
+    assert!(!pasted_el.visible);
+    assert!(pasted_el.cache_as_bitmap);
+    assert_eq!(pasted_el.blend_mode, BlendMode::Multiply);
+    assert_eq!(pasted_el.filters.len(), 1);
+
+    // 2. Cross-session paste of a symbol with motion_guide and FrameSound (with in_point/out_point)
+    let mut guided_doc = Project::blank();
+    guided_doc.format_version = 7;
+    let wav_bytes = [
+        b'R', b'I', b'F', b'F', 36, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ', 16, 0,
+        0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 1, 0, 2, 0, 16, 0, b'd', b'a', b't', b'a',
+        0, 0, 0, 0,
+    ];
+    guided_doc.resources.push(
+        ResourceUnit::from_bytes("snd-res-1", "audio/chime.wav", "audio/wav", &wav_bytes).unwrap(),
+    );
+    let guide_layer = Layer {
+        id: "guide-layer-1".into(),
+        name: "Guide".into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties {
+            role: LayerRole::Guide,
+            ..Default::default()
+        },
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements: vec![shape("guide-path", 0.0)],
+            ..Default::default()
+        }],
+    };
+    let mut sound = FrameSound::new("snd-res-1");
+    sound.in_point = Some(0.1);
+    sound.out_point = Some(0.5);
+    let normal_layer = Layer {
+        id: "guided-layer-1".into(),
+        name: "Guided".into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties {
+            motion_guide: Some("guide-layer-1".into()),
+            ..Default::default()
+        },
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements: vec![shape("guided-art", 0.0)],
+            sound: Some(sound),
+            ..Default::default()
+        }],
+    };
+    guided_doc.symbols.push(Symbol {
+        id: "sym-guided".into(),
+        name: "GuidedClip".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: Some("GuidedClipExport".into()),
+        timeline: Timeline {
+            frame_count: 5,
+            layers: vec![normal_layer, guide_layer],
+            scripts: vec![],
+            guides: vec![],
+        },
+    });
+    let inst = instance("guided-inst", "sym-guided");
+    guided_doc.symbols[0].timeline.layers[0].keyframes[0].elements = vec![inst.clone()];
+    guided_doc.validate().unwrap();
+
+    let captured_guided =
+        ClipboardPayload::capture(&guided_doc, vec![inst], "session-guided", [0.0, 0.0])
+            .expect("capture symbol with motion_guide and FrameSound trim points");
+    let pasted_guided = captured_guided
+        .paste_into(
+            &dst_blank,
+            "session-destination",
+            &dst_blank.root,
+            &dst_layer,
+            0,
+            [0.0, 0.0],
+        )
+        .expect("cross-session paste of symbol with motion_guide and FrameSound");
+    pasted_guided.project.validate().unwrap();
+    assert_eq!(pasted_guided.project.format_version, 7);
+    let imported_sym = pasted_guided
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.name == "GuidedClip")
+        .unwrap();
+    let imported_guide_id = imported_sym.timeline.layers[1].id.clone();
+    assert_ne!(imported_guide_id, "guide-layer-1");
+    assert_eq!(
+        imported_sym.timeline.layers[0]
+            .properties
+            .motion_guide
+            .as_deref(),
+        Some(imported_guide_id.as_str())
+    );
+    let imported_res_id = pasted_guided.project.resources[0].id.clone();
+    assert_ne!(imported_res_id, "snd-res-1");
+    assert_eq!(
+        imported_sym.timeline.layers[0].keyframes[0]
+            .sound
+            .as_ref()
+            .unwrap()
+            .resource,
+        imported_res_id
+    );
+}

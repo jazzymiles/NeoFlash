@@ -8,11 +8,11 @@
 
 use crate::{ImportError, source};
 use neoflash_core::{
-    Color, ColorTransform, Easing, Element, ElementKind, FrameSound, GradientKind, GradientPaint,
-    GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, ObjectEvent,
-    ObjectScript, PathCommand, Project, ResourceUnit, ScriptLanguage, SoundEffect, SoundSync,
-    Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind, sample_layer_in,
-    transform_matrix, valid_library_folder,
+    Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
+    GradientPaint, GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole,
+    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage,
+    SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind,
+    sample_layer_in, transform_matrix, valid_library_folder,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -273,6 +273,25 @@ struct ExportContext {
 
 impl ExportContext {
     fn build(project: &Project) -> Result<Self, ImportError> {
+        for sym in &project.symbols {
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for elem in &key.elements {
+                        if !matches!(elem.kind, ElementKind::Instance { .. })
+                            && elem
+                                .scripts
+                                .iter()
+                                .any(|s| !s.script.source.trim().is_empty())
+                        {
+                            return Err(ImportError::Container(format!(
+                                "object scripts on non-symbol element {:?} in symbol {:?} cannot be represented in XFL 2.2 .fla; convert the element to a symbol first",
+                                elem.name, sym.name
+                            )));
+                        }
+                    }
+                }
+            }
+        }
         let doc_stem = sanitize_doc_stem(&project.name);
         let as_version = detect_as_version(project);
         let include_hidden_layers = !can_exclude_hidden_layers(project);
@@ -308,6 +327,21 @@ fn is_actionscript(lang: ScriptLanguage) -> bool {
             | ScriptLanguage::ActionScript2
             | ScriptLanguage::ActionScript3
     )
+}
+
+fn encode_script_with_language_tag(script: &Script) -> String {
+    match script.language {
+        ScriptLanguage::JavaScript => {
+            format!("/* neoflash:language=javascript */\n{}", script.source)
+        }
+        ScriptLanguage::TypeScript => {
+            format!("/* neoflash:language=typescript */\n{}", script.source)
+        }
+        ScriptLanguage::ActionScript1 => {
+            format!("/* neoflash:language=actionscript1 */\n{}", script.source)
+        }
+        ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => script.source.clone(),
+    }
 }
 
 fn detect_as_version(project: &Project) -> u8 {
@@ -578,11 +612,14 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
         let want_img = is_img_type || referenced_bitmaps.contains(res.id.as_str());
         let want_aud = is_aud_type || referenced_sounds.contains(res.id.as_str());
         if !want_img && !want_aud {
-            continue;
+            return Err(ImportError::Container(format!(
+                "resource {:?} ({}) cannot be represented in XFL 2.2 .fla media library",
+                res.path, res.media_type
+            )));
         }
-        let Ok(raw) = res.decoded_bytes() else {
-            continue;
-        };
+        let raw = res.decoded_bytes().map_err(|err| {
+            ImportError::Container(format!("invalid resource {:?}: {err}", res.path))
+        })?;
 
         if want_img && let Some((bytes, ext)) = normalize_bitmap_bytes(&raw) {
             if bytes.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
@@ -811,16 +848,20 @@ fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(Strin
     .collect();
 
     for src in &project.sources {
-        if !is_actionscript(src.language) {
-            continue;
-        }
+        let ext = match src.language {
+            ScriptLanguage::JavaScript => ".js",
+            ScriptLanguage::TypeScript => ".ts",
+            ScriptLanguage::ActionScript1
+            | ScriptLanguage::ActionScript2
+            | ScriptLanguage::ActionScript3 => ".as",
+        };
         let cleaned = sanitize_as_source_path(&src.path);
         let (dir_prefix, file_stem) = match cleaned.rsplit_once('/') {
             Some((dir, base)) => (format!("{dir}/"), base),
             None => (String::new(), cleaned.as_str()),
         };
         let rel_path =
-            dedup_case_insensitive(&mut used_lower, &format!("{dir_prefix}{file_stem}"), ".as");
+            dedup_case_insensitive(&mut used_lower, &format!("{dir_prefix}{file_stem}"), ext);
         if source::safe_name(&rel_path).is_ok() {
             out.push((rel_path, src.source.clone()));
         }
@@ -830,12 +871,15 @@ fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(Strin
 
 fn sanitize_as_source_path(raw_path: &str) -> String {
     let normalized = raw_path.replace('\\', "/");
-    let without_ext =
-        if normalized.len() > 3 && normalized[normalized.len() - 3..].eq_ignore_ascii_case(".as") {
-            &normalized[..normalized.len() - 3]
-        } else {
-            normalized.as_str()
-        };
+    let without_ext = if normalized.len() > 3
+        && (normalized[normalized.len() - 3..].eq_ignore_ascii_case(".as")
+            || normalized[normalized.len() - 3..].eq_ignore_ascii_case(".js")
+            || normalized[normalized.len() - 3..].eq_ignore_ascii_case(".ts"))
+    {
+        &normalized[..normalized.len() - 3]
+    } else {
+        normalized.as_str()
+    };
     let mut segments: Vec<String> = Vec::new();
     for part in without_ext.split('/') {
         let trimmed = part.trim();
@@ -1148,20 +1192,21 @@ fn render_dom_timeline(
     // XFL stores topmost layers first.
     painter_layers.reverse();
 
-    // Attach ActionScript frame scripts to existing frame boundaries on published layers,
+    // Attach frame scripts to existing frame boundaries on published layers,
     // creating a topmost "Actions" layer for any script frame without a matching boundary.
     let mut scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
     for fs in &timeline.scripts {
-        if !is_actionscript(fs.script.language) || fs.script.source.trim().is_empty() {
+        if fs.script.source.trim().is_empty() {
             continue;
         }
+        let encoded = encode_script_with_language_tag(&fs.script);
         scripts_by_frame
             .entry(fs.frame)
             .and_modify(|existing| {
                 existing.push('\n');
-                existing.push_str(&fs.script.source);
+                existing.push_str(&encoded);
             })
-            .or_insert_with(|| fs.script.source.clone());
+            .or_insert(encoded);
     }
 
     let mut unplaced_scripts: Vec<(u32, String)> = Vec::new();
@@ -1962,6 +2007,26 @@ fn render_dom_frame(xml: &mut String, indent: &str, frame: &PreparedFrame, ctx: 
             )
             .unwrap();
         }
+        if let Some(in_sec) = snd.in_point
+            && in_sec.is_finite()
+            && in_sec > 0.0
+        {
+            let in_44 =
+                (in_sec.clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS) * 44_100.0).round() as u64;
+            if in_44 > 0 {
+                write!(xml, " inPoint44=\"{in_44}\"").unwrap();
+            }
+        }
+        if let Some(out_sec) = snd.out_point
+            && out_sec.is_finite()
+            && out_sec > 0.0
+        {
+            let out_44 =
+                (out_sec.clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS) * 44_100.0).round() as u64;
+            if out_44 > 0 {
+                write!(xml, " outPoint44=\"{out_44}\"").unwrap();
+            }
+        }
         let has_custom_env = snd.effect == SoundEffect::Custom
             || snd.envelope.as_ref().is_some_and(|v| !v.is_empty());
         let effect_str = if has_custom_env {
@@ -2048,8 +2113,20 @@ fn render_dom_frame(xml: &mut String, indent: &str, frame: &PreparedFrame, ctx: 
     if !frame.elements_xml.is_empty() {
         writeln!(xml, "{indent}  <elements>").unwrap();
         for item_xml in &frame.elements_xml {
+            let mut in_cdata = false;
             for line in item_xml.lines() {
-                writeln!(xml, "{indent}    {line}").unwrap();
+                if in_cdata {
+                    writeln!(xml, "{line}").unwrap();
+                } else {
+                    writeln!(xml, "{indent}    {line}").unwrap();
+                }
+                if let Some(open_pos) = line.rfind("<![CDATA[") {
+                    if !line[open_pos + 9..].contains("]]>") {
+                        in_cdata = true;
+                    }
+                } else if in_cdata && line.contains("]]>") {
+                    in_cdata = false;
+                }
             }
         }
         writeln!(xml, "{indent}  </elements>").unwrap();
@@ -2373,9 +2450,40 @@ fn render_symbol_instance(
         },
     }
 
+    if !element.visible {
+        xml.push_str(" isVisible=\"false\"");
+    }
+    if element.cache_as_bitmap {
+        xml.push_str(" cacheAsBitmap=\"true\"");
+    }
+    if !element.blend_mode.is_normal() {
+        write!(xml, " blendMode=\"{}\"", element.blend_mode.as_str()).unwrap();
+    }
+    if let Some(acc) = &element.accessibility {
+        xml.push_str(" hasAccessibleData=\"true\"");
+        if !acc.name.is_empty() {
+            write!(xml, " accName=\"{}\"", escape_xml_attr(&acc.name)).unwrap();
+        }
+        if !acc.description.is_empty() {
+            write!(
+                xml,
+                " description=\"{}\"",
+                escape_xml_attr(&acc.description)
+            )
+            .unwrap();
+        }
+        if acc.tab_order > 0 {
+            write!(xml, " tabIndex=\"{}\"", acc.tab_order).unwrap();
+        }
+        if acc.disabled {
+            xml.push_str(" silent=\"true\"");
+        }
+    }
+
     let mut children = String::new();
     append_matrix_and_pivot(&mut children, element.transform);
     append_instance_color(&mut children, ct);
+    append_instance_filters(&mut children, &element.filters);
     append_object_actionscript(&mut children, &element.scripts);
 
     if children.is_empty() {
@@ -2386,6 +2494,193 @@ fn render_symbol_instance(
         xml.push_str("</DOMSymbolInstance>");
     }
     xml
+}
+
+fn append_instance_filters(out: &mut String, filters: &[FilterSpec]) {
+    if filters.is_empty() {
+        return;
+    }
+    out.push_str("  <filters>\n");
+    for filter in filters {
+        match filter {
+            FilterSpec::Blur {
+                blur_x,
+                blur_y,
+                quality,
+            } => {
+                writeln!(
+                    out,
+                    "    <BlurFilter blurX=\"{}\" blurY=\"{}\" quality=\"{quality}\"/>",
+                    fmt_num(*blur_x),
+                    fmt_num(*blur_y),
+                )
+                .unwrap();
+            }
+            FilterSpec::Glow {
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+            } => {
+                write!(
+                    out,
+                    "    <GlowFilter blurX=\"{}\" blurY=\"{}\" color=\"#{:06X}\" alpha=\"{}\" strength=\"{}\" quality=\"{quality}\"",
+                    fmt_num(*blur_x),
+                    fmt_num(*blur_y),
+                    color & 0xff_ffff,
+                    fmt_num(*alpha),
+                    fmt_num(*strength * 100.0),
+                )
+                .unwrap();
+                if *inner {
+                    out.push_str(" inner=\"true\"");
+                }
+                if *knockout {
+                    out.push_str(" knockout=\"true\"");
+                }
+                out.push_str("/>\n");
+            }
+            FilterSpec::DropShadow {
+                distance,
+                angle,
+                color,
+                alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                inner,
+                knockout,
+                hide_object,
+            } => {
+                write!(
+                    out,
+                    "    <DropShadowFilter angle=\"{}\" blurX=\"{}\" blurY=\"{}\" distance=\"{}\" color=\"#{:06X}\" alpha=\"{}\" strength=\"{}\" quality=\"{quality}\"",
+                    fmt_num(*angle),
+                    fmt_num(*blur_x),
+                    fmt_num(*blur_y),
+                    fmt_num(*distance),
+                    color & 0xff_ffff,
+                    fmt_num(*alpha),
+                    fmt_num(*strength * 100.0),
+                )
+                .unwrap();
+                if *inner {
+                    out.push_str(" inner=\"true\"");
+                }
+                if *knockout {
+                    out.push_str(" knockout=\"true\"");
+                }
+                if *hide_object {
+                    out.push_str(" hideObject=\"true\"");
+                }
+                out.push_str("/>\n");
+            }
+            FilterSpec::Bevel {
+                distance,
+                angle,
+                highlight_color,
+                highlight_alpha,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => {
+                write!(
+                    out,
+                    "    <BevelFilter angle=\"{}\" blurX=\"{}\" blurY=\"{}\" distance=\"{}\" highlightColor=\"#{:06X}\" highlightAlpha=\"{}\" shadowColor=\"#{:06X}\" shadowAlpha=\"{}\" strength=\"{}\" quality=\"{quality}\" type=\"{}\"",
+                    fmt_num(*angle),
+                    fmt_num(*blur_x),
+                    fmt_num(*blur_y),
+                    fmt_num(*distance),
+                    highlight_color & 0xff_ffff,
+                    fmt_num(*highlight_alpha),
+                    shadow_color & 0xff_ffff,
+                    fmt_num(*shadow_alpha),
+                    fmt_num(*strength * 100.0),
+                    escape_xml_attr(placement),
+                )
+                .unwrap();
+                if *knockout {
+                    out.push_str(" knockout=\"true\"");
+                }
+                out.push_str("/>\n");
+            }
+            FilterSpec::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            }
+            | FilterSpec::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                quality,
+                placement,
+                knockout,
+            } => {
+                let tag = if matches!(filter, FilterSpec::GradientGlow { .. }) {
+                    "GradientGlowFilter"
+                } else {
+                    "GradientBevelFilter"
+                };
+                write!(
+                    out,
+                    "    <{tag} angle=\"{}\" blurX=\"{}\" blurY=\"{}\" distance=\"{}\" strength=\"{}\" quality=\"{quality}\" type=\"{}\"",
+                    fmt_num(*angle),
+                    fmt_num(*blur_x),
+                    fmt_num(*blur_y),
+                    fmt_num(*distance),
+                    fmt_num(*strength * 100.0),
+                    escape_xml_attr(placement),
+                )
+                .unwrap();
+                if *knockout {
+                    out.push_str(" knockout=\"true\"");
+                }
+                out.push_str(">\n");
+                let count = colors.len().min(alphas.len()).min(ratios.len());
+                for i in 0..count {
+                    writeln!(
+                        out,
+                        "      <GradientEntry color=\"#{:06X}\" alpha=\"{}\" ratio=\"{}\"/>",
+                        colors[i] & 0xff_ffff,
+                        fmt_num(alphas[i]),
+                        fmt_num(f64::from(ratios[i]) / 255.0),
+                    )
+                    .unwrap();
+                }
+                writeln!(out, "    </{tag}>").unwrap();
+            }
+            FilterSpec::ColorMatrix { .. } | FilterSpec::Convolution { .. } => {
+                out.push_str(
+                    "    <AdjustColorFilter brightness=\"0\" contrast=\"0\" saturation=\"0\" hue=\"0\"/>\n",
+                );
+            }
+        }
+    }
+    out.push_str("  </filters>\n");
 }
 
 fn append_instance_color(out: &mut String, ct: ColorTransform) {
@@ -2430,22 +2725,20 @@ fn append_instance_color(out: &mut String, ct: ColorTransform) {
 fn append_object_actionscript(out: &mut String, scripts: &[ObjectScript]) {
     let mut blocks: Vec<String> = Vec::new();
     for os in scripts {
-        if !is_actionscript(os.script.language) {
-            continue;
-        }
         let trimmed = os.script.source.trim();
         if trimmed.is_empty() {
             continue;
         }
-        if starts_with_flash_handler(trimmed) {
-            blocks.push(os.script.source.clone());
+        let body = encode_script_with_language_tag(&os.script);
+        if is_actionscript(os.script.language) && starts_with_flash_handler(trimmed) {
+            blocks.push(body);
         } else {
             let header = match os.event {
                 ObjectEvent::Click => "on (release)",
                 ObjectEvent::Load => "onClipEvent (load)",
                 ObjectEvent::EnterFrame => "onClipEvent (enterFrame)",
             };
-            blocks.push(format!("{header} {{\n{}\n}}", os.script.source));
+            blocks.push(format!("{header} {{\n{body}\n}}"));
         }
     }
     if !blocks.is_empty() {
@@ -2603,6 +2896,12 @@ fn render_textbox_static_text(
     .unwrap();
     if let Some(alpha_str) = alpha_opt {
         write!(xml, " alpha=\"{alpha_str}\"").unwrap();
+    }
+    if format.bold {
+        xml.push_str(" bold=\"true\"");
+    }
+    if format.italic {
+        xml.push_str(" italic=\"true\"");
     }
     match format.align {
         TextAlign::Left => {}
@@ -3526,5 +3825,238 @@ mod tests {
             .read_to_string(&mut pub_xml)
             .unwrap();
         assert!(pub_xml.contains("<ActionScriptVersion>2</ActionScriptVersion>"));
+    }
+
+    #[test]
+    fn export_fla_preserves_js_ts_scripts_bold_italic_sound_trim_and_instance_filters() {
+        use neoflash_core::{
+            Accessibility, AccessibleRole, BlendMode, FrameScript, SourceUnit, TextFormat,
+        };
+
+        let mut project = Project::blank();
+        project.format_version = 7;
+        project.sources.push(SourceUnit {
+            id: "src-js".into(),
+            path: "scripts/app.js".into(),
+            language: ScriptLanguage::JavaScript,
+            source: "export const speed = 5;".into(),
+        });
+        project.sources.push(SourceUnit {
+            id: "src-ts".into(),
+            path: "scripts/helper.ts".into(),
+            language: ScriptLanguage::TypeScript,
+            source: "export function double(n: number): number { return n * 2; }".into(),
+        });
+
+        let wav_bytes = [
+            b'R', b'I', b'F', b'F', 44, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ',
+            16, 0, 0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 1, 0, 2, 0, 16, 0, b'd', b'a',
+            b't', b'a', 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        project.resources.push(
+            ResourceUnit::from_bytes("snd-1", "audio/beep.wav", "audio/wav", &wav_bytes).unwrap(),
+        );
+
+        let child_sym_id = "sym-box".to_owned();
+        project.symbols.push(Symbol {
+            id: child_sym_id.clone(),
+            name: "BoxClip".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "layer-box".into(),
+                    name: "Art".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "el-rect".into(),
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 30.0,
+                                height: 20.0,
+                                fill: [255, 0, 0, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }],
+                }],
+                scripts: vec![],
+                guides: vec![],
+            },
+        });
+
+        let mut sound = FrameSound::new("snd-1");
+        sound.in_point = Some(0.25);
+        sound.out_point = Some(0.75);
+
+        let fmt = TextFormat {
+            font: "Arial".into(),
+            size: 18.0,
+            bold: true,
+            italic: true,
+            ..Default::default()
+        };
+
+        let root_sym = project.symbol_mut(&project.root.clone()).unwrap();
+        root_sym.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::TypeScript,
+                source: "const stageReady: boolean = true;".into(),
+            },
+        });
+        root_sym.timeline.layers[0].keyframes[0].sound = Some(sound);
+        root_sym.timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: "el-inst".into(),
+                name: "box1".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: child_sym_id,
+                    playback: InstancePlayback::Independent,
+                },
+                visible: false,
+                cache_as_bitmap: true,
+                blend_mode: BlendMode::Multiply,
+                accessibility: Some(Accessibility {
+                    name: "Hero Box".into(),
+                    description: "Clickable box".into(),
+                    role: AccessibleRole::Button,
+                    tab_order: 3,
+                    disabled: true,
+                }),
+                filters: vec![FilterSpec::Blur {
+                    blur_x: 6.0,
+                    blur_y: 4.0,
+                    quality: 2,
+                }],
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::Click,
+                    script: Script {
+                        language: ScriptLanguage::JavaScript,
+                        source: "this.x += 10;".into(),
+                    },
+                }],
+            },
+            Element {
+                id: "el-txt".into(),
+                name: "label1".into(),
+                transform: Transform::default(),
+                kind: ElementKind::TextBox {
+                    text: "Styled Header".into(),
+                    width: 160.0,
+                    height: 32.0,
+                    format: fmt,
+                    word_wrap: false,
+                    multiline: false,
+                },
+                ..Default::default()
+            },
+        ];
+        project.validate().unwrap();
+
+        let temp_path = std::env::temp_dir().join(format!(
+            "neoflash-xfl-export-f03-{}.fla",
+            std::process::id()
+        ));
+        export_fla(&project, &temp_path).expect("export fla");
+
+        let mut dom_xml = String::new();
+        ZipArchive::new(fs::File::open(&temp_path).unwrap())
+            .unwrap()
+            .by_name("DOMDocument.xml")
+            .unwrap()
+            .read_to_string(&mut dom_xml)
+            .unwrap();
+        assert!(dom_xml.contains("inPoint44=\"11025\""));
+        assert!(dom_xml.contains("outPoint44=\"33075\""));
+        assert!(dom_xml.contains("isVisible=\"false\""));
+        assert!(dom_xml.contains("cacheAsBitmap=\"true\""));
+        assert!(dom_xml.contains("blendMode=\"multiply\""));
+        assert!(dom_xml.contains("hasAccessibleData=\"true\""));
+        assert!(dom_xml.contains("accName=\"Hero Box\""));
+        assert!(dom_xml.contains("<BlurFilter blurX=\"6\" blurY=\"4\" quality=\"2\"/>"));
+        assert!(dom_xml.contains("bold=\"true\""));
+        assert!(dom_xml.contains("italic=\"true\""));
+
+        let imported = crate::import_project(&temp_path).expect("reimport exported fla");
+        let _ = fs::remove_file(&temp_path);
+        imported.validate().unwrap();
+
+        assert!(
+            imported
+                .sources
+                .iter()
+                .any(|s| s.language == ScriptLanguage::JavaScript
+                    && s.source.contains("speed = 5"))
+        );
+        assert!(
+            imported
+                .sources
+                .iter()
+                .any(|s| s.language == ScriptLanguage::TypeScript
+                    && s.source.contains("double(n: number)"))
+        );
+        let imp_root = imported.symbol(&imported.root).unwrap();
+        assert_eq!(imp_root.timeline.scripts.len(), 1);
+        assert_eq!(
+            imp_root.timeline.scripts[0].script.language,
+            ScriptLanguage::TypeScript
+        );
+        assert_eq!(
+            imp_root.timeline.scripts[0].script.source,
+            "const stageReady: boolean = true;"
+        );
+
+        let snd_kf = imp_root
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .find_map(|k| k.sound.as_ref())
+            .expect("frame sound preserved");
+        assert_eq!(snd_kf.in_point, Some(0.25));
+        assert_eq!(snd_kf.out_point, Some(0.75));
+
+        let imp_inst = imp_root
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .find(|e| e.name == "box1")
+            .expect("instance preserved");
+        assert_eq!(imp_inst.scripts.len(), 1);
+        assert_eq!(imp_inst.scripts[0].event, ObjectEvent::Click);
+        assert_eq!(
+            imp_inst.scripts[0].script.language,
+            ScriptLanguage::JavaScript
+        );
+        assert_eq!(imp_inst.scripts[0].script.source, "this.x += 10;");
+
+        let imp_txt = imp_root
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .find(|e| e.name == "label1")
+            .expect("textbox preserved");
+        let ElementKind::TextBox { format: tf, .. } = &imp_txt.kind else {
+            panic!("expected TextBox");
+        };
+        assert!(tf.bold);
+        assert!(tf.italic);
     }
 }

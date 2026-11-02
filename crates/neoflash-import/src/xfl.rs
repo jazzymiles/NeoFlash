@@ -2083,7 +2083,17 @@ impl Parser<'_> {
                                     self.report.error("excluded_layer_script", self.location(script, file), "A frame script on an excluded hidden layer cannot retain its publication ownership in the current model. Import is blocked rather than executing or discarding that source.");
                                 }
                                 let script_loc = self.location(script, file);
-                                if let Some(language) =
+                                if let Some((language, clean_source)) =
+                                    strip_neoflash_language_marker(&source)
+                                {
+                                    timeline.scripts.push(FrameScript {
+                                        frame,
+                                        script: Script {
+                                            language,
+                                            source: clean_source,
+                                        },
+                                    });
+                                } else if let Some(language) =
                                     self.resolve_script_language(&source, &script_loc)
                                 {
                                     timeline.scripts.push(FrameScript {
@@ -2484,7 +2494,10 @@ impl Parser<'_> {
                         let source = immediate_text(script_node);
                         if !source.trim().is_empty() {
                             let script_loc = self.location(script_node, file);
-                            if let Some(language) =
+                            let unwrapped_neoflash = parse_neoflash_object_scripts(&source);
+                            if !unwrapped_neoflash.is_empty() {
+                                scripts.extend(unwrapped_neoflash);
+                            } else if let Some(language) =
                                 self.resolve_script_language(&source, &script_loc)
                             {
                                 scripts.push(ObjectScript {
@@ -4842,6 +4855,12 @@ impl Parser<'_> {
             }
         };
 
+        let in_point_opt = (in_point > 0)
+            .then(|| (in_point as f64 / 44_100.0).clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS));
+        let out_point_opt = (out_point > 0 && out_point < 0x3fff_ffff)
+            .then(|| (out_point as f64 / 44_100.0).clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS))
+            .filter(|&out_s| in_point_opt.is_none_or(|in_s| out_s > in_s));
+
         Some(FrameSound {
             resource: asset.resource_id,
             sync,
@@ -4849,8 +4868,8 @@ impl Parser<'_> {
             loop_forever,
             effect,
             envelope,
-            in_point: None,
-            out_point: None,
+            in_point: in_point_opt,
+            out_point: out_point_opt,
         })
     }
 }
@@ -5114,6 +5133,82 @@ fn is_valid_qualified_class_name(value: &str) -> bool {
         })
 }
 
+fn strip_neoflash_language_marker(source: &str) -> Option<(ScriptLanguage, String)> {
+    for (prefix, lang) in [
+        (
+            "/* neoflash:language=javascript */\n",
+            ScriptLanguage::JavaScript,
+        ),
+        (
+            "/* neoflash:language=typescript */\n",
+            ScriptLanguage::TypeScript,
+        ),
+        (
+            "/* neoflash:language=actionscript1 */\n",
+            ScriptLanguage::ActionScript1,
+        ),
+    ] {
+        if let Some(rest) = source.strip_prefix(prefix) {
+            return Some((lang, rest.to_owned()));
+        }
+    }
+    None
+}
+
+fn parse_neoflash_object_scripts(source: &str) -> Vec<ObjectScript> {
+    if !source.contains("/* neoflash:language=") {
+        return Vec::new();
+    }
+    let trimmed = source.trim();
+    if let Some((lang, clean)) = strip_neoflash_language_marker(trimmed) {
+        return vec![ObjectScript {
+            event: ObjectEvent::Load,
+            script: Script {
+                language: lang,
+                source: clean,
+            },
+        }];
+    }
+    let headers = [
+        ("on (release) {\n", ObjectEvent::Click),
+        ("onClipEvent (load) {\n", ObjectEvent::Load),
+        ("onClipEvent (enterFrame) {\n", ObjectEvent::EnterFrame),
+    ];
+    let boundaries = [
+        "\n}\non (release) {\n/* neoflash:language=",
+        "\n}\nonClipEvent (load) {\n/* neoflash:language=",
+        "\n}\nonClipEvent (enterFrame) {\n/* neoflash:language=",
+    ];
+    let mut out = Vec::new();
+    let mut rest = trimmed;
+    while !rest.is_empty() {
+        let Some((header, ev)) = headers.iter().find(|(h, _)| rest.starts_with(h)).copied() else {
+            return Vec::new();
+        };
+        let after_header = &rest[header.len()..];
+        let next_split = boundaries.iter().filter_map(|b| after_header.find(b)).min();
+        let (body, next_rest) = if let Some(pos) = next_split {
+            (&after_header[..pos], &after_header[pos + 3..])
+        } else if let Some(b) = after_header.strip_suffix("\n}") {
+            (b, "")
+        } else {
+            return Vec::new();
+        };
+        let Some((lang, clean)) = strip_neoflash_language_marker(body) else {
+            return Vec::new();
+        };
+        out.push(ObjectScript {
+            event: ev,
+            script: Script {
+                language: lang,
+                source: clean,
+            },
+        });
+        rest = next_rest;
+    }
+    out
+}
+
 fn import_bundled_as_sources(
     files: &BTreeMap<String, String>,
     project: &mut Project,
@@ -5123,9 +5218,15 @@ fn import_bundled_as_sources(
     let mut source_idx = 0usize;
     for (path, source) in files {
         let lower = path.to_ascii_lowercase();
-        if !lower.ends_with(".as") {
+        let explicit_lang = if lower.ends_with(".as") {
+            None
+        } else if lower.ends_with(".js") {
+            Some(ScriptLanguage::JavaScript)
+        } else if lower.ends_with(".ts") {
+            Some(ScriptLanguage::TypeScript)
+        } else {
             continue;
-        }
+        };
         if project.sources.len() >= 1024 {
             report.warning(
                 "xfl_sources_truncated",
@@ -5134,7 +5235,7 @@ fn import_bundled_as_sources(
             );
             break;
         }
-        let lang = default_lang.unwrap_or_else(|| {
+        let lang = explicit_lang.or(default_lang).unwrap_or_else(|| {
             if source.contains("package ")
                 || source.contains("import flash.")
                 || source.contains("public class ")

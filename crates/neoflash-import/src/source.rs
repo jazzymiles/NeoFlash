@@ -23,7 +23,11 @@ fn is_xfl_actionscript(name: &str) -> bool {
     Path::new(name)
         .extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("as"))
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("as")
+                || ext.eq_ignore_ascii_case("js")
+                || ext.eq_ignore_ascii_case("ts")
+        })
 }
 
 fn is_xfl_binary_media(name: &str) -> bool {

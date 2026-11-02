@@ -152,7 +152,12 @@ impl ClipboardPayload {
             .iter()
             .chain(self.symbols.iter().flat_map(symbol_elements))
             .any(|element| {
-                element.transform.pivot.is_some() || element.transform.primitive.is_some()
+                element.transform.pivot.is_some()
+                    || element.transform.primitive.is_some()
+                    || !element.visible
+                    || element.cache_as_bitmap
+                    || !element.blend_mode.is_normal()
+                    || !element.filters.is_empty()
             })
             || self
                 .symbols
@@ -165,7 +170,10 @@ impl ClipboardPayload {
                         || key.sync_symbols
                         || key.snap_to_guide
                         || key.sound.as_ref().is_some_and(|s| {
-                            s.effect == SoundEffect::Custom || s.envelope.is_some()
+                            s.effect == SoundEffect::Custom
+                                || s.envelope.is_some()
+                                || s.in_point.is_some()
+                                || s.out_point.is_some()
                         })
                 })
         {
@@ -426,14 +434,24 @@ impl ClipboardPayload {
                     .mask
                     .as_ref()
                     .map(|id| identities[id].clone());
+                layer.properties.motion_guide = layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .map(|id| identities[id].clone());
                 for group in &mut layer.properties.groups {
                     for member in &mut group.members {
                         *member = identities[member].clone();
                     }
                 }
-                for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
-                    element.id = identities[&element.id].clone();
-                    remap_reference(element, &identities);
+                for key in &mut layer.keyframes {
+                    if let Some(sound) = &mut key.sound {
+                        sound.resource = identities[&sound.resource].clone();
+                    }
+                    for element in &mut key.elements {
+                        element.id = identities[&element.id].clone();
+                        remap_reference(element, &identities);
+                    }
                 }
             }
             candidate
@@ -715,9 +733,19 @@ fn canonical_symbol_closure(
                         .mask
                         .as_ref()
                         .map(|id| identities[id].clone());
-                    for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
-                        element.id = identities[&element.id].clone();
-                        remap_reference(element, &identities);
+                    layer.properties.motion_guide = layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .map(|id| identities[id].clone());
+                    for key in &mut layer.keyframes {
+                        if let Some(sound) = &mut key.sound {
+                            sound.resource = identities[&sound.resource].clone();
+                        }
+                        for element in &mut key.elements {
+                            element.id = identities[&element.id].clone();
+                            remap_reference(element, &identities);
+                        }
                     }
                 }
                 result
