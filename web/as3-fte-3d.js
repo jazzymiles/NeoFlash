@@ -422,6 +422,12 @@
         params[p._name] = p.value.map(v => (typeof v === 'boolean' ? (v ? 1 : 0) : Number(v) || 0));
       }
     }
+    if (typeof st.serializeExtraInputs === 'function') {
+      const extraInputs = st.serializeExtraInputs();
+      if (Array.isArray(extraInputs) && extraInputs.length > 0) {
+        params.__extra_inputs__ = extraInputs;
+      }
+    }
     return {
       isShader: true,
       bytecode_base64: bytesToBase64(st.bytes),
@@ -443,6 +449,7 @@
     const getBitmap = options.getBitmap || (() => null);
     const getDisplay = options.getDisplay || (() => null);
     const getStage = options.getStage || (() => null);
+    const getStageContext = options.getStageContext || (() => null);
     const getBuiltin = options.getBuiltin || (() => null);
     const proxyForRef = options.proxyForRef || (() => null);
     const referenceOf = options.referenceOf || (() => null);
@@ -749,15 +756,63 @@
     }
     tagType(ShaderData, 'ShaderData', v => shaderDataMap.has(v));
 
+    function makeShaderState() {
+      const st = {
+        bytes: null,
+        data: null,
+        precisionHint: 'full',
+        inputList: [],
+        paramList: [],
+        serializeExtraInputs() {
+          const bmpHost = getBitmap();
+          const out = [];
+          for (let i = 1; i < st.inputList.length; i++) {
+            const irec = shaderInputMap.get(st.inputList[i]);
+            if (!irec || !irec.input) continue;
+            if (bmpHost?.BitmapData?.__nfIs?.(irec.input)) {
+              const pref = JSON.stringify(bmpHost.refOf(irec.input));
+              const px = player.bitmap_pixels(pref);
+              out.push({
+                name: irec.name,
+                width: irec.input.width,
+                height: irec.input.height,
+                channels: irec.channels,
+                rgbaBase64: bytesToBase64(px),
+              });
+            } else if (binary?.ByteArray?.__nfIs?.(irec.input) && irec.width > 0 && irec.height > 0) {
+              const need = irec.width * irec.height * irec.channels;
+              const floats = Array.from(extractFloatsFromByteArray(irec.input, 0, need));
+              out.push({
+                name: irec.name,
+                width: irec.width,
+                height: irec.height,
+                channels: irec.channels,
+                floats,
+              });
+            } else if (isVectorNumber(irec.input) && irec.width > 0 && irec.height > 0) {
+              const need = irec.width * irec.height * irec.channels;
+              const floats = [];
+              for (let k = 0; k < Math.min(need, irec.input.length); k++) {
+                floats.push(Number(irec.input[k]) || 0);
+              }
+              out.push({
+                name: irec.name,
+                width: irec.width,
+                height: irec.height,
+                channels: irec.channels,
+                floats,
+              });
+            }
+          }
+          return out;
+        },
+      };
+      return st;
+    }
+
     class Shader {
       constructor(code = null) {
-        const st = {
-          bytes: null,
-          data: null,
-          precisionHint: 'full',
-          inputList: [],
-          paramList: [],
-        };
+        const st = makeShaderState();
         globalShaderStates.set(this, st);
         if (code !== null && code !== undefined) {
           this.byteCode = code;
@@ -798,13 +853,7 @@
       'Shader',
       v => globalShaderStates.has(v),
       (receiver, args = []) => {
-        globalShaderStates.set(receiver, {
-          bytes: null,
-          data: null,
-          precisionHint: 'full',
-          inputList: [],
-          paramList: [],
-        });
+        globalShaderStates.set(receiver, makeShaderState());
         if (args[0] !== undefined && args[0] !== null) receiver.byteCode = args[0];
       }
     );
@@ -1795,6 +1844,8 @@
       present() {
         const st = requireContext3D(this);
         kcall(() => kernel.present(st.id));
+        const stageCtx = getStageContext();
+        if (stageCtx) paintStage3Ds(stageCtx);
       }
       dispose(recreate = true) {
         const st = context3dMap.get(this);
@@ -1921,6 +1972,47 @@
         ];
       }
       return makeVector('flash.display.Stage3D', stage3DList, true);
+    }
+
+    function paintStage3Ds(ctx2d) {
+      if (!ctx2d || !stage3DList) return false;
+      let painted = false;
+      for (const s3d of stage3DList) {
+        const s3dSt = stage3dMap.get(s3d);
+        if (!s3dSt || !s3dSt.visible || !s3dSt.context3D) continue;
+        const ctxSt = context3dMap.get(s3dSt.context3D);
+        if (!ctxSt || ctxSt.disposed) continue;
+        let pw = 0;
+        let ph = 0;
+        try {
+          pw = kernel.presented_width(ctxSt.id);
+          ph = kernel.presented_height(ctxSt.id);
+        } catch (_) {
+          continue;
+        }
+        if (pw <= 0 || ph <= 0) continue;
+        const rgba = kernel.presented_rgba(ctxSt.id);
+        const dx = Math.round(s3dSt.x) | 0;
+        const dy = Math.round(s3dSt.y) | 0;
+        if (typeof ctx2d.putImageData === 'function' && typeof ctx2d.createImageData === 'function') {
+          const imgData = ctx2d.createImageData(pw, ph);
+          imgData.data.set(rgba);
+          ctx2d.putImageData(imgData, dx, dy);
+        } else if (typeof global.ImageData === 'function' && typeof ctx2d.putImageData === 'function') {
+          const imgData = new global.ImageData(new Uint8ClampedArray(rgba), pw, ph);
+          ctx2d.putImageData(imgData, dx, dy);
+        }
+        ctx2d.__nfStage3DPresented = {
+          slotIndex: s3dSt.slotIndex,
+          x: dx,
+          y: dy,
+          width: pw,
+          height: ph,
+          rgba: new Uint8Array(rgba),
+        };
+        painted = true;
+      }
+      return painted;
     }
 
     function getStageVideos() {
@@ -3070,6 +3162,35 @@
       };
     }
 
+    function forwardTextLineEvent(target, event) {
+      const st = textLineStateMap.get(target);
+      if (!st || !st.mirrorRegions || st.mirrorRegions.length === 0 || !event) return;
+      const hasLocalCoords =
+        typeof event.localX === 'number' &&
+        Number.isFinite(event.localX) &&
+        typeof event.localY === 'number' &&
+        Number.isFinite(event.localY);
+      for (const mr of st.mirrorRegions) {
+        if (!mr.mirror || typeof mr.mirror.dispatchEvent !== 'function') continue;
+        if (hasLocalCoords) {
+          const b = mr.bounds;
+          if (
+            event.localX < b.x ||
+            event.localX > b.x + b.width ||
+            event.localY < b.y ||
+            event.localY > b.y + b.height
+          ) {
+            continue;
+          }
+        }
+        const cloned =
+          typeof event.clone === 'function'
+            ? event.clone()
+            : new events.Event(event.type, event.bubbles, event.cancelable);
+        mr.mirror.dispatchEvent(cloned);
+      }
+    }
+
     function collectElementRuns(rootElem, elementMap, elementObjMap) {
       const runs = [];
       function visit(el, inheritedFormat, inheritedMirror, inheritedRotation) {
@@ -3607,6 +3728,7 @@
     let blendShaderMap = new WeakMap();
     let softKeyboardMap = new WeakMap();
     let activeSoftKeyboardRect = null;
+    let activeSoftKeyboardTarget = null;
 
     function get3dPose(target) {
       let rec = pose3DMap.get(target);
@@ -3883,20 +4005,235 @@
       return Boolean(blendShaderMap.get(target)?.active);
     }
 
-    function requestSoftKeyboard(target) {
+    function makeSoftKeyboardEvent(type, cancelable, relatedObject, triggerType = 'contentTriggered') {
+      const SkEv = options.eventFamilies?.SoftKeyboardEvent || events?.SoftKeyboardEvent;
+      if (typeof SkEv === 'function') {
+        return new SkEv(type, true, Boolean(cancelable), relatedObject || null, triggerType);
+      }
+      const ev = new events.Event(type, true, Boolean(cancelable));
+      ev.relatedObject = relatedObject || null;
+      ev.triggerType = triggerType;
+      return ev;
+    }
+
+    function requestSoftKeyboard(target, triggerType = 'contentTriggered') {
       if (!target) return false;
+      const activating = makeSoftKeyboardEvent('softKeyboardActivating', true, target, triggerType);
+      if (typeof target.dispatchEvent === 'function') {
+        const allowed = target.dispatchEvent(activating);
+        if (!allowed || (typeof activating.isDefaultPrevented === 'function' && activating.isDefaultPrevented())) {
+          return false;
+        }
+      }
       const stg = getStage();
       const sw = stg ? stg.stageWidth : 550;
       const sh = stg ? stg.stageHeight : 400;
       const kh = Math.min(220, Math.floor(sh * 0.4));
       activeSoftKeyboardRect = { x: 0, y: sh - kh, width: sw, height: kh };
+      activeSoftKeyboardTarget = target;
+      if (typeof target.dispatchEvent === 'function') {
+        target.dispatchEvent(makeSoftKeyboardEvent('softKeyboardActivate', false, target, triggerType));
+      }
       return true;
+    }
+
+    function deactivateSoftKeyboard(target = activeSoftKeyboardTarget, relatedObject = null) {
+      const current = target || activeSoftKeyboardTarget;
+      if (!activeSoftKeyboardRect && !current) return false;
+      activeSoftKeyboardRect = { x: 0, y: 0, width: 0, height: 0 };
+      activeSoftKeyboardTarget = null;
+      if (current && typeof current.dispatchEvent === 'function') {
+        current.dispatchEvent(makeSoftKeyboardEvent('softKeyboardDeactivate', false, relatedObject, 'userTriggered'));
+      }
+      return true;
+    }
+
+    function handleFocusChange(next, previous) {
+      if (previous && (previous === activeSoftKeyboardTarget || softKeyboardMap.get(previous)?.needs)) {
+        deactivateSoftKeyboard(previous, next || null);
+      }
+      if (next && softKeyboardMap.get(next)?.needs) {
+        requestSoftKeyboard(next, 'userTriggered');
+      }
     }
 
     function getSoftKeyboardRect() {
       const R = geometry?.Rectangle;
       const r = activeSoftKeyboardRect || { x: 0, y: 0, width: 0, height: 0 };
       return R ? new R(r.x, r.y, r.width, r.height) : { ...r };
+    }
+
+    const morphShapeMap = new WeakMap();
+
+    function defaultMorphEndpoints() {
+      return {
+        startOps: [
+          { op: 'begin_fill', color: 0xff0000, alpha: 1 },
+          { op: 'draw_rect', x: 0, y: 0, width: 40, height: 40 },
+          { op: 'end_fill' },
+        ],
+        endOps: [
+          { op: 'begin_fill', color: 0x0000ff, alpha: 1 },
+          { op: 'draw_rect', x: 20, y: 10, width: 80, height: 60 },
+          { op: 'end_fill' },
+        ],
+      };
+    }
+
+    function lerpRgb(c0, c1, t) {
+      const r0 = (c0 >>> 16) & 0xff;
+      const g0 = (c0 >>> 8) & 0xff;
+      const b0 = c0 & 0xff;
+      const r1 = (c1 >>> 16) & 0xff;
+      const g1 = (c1 >>> 8) & 0xff;
+      const b1 = c1 & 0xff;
+      const r = Math.round(r0 + (r1 - r0) * t) & 0xff;
+      const g = Math.round(g0 + (g1 - g0) * t) & 0xff;
+      const b = Math.round(b0 + (b1 - b0) * t) & 0xff;
+      return (r << 16) | (g << 8) | b;
+    }
+
+    function normalizeRgb(c) {
+      if (Array.isArray(c)) {
+        return (((c[0] & 0xff) << 16) | ((c[1] & 0xff) << 8) | (c[2] & 0xff)) >>> 0;
+      }
+      return (Number(c) || 0) >>> 0;
+    }
+
+    function interpolateMorphOps(startOps, endOps, ratio) {
+      const t = Math.max(0, Math.min(1, Number(ratio) || 0));
+      const len = Math.min(startOps.length, endOps.length);
+      const out = [];
+      for (let i = 0; i < len; i++) {
+        const a = startOps[i];
+        const b = endOps[i];
+        const aOp = a?.op || a?.type;
+        const bOp = b?.op || b?.type;
+        if (!a || !b || aOp !== bOp) {
+          out.push(t < 0.5 ? a : b);
+          continue;
+        }
+        switch (aOp) {
+          case 'begin_fill':
+            out.push({
+              op: 'begin_fill',
+              color: lerpRgb(normalizeRgb(a.color), normalizeRgb(b.color), t),
+              alpha: (a.alpha ?? 1) + ((b.alpha ?? 1) - (a.alpha ?? 1)) * t,
+            });
+            break;
+          case 'line_style':
+            out.push({
+              op: 'line_style',
+              width: a.width + (b.width - a.width) * t,
+              color: lerpRgb(normalizeRgb(a.color), normalizeRgb(b.color), t),
+              alpha: (a.alpha ?? 1) + ((b.alpha ?? 1) - (a.alpha ?? 1)) * t,
+            });
+            break;
+          case 'move_to':
+          case 'line_to':
+            out.push({
+              op: aOp,
+              x: a.x + (b.x - a.x) * t,
+              y: a.y + (b.y - a.y) * t,
+            });
+            break;
+          case 'curve_to':
+            out.push({
+              op: 'curve_to',
+              control_x: a.control_x + (b.control_x - a.control_x) * t,
+              control_y: a.control_y + (b.control_y - a.control_y) * t,
+              anchor_x: a.anchor_x + (b.anchor_x - a.anchor_x) * t,
+              anchor_y: a.anchor_y + (b.anchor_y - a.anchor_y) * t,
+            });
+            break;
+          case 'draw_rect':
+          case 'draw_ellipse':
+            out.push({
+              op: aOp,
+              x: a.x + (b.x - a.x) * t,
+              y: a.y + (b.y - a.y) * t,
+              width: a.width + (b.width - a.width) * t,
+              height: a.height + (b.height - a.height) * t,
+            });
+            break;
+          case 'draw_circle':
+            out.push({
+              op: 'draw_circle',
+              x: a.x + (b.x - a.x) * t,
+              y: a.y + (b.y - a.y) * t,
+              radius: a.radius + (b.radius - a.radius) * t,
+            });
+            break;
+          case 'end_fill':
+          case 'clear':
+            out.push({ op: aOp });
+            break;
+          default:
+            out.push({ ...a, op: aOp });
+            break;
+        }
+      }
+      return out;
+    }
+
+    function ensureMorphState(proxy) {
+      let st = morphShapeMap.get(proxy);
+      if (!st) {
+        const defs = defaultMorphEndpoints();
+        st = { ratio: 0, startOps: defs.startOps, endOps: defs.endOps };
+        morphShapeMap.set(proxy, st);
+      }
+      return st;
+    }
+
+    function syncMorphShape(proxy) {
+      const st = ensureMorphState(proxy);
+      const ref = referenceOf(proxy);
+      const objRef = ref?.objectRef || ref;
+      if (!objRef || typeof player?.set_morph_shape_ops !== 'function') return;
+      const ops = interpolateMorphOps(st.startOps, st.endOps, st.ratio);
+      player.set_morph_shape_ops(JSON.stringify(objRef), JSON.stringify(ops));
+    }
+
+    function morphShapeGet(target, name) {
+      if (name === 'ratio') {
+        return ensureMorphState(target).ratio;
+      }
+      return undefined;
+    }
+
+    function morphShapeSet(target, name, value) {
+      if (name === 'ratio') {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          throw argError('ArgumentError: MorphShape.ratio requires a finite Number.');
+        }
+        const st = ensureMorphState(target);
+        st.ratio = n > 1 && n <= 65535 ? Math.max(0, Math.min(1, n / 65535)) : Math.max(0, Math.min(1, n));
+        syncMorphShape(target);
+        return true;
+      }
+      return false;
+    }
+
+    function morphShapeMethods(target) {
+      return {
+        setMorphEndpoints(startOps, endOps) {
+          if (!Array.isArray(startOps) || !Array.isArray(endOps)) {
+            throw new TypeError('MorphShape.setMorphEndpoints requires startOps and endOps arrays.');
+          }
+          const st = ensureMorphState(target);
+          st.startOps = startOps.slice();
+          st.endOps = endOps.slice();
+          syncMorphShape(target);
+        },
+      };
+    }
+
+    function initMorphShapeProxy(proxy) {
+      ensureMorphState(proxy);
+      syncMorphShape(proxy);
+      return proxy;
     }
 
     function MorphShape() {
@@ -3907,7 +4244,7 @@
         throw new TypeError('MorphShape is final and cannot be subclassed.');
       }
       const ref = JSON.parse(player.create_display('morph_shape'));
-      return proxyForRef(ref);
+      return initMorphShapeProxy(proxyForRef(ref));
     }
     tagType(MorphShape, 'MorphShape', v => {
       try { return getDisplay()?.descriptor(v)?.owner === 'morph_shape'; } catch (_) { return false; }
@@ -4037,13 +4374,20 @@
       builtins,
       setVectorFactory,
       getStage3Ds,
+      paintStage3Ds,
       getStageVideos,
       getSoftKeyboardRect,
       requestSoftKeyboard,
+      deactivateSoftKeyboard,
+      handleFocusChange,
       textLineBounds,
       textLineGet,
       textLineSet,
       textLineMethods,
+      forwardTextLineEvent,
+      morphShapeGet,
+      morphShapeSet,
+      morphShapeMethods,
       displayGet,
       displaySet,
       hasBlendShader,
@@ -4057,10 +4401,11 @@
       local3DToGlobal,
       globalToLocal3D,
       rasterizeShaderToBitmapData,
+      inspectSwfBytes: bytes => JSON.parse(kcall(() => kernel.inspect_swf_bytes_json(bytes))),
       GraphicsShaderFill,
       Shader,
       FallbackUncaughtErrorEvents,
-      createMorphShape: () => proxyForRef(JSON.parse(player.create_display('morph_shape'))),
+      createMorphShape: () => initMorphShapeProxy(proxyForRef(JSON.parse(player.create_display('morph_shape')))),
       createAvm1Movie: () => proxyForRef(JSON.parse(player.create_display('avm1_movie'))),
       reset,
       dispose,

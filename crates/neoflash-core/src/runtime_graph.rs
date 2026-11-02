@@ -125,6 +125,8 @@ pub struct RuntimeObject {
     /// Button Hit-frame geometry in button-local coordinates; never painted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub button_hits: Vec<DrawItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fte_draws: Vec<crate::as3_fte_3d::FteDrawRunOut>,
     pub text: Option<TextFieldState>,
     pub video: Option<VideoState>,
     pub input: Option<DisplayInputState>,
@@ -1126,12 +1128,21 @@ impl Player {
                 }
                 if let Some(runs) = self.graph.fte_draws.get(&reference) {
                     for (index, run) in runs.iter().enumerate() {
-                        if let Some(field) = TextFieldState::from_kind(&ElementKind::Text {
+                        if let Some(mut field) = TextFieldState::from_kind(&ElementKind::Text {
                             text: run.text.clone(),
                             font_family: run.font_family.clone(),
                             font_size: run.font_size,
                             color: run.color,
                         }) {
+                            field.format.bold = run.bold;
+                            field.format.italic = run.italic;
+                            field.alpha = run.color[3];
+                            let run_matrix = match run.rotation.as_str() {
+                                "rotate90" => [0., 1., -1., 0., run.x, run.y],
+                                "rotate180" => [-1., 0., 0., -1., run.x, run.y],
+                                "rotate270" => [0., -1., 1., 0., run.x, run.y],
+                                _ => [1., 0., 0., 1., run.x, run.y],
+                            };
                             result.draws.push(RuntimeDrawItem {
                                 owner_ref: reference.clone(),
                                 clip_ids: vec![],
@@ -1141,10 +1152,7 @@ impl Player {
                                     name: display.name.clone(),
                                     instance_path: vec![],
                                     layer_id: String::new(),
-                                    transform: affine_multiply(
-                                        display.world,
-                                        [1., 0., 0., 1., run.x, run.y - run.font_size * 0.8],
-                                    ),
+                                    transform: affine_multiply(display.world, run_matrix),
                                     alpha: 1.,
                                     color_transform: ColorTransform::default(),
                                     kind: RuntimeDrawKind::TextField {
@@ -1195,6 +1203,12 @@ impl Player {
                             vec![]
                         }
                     }),
+                fte_draws: self
+                    .graph
+                    .fte_draws
+                    .get(&reference)
+                    .cloned()
+                    .unwrap_or_default(),
                 text,
                 video,
                 bitmap,
@@ -1900,6 +1914,36 @@ impl Player {
             .dynamic
             .get_mut(reference)
             .expect("validated object");
+        for op in operations {
+            object.graphics.apply(op);
+        }
+        self.graph.graphics_cost = self.graph.graphics_cost - old + object.graphics.cost();
+        Ok(())
+    }
+
+    pub fn set_morph_shape_ops(
+        &mut self,
+        reference: &ObjectRef,
+        operations: &[GraphicsOp],
+    ) -> Result<(), DisplayError> {
+        let old = {
+            let object = self
+                .graph
+                .dynamic
+                .get(reference)
+                .filter(|node| node.kind == DynamicKind::MorphShape)
+                .ok_or_else(|| error("MorphShape operations require a live runtime MorphShape"))?;
+            for op in operations {
+                op.validate().map_err(error)?;
+            }
+            object.graphics.cost()
+        };
+        let object = self
+            .graph
+            .dynamic
+            .get_mut(reference)
+            .expect("validated MorphShape");
+        object.graphics = GraphicsState::default();
         for op in operations {
             object.graphics.apply(op);
         }

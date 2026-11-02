@@ -31,6 +31,7 @@ function create(wasm,options={}){
    if(settings!==null&&settings!==undefined&&(typeof settings!=='object'||(settings.printAsBitmap!==undefined&&typeof settings.printAsBitmap!=='boolean')))throw new TypeError('PrintJob.addPage options must be null, undefined, or an object with boolean printAsBitmap.');
    if(frameNum!==undefined&&frameNum!==null&&(!Number.isInteger(frameNum)||frameNum<0))throw new TypeError('PrintJob.addPage frameNum must be a non-negative integer when provided.');
    const receiver=options.resolveTarget?options.resolveTarget(target):target;
+   if(frameNum!==undefined&&frameNum!==null&&frameNum>=1&&typeof receiver?.gotoAndStop==='function'&&receiver._currentframe!==frameNum)receiver.gotoAndStop(frameNum);
    const area=printArea??options.bounds?.(receiver);if(!area)throw new TypeError('PrintJob requires a current MovieClip and a bounded print area.');
    const plan=invoke(r,{op:'plan',area});if(!plan)return false;
    try{

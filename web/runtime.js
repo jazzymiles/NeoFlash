@@ -417,7 +417,7 @@
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
           onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},onMouseChanged:updateCursor,
           onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
-          onFocusChanged:(next,previous)=>textInputHost?.focusChanged(next,previous),ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
+          onFocusChanged:(next,previous)=>{fte3dHost?.handleFocusChange?.(next,previous);return textInputHost?.focusChanged(next,previous);},ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),[width,height]=logicalSize(),x=(event.clientX-rect.left)*width/rect.width,y=(event.clientY-rect.top)*height/rect.height;return x>=0&&y>=0&&x<=width&&y<=height?display.pick(x,y):null;},
           coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect(),[width,height]=logicalSize();return[(event.clientX-r.left)*width/r.width,(event.clientY-r.top)*height/r.height];},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
@@ -428,7 +428,7 @@
             keyTarget:typeof global.addEventListener==='function'?global:null,
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>hitAt(event,true)?.target||proxyFor([]),onError:inputFailure,afterEvent:afterTimerEvent});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);if(typeof canvas!=='undefined'&&canvas&&display?.pickDetails){const r=canvas.getBoundingClientRect(),[w,h]=logicalSize(),x=(event.clientX-r.left)*w/r.width,y=(event.clientY-r.top)*h/r.height;if(x>=0&&y>=0&&x<=w&&y<=h)return display.pickDetails(x,y)?.target||proxyFor([]);}return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
@@ -480,7 +480,7 @@
         for(const node of display.nodes()){
           if(!['movie_clip','button','text','sprite','shape','bitmap','video','loader'].includes(node.owner))continue;
           const cached=proxies.get(JSON.stringify(node.object_ref));if(!cached)continue;
-          const p=cached.proxy,acc=display.readAccProps?.(p);
+          const p=cached.proxy,acc=display.readAccProps?.(p)||p.accessibilityProperties;
           if(!acc||typeof acc!=='object')continue;
           const interactive=node.owner==='button'||['onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut'].some(k=>typeof p[k]==='function');
           entries.push({object_ref:node.object_ref,props:{silent:Boolean(acc.silent),force_simple:Boolean(acc.forceSimple),name:typeof acc.name==='string'?acc.name:null,description:typeof acc.description==='string'?acc.description:null,interactive}});
@@ -490,7 +490,9 @@
           const snap=JSON.parse(player.runtime_snapshot_json()),byRef=new Map(snap.objects.map(n=>[JSON.stringify(n.object_ref),n]));
           const semScene=snap.draws.map(item=>{const ancestry_refs=[];for(let n=byRef.get(JSON.stringify(item.owner_ref));n;n=byRef.get(JSON.stringify(n.parent_ref)))ancestry_refs.push(n.object_ref);return {...item,ancestry_refs,kind:item.kind.type==='text_field'&&textHost?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};});
           const [w,h]=logicalSize(),sc=typeof preview==='undefined'?1:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale};
-          semanticLayer.update(snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects))),semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;});
+          const rawNodes=snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects)));
+          const semNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawNodes;
+          semanticLayer.update(semNodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;});
         }
         if(!inDispatch&&typeof context!=='undefined')render();
       }
@@ -659,7 +661,7 @@
       if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
       if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
-        loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),getRoot:()=>proxyFor([]),getBuiltin:qname=> {try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
+        loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,project:typeof project==='undefined'?null:project,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),getRoot:()=>proxyFor([]),getBuiltin:qname=> {try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
         legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
@@ -689,13 +691,13 @@
         airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getDisplay:()=>display||null,getBitmap:()=>bitmapHost||null,getLoader:()=>loaderHost||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashAS3NetSys&&typeof wasm?.As3NetSysKernel==='function'){
-        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,getAir:()=>airHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
+        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,xml:xmlHost,display,geometry:geometryHost,getBitmap:()=>bitmapHost,getAir:()=>airHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashFte3D&&typeof wasm?.As3Fte3dKernel==='function'){
-        fte3dHost=global.NeoFlashFte3D.create({wasm,player,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,geometry3d:geometry3dHost,getBitmap:()=>bitmapHost,getDisplay:()=>display,getStage:()=>stageHost?.stage||null,getVideo:()=>videoHost,proxyForRef,referenceOf:target=>references.get(target),afterEvent:afterTimerEvent,onError:netFailure});
+        fte3dHost=global.NeoFlashFte3D.create({wasm,player,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,geometry3d:geometry3dHost,getBitmap:()=>bitmapHost,getDisplay:()=>display,getStage:()=>stageHost?.stage||null,getStageContext:()=>typeof context!=='undefined'?context:null,getVideo:()=>videoHost,proxyForRef,referenceOf:target=>references.get(target),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashAS3MediaEvents&&typeof wasm?.As3MediaEventsKernel==='function'){
-        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
+        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{if(typeof canvas==='undefined')return [Number(event?.clientX)||0,Number(event?.clientY)||0];const r=canvas.getBoundingClientRect(),[w,h]=logicalSize();return[(event.clientX-r.left)*w/r.width,(event.clientY-r.top)*h/r.height];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play')player.set_playing(!player.is_playing());else if(key==='rewind'){player.set_playing(false);player.seek(0);}else if(key==='forwardAndBack')player.seek(Math.min(player.total_frames()-1,player.current_frame()+1));if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
@@ -1287,6 +1289,7 @@
           return nativeHas(name)||dynamicHas(name);
         },
         deleteProperty(_target,name){
+          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(display.descriptor(proxy).owner))return as2StageHost.menuRef(proxy,'menu').delete();
           return !nativeHas(name)&&dynamicDelete(name);
         },
         get(_target, name) {
@@ -1294,6 +1297,7 @@
           if (name === 'toString') return () => `[NeoFlash ${key}]`;
           if (name === 'toJSON') return () => objectRef?({object_ref:objectRef}):({path});
           if (typeof name !== 'string') return undefined;
+          if (name === 'menu' && as2StageHost && display && ['movie_clip','button','text'].includes(display.descriptor(proxy).owner)) return as2StageHost.menuRef(proxy,'menu').get();
           if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:name==='_root'?as2RootFor(proxy):proxyFor([]);}
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
           if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
@@ -1316,6 +1320,7 @@
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
+          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(display.descriptor(proxy).owner)){as2StageHost.menuRef(proxy,'menu').set(value);return true;}
           if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
           if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
           if (name === 'visible' || name === '_visible') {
@@ -1341,14 +1346,22 @@
       const ownerNativeKeys=()=>{
         const owner=objectRef&&display&&live()?display.descriptor(proxy).owner:null;
         const common=['_width','_height','_name','_target','_framesloaded','_url','_droptarget','_highquality','_focusrect','_soundbuftime','_quality','_xmouse','_ymouse'];
-        if(owner==='movie_clip')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','tabChildren','trackAsMenu','focusEnabled','hitArea','_lockroot','loadVariables','onLoad','onData','onUnload','onKeyDown','onKeyUp','onMouseDown','onMouseUp','onMouseMove','onSetFocus','onKillFocus'];
-        if(owner==='button')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','trackAsMenu','onKeyDown','onKeyUp','onSetFocus','onKillFocus'];
-        if(owner==='text')return [...common,'text','html','htmlText','variable','selectable','type','multiline','wordWrap','border','background','textColor','borderColor','backgroundColor','scroll','maxscroll','hscroll','maxhscroll','bottomScroll','length','textWidth','textHeight','tabEnabled','tabIndex','onChanged','onScroller','onSetFocus','onKillFocus'];
+        if(owner==='movie_clip')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','tabChildren','trackAsMenu','focusEnabled','hitArea','menu','_lockroot','loadVariables','onLoad','onData','onUnload','onKeyDown','onKeyUp','onMouseDown','onMouseUp','onMouseMove','onSetFocus','onKillFocus'];
+        if(owner==='button')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','trackAsMenu','menu','onKeyDown','onKeyUp','onSetFocus','onKillFocus'];
+        if(owner==='text')return [...common,'text','html','htmlText','variable','selectable','type','multiline','wordWrap','border','background','textColor','borderColor','backgroundColor','scroll','maxscroll','hscroll','maxhscroll','bottomScroll','length','textWidth','textHeight','tabEnabled','tabIndex','menu','onChanged','onScroller','onSetFocus','onKillFocus'];
         return common;
       };
       references.set(proxy,{path:path?[...path]:null,objectRef,key,lifetime,nativeHas,as2TimelineRef,nativeKeys:()=>[...Object.keys(methods),...Object.keys(propertyMap),'onEnterFrame','onPress','onRelease','onReleaseOutside','onRollOver','onRollOut','onDragOver','onDragOut','_root','_parent','_visible','_currentframe','_totalframes',...ownerNativeKeys()],customKeys:()=>Object.keys(custom)});
       if(display)Object.assign(methods,display.methods(proxy));
       if(eventHub)Object.assign(methods,eventHub.methods(proxy));
+      if(methods.dispatchEvent&&fte3dHost?.forwardTextLineEvent){
+        const baseDispatch=methods.dispatchEvent;
+        methods.dispatchEvent=event=>{
+          const ok=baseDispatch(event);
+          if(objectRef&&display&&live()&&display.descriptor(proxy).owner==='text_line')fte3dHost.forwardTextLineEvent(proxy,event);
+          return ok;
+        };
+      }
       // AS2 gotoAndPlay("Scene 2", frame) names the scene first and jumps on the root timeline.
       const as2Goto = command => (...args) => {
         if (args.length >= 2) {
@@ -1453,12 +1466,16 @@
       const stageRgb=stageHost?.stage?.color;
       context.fillStyle = Number.isInteger(stageRgb)&&stageHost?.colorAssigned?.() ? color([(stageRgb>>>16)&255,(stageRgb>>>8)&255,stageRgb&255,255]) : color(project.background);
       context.fillRect(0, 0, width, height);
+      as3MediaEventsHost?.paintStageVideos?.(context, width, height);
+      fte3dHost?.paintStage3Ds?.(context);
       bitmapHost?.cache.beginFrame();
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
       const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width,height});
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
       const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
-      const targetCount = semanticLayer.update(snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json()), semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      const rawSemNodes=snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json());
+      const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
+      const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;

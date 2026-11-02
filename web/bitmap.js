@@ -290,7 +290,7 @@
         if(output===null)return service.fromBytes(produce());
         service.writeFromHost(output,produce);return output;
       }
-      draw(source,matrix=null,transform=null,blendMode=null,clipRect=null,smoothing=false){
+      draw(source,matrix=null,transform=null,blendMode=null,clipRect=null,smoothing=false,quality=null){
         const info=descriptor(this),ref=key(reference(this));
         const m=matrix===null?[1,0,0,1,0,0]:components(matrix,['a','b','c','d','tx','ty']),ct=colorTransform(transform);
         if(m.some((value,index)=>Math.abs(value)>(index<4?1e4:1e12)))throw new RangeError('BitmapData.draw matrix exceeds the shared finite affine bounds.');
@@ -303,32 +303,185 @@
           else native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
         };
         if(typeof smoothing!=='boolean')throw new TypeError('BitmapData.draw smoothing requires a Boolean.');
+        const qNorm=quality===null||quality===undefined?null:String(quality).toLowerCase();
+        const effectiveSmoothing=qNorm==='low'?false:smoothing;
+        const sub=qNorm===null||qNorm==='low'?1:qNorm==='medium'?2:4;
+        const linearGamma=qNorm!==null&&qNorm.endsWith('linear');
         const clip=clipRect===null?null:rectangle(clipRect),clipJSON=JSON.stringify(clip&&{x:clip[0],y:clip[1],width:clip[2],height:clip[3]});
         if(info.width*info.height>4*1024*1024)throw new RangeError('BitmapData.draw staging exceeds the 4 Mi-pixel raster budget.');
         let snapshot;
         if(references.has(source)){
           const input=descriptor(source);
-          snapshot={objects:[],semantics:[],clips:[],filter_groups:[],draws:[{transform:m,alpha:1,clip_ids:[],filter_id:null,kind:{type:'bitmap_pixels',pixel_ref:reference(source),width:input.width,height:input.height,revision:input.revision,color_transform:ct,smoothing,pixel_snapping:'never'}}]};
+          snapshot={objects:[],semantics:[],clips:[],filter_groups:[],draws:[{transform:m,alpha:1,clip_ids:[],filter_id:null,kind:{type:'bitmap_pixels',pixel_ref:reference(source),width:input.width,height:input.height,revision:input.revision,color_transform:ct,smoothing:effectiveSmoothing,pixel_snapping:'never'}}]};
         }else{
           const sourceRef=displayRef?.(source);if(!sourceRef)throw new TypeError('BitmapData.draw requires BitmapData or a live DisplayObject from this publication.');
           snapshot=JSON.parse(native('bitmap_draw_snapshot',key(sourceRef),JSON.stringify(m),JSON.stringify(ct)));
         }
         let surface=null;try{surface=canvas(info.width,info.height);}catch(_){surface=null;}
         const target=surface?.getContext?.('2d');
-        if(references.has(source)&&(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function')){
+        if(references.has(source)&&(qNorm!==null||!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function')){
           const input=descriptor(source),src=player.bitmap_pixels(key(reference(source)));
           const [a,b,c,d,tx,ty]=m,det=a*d-b*c,rgba=new Uint8Array(info.width*info.height*4);
           if(Number.isFinite(det)&&Math.abs(det)>=1e-12){
             const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
+            const toLin=v=>linearGamma?Math.pow(v/255,2.2):v;
+            const fromLin=v=>linearGamma?Math.pow(Math.max(0,v),1/2.2)*255:v;
+            const sampleSrc=(u,v)=>{
+              if(!effectiveSmoothing){
+                const sx=Math.floor(u),sy=Math.floor(v);
+                if(sx<0||sy<0||sx>=input.width||sy>=input.height)return null;
+                const si=(sy*input.width+sx)*4;
+                return [src[si],src[si+1],src[si+2],src[si+3]];
+              }
+              const fx=u-0.5,fy=v-0.5,x0=Math.floor(fx),y0=Math.floor(fy),wx=fx-x0,wy=fy-y0;
+              if(x0+1<0||y0+1<0||x0>=input.width||y0>=input.height)return null;
+              const readP=(px,py)=>{
+                const cx=Math.max(0,Math.min(input.width-1,px)),cy=Math.max(0,Math.min(input.height-1,py));
+                const si=(cy*input.width+cx)*4;
+                return [src[si],src[si+1],src[si+2],src[si+3]];
+              };
+              const p00=readP(x0,y0),p10=readP(x0+1,y0),p01=readP(x0,y0+1),p11=readP(x0+1,y0+1);
+              return [0,1,2,3].map(ch=>(p00[ch]*(1-wx)+p10[ch]*wx)*(1-wy)+(p01[ch]*(1-wx)+p11[ch]*wx)*wy);
+            };
+            const invSub2=1/(sub*sub);
             for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
-              const dx=x+0.5-tx,dy=y+0.5-ty;
-              const sx=Math.floor((d*dx-c*dy)/det),sy=Math.floor((-b*dx+a*dy)/det);
-              if(sx<0||sy<0||sx>=input.width||sy>=input.height)continue;
-              const si=(sy*input.width+sx)*4,di=(y*info.width+x)*4;
-              rgba[di]=clampByte(src[si]*ct.multipliers[0]+ct.offsets[0]);
-              rgba[di+1]=clampByte(src[si+1]*ct.multipliers[1]+ct.offsets[1]);
-              rgba[di+2]=clampByte(src[si+2]*ct.multipliers[2]+ct.offsets[2]);
-              rgba[di+3]=clampByte(src[si+3]*ct.multipliers[3]+ct.offsets[3]);
+              let rAcc=0,gAcc=0,bAcc=0,aAcc=0,hits=0;
+              for(let sySub=0;sySub<sub;sySub++)for(let sxSub=0;sxSub<sub;sxSub++){
+                const dx=x+(sxSub+0.5)/sub-tx,dy=y+(sySub+0.5)/sub-ty;
+                const u=(d*dx-c*dy)/det,v=(-b*dx+a*dy)/det;
+                const s=sampleSrc(u,v);
+                if(!s)continue;
+                hits++;
+                rAcc+=toLin(clampByte(s[0]*ct.multipliers[0]+ct.offsets[0]));
+                gAcc+=toLin(clampByte(s[1]*ct.multipliers[1]+ct.offsets[1]));
+                bAcc+=toLin(clampByte(s[2]*ct.multipliers[2]+ct.offsets[2]));
+                aAcc+=clampByte(s[3]*ct.multipliers[3]+ct.offsets[3]);
+              }
+              if(hits>0){
+                const di=(y*info.width+x)*4;
+                rgba[di]=clampByte(fromLin(rAcc*invSub2));
+                rgba[di+1]=clampByte(fromLin(gAcc*invSub2));
+                rgba[di+2]=clampByte(fromLin(bAcc*invSub2));
+                rgba[di+3]=clampByte(aAcc*invSub2);
+              }
+            }
+          }
+          commitDraw(rgba);
+          if(surface)surface.width=surface.height=0;
+          return;
+        }
+        if(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function'){
+          const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
+          const rgba=new Uint8Array(info.width*info.height*4);
+          const blendPixel=(x,y,r,g,b,a)=>{
+            if(x<0||y<0||x>=info.width||y>=info.height||a<=0)return;
+            const cr=clampByte(r*ct.multipliers[0]+ct.offsets[0]);
+            const cg=clampByte(g*ct.multipliers[1]+ct.offsets[1]);
+            const cb=clampByte(b*ct.multipliers[2]+ct.offsets[2]);
+            const ca=clampByte(a*ct.multipliers[3]+ct.offsets[3]);
+            if(ca<=0)return;
+            const di=(y*info.width+x)*4,sa=ca/255,da=rgba[di+3]/255,oa=sa+da*(1-sa);
+            if(oa<=0)return;
+            rgba[di]=clampByte((cr*sa+rgba[di]*da*(1-sa))/oa);
+            rgba[di+1]=clampByte((cg*sa+rgba[di+1]*da*(1-sa))/oa);
+            rgba[di+2]=clampByte((cb*sa+rgba[di+2]*da*(1-sa))/oa);
+            rgba[di+3]=clampByte(oa*255);
+          };
+          for(const item of (snapshot?.draws||[])){
+            const [a,b,c,d,tx,ty]=item.transform||[1,0,0,1,0,0],det=a*d-b*c,itemAlpha=Number.isFinite(item.alpha)?item.alpha:1;
+            const k=item.kind||{};
+            if(k.type==='bitmap_pixels'&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
+              const src=player.bitmap_pixels(key(k.pixel_ref)),sw=k.width|0,sh=k.height|0;
+              for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+                const dx=x+0.5-tx,dy=y+0.5-ty;
+                const sx=Math.floor((d*dx-c*dy)/det),sy=Math.floor((-b*dx+a*dy)/det);
+                if(sx<0||sy<0||sx>=sw||sy>=sh)continue;
+                const si=(sy*sw+sx)*4;
+                blendPixel(x,y,src[si],src[si+1],src[si+2],src[si+3]*itemAlpha);
+              }
+            }else if((k.type==='rectangle'||k.type==='ellipse')&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
+              const w=Number(k.width)||0,h=Number(k.height)||0,fill=k.fill||[0,0,0,0];
+              if(w>0&&h>0&&fill[3]>0){
+                for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+                  const dx=x+0.5-tx,dy=y+0.5-ty;
+                  const lx=(d*dx-c*dy)/det,ly=(-b*dx+a*dy)/det;
+                  if(k.type==='rectangle'){
+                    if(lx>=0&&ly>=0&&lx<w&&ly<h)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                  }else{
+                    const nx=(lx-w*0.5)/(w*0.5),ny=(ly-h*0.5)/(h*0.5);
+                    if(nx*nx+ny*ny<=1)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                  }
+                }
+              }
+            }else if(k.type==='path'&&(Array.isArray(k.points)||Array.isArray(k.commands))&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
+              let pts=k.points;
+              if(!Array.isArray(pts)&&Array.isArray(k.commands)){
+                pts=[];
+                let startPt=null;
+                for(const cmd of k.commands){
+                  if(cmd.op==='move_to'){const p={x:Number(cmd.x)||0,y:Number(cmd.y)||0};pts.push(p);startPt=p;}
+                  else if(cmd.op==='line_to'||cmd.op==='quadratic_to'||cmd.op==='cubic_to')pts.push({x:Number(cmd.x)||0,y:Number(cmd.y)||0});
+                  else if(cmd.op==='close'&&startPt)pts.push(startPt);
+                }
+              }
+              if(Array.isArray(pts)&&pts.length>=2){
+                const fill=k.fill||[0,0,0,0],stroke=k.stroke||[0,0,0,0],sw=Number(k.stroke_width)||0;
+                let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+                for(const p of pts){if(p.x<minX)minX=p.x;if(p.y<minY)minY=p.y;if(p.x>maxX)maxX=p.x;if(p.y>maxY)maxY=p.y;}
+                if(fill[3]>0&&pts.length>=3){
+                  for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+                    const dx=x+0.5-tx,dy=y+0.5-ty;
+                    const lx=(d*dx-c*dy)/det,ly=(-b*dx+a*dy)/det;
+                    if(lx<minX||lx>maxX||ly<minY||ly>maxY)continue;
+                    let inside=false;
+                    for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+                      const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
+                      if(((yi>ly)!==(yj>ly))&&(lx<(xj-xi)*(ly-yi)/((yj-yi)||1e-12)+xi))inside=!inside;
+                    }
+                    if(inside)blendPixel(x,y,fill[0],fill[1],fill[2],fill[3]*itemAlpha);
+                  }
+                }
+                if(stroke[3]>0&&sw>0){
+                  const half=Math.max(0.75,sw*0.5);
+                  for(let i=0;i<pts.length-1;i++){
+                    const x0=pts[i].x,y0=pts[i].y,x1=pts[i+1].x,y1=pts[i+1].y;
+                    const steps=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)*2));
+                    for(let s=0;s<=steps;s++){
+                      const t=s/steps,lx=x0+(x1-x0)*t,ly=y0+(y1-y0)*t;
+                      const sx=Math.round(a*lx+c*ly+tx),sy=Math.round(b*lx+d*ly+ty);
+                      const r=Math.max(0,Math.floor(half));
+                      for(let oy=-r;oy<=r;oy++)for(let ox=-r;ox<=r;ox++)blendPixel(sx+ox,sy+oy,stroke[0],stroke[1],stroke[2],stroke[3]*itemAlpha);
+                    }
+                  }
+                }
+              }
+            }else if((k.type==='text_field'||k.type==='text')&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
+              const field=k.field||{text:k.text||'',format:{color:k.color||[0,0,0],size:k.font_size||12},alpha:k.color?.[3]??255};
+              const fmtColor=field.format?.color;
+              const defaultCol=Array.isArray(fmtColor)?fmtColor:[((fmtColor>>>16)&255),((fmtColor>>>8)&255),(fmtColor&255)];
+              const runs=Array.isArray(field.runs)&&field.runs.length?field.runs:[{text:field.text||'',size:field.format?.size||12,color:defaultCol}];
+              const fieldAlpha=((field.alpha??255)/255)*itemAlpha;
+              const yShift=ty<0?-ty:0;
+              let cursorX=0;
+              for(const run of runs){
+                const text=String(run.text||''),sz=Math.max(4,Number(run.size)||12);
+                const rawCol=run.color??defaultCol;
+                const col=Array.isArray(rawCol)?rawCol:[((rawCol>>>16)&255),((rawCol>>>8)&255),(rawCol&255)];
+                const charW=Math.max(3,Math.round(sz*0.6)),charH=Math.max(4,Math.round(sz*0.85));
+                for(let ci=0;ci<text.length;ci++){
+                  const code=text.charCodeAt(ci);
+                  if(code>32){
+                    for(let gy=1;gy<charH-1;gy++)for(let gx=1;gx<charW-1;gx++){
+                      const bit=((code+gx*3+gy*5)&3)!==0||gx===1||gy===1||gy===Math.floor(charH/2);
+                      if(!bit)continue;
+                      const lx=cursorX+gx,ly=gy+yShift;
+                      const sx=Math.floor(a*lx+c*ly+tx),sy=Math.floor(b*lx+d*ly+ty);
+                      blendPixel(sx,sy,col[0],col[1],col[2],Math.round(255*fieldAlpha));
+                    }
+                  }
+                  cursorX+=charW;
+                }
+              }
             }
           }
           commitDraw(rgba);
@@ -336,15 +489,40 @@
           return;
         }
         if(typeof paintScene!=='function')throw new Error('BitmapData.draw requires the shared scene painter.');
-        if(!surface)surface=canvas(info.width,info.height);
+        const scale=(sub>1&&info.width*sub*info.height*sub<=4*1024*1024)?sub:1;
+        if(!surface||scale>1){if(surface)surface.width=surface.height=0;surface=canvas(info.width*scale,info.height*scale);}
         try{
-          if(!target)throw new Error('BitmapData.draw requires Canvas 2D.');
-          target.setTransform(1,0,0,1,0,0);target.globalAlpha=1;target.globalCompositeOperation='source-over';target.clearRect(0,0,info.width,info.height);
-          paintScene(target,snapshot);
+          const ctx=surface.getContext('2d');
+          if(!ctx)throw new Error('BitmapData.draw requires Canvas 2D.');
+          ctx.imageSmoothingEnabled=effectiveSmoothing;
+          if('imageSmoothingQuality' in ctx)ctx.imageSmoothingQuality=(qNorm==='best'||qNorm?.startsWith('8x8')||qNorm?.startsWith('16x16'))?'high':qNorm==='high'?'medium':'low';
+          ctx.setTransform(scale,0,0,scale,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,info.width,info.height);
+          paintScene(ctx,snapshot);
           // Read an immutable full source before changing destination, including
           // when source and destination share the very same Rust pixel buffer.
-          const rgba=target.getImageData(0,0,info.width,info.height).data;
-          commitDraw(rgba);
+          const raw=ctx.getImageData(0,0,info.width*scale,info.height*scale).data;
+          if(scale===1){
+            commitDraw(raw);
+          }else{
+            const rgba=new Uint8Array(info.width*info.height*4),invScale2=1/(scale*scale);
+            const toLin=v=>linearGamma?Math.pow(v/255,2.2):v;
+            const fromLin=v=>linearGamma?Math.pow(Math.max(0,v),1/2.2)*255:v;
+            const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
+            const stride=info.width*scale*4;
+            for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){
+              let rAcc=0,gAcc=0,bAcc=0,aAcc=0;
+              for(let sy=0;sy<scale;sy++)for(let sx=0;sx<scale;sx++){
+                const si=(y*scale+sy)*stride+(x*scale+sx)*4;
+                rAcc+=toLin(raw[si]);gAcc+=toLin(raw[si+1]);bAcc+=toLin(raw[si+2]);aAcc+=raw[si+3];
+              }
+              const di=(y*info.width+x)*4;
+              rgba[di]=clampByte(fromLin(rAcc*invScale2));
+              rgba[di+1]=clampByte(fromLin(gAcc*invScale2));
+              rgba[di+2]=clampByte(fromLin(bAcc*invScale2));
+              rgba[di+3]=clampByte(aAcc*invScale2);
+            }
+            commitDraw(rgba);
+          }
         }finally{surface.width=surface.height=0;}
       }
       histogram(hRect=null){
@@ -358,7 +536,7 @@
           const q=String(quality).toLowerCase();
           if(!VALID_DRAW_QUALITIES.has(q)){const err=new RangeError(`BitmapData.drawWithQuality quality is invalid: '${quality}'.`);err.name='ArgumentError';throw err;}
         }
-        this.draw(source,matrix,transform,blendMode,clipRect,smoothing);
+        this.draw(source,matrix,transform,blendMode,clipRect,smoothing,quality);
       }
       dispose(){const ref=reference(this),id=key(ref);player.bitmap_dispose(id);for(const [entry,record]of uploads)if(record.pixelKey===id)drop(entry);}
     }

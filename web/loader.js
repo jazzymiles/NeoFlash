@@ -72,6 +72,7 @@
         url:isRoot?(typeof global.location?.href==='string'?global.location.href:'app:///publication.swf'):'',
         bytesLoaded:isRoot?defaultBytes.length:0,bytesTotal:isRoot?defaultBytes.length:0,
         width:isRoot?550:0,height:isRoot?400:0,contentType:isRoot?'application/x-shockwave-flash':null,
+        swfVersion:12,actionScriptVersion:3,frameRate:Number(options.getFrameRate?.())||24,
         rawBytes:isRoot?defaultBytes:new Uint8Array(0),
         parameters:{},sharedEvents:!as2?new events.EventDispatcher():null,
         uncaughtErrorEvents:null,
@@ -105,9 +106,9 @@
       get width(){const record=initialized(this);return record.isRoot&&options.getStageSize?Number(options.getStageSize().width)||record.width:record.width;}
       get height(){const record=initialized(this);return record.isRoot&&options.getStageSize?Number(options.getStageSize().height)||record.height:record.height;}
       get contentType(){return initialized(this).contentType;}
-      get actionScriptVersion(){infoState(this);return 3;}
-      get swfVersion(){infoState(this);return 12;}
-      get frameRate(){infoState(this);return Number(options.getFrameRate?.())||24;}
+      get actionScriptVersion(){const record=infoState(this);return record.actionScriptVersion||3;}
+      get swfVersion(){const record=infoState(this);return record.swfVersion||12;}
+      get frameRate(){const record=infoState(this);return record.isRoot?(Number(options.getFrameRate?.())||24):(record.frameRate||Number(options.getFrameRate?.())||24);}
       get sameDomain(){infoState(this);return true;}
       get childAllowsParent(){infoState(this);return true;}
       get parentAllowsChild(){infoState(this);return true;}
@@ -146,10 +147,24 @@
       else notify(op,new net.IOErrorEvent('ioError',false,false,String(message)));
       if(current(op))op.record.operation=null;
     }
-    function contentType(bytes){
+    function contentType(bytes,as2=false){
       if(bytes.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v))return 'image/png';
       if(bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
-      throw new TypeError('Loader supports complete PNG and JPEG images. SWF, GIF and other file formats are not implemented.');
+      if(bytes.length>=6&&bytes[0]===0x47&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x38&&(bytes[4]===0x37||bytes[4]===0x39)&&bytes[5]===0x61)return 'image/gif';
+      if(bytes.length>=8&&(bytes[0]===0x46||bytes[0]===0x43||(as2&&bytes[0]===0x5a))&&bytes[1]===0x57&&bytes[2]===0x53)return 'application/x-shockwave-flash';
+      throw new TypeError('Loader supports complete PNG, JPEG, GIF and SWF files. Other file formats are not implemented.');
+    }
+    function parseSwfHeaderFallback(bytes){
+      if(bytes.length<8)throw new TypeError('SWF data is truncated.');
+      const sig=String.fromCharCode(bytes[0],bytes[1],bytes[2]);
+      if(sig!=='FWS'&&sig!=='CWS')throw new TypeError('Unsupported SWF signature.');
+      return {swfVersion:bytes[3]||10,actionScriptVersion:3,width:550,height:400,frameRate:24,frameCount:1,backgroundColor:null};
+    }
+    function findProjectSymbol(url){
+      const raw=String(url||'').split('?')[0].split('#')[0];
+      const name=raw.startsWith('symbol:')?raw.slice(7).trim():raw.replace(/\.swf$/i,'').split('/').pop();
+      if(!name||!Array.isArray(options.project?.symbols))return null;
+      return options.project.symbols.find(sym=>sym.kind==='movie_clip'&&(sym.linkage_id===name||(raw.startsWith('symbol:')&&(sym.id===name||sym.name===name))))||null;
     }
     function applyContext(record,context){
       if(context===undefined||context===null)return;
@@ -160,8 +175,34 @@
     function decode(op,bytes){
       if(!current(op))return;let pixel=null,committed=false;
       try{
-        const mime=contentType(bytes);pixel=JSON.parse(player.pixel_decode(bytes));
-        const dimensions=JSON.parse(player.bitmap_info(key(pixel))),record=op.record;
+        const record=op.record,mime=contentType(bytes,record.as2);
+        if(mime==='application/x-shockwave-flash'){
+          if(record.as2){
+            record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);record.contentType=mime;
+            if(!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
+            if(!current(op))return;
+            const packet=JSON.parse(player.loader_replace(key(record.ref),'null',true));committed=true;
+            guarded(()=>options.onMutation?.(packet.events));if(!current(op))return;
+            const sym=findProjectSymbol(record.url);
+            if(sym?.linkage_id&&display.alive(record.target)){try{record.content=record.target.attachMovie(sym.linkage_id,'__nfLoadedClip',0);}catch(_){record.content=record.target;}}
+            else record.content=record.target;
+            legacyNotify(op,'onLoadInit',[record.target]);
+          }else{
+            const swfInfo=options.inspectSwfBytes?options.inspectSwfBytes(bytes):parseSwfHeaderFallback(bytes);
+            record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
+            if(!current(op))return;
+            const packet=JSON.parse(player.loader_replace_swf(key(record.ref),swfInfo.actionScriptVersion,swfInfo.width,swfInfo.height,swfInfo.backgroundColor!==null&&swfInfo.backgroundColor!==undefined,swfInfo.backgroundColor||0,false));committed=true;
+            record.pixel=null;record.content=packet.content_ref?proxyForRef(packet.content_ref):null;
+            record.width=swfInfo.width;record.height=swfInfo.height;record.swfVersion=swfInfo.swfVersion;record.actionScriptVersion=swfInfo.actionScriptVersion;record.frameRate=swfInfo.frameRate;record.contentType=mime;
+            if(record.content)contentInfos.set(record.content,record.info);
+            guarded(()=>options.onMutation?.(packet.events));if(!current(op))return;
+            if(notify(op,new events.Event('init')))notify(op,new events.Event('complete'));
+          }
+          if(current(op))record.operation=null;
+          return;
+        }
+        pixel=JSON.parse(player.pixel_decode(bytes));
+        const dimensions=JSON.parse(player.bitmap_info(key(pixel)));
         record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
         // Legacy completion precedes initialization. Callback replacement or
         // cancellation must not let the old decode overwrite a newer operation.
@@ -183,6 +224,14 @@
     function load(record,request,context=null){
       applyContext(record,context);
       if(!net.URLRequest.__nfIs(request))throw new TypeError('Loader.load requires a URLRequest.');
+      if(record.as2&&/^symbol:/i.test(String(request.url||''))){
+        const sym=findProjectSymbol(request.url);
+        if(!sym?.linkage_id){const op=begin(record,request.url);schedule(()=>{if(current(op))failLoad(op,`Embedded symbol "${request.url}" was not found.`);});return;}
+        const swfHeader=new Uint8Array([0x46,0x57,0x53,8,8,0,0,0]);
+        const op=begin(record,request.url);op.status=200;
+        schedule(()=>{if(!current(op))return;try{transportEvent(op,new events.Event('open'));if(current(op))transportEvent(op,new net.ProgressEvent('progress',false,false,swfHeader.length,swfHeader.length));if(current(op))decode(op,swfHeader);}catch(error){if(op.generation===generation&&!disposed){cancel(record);report(error instanceof CallbackFailure?error.cause:error);}}});
+        return;
+      }
       // The transport snapshots URLRequest before async work. Its validation is
       // synchronous; use the actual request string for metadata, never fetch it.
       const op=begin(record,request.url);
@@ -246,9 +295,19 @@
       return simpleReceiver;
     }
     function trackedMovie(target){
-      const record=targetRecord(simpleLoader(),target,false);
-      if(!record)throw new Error('MovieClip byte counts are available only for an actual image load; authored SWF byte counts are unavailable.');
-      return record;
+      const ref=referenceOf(target);
+      if(!ref||!display.alive(target)||display.descriptor(target).owner!=='movie_clip')throw new TypeError('MovieClip byte counts require a live MovieClip target.');
+      const node=display.descriptor(target);
+      if(node.authored_path?.length===0){ensureRootInfo();return rootRecord;}
+      const record=targets.get(key(ref.objectRef));
+      if(record&&valid(record))return record;
+      return {bytesLoaded:0,bytesTotal:0};
+    }
+    function urlForDisplay(target){
+      const ref=referenceOf(target);
+      if(!ref||!display.alive(target))return null;
+      const record=targets.get(key(ref.objectRef));
+      return record&&valid(record)&&record.url?record.url:null;
     }
     function as2MovieMethods(target){return {
       loadMovie(url,method){
@@ -268,7 +327,7 @@
     };}
     function reset(){open();for(const record of records)cancel(record);records.clear();targets.clear();simpleReceiver=null;rootRecord=null;generation++;hub.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);if(info&&valid(infos.get(info)))return info;return target&&display.alive(target)?ensureRootInfo():null;},reset,dispose});
+    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,urlForDisplay,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);if(info&&valid(infos.get(info)))return info;return target&&display.alive(target)?ensureRootInfo():null;},reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashLoader=api;
 })(globalThis);

@@ -395,11 +395,21 @@
     const cleanups = [];
     const stage = new Stage(stageToken);
     const doc = () => options.document || global.document || null;
-    function emitFullScreen(fullScreen, interactive) {
+    function buildFullScreenEvent(type, cancelable, fullScreen, interactive) {
       const FS = options.FullScreenEvent;
-      const evt = FS ? new FS('fullScreen', false, false, Boolean(fullScreen), Boolean(interactive))
-        : Object.assign(new Event(Event.FULLSCREEN || 'fullScreen', false, false), { fullScreen: Boolean(fullScreen), interactive: Boolean(interactive) });
+      if (FS) return new FS(type, false, Boolean(cancelable), Boolean(fullScreen), Boolean(interactive));
+      const evt = Object.assign(new Event(type, false, Boolean(cancelable)), { fullScreen: Boolean(fullScreen), interactive: Boolean(interactive) });
+      evt.clone = () => buildFullScreenEvent(evt.type, evt.cancelable, evt.fullScreen, evt.interactive);
+      evt.toString = () => `[FullScreenEvent type="${evt.type}" bubbles=${evt.bubbles} cancelable=${evt.cancelable} eventPhase=${evt.eventPhase} fullScreen=${evt.fullScreen} interactive=${evt.interactive}]`;
+      return evt;
+    }
+    function emitFullScreen(fullScreen, interactive) {
+      const evt = buildFullScreenEvent(Event.FULLSCREEN || 'fullScreen', false, fullScreen, interactive);
       hub.dispatch(stage, evt);
+      if (fullScreen && interactive) {
+        const accepted = buildFullScreenEvent('fullScreenInteractiveAccepted', true, true, true);
+        hub.dispatch(stage, accepted);
+      }
     }
     const defaultStageContainer = {
       addChild(child) {
@@ -485,7 +495,8 @@
       return Boolean((options.requestFullscreen || options.viewport?.requestFullscreen) && (d ? d.fullscreenEnabled !== false : Boolean(options.requestFullscreen)));
     }
     Object.defineProperties(stage, {
-      stageWidth: { enumerable: true, get: () => width }, stageHeight: { enumerable: true, get: () => height },
+      stageWidth: { enumerable: true, get: () => (displayState !== 'normal' && fullScreenSourceRect && fullScreenSourceRect.width > 0) ? fullScreenSourceRect.width : width },
+      stageHeight: { enumerable: true, get: () => (displayState !== 'normal' && fullScreenSourceRect && fullScreenSourceRect.height > 0) ? fullScreenSourceRect.height : height },
       width: { enumerable: true, get: () => options.getStageContentSize ? Number(options.getStageContentSize().width) || 0 : 0,
         set() { throw illegalOperationError(); } },
       height: { enumerable: true, get: () => options.getStageContentSize ? Number(options.getStageContentSize().height) || 0 : 0,
@@ -634,7 +645,18 @@
       invalidate: { value() { if (!invalidated) { invalidated = true; options.onInvalidate?.(); } } },
       toString: { value: () => '[NeoFlash Stage]' },
     });
-    Object.assign(stage, hub.methods(stage));
+    const stageMethods = hub.methods(stage);
+    Object.assign(stage, {
+      ...stageMethods,
+      addEventListener(type, listener, capture = false, priority = 0, weak = false) {
+        stageMethods.addEventListener(type, listener, capture, priority, weak);
+        if (String(type) === 'stageVideoAvailability') {
+          const store = Stage.prototype[Symbol.for('neoflash.mediaEvents.stageHooks')];
+          const fn = store?.availByStage?.get(stage) || store?.availFallback;
+          if (typeof fn === 'function') fn(stage);
+        }
+      },
+    });
     // Stage is a sealed native surface; unsupported scale/fullscreen properties must
     // not appear to work merely because JavaScript accepts arbitrary new fields.
     Object.freeze(stage);

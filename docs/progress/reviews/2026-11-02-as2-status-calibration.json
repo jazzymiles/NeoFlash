@@ -1,0 +1,1485 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "43603a18e87365ee74dcd756dbf6ff93540455e20ba41606ba71ad299af71870",
+  "reviews": [
+    {
+      "id": "AS2-STATUS-CALIBRATION-A01-20261102",
+      "date": "2026-11-02",
+      "commit": "85f993a0247369c17f9f21a697e1d588156306dc",
+      "title": "Calibrate AS2 simulated/bounded Player APIs from working to partial (A-01)",
+      "summary": "Demotes AS2 live RTMP streaming, hardware Camera/Microphone capture, XMLSocket, LocalConnection, remote SharedObject, PrintJob, FileReference, IME and external _levelN SWF loading from working to partial with explicit limitation notes.",
+      "tests": [
+        "crates/neoflash-script/tests/as2_dynamic.rs",
+        "crates/neoflash-script/tests/execute.mjs",
+        "web/tests/as2-timeline.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Button.html#_focusrect",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Button.html#_soundbuftime",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Button.html#getDepth()",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Button.html#menu",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:Button.html#tabIndex",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Button.html#trackAsMenu",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Camera.html#activityLevel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#bandwidth",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#currentFps",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onActivity",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#event:onStatus",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#fps",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#get()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#height",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#index",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#keyFrameInterval",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#loopback",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionLevel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#motionTimeOut",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#muted",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#name",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#names",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#quality",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#setKeyFrameInterval()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#setLoopback()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMode()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#setMotionLevel()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#setQuality()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Camera.html#width",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#ContextMenu()",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#class",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#copy()",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#customItems",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#event:onSelect",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#hideBuiltInItems()",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#ContextMenuItem()",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#caption",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#class",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#copy()",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#enabled",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#event:onSelect",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#separatorBefore",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#visible",
+          "status": "partial",
+          "note": "Stores custom context menu items and invokes callbacks; native Flash Player built-in context-menu items are bounded by the browser."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#LocalConnection()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#close()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#connect()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#domain()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:onStatus",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#isPerUser",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#send()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#activityLevel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#codec",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#encodeQuality",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onActivity",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#event:onStatus",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#framesPerPacket",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#gain",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#get()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#index",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#muted",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#name",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#names",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#rate",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setCodec()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setEncodeQuality()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setFramesPerPacket()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setGain()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setRate()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setSilenceLevel()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#setUseEchoSuppression()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceLevel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#silenceTimeOut",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Microphone.html#useEchoSuppression",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_droptarget",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_focusrect",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_soundbuftime",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_url",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesLoaded()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesTotal()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getSWFVersion()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getURL()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadMovie()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadVariables()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#unloadMovie()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#MovieClipLoader()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#addListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadComplete",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadInit",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#getProgress()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#loadClip()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#unloadClip()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#NetConnection()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#call()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#class",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#close()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#connect()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onResult",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#event:onStatus",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#isConnected",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetConnection.html#uri",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#NetStream()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferLength",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bufferTime",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesLoaded",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#bytesTotal",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#class",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#close()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#currentFps",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onMetaData",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onPlayStatus",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#event:onStatus",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#maxPauseBufferTime",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#pause()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#play2()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveAudio()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#receiveVideo()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#seek()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#send()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#setBufferTime()",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:NetStream.html#time",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#PrintJob()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#addPage()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#orientation",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageHeight",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageWidth",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperHeight",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperWidth",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#send()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#start()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#close()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#event:onSync",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#send()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#setFps()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:Sound.html#checkPolicyFile",
+          "status": "partial",
+          "note": "Loads embedded and CORS-permitted HTTP MP3/WAV audio; Flash crossdomain.xml sound policy enforcement is simulated."
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesLoaded()",
+          "status": "partial",
+          "note": "Loads embedded and CORS-permitted HTTP MP3/WAV audio; Flash crossdomain.xml sound policy enforcement is simulated."
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesTotal()",
+          "status": "partial",
+          "note": "Loads embedded and CORS-permitted HTTP MP3/WAV audio; Flash crossdomain.xml sound policy enforcement is simulated."
+        },
+        {
+          "catalogId": "as2:Sound.html#loadSound()",
+          "status": "partial",
+          "note": "Loads embedded and CORS-permitted HTTP MP3/WAV audio; Flash crossdomain.xml sound policy enforcement is simulated."
+        },
+        {
+          "catalogId": "as2:Stage.html#align",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Stage.html#scaleMode",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:Stage.html#showMenu",
+          "status": "partial",
+          "note": "Tracked on the runtime facade; native Flash Player GPU/quality/focus-rectangle rendering modes are simulated on the HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:System.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System.html#event:onStatus",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System.html#exactSettings",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System.html#showSettings()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System.html#useCodepage",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_FULL",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#ALPHANUMERIC_HALF",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#CHINESE",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_HIRAGANA",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_FULL",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#JAPANESE_KATAKANA_HALF",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#KOREAN",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#UNKNOWN",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#addListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#doConversion()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#event:onIMEComposition",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getConversionMode()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#getEnabled()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#removeListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setCompositionString()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setConversionMode()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/IME.html#setEnabled()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#avHardwareDisable",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAccessibility",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudio",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasAudioEncoder",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasEmbeddedVideo",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasIME",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasMP3",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasPrinting",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenBroadcast",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasScreenPlayback",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingAudio",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasStreamingVideo",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#hasVideoEncoder",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#isDebugger",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#language",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#localFileReadDisable",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#manufacturer",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#os",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#pixelAspectRatio",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#playerType",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenColor",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenDPI",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionX",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#screenResolutionY",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#serverString",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/capabilities.html#version",
+          "status": "partial",
+          "note": "Reports host/browser environment capabilities through the Flash capabilities schema; OS/hardware fields reflect the HTML5 sandbox."
+        },
+        {
+          "catalogId": "as2:System/security.html#allowDomain()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/security.html#allowInsecureDomain()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/security.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/security.html#loadPolicyFile()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:System/security.html#sandboxType",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:TextField.html#antiAliasType",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:TextField.html#embedFonts",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:TextField.html#gridFitType",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:TextField.html#menu",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:TextField.html#sharpness",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:TextField.html#thickness",
+          "status": "partial",
+          "note": "Retains Flash Type properties and queries available system fonts; embedded SWF DefineFont glyph outlines are approximated via host fonts."
+        },
+        {
+          "catalogId": "as2:Video.html#attachVideo()",
+          "status": "partial",
+          "note": "Binds NetStream/Camera sources and video flags; live hardware camera capture and Sorenson/On2 deblocking filters are simulated."
+        },
+        {
+          "catalogId": "as2:Video.html#deblocking",
+          "status": "partial",
+          "note": "Binds NetStream/Camera sources and video flags; live hardware camera capture and Sorenson/On2 deblocking filters are simulated."
+        },
+        {
+          "catalogId": "as2:Video.html#smoothing",
+          "status": "partial",
+          "note": "Binds NetStream/Camera sources and video flags; live hardware camera capture and Sorenson/On2 deblocking filters are simulated."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#XMLSocket()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#close()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#connect()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onClose",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onConnect",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onData",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onXML",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#send()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#timeout",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/external/ExternalInterface.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#alpha",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#clone()",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#color",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentX",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentY",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapBitmap",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapPoint",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mode",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleX",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleY",
+          "status": "partial",
+          "note": "Evaluated on CPU pixel buffers in the Rust image pipeline; live Stage display-list filter compositing uses CSS/Canvas filter approximations where needed."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#FileReference()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#addListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#browse()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#cancel()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creationDate",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#creator",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#download()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onCancel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onComplete",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onHTTPError",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onIOError",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onOpen",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onProgress",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSecurityError",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onSelect",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#event:onUploadCompleteData",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#modificationDate",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#name",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#postData",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#removeListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#size",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#type",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReference.html#upload()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#FileReferenceList()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#addListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#browse()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#class",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onCancel",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#event:onSelect",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#fileList",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/net/FileReferenceList.html#removeListener()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "partial",
+          "note": "Provides character/selection queries and stores anti-aliasing settings; Flash Type Saffron CFF rasterization tables are simulated on HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "partial",
+          "note": "Provides character/selection queries and stores anti-aliasing settings; Flash Type Saffron CFF rasterization tables are simulated on HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "partial",
+          "note": "Provides character/selection queries and stores anti-aliasing settings; Flash Type Saffron CFF rasterization tables are simulated on HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:global_functions.html#MMExecute()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovie()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovieNum()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariables()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadVariablesNum()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#print()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmap()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printAsBitmapNum()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#printNum()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "partial",
+          "note": "Updates publication quality/debug flags in the runtime; HTML5 Canvas rasterization uses a single antialiasing pipeline."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovie()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovieNum()",
+          "status": "partial",
+          "note": "Simulated in the HTML5/Rust runtime with in-memory state and browser adapters; native Flash Player desktop/OS/plugin privileges are bounded by the browser sandbox."
+        },
+        {
+          "catalogId": "as2:global_props.html#_level",
+          "status": "partial",
+          "note": "Evaluates against embedded project symbols/timelines and browser navigation; runtime loading of external SWF files into _levelN slots is simulated."
+        },
+        {
+          "catalogId": "as2:global_props.html#_soundbuftime",
+          "status": "partial",
+          "note": "Plays embedded/HTTP video and audio resources and tracks stream state in memory; live RTMP media-server streaming and publishing are simulated."
+        }
+      ]
+    }
+  ]
+}

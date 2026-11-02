@@ -53,8 +53,11 @@ function __nfSourceFunction(body,configuration){
             if(stack.length>=1024)throw new RangeError('Source function call stack exceeds 1024 frames.');
             const selfFn=!as3&&callable.__nfPublicFunction?callable.__nfPublicFunction:callable;
             stack.push(selfFn);
+            const hasXmlNs=as3&&typeof __nfXML!=='undefined'&&typeof __nfXML?.getDefaultNamespace==='function'&&typeof __nfXML?.setDefaultNamespace==='function';
+            const prevXmlNs=hasXmlNs?__nfXML.getDefaultNamespace():'';
+            if(hasXmlNs&&prevXmlNs!=='')__nfXML.setDefaultNamespace('');
             try{return __nfApply(body,actual,[{values,callee:selfFn,caller,as3}]);}
-            finally{stack.pop();}
+            finally{stack.pop();if(hasXmlNs)__nfXML.setDefaultNamespace(prevXmlNs);}
         };
         __nfDefineProperty(callable,'length',{value:length,writable:false,configurable:false});
         __nfDefineProperty(callable,__nfSourceFunctionBrand,{value:Object.freeze({

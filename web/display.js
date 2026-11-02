@@ -796,7 +796,7 @@
     }
     function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>hasCallback(record,name))||Boolean(record?.authoredButton?.some(entry=>entry.event==='keyPress'));}
-    function as2CanFocus(target){if(target===null)return true;return as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});}
+    function as2CanFocus(target){if(target===null)return true;const ok=as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});if(ok)as2TabActive=true;return ok;}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
       if(name==='_accProps'&&['movie_clip','button','text'].includes(descriptor(target).owner))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
@@ -974,6 +974,7 @@
       if(['mouseMove','mouseDown','mouseUp'].includes(type)){
         const next=authoredButton(target);
         if(buttonOver!==next){buttonState(buttonOver,0);buttonOver=next;}
+        if(type==='mouseMove'&&buttonPressed&&next&&buttonPressed!==next&&as2Input(buttonPressed,{op:'menu_transfer',target:referenceOf(next).objectRef})){buttonState(buttonPressed,0);buttonPressed=next;}
         if(type==='mouseDown'&&(event.button===undefined||event.button===0))buttonPressed=next;
         if(type==='mouseUp'&&(event.button===undefined||event.button===0)){buttonState(buttonPressed,buttonPressed===next?1:0);buttonPressed=null;}
         buttonState(next,buttonPressed===next?2:buttonPressed?0:1);
@@ -1024,7 +1025,25 @@
       if(type==='mouseUp'&&(event.button===undefined||event.button===0)){const old=pressed;pressed=null;pressedInside=false;if(old&&alive(old)){const inside=target&&target!==getStage()&&alive(target)&&descendant(descriptor(target),descriptor(old),nodes());callLegacy(old,inside?'onRelease':'onReleaseOutside');}}
     }
     function cancelPointer(){const changed=movieClipPointer('cancel',null);buttonState(buttonOver,0);buttonState(buttonPressed,0);buttonOver=null;buttonPressed=null;dragging=null;pressed=null;hovered=null;pressedInside=false;return changed;}
-    function as2FocusBounds(){const target=getStage()?.focus;if(!target||target===getStage()||!alive(target)||!['movie_clip','button'].includes(descriptor(target).owner))return null;const pref=as2Input(target).focus_rect,globalPref=as2TabActive&&typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;if((pref??globalPref)!==true)return null;const rect=bounds(target,getStage(),true);return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};}
+    function as2FocusBounds(){
+      const stage=getStage(),target=stage?.focus;
+      if(!target||target===stage||!alive(target))return null;
+      const node=descriptor(target);
+      if(as2TabActive&&['movie_clip','button'].includes(node.owner)){
+        const pref=as2Input(target).focus_rect,globalPref=typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;
+        if((pref??globalPref)!==true)return null;
+        const rect=bounds(target,stage,true);
+        return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};
+      }
+      if(!as2TabActive&&interactiveOwners.includes(node.owner)&&!isStaticTextNode(node)){
+        const objPref=inputOf(node)?.focus_rect;
+        const stagePref=stage?.stageFocusRect??true;
+        if((objPref??stagePref)!==true)return null;
+        const rect=bounds(target,stage,true);
+        return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};
+      }
+      return null;
+    }
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
     function methods(target) {
       const result={
@@ -1093,9 +1112,13 @@
       }
       if(graph&&containerOwners.includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
-      if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
+      if(descriptor(target).owner==='movie_clip'){
+        result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
+        for(const name of ['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'])result[name]=(...args)=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name](...args);};
+      }
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
       if(graph&&descriptor(target).owner==='text_line'&&getFte3D())Object.assign(result,getFte3D().textLineMethods(target));
+      if(graph&&descriptor(target).owner==='morph_shape'&&getFte3D())Object.assign(result,getFte3D().morphShapeMethods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
       if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target))&&getText()){
         Object.assign(result,getText().methods(referenceOf(target).key));
@@ -1124,7 +1147,8 @@
     function get(target,name) {
       if(name==='_target'){descriptor(target);return player.as2_target_path(referenceOf(target).key,true);}
       if(name==='_framesloaded')return descriptor(target).total_frames;
-      if(name==='_url'){descriptor(target);if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
+      if(name==='_url'){descriptor(target);const loadedUrl=getLoader()?.urlForDisplay?.(target);if(loadedUrl)return loadedUrl;if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
+      if(name==='_focusrect'&&['movie_clip','button'].includes(descriptor(target).owner)){const value=as2Input(target).focus_rect;return value===null?undefined:value;}
 
       if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
       if(name==='accessibilityProperties'){descriptor(target);return accProps.get(target)??null;}
@@ -1153,6 +1177,10 @@
       if(descriptor(target).owner==='text_line'&&getFte3D()){
         const tlVal=getFte3D().textLineGet(target,name);
         if(tlVal!==undefined)return tlVal;
+      }
+      if(descriptor(target).owner==='morph_shape'&&getFte3D()){
+        const msVal=getFte3D().morphShapeGet(target,name);
+        if(msVal!==undefined)return msVal;
       }
       if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
         descriptor(target);return getFte3D()?.displayGet(target,name);
@@ -1223,6 +1251,7 @@
       return UNHANDLED;
     }
     function set(target,name,value) {
+      if(name==='_focusrect'&&['movie_clip','button'].includes(descriptor(target).owner)){as2Input(target,{op:'set',name:'_focusrect',value:value===undefined?null:value});as2TabActive=true;return true;}
       if(name==='enabled'&&descriptor(target).owner==='movie_clip'){inputWrite(target,name,value);return true;}
       if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip'){inputWrite(target,'track_as_menu',value);return true;}
       if(name==='soundTransform'&&spriteOwners.includes(descriptor(target).owner)){
@@ -1243,6 +1272,7 @@
       if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
       if(descriptor(target).owner==='text_line'&&getFte3D()?.textLineSet(target,name,value))return true;
+      if(descriptor(target).owner==='morph_shape'&&getFte3D()?.morphShapeSet(target,name,value))return true;
       if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
         descriptor(target);return Boolean(getFte3D()?.displaySet(target,name,value));
       }

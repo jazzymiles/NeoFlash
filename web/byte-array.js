@@ -111,13 +111,19 @@
       if(count>maxBytes-offset)throw new RangeError('ByteArray write exceeds the configured buffer limit.');
       return offset+count;
     }
+    function allocBacking(capacity,shareable){
+      if(shareable&&typeof SharedArrayBuffer==='function'){
+        try{return new Uint8Array(new SharedArrayBuffer(capacity));}catch(_){}
+      }
+      return new Uint8Array(capacity);
+    }
     function reserve(record,end){
       if(end<=record.bytes.length)return;
       const old=record.bytes.length,available=maxTotalBytes-allocated+old;
       if(end>available)throw new RangeError('ByteArray publication allocation limit exceeded; clear unused buffers.');
       const preferred=Math.min(maxBytes,Math.max(end,Math.max(32,old*2)));
       const capacity=preferred<=available?preferred:end;
-      const next=new Uint8Array(capacity); // May fail; no state changed yet.
+      const next=allocBacking(capacity,record.shareable); // May fail; no state changed yet.
       next.set(record.bytes.subarray(0,record.length));
       record.bytes=next;allocated+=capacity-old;
     }
@@ -276,7 +282,13 @@
       atomicCompareAndSwapIntAt(byteIndex,expectedValue,newValue){
         const record=state(this),idx=Number(byteIndex);
         if(!Number.isInteger(idx)||idx<0||idx%4!==0||idx+4>record.length)throw new RangeError('ByteArray.atomicCompareAndSwapIntAt requires a 4-byte-aligned byteIndex within length.');
-        const expected=Number(expectedValue)|0,next=Number(newValue)|0,dv=view(record),current=dv.getInt32(idx,record.little);
+        const expected=Number(expectedValue)|0,next=Number(newValue)|0;
+        const hostLittle=new Uint8Array(new Uint16Array([1]).buffer)[0]===1;
+        if(typeof SharedArrayBuffer==='function'&&record.bytes.buffer instanceof SharedArrayBuffer&&typeof Atomics==='object'&&record.little===hostLittle&&((record.bytes.byteOffset+idx)%4===0)){
+          const view32=new Int32Array(record.bytes.buffer,record.bytes.byteOffset+idx,1);
+          return Atomics.compareExchange(view32,0,expected,next);
+        }
+        const dv=view(record),current=dv.getInt32(idx,record.little);
         if(current===expected)dv.setInt32(idx,next,record.little);
         return current;
       }
@@ -308,7 +320,18 @@
     Object.defineProperty(ByteArray.prototype,'shareable',{
       configurable:true,
       get(){return Boolean(state(this).shareable);},
-      set(value){const record=state(this);if(typeof value!=='boolean')throw new TypeError('ByteArray.shareable requires a Boolean.');if(!record.shareable)record.shareable=value;},
+      set(value){
+        const record=state(this);
+        if(typeof value!=='boolean')throw new TypeError('ByteArray.shareable requires a Boolean.');
+        if(!record.shareable&&value){
+          record.shareable=true;
+          if(typeof SharedArrayBuffer==='function'&&!(record.bytes.buffer instanceof SharedArrayBuffer)){
+            const next=allocBacking(record.bytes.length,true);
+            next.set(record.bytes.subarray(0,record.length));
+            record.bytes=next;
+          }
+        }
+      },
     });
     Object.defineProperty(ByteArray,'defaultObjectEncoding',{get(){open();return defaultEncoding;},set(value){open();defaultEncoding=encoding(value);}});
     for(const name of ['writeRandomBytes'])Object.defineProperty(ByteArray.prototype,name,{value(){unsupported(name);}});
@@ -329,6 +352,7 @@
     }
     function setObjectCodec(codec){if(!codec||typeof codec.encode!=='function'||typeof codec.decode!=='function')throw new TypeError('Expected the shared AMF value codec.');objectCodec=codec;}
     function toBytes(receiver){const record=state(receiver);return record.bytes.slice(0,record.length);}
+    function isSharedBacking(receiver){const record=state(receiver);return typeof SharedArrayBuffer==='function'&&record.bytes.buffer instanceof SharedArrayBuffer;}
     // Trusted synchronous native adapters only. The callback receives a copy,
     // never the backing allocation. A partial pixel read can commit its consumed
     // prefix before reporting EOF; failed native calls leave the cursor intact.
@@ -347,7 +371,7 @@
     }
     function reset(){open();for(const record of records)free(record);records.clear();generation++;defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,CompressionAlgorithm,IDataInput,IDataOutput,fromBytes,fromByteArrays,toBytes,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
+    return Object.freeze({ByteArray,Endian,CompressionAlgorithm,IDataInput,IDataOutput,fromBytes,fromByteArrays,toBytes,isSharedBacking,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

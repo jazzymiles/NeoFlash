@@ -160,7 +160,8 @@
         const filters=JSON.stringify(node.filters),pad=JSON.parse(this.player.filter_padding(filters));
         node.bounds=area?{left:Math.floor(area.left-pad.left),top:Math.floor(area.top-pad.top),right:Math.ceil(area.right+pad.right),bottom:Math.ceil(area.bottom+pad.bottom)}:null;
         node.sourceBounds=area;
-        const key=JSON.stringify({filters,operation:node.composite_operation,background:node.opaque_background,cache:node.cache_as_bitmap,bounds:node.bounds,entries:node.entries.map(entry=>entry.group?{group:entry.group.id,version:entry.group.record.version,clips:clipKeys(entry.group.clip_ids,node.clip_ids)}:{item:entry.item,clips:clipKeys(entry.item.clip_ids||[],node.clip_ids)})});
+        const displacements=node.filters.filter(f=>f.type==='displacement'&&f.map_bitmap&&typeof this.player.bitmap_info==='function').map(f=>{try{const info=JSON.parse(this.player.bitmap_info(JSON.stringify(f.map_bitmap)));return [f.map_bitmap.id,f.map_bitmap.generation,info.revision,info.disposed];}catch(_){return [f.map_bitmap.id,f.map_bitmap.generation,0,true];}});
+        const key=JSON.stringify({filters,displacements,operation:node.composite_operation,background:node.opaque_background,cache:node.cache_as_bitmap,bounds:node.bounds,entries:node.entries.map(entry=>entry.group?{group:entry.group.id,version:entry.group.record.version,clips:clipKeys(entry.group.clip_ids,node.clip_ids)}:{item:entry.item,clips:clipKeys(entry.item.clip_ids||[],node.clip_ids)})});
         let record=this.records.get(node.id);if(!record||record.key!==key){if(record?.surface)this.discard(record.surface);record={key:key.length<=32768?key:null,version:++this.version,surface:null};this.records.set(node.id,record);}node.record=record;node.filtersJSON=filters;
       };
       prepare(root);
@@ -188,9 +189,7 @@
       try{surface.context.setTransform(1,0,0,1,-left,-top);return draw(surface.context);}finally{surface.busy=false;}
     }
   }
-  // AS2-only value facade. The shared display-filter serializer rejects it until
-  // display snapshot ownership can carry a live map safely; BitmapData applies
-  // it through the Rust pixel arena without copying algorithms into the host.
+  // Shared DisplacementMapFilter serializer for both DisplayObject.filters and BitmapData.applyFilter.
   function legacyDisplacement({getBitmap,geometry}={}){
     if(getBitmap)bitmapGetter=getBitmap;
     if(geometry)geometryRef=geometry;

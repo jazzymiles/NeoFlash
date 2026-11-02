@@ -76,7 +76,7 @@
     if (!proto || proto === Object.prototype) return;
     if (!proto[stageHookSym]) {
       Object.defineProperty(proto, stageHookSym, {
-        value: { byStage: new WeakMap(), fallback: null },
+        value: { byStage: new WeakMap(), availByStage: new WeakMap(), fallback: null, availFallback: null },
       });
     }
     if (!Object.hasOwn(proto, 'stageVideos')) {
@@ -92,7 +92,28 @@
     }
   }
 
-  function bindStageMediaProperties(StageClass, getVectorForStage, stageInstance = null) {
+  function wrapStageAvailabilityListener(stageInstance, onListenerAdded) {
+    if (!stageInstance || typeof stageInstance !== 'object') return;
+    const origAdd = stageInstance.addEventListener;
+    if (typeof origAdd !== 'function' || origAdd.__nfStageVideoWrapped) return;
+    const wrapped = function (type, listener, useCapture = false, priority = 0, useWeakReference = false) {
+      const res = Reflect.apply(origAdd, this, [type, listener, useCapture, priority, useWeakReference]);
+      if (type === 'stageVideoAvailability' && typeof onListenerAdded === 'function') {
+        onListenerAdded(this);
+      }
+      return res;
+    };
+    wrapped.__nfStageVideoWrapped = true;
+    try {
+      Object.defineProperty(stageInstance, 'addEventListener', {
+        value: wrapped,
+        writable: true,
+        configurable: true,
+      });
+    } catch (_) {}
+  }
+
+  function bindStageMediaProperties(StageClass, getVectorForStage, stageInstance = null, onAvailabilityListener = null) {
     const proto =
       StageClass?.prototype ||
       (stageInstance && typeof stageInstance === 'object' ? Object.getPrototypeOf(stageInstance) : null);
@@ -101,8 +122,13 @@
     const store = proto[stageHookSym];
     if (stageInstance && typeof stageInstance === 'object') {
       store.byStage.set(stageInstance, getVectorForStage);
+      if (onAvailabilityListener) {
+        store.availByStage.set(stageInstance, onAvailabilityListener);
+        wrapStageAvailabilityListener(stageInstance, onAvailabilityListener);
+      }
     } else {
       store.fallback = getVectorForStage;
+      if (onAvailabilityListener) store.availFallback = onAvailabilityListener;
     }
   }
 
@@ -1270,7 +1296,7 @@
         }
         super();
         const cache = JSON.parse(callKernel(() => kernel.camera_state_json(index)));
-        cameraStates.set(this, { index, cache });
+        cameraStates.set(this, { index, cache, videoSource: null });
       }
       static get isSupported() { return true; }
       static get names() {
@@ -1286,6 +1312,10 @@
           cameraInstances.set(idx, inst);
         }
         return inst;
+      }
+      attachVideoSource(source) {
+        const slot = readCameraState(this);
+        slot.videoSource = source ?? null;
       }
       get activityLevel() { return readCameraState(this).cache.activity_level; }
       get bandwidth() { return readCameraState(this).cache.bandwidth; }
@@ -1386,6 +1416,19 @@
         const y = Number(rect.y) | 0;
         const w = Number(rect.width) | 0;
         const h = Number(rect.height) | 0;
+        if (slot.videoSource && typeof slot.videoSource.getPixel32 === 'function') {
+          callKernel(() => kernel.camera_frame_argb_u32(slot.index, x, y, w, h));
+          for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+              const argb = (slot.videoSource.getPixel32(x + px, y + py) >>> 0);
+              destination.writeByte((argb >>> 24) & 0xFF);
+              destination.writeByte((argb >>> 16) & 0xFF);
+              destination.writeByte((argb >>> 8) & 0xFF);
+              destination.writeByte(argb & 0xFF);
+            }
+          }
+          return;
+        }
         const bytes = callKernel(() => kernel.camera_frame_argb_bytes(slot.index, x, y, w, h));
         for (let i = 0; i < bytes.length; i++) {
           destination.writeByte(bytes[i]);
@@ -1404,6 +1447,14 @@
         const w = Number(rect.width) | 0;
         const h = Number(rect.height) | 0;
         const pixels = callKernel(() => kernel.camera_frame_argb_u32(slot.index, x, y, w, h));
+        if (slot.videoSource && typeof slot.videoSource.getPixel32 === 'function') {
+          let k = 0;
+          for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+              pixels[k++] = slot.videoSource.getPixel32(x + px, y + py) >>> 0;
+            }
+          }
+        }
         if (!destination.fixed && destination.length < pixels.length) {
           destination.length = pixels.length;
         }
@@ -1428,7 +1479,12 @@
           let k = 0;
           for (let py = 0; py < h; py++) {
             for (let px = 0; px < w; px++) {
-              destination.setPixel32(px, py, pixels[k++] >>> 0);
+              const pxVal =
+                slot.videoSource && typeof slot.videoSource.getPixel32 === 'function'
+                  ? slot.videoSource.getPixel32(px, py) >>> 0
+                  : pixels[k] >>> 0;
+              k++;
+              destination.setPixel32(px, py, pxVal);
             }
           }
         } finally {
@@ -1448,7 +1504,7 @@
             if (!active || disposed) return null;
             const cur = readCameraState(cam).cache;
             return {
-              image: null,
+              image: slot.videoSource || null,
               width: cur.width,
               height: cur.height,
               id: `as3-cam:${slot.index}:${cur.frame_revision}`,
@@ -1633,6 +1689,9 @@
       setLoopBack(state = true) {
         const slot = readMicState(this);
         slot.cache = JSON.parse(callKernel(() => kernel.mic_set_loop_back_json(slot.index, Boolean(state))));
+        if (state && this.hasEventListener('sampleData')) {
+          this.pollSampleData(512);
+        }
       }
       setLoopback(state = true) {
         this.setLoopBack(state);
@@ -1659,8 +1718,101 @@
           this.dispatchEvent(new StatusEvent(StatusEvent.STATUS, false, false, 'Microphone.Unmuted', 'status'));
         }
       }
+      pollSampleData(sampleCount = 2048) {
+        const slot = readMicState(this);
+        const count = Math.max(1, Math.min(16384, Number(sampleCount) | 0 || 2048));
+        const pcm = JSON.parse(callKernel(() => kernel.mic_sample_pcm_json(slot.index, count)));
+        slot.cache.activity_level = pcm.activity_level;
+        slot.cache.sample_position = pcm.sample_position;
+        if (!binary?.ByteArray) return null;
+        const ba = new binary.ByteArray();
+        for (let i = 0; i < pcm.bytes.length; i++) {
+          ba.writeByte(pcm.bytes[i]);
+        }
+        ba.position = 0;
+        const SampleDataEvent = events.SampleDataEvent;
+        if (!SampleDataEvent) return null;
+        const ev = new SampleDataEvent(
+          SampleDataEvent.SAMPLE_DATA || 'sampleData',
+          false,
+          false,
+          pcm.position,
+          ba
+        );
+        if (ActivityEvent && !slot.activityActive && pcm.activity_level > slot.cache.silence_level) {
+          slot.activityActive = true;
+          if (this.hasEventListener('activity')) {
+            this.dispatchEvent(new ActivityEvent(ActivityEvent.ACTIVITY, false, false, true));
+          }
+        }
+        if (this.hasEventListener('sampleData')) {
+          this.dispatchEvent(ev);
+        }
+        return ev;
+      }
     }
     tagType(Microphone, 'Microphone', v => micStates.has(v));
+
+    function stepMicrophones(sampleCount = 1024) {
+      if (disposed) return 0;
+      let dispatched = 0;
+      for (const mic of micInstances.values()) {
+        if (mic.hasEventListener('sampleData')) {
+          mic.pollSampleData(sampleCount);
+          dispatched++;
+        }
+      }
+      return dispatched;
+    }
+
+    function scanHardware(customDevices = null) {
+      if (disposed) return null;
+      const cams = Array.isArray(customDevices?.cameras) ? customDevices.cameras.map(String) : [];
+      const mics = Array.isArray(customDevices?.microphones) ? customDevices.microphones.map(String) : [];
+      const outs = Array.isArray(customDevices?.audioOutputs) ? customDevices.audioOutputs.map(String) : [];
+      const prevOuts = JSON.parse(callKernel(() => kernel.audio_device_names_json()));
+      const result = JSON.parse(
+        callKernel(() =>
+          kernel.sync_hardware_devices_json(
+            JSON.stringify(cams),
+            JSON.stringify(mics),
+            JSON.stringify(outs)
+          )
+        )
+      );
+      if (
+        audioMgrSingleton &&
+        outs.length > 0 &&
+        JSON.stringify(prevOuts) !== JSON.stringify(result.audio_outputs)
+      ) {
+        audioMgrSingleton.dispatchEvent(
+          new AudioOutputChangeEvent(
+            AudioOutputChangeEvent.AUDIO_OUTPUT_CHANGE,
+            false,
+            false,
+            AudioOutputChangeReason.DEVICE_CHANGE
+          )
+        );
+      }
+      if (
+        !customDevices &&
+        typeof global.navigator?.mediaDevices?.enumerateDevices === 'function'
+      ) {
+        global.navigator.mediaDevices
+          .enumerateDevices()
+          .then(list => {
+            if (disposed || !Array.isArray(list)) return;
+            const c = list.filter(d => d.kind === 'videoinput').map((d, i) => d.label || `Camera ${i + 1}`);
+            const m = list.filter(d => d.kind === 'audioinput').map((d, i) => d.label || `Microphone ${i + 1}`);
+            const o = list.filter(d => d.kind === 'audiooutput').map((d, i) => d.label || `Audio Output ${i + 1}`);
+            if (c.length || m.length || o.length) {
+              scanHardware({ cameras: c, microphones: m, audioOutputs: o });
+            }
+          })
+          .catch(() => {});
+      }
+      return result;
+    }
 
     // ---- VideoStreamSettings, H264VideoStreamSettings, VP6VideoStreamSettings ----
     const videoSettingsStates = new WeakMap();
@@ -1899,9 +2051,95 @@
       return cachedStageVideosVector;
     }
 
+    function dispatchStageVideoAvailability(stageTarget) {
+      if (!stageTarget || typeof stageTarget.dispatchEvent !== 'function') return;
+      stageTarget.dispatchEvent(
+        new StageVideoAvailabilityEvent(
+          StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY,
+          false,
+          false,
+          StageVideoAvailability.AVAILABLE,
+          StageVideoAvailabilityReason.NO_ERROR
+        )
+      );
+    }
+
+    function paintStageVideos(context, stageWidth = 800, stageHeight = 600) {
+      if (disposed || !context) return [];
+      const activeSlots = [];
+      for (const sv of ensureStageVideoPool()) {
+        const slot = readStageVideo(sv);
+        if (slot.stream || slot.camera) {
+          activeSlots.push({ sv, slot });
+        }
+      }
+      if (!activeSlots.length) return [];
+      activeSlots.sort((a, b) => a.slot.cache.depth - b.slot.cache.depth || a.slot.index - b.slot.index);
+      const rendered = [];
+      for (const { slot } of activeSlots) {
+        const vp = slot.cache.view_port;
+        const vx = vp[2] > 0 && vp[3] > 0 ? vp[0] : 0;
+        const vy = vp[2] > 0 && vp[3] > 0 ? vp[1] : 0;
+        const vw = vp[2] > 0 ? vp[2] : stageWidth;
+        const vh = vp[3] > 0 ? vp[3] : stageHeight;
+        const [panX, panY] = slot.cache.pan;
+        const [zoomX, zoomY] = slot.cache.zoom;
+        const drawW = vw * zoomX;
+        const drawH = vh * zoomY;
+        const drawX = vx + (vw - drawW) * 0.5 - panX * (drawW - vw) * 0.5;
+        const drawY = vy + (vh - drawH) * 0.5 - panY * (drawH - vh) * 0.5;
+        context.save?.();
+        try {
+          if (typeof context.beginPath === 'function' && typeof context.rect === 'function' && typeof context.clip === 'function') {
+            context.beginPath();
+            context.rect(vx, vy, vw, vh);
+            context.clip();
+          }
+          const camSlot = slot.camera ? cameraStates.get(slot.camera) : null;
+          const drawableSource =
+            slot.stream?.videoElement ||
+            slot.stream?.canvas ||
+            camSlot?.videoSource?.videoElement ||
+            camSlot?.videoSource?.canvas ||
+            null;
+          if (drawableSource && typeof context.drawImage === 'function') {
+            context.drawImage(drawableSource, drawX, drawY, drawW, drawH);
+          } else if (typeof context.fillRect === 'function') {
+            let sampleHex = '#102840';
+            if (camSlot) {
+              const px = callKernel(() => kernel.camera_frame_argb_u32(camSlot.index, 0, 0, 1, 1));
+              if (px.length > 0) {
+                const rgb = px[0] & 0xFFFFFF;
+                sampleHex = '#' + rgb.toString(16).padStart(6, '0');
+              }
+            }
+            context.fillStyle = sampleHex;
+            context.fillRect(drawX, drawY, drawW, drawH);
+          }
+          const summary = {
+            slotIndex: slot.index,
+            depth: slot.cache.depth,
+            viewPort: { x: vx, y: vy, width: vw, height: vh },
+            drawRect: { x: drawX, y: drawY, width: drawW, height: drawH },
+            sourceKind: slot.camera ? 'camera' : 'netStream',
+          };
+          slot.lastRenderedFrame = summary;
+          rendered.push(summary);
+        } finally {
+          context.restore?.();
+        }
+      }
+      return rendered;
+    }
+
     const stageObj = typeof options.getStage === 'function' ? options.getStage() : null;
     if (options.StageClass || stageObj) {
-      bindStageMediaProperties(options.StageClass, () => createStageVideosVector(), stageObj);
+      bindStageMediaProperties(
+        options.StageClass,
+        () => createStageVideosVector(),
+        stageObj,
+        dispatchStageVideoAvailability
+      );
     }
     if (options.LoaderInfoClass) {
       bindLoaderInfoProperties(options.LoaderInfoClass, () => new UncaughtErrorEvents());
@@ -1944,6 +2182,495 @@
       }
     }
     tagType(Multitouch, 'Multitouch', () => false);
+
+    // ---- Multitouch Multi-Pointer Touch & 2-Finger Gesture Recognizer ----
+    const activeTouches = new Map();
+    let primaryTouchId = null;
+    let activeGestureState = null;
+
+    function resolveEventTarget(rawEvent, targetOverride = null) {
+      if (targetOverride && typeof targetOverride === 'object') return targetOverride;
+      if (typeof options.hitTest === 'function') {
+        try {
+          const hit = options.hitTest(rawEvent);
+          if (hit) return hit;
+        } catch (_) {}
+      }
+      return (typeof options.getStage === 'function' ? options.getStage() : null) || null;
+    }
+
+    function resolveStageAndLocalCoords(rawEvent, target) {
+      let stageX = Number(rawEvent?.stageX ?? rawEvent?.clientX ?? rawEvent?.x ?? 0);
+      let stageY = Number(rawEvent?.stageY ?? rawEvent?.clientY ?? rawEvent?.y ?? 0);
+      if (
+        rawEvent?.stageX === undefined &&
+        typeof options.coordinates === 'function' &&
+        rawEvent?.clientX !== undefined
+      ) {
+        try {
+          const pt = options.coordinates(rawEvent);
+          if (Array.isArray(pt) && pt.length >= 2) {
+            stageX = Number(pt[0]);
+            stageY = Number(pt[1]);
+          }
+        } catch (_) {}
+      }
+      let localX = Number(rawEvent?.localX ?? stageX);
+      let localY = Number(rawEvent?.localY ?? stageY);
+      if (rawEvent?.localX === undefined && typeof options.localPoint === 'function' && target) {
+        try {
+          const lp = options.localPoint(target, stageX, stageY);
+          if (Array.isArray(lp) && lp.length >= 2) {
+            localX = Number(lp[0]);
+            localY = Number(lp[1]);
+          }
+        } catch (_) {}
+      }
+      return { stageX, stageY, localX, localY };
+    }
+
+    function dispatchOnTarget(target, ev) {
+      if (!target || !ev) return false;
+      if (options.eventHub && typeof options.eventHub.dispatch === 'function') {
+        try {
+          return options.eventHub.dispatch(target, ev);
+        } catch (_) {}
+      }
+      if (typeof target.dispatchEvent === 'function') {
+        return target.dispatchEvent(ev);
+      }
+      return false;
+    }
+
+    function encodeTouchSamplesByteArray(samplesList) {
+      if (!binary?.ByteArray || !Array.isArray(samplesList) || !samplesList.length) return null;
+      const ba = new binary.ByteArray();
+      for (const s of samplesList) {
+        if (typeof ba.writeFloat === 'function') {
+          ba.writeFloat(Number(s.x) || 0);
+          ba.writeFloat(Number(s.y) || 0);
+          ba.writeFloat(Number(s.pressure ?? 1));
+        }
+      }
+      ba.position = 0;
+      return ba;
+    }
+
+    function makeTouchEventInstance(type, pointState, rawEvent, relatedObject = null) {
+      const TouchEvent = events.TouchEvent;
+      if (!TouchEvent) return null;
+      const ev = new TouchEvent(
+        type,
+        true,
+        false,
+        pointState.id,
+        pointState.isPrimary,
+        pointState.localX,
+        pointState.localY,
+        pointState.sizeX,
+        pointState.sizeY,
+        pointState.pressure,
+        relatedObject,
+        Boolean(rawEvent?.ctrlKey),
+        Boolean(rawEvent?.altKey),
+        Boolean(rawEvent?.shiftKey)
+      );
+      if (typeof events.setStagePoint === 'function') {
+        events.setStagePoint(ev, pointState.stageX, pointState.stageY);
+      }
+      const samplesBa = encodeTouchSamplesByteArray(pointState.samples);
+      if (samplesBa) {
+        try { ev.samples = samplesBa; } catch (_) {}
+        Object.defineProperty(ev, 'getSamples', {
+          configurable: true,
+          value(buffer, append = false) {
+            if (!isByteArray(buffer)) {
+              throw new TypeError('TouchEvent.getSamples requires a ByteArray buffer.');
+            }
+            if (!append && typeof buffer.clear === 'function') buffer.clear();
+            const src = this.samples || samplesBa;
+            if (src && typeof src.length === 'number' && src.length > 0 && typeof buffer.writeBytes === 'function') {
+              buffer.writeBytes(src, 0, src.length);
+              return Math.floor(src.length / 12);
+            }
+            return 0;
+          },
+        });
+      }
+      return ev;
+    }
+
+    function handleTouchPointMode(kind, rawEvent, target) {
+      const TouchEvent = events.TouchEvent;
+      if (!TouchEvent) return [];
+      const id = Number(rawEvent?.pointerId ?? rawEvent?.touchPointID ?? rawEvent?.identifier ?? 1) | 0;
+      const { stageX, stageY, localX, localY } = resolveStageAndLocalCoords(rawEvent, target);
+      const sizeX = Number(rawEvent?.width ?? rawEvent?.sizeX ?? 10);
+      const sizeY = Number(rawEvent?.height ?? rawEvent?.sizeY ?? 10);
+      const pressure = Number(rawEvent?.pressure ?? 1);
+      const dispatched = [];
+
+      if (kind === 'down' || kind === 'touchstart' || kind === 'pointerdown') {
+        if (primaryTouchId === null || activeTouches.size === 0) {
+          primaryTouchId = id;
+        }
+        const pointState = {
+          id,
+          isPrimary: primaryTouchId === id,
+          startX: stageX,
+          startY: stageY,
+          stageX,
+          stageY,
+          localX,
+          localY,
+          sizeX,
+          sizeY,
+          pressure,
+          target,
+          moved: false,
+          samples: [{ x: localX, y: localY, pressure }],
+        };
+        activeTouches.set(id, pointState);
+        const overEv = makeTouchEventInstance(TouchEvent.TOUCH_OVER || 'touchOver', pointState, rawEvent, null);
+        const rollOverEv = makeTouchEventInstance(TouchEvent.TOUCH_ROLL_OVER || 'touchRollOver', pointState, rawEvent, null);
+        const beginEv = makeTouchEventInstance(TouchEvent.TOUCH_BEGIN || 'touchBegin', pointState, rawEvent, null);
+        if (overEv) { dispatchOnTarget(target, overEv); dispatched.push(overEv); }
+        if (rollOverEv) { dispatchOnTarget(target, rollOverEv); dispatched.push(rollOverEv); }
+        if (beginEv) { dispatchOnTarget(target, beginEv); dispatched.push(beginEv); }
+      } else if (kind === 'move' || kind === 'touchmove' || kind === 'pointermove') {
+        const pointState = activeTouches.get(id);
+        if (!pointState) return dispatched;
+        const prevTarget = pointState.target;
+        pointState.stageX = stageX;
+        pointState.stageY = stageY;
+        pointState.localX = localX;
+        pointState.localY = localY;
+        pointState.sizeX = sizeX;
+        pointState.sizeY = sizeY;
+        pointState.pressure = pressure;
+        pointState.target = target;
+        if (Math.hypot(stageX - pointState.startX, stageY - pointState.startY) > 6) {
+          pointState.moved = true;
+        }
+        pointState.samples.push({ x: localX, y: localY, pressure });
+        if (pointState.samples.length > 64) pointState.samples.shift();
+        if (prevTarget && prevTarget !== target) {
+          const outEv = makeTouchEventInstance(TouchEvent.TOUCH_OUT || 'touchOut', pointState, rawEvent, target);
+          const rollOutEv = makeTouchEventInstance(TouchEvent.TOUCH_ROLL_OUT || 'touchRollOut', pointState, rawEvent, target);
+          if (outEv) { dispatchOnTarget(prevTarget, outEv); dispatched.push(outEv); }
+          if (rollOutEv) { dispatchOnTarget(prevTarget, rollOutEv); dispatched.push(rollOutEv); }
+          const overEv = makeTouchEventInstance(TouchEvent.TOUCH_OVER || 'touchOver', pointState, rawEvent, prevTarget);
+          const rollOverEv = makeTouchEventInstance(TouchEvent.TOUCH_ROLL_OVER || 'touchRollOver', pointState, rawEvent, prevTarget);
+          if (overEv) { dispatchOnTarget(target, overEv); dispatched.push(overEv); }
+          if (rollOverEv) { dispatchOnTarget(target, rollOverEv); dispatched.push(rollOverEv); }
+        }
+        const moveEv = makeTouchEventInstance(TouchEvent.TOUCH_MOVE || 'touchMove', pointState, rawEvent, null);
+        if (moveEv) { dispatchOnTarget(target, moveEv); dispatched.push(moveEv); }
+      } else if (
+        kind === 'up' ||
+        kind === 'touchend' ||
+        kind === 'pointerup' ||
+        kind === 'cancel' ||
+        kind === 'pointercancel'
+      ) {
+        const pointState = activeTouches.get(id) || {
+          id,
+          isPrimary: primaryTouchId === id,
+          startX: stageX,
+          startY: stageY,
+          stageX,
+          stageY,
+          localX,
+          localY,
+          sizeX,
+          sizeY,
+          pressure,
+          target,
+          moved: false,
+          samples: [{ x: localX, y: localY, pressure }],
+        };
+        pointState.stageX = stageX;
+        pointState.stageY = stageY;
+        pointState.localX = localX;
+        pointState.localY = localY;
+        activeTouches.delete(id);
+        if (primaryTouchId === id) {
+          const next = activeTouches.keys().next();
+          primaryTouchId = next.done ? null : next.value;
+          if (primaryTouchId !== null) {
+            activeTouches.get(primaryTouchId).isPrimary = true;
+          }
+        }
+        const endEv = makeTouchEventInstance(TouchEvent.TOUCH_END || 'touchEnd', pointState, rawEvent, null);
+        if (endEv) { dispatchOnTarget(target, endEv); dispatched.push(endEv); }
+        if (!pointState.moved && kind !== 'cancel' && kind !== 'pointercancel') {
+          const tapEv = makeTouchEventInstance(TouchEvent.TOUCH_TAP || 'touchTap', pointState, rawEvent, null);
+          if (tapEv) { dispatchOnTarget(target, tapEv); dispatched.push(tapEv); }
+        }
+      }
+      return dispatched;
+    }
+
+    function handleGestureMode(kind, rawEvent, target) {
+      const TransformGestureEvent = events.TransformGestureEvent;
+      const GestureEvent = events.GestureEvent;
+      const PressAndTapGestureEvent = events.PressAndTapGestureEvent;
+      const GesturePhase = events.GesturePhase || {
+        ALL: 'all',
+        BEGIN: 'begin',
+        UPDATE: 'update',
+        END: 'end',
+      };
+      const id = Number(rawEvent?.pointerId ?? rawEvent?.touchPointID ?? rawEvent?.identifier ?? 1) | 0;
+      const { stageX, stageY, localX, localY } = resolveStageAndLocalCoords(rawEvent, target);
+      const dispatched = [];
+
+      if (kind === 'down' || kind === 'touchstart' || kind === 'pointerdown') {
+        activeTouches.set(id, {
+          id,
+          startX: stageX,
+          startY: stageY,
+          stageX,
+          stageY,
+          localX,
+          localY,
+          target,
+          moved: false,
+        });
+        if (activeTouches.size === 2) {
+          const [p1, p2] = [...activeTouches.values()];
+          const dx = p2.stageX - p1.stageX;
+          const dy = p2.stageY - p1.stageY;
+          activeGestureState = {
+            p1Id: p1.id,
+            p2Id: p2.id,
+            initialDist: Math.max(1e-3, Math.hypot(dx, dy)),
+            prevDist: Math.max(1e-3, Math.hypot(dx, dy)),
+            prevAngle: (Math.atan2(dy, dx) * 180) / Math.PI,
+            prevMidX: (p1.stageX + p2.stageX) * 0.5,
+            prevMidY: (p1.stageY + p2.stageY) * 0.5,
+            began: false,
+            moved: false,
+            target: p1.target || target,
+          };
+        }
+      } else if (kind === 'move' || kind === 'touchmove' || kind === 'pointermove') {
+        const pt = activeTouches.get(id);
+        if (!pt) return dispatched;
+        pt.stageX = stageX;
+        pt.stageY = stageY;
+        pt.localX = localX;
+        pt.localY = localY;
+        if (Math.hypot(stageX - pt.startX, stageY - pt.startY) > 6) {
+          pt.moved = true;
+        }
+        if (activeTouches.size === 2 && activeGestureState && TransformGestureEvent) {
+          const p1 = activeTouches.get(activeGestureState.p1Id);
+          const p2 = activeTouches.get(activeGestureState.p2Id);
+          if (p1 && p2) {
+            const dx = p2.stageX - p1.stageX;
+            const dy = p2.stageY - p1.stageY;
+            const dist = Math.max(1e-3, Math.hypot(dx, dy));
+            const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const midX = (p1.stageX + p2.stageX) * 0.5;
+            const midY = (p1.stageY + p2.stageY) * 0.5;
+            const scaleRatio = dist / activeGestureState.prevDist;
+            let deltaAngle = angle - activeGestureState.prevAngle;
+            while (deltaAngle > 180) deltaAngle -= 360;
+            while (deltaAngle < -180) deltaAngle += 360;
+            const offsetX = midX - activeGestureState.prevMidX;
+            const offsetY = midY - activeGestureState.prevMidY;
+            const phase = activeGestureState.began ? GesturePhase.UPDATE : GesturePhase.BEGIN;
+            activeGestureState.began = true;
+            activeGestureState.moved = true;
+            activeGestureState.prevDist = dist;
+            activeGestureState.prevAngle = angle;
+            activeGestureState.prevMidX = midX;
+            activeGestureState.prevMidY = midY;
+            const gTarget = activeGestureState.target || target;
+
+            if (Math.abs(scaleRatio - 1) > 0.01) {
+              const zoomEv = new TransformGestureEvent(
+                TransformGestureEvent.GESTURE_ZOOM || 'gestureZoom',
+                true,
+                false,
+                phase,
+                midX,
+                midY,
+                scaleRatio,
+                scaleRatio,
+                0,
+                0,
+                0,
+                Boolean(rawEvent?.ctrlKey),
+                Boolean(rawEvent?.altKey),
+                Boolean(rawEvent?.shiftKey)
+              );
+              if (typeof events.setStagePoint === 'function') events.setStagePoint(zoomEv, midX, midY);
+              dispatchOnTarget(gTarget, zoomEv);
+              dispatched.push(zoomEv);
+            }
+            if (Math.abs(deltaAngle) > 0.5) {
+              const rotEv = new TransformGestureEvent(
+                TransformGestureEvent.GESTURE_ROTATE || 'gestureRotate',
+                true,
+                false,
+                phase,
+                midX,
+                midY,
+                1,
+                1,
+                deltaAngle,
+                0,
+                0,
+                Boolean(rawEvent?.ctrlKey),
+                Boolean(rawEvent?.altKey),
+                Boolean(rawEvent?.shiftKey)
+              );
+              if (typeof events.setStagePoint === 'function') events.setStagePoint(rotEv, midX, midY);
+              dispatchOnTarget(gTarget, rotEv);
+              dispatched.push(rotEv);
+            }
+            if (Math.hypot(offsetX, offsetY) > 0.5) {
+              const panEv = new TransformGestureEvent(
+                TransformGestureEvent.GESTURE_PAN || 'gesturePan',
+                true,
+                false,
+                phase,
+                midX,
+                midY,
+                1,
+                1,
+                0,
+                offsetX,
+                offsetY,
+                Boolean(rawEvent?.ctrlKey),
+                Boolean(rawEvent?.altKey),
+                Boolean(rawEvent?.shiftKey)
+              );
+              if (typeof events.setStagePoint === 'function') events.setStagePoint(panEv, midX, midY);
+              dispatchOnTarget(gTarget, panEv);
+              dispatched.push(panEv);
+            }
+          }
+        }
+      } else if (kind === 'up' || kind === 'touchend' || kind === 'pointerup') {
+        const pt = activeTouches.get(id);
+        const remainingCountBeforeDelete = activeTouches.size;
+        activeTouches.delete(id);
+
+        if (remainingCountBeforeDelete === 2 && activeGestureState) {
+          const gTarget = activeGestureState.target || target;
+          if (!activeGestureState.moved) {
+            const other = [...activeTouches.values()][0];
+            if (other && other.moved === false && PressAndTapGestureEvent && rawEvent?.pressAndTap) {
+              const patEv = new PressAndTapGestureEvent(
+                PressAndTapGestureEvent.GESTURE_PRESS_AND_TAP || 'gesturePressAndTap',
+                true,
+                false,
+                GesturePhase.ALL,
+                other.localX,
+                other.localY,
+                localX,
+                localY,
+                Boolean(rawEvent?.ctrlKey),
+                Boolean(rawEvent?.altKey),
+                Boolean(rawEvent?.shiftKey)
+              );
+              if (typeof events.setStagePoint === 'function') {
+                events.setStagePoint(patEv, other.stageX, other.stageY);
+              }
+              dispatchOnTarget(gTarget, patEv);
+              dispatched.push(patEv);
+            } else if (GestureEvent) {
+              const tap2Ev = new GestureEvent(
+                GestureEvent.GESTURE_TWO_FINGER_TAP || 'gestureTwoFingerTap',
+                true,
+                false,
+                GesturePhase.ALL,
+                activeGestureState.prevMidX,
+                activeGestureState.prevMidY,
+                Boolean(rawEvent?.ctrlKey),
+                Boolean(rawEvent?.altKey),
+                Boolean(rawEvent?.shiftKey)
+              );
+              if (typeof events.setStagePoint === 'function') {
+                events.setStagePoint(tap2Ev, activeGestureState.prevMidX, activeGestureState.prevMidY);
+              }
+              dispatchOnTarget(gTarget, tap2Ev);
+              dispatched.push(tap2Ev);
+            }
+          } else if (TransformGestureEvent) {
+            const endEv = new TransformGestureEvent(
+              TransformGestureEvent.GESTURE_PAN || 'gesturePan',
+              true,
+              false,
+              GesturePhase.END,
+              activeGestureState.prevMidX,
+              activeGestureState.prevMidY,
+              1,
+              1,
+              0,
+              0,
+              0,
+              Boolean(rawEvent?.ctrlKey),
+              Boolean(rawEvent?.altKey),
+              Boolean(rawEvent?.shiftKey)
+            );
+            if (typeof events.setStagePoint === 'function') {
+              events.setStagePoint(endEv, activeGestureState.prevMidX, activeGestureState.prevMidY);
+            }
+            dispatchOnTarget(gTarget, endEv);
+            dispatched.push(endEv);
+          }
+          activeGestureState = null;
+        } else if (remainingCountBeforeDelete === 1 && pt && TransformGestureEvent) {
+          const dx = stageX - pt.startX;
+          const dy = stageY - pt.startY;
+          if (Math.hypot(dx, dy) >= 40) {
+            const sx = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 1 : -1) : 0;
+            const sy = Math.abs(dy) > Math.abs(dx) ? (dy > 0 ? 1 : -1) : 0;
+            const swipeEv = new TransformGestureEvent(
+              TransformGestureEvent.GESTURE_SWIPE || 'gestureSwipe',
+              true,
+              false,
+              GesturePhase.ALL,
+              localX,
+              localY,
+              1,
+              1,
+              0,
+              sx,
+              sy,
+              Boolean(rawEvent?.ctrlKey),
+              Boolean(rawEvent?.altKey),
+              Boolean(rawEvent?.shiftKey)
+            );
+            if (typeof events.setStagePoint === 'function') {
+              events.setStagePoint(swipeEv, stageX, stageY);
+            }
+            dispatchOnTarget(pt.target || target, swipeEv);
+            dispatched.push(swipeEv);
+          }
+        }
+      }
+      return dispatched;
+    }
+
+    function handlePointerInput(type, rawEvent, targetOverride = null) {
+      if (disposed) return [];
+      const mode = Multitouch.inputMode;
+      if (mode === MultitouchInputMode.NONE) return [];
+      const target = resolveEventTarget(rawEvent, targetOverride);
+      if (!target) return [];
+      if (mode === MultitouchInputMode.TOUCH_POINT) {
+        return handleTouchPointMode(type, rawEvent, target);
+      }
+      if (mode === MultitouchInputMode.GESTURE) {
+        return handleGestureMode(type, rawEvent, target);
+      }
+      return [];
+    }
 
     // ---- ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenuItem, ContextMenu ----
     const builtInStates = new WeakMap();
@@ -2133,6 +2860,261 @@
     }
     tagType(ContextMenu, 'ContextMenu', v => cmStates.has(v));
 
+    // ---- Interactive HTML5 DOM ContextMenu Overlay ----
+    let activeMenuElement = null;
+    let clipboardTextBuffer = '';
+
+    function closeContextMenu() {
+      if (activeMenuElement) {
+        try { activeMenuElement.remove(); } catch (_) {}
+        activeMenuElement = null;
+      }
+    }
+
+    function getActiveContextMenu() {
+      return activeMenuElement;
+    }
+
+    function executeClipboardMenuAction(action, target) {
+      if (!target || typeof target !== 'object') return;
+      const text = typeof target.text === 'string' ? target.text : '';
+      const begin = Math.max(0, Math.min(text.length, Number(target.selectionBeginIndex ?? 0) | 0));
+      const end = Math.max(begin, Math.min(text.length, Number(target.selectionEndIndex ?? text.length) | 0));
+      if (action === 'selectAll') {
+        if (typeof target.setSelection === 'function') {
+          target.setSelection(0, text.length);
+        } else {
+          target.selectionBeginIndex = 0;
+          target.selectionEndIndex = text.length;
+        }
+      } else if (action === 'copy') {
+        clipboardTextBuffer = begin < end ? text.slice(begin, end) : text;
+      } else if (action === 'cut') {
+        clipboardTextBuffer = begin < end ? text.slice(begin, end) : text;
+        target.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
+      } else if (action === 'paste') {
+        target.text = text.slice(0, begin) + clipboardTextBuffer + text.slice(end);
+      } else if (action === 'clear') {
+        target.text = begin < end ? text.slice(0, begin) + text.slice(end) : '';
+      }
+    }
+
+    function findContextMenuOwner(mouseTarget) {
+      let cur = mouseTarget;
+      const seen = new Set();
+      while (cur && typeof cur === 'object' && !seen.has(cur)) {
+        seen.add(cur);
+        try {
+          if (cur.contextMenu && cmStates.has(cur.contextMenu)) {
+            return { owner: cur, menu: cur.contextMenu };
+          }
+        } catch (_) {}
+        cur = cur.parent || null;
+      }
+      const stg = typeof options.getStage === 'function' ? options.getStage() : null;
+      if (stg && stg.contextMenu && cmStates.has(stg.contextMenu)) {
+        return { owner: stg, menu: stg.contextMenu };
+      }
+      return null;
+    }
+
+    function createFallbackDomNode(tagName, doc) {
+      if (doc && typeof doc.createElement === 'function') {
+        return doc.createElement(tagName);
+      }
+      const attrs = new Map();
+      const children = [];
+      const listeners = new Map();
+      return {
+        tagName: String(tagName).toUpperCase(),
+        className: '',
+        textContent: '',
+        disabled: false,
+        style: {},
+        dataset: {},
+        children,
+        setAttribute(k, v) { attrs.set(String(k), String(v)); },
+        getAttribute(k) { return attrs.has(String(k)) ? attrs.get(String(k)) : null; },
+        appendChild(child) { children.push(child); return child; },
+        addEventListener(type, fn) {
+          const list = listeners.get(type) || [];
+          list.push(fn);
+          listeners.set(type, list);
+        },
+        click() {
+          if (this.disabled) return;
+          for (const fn of listeners.get('click') || []) fn({ type: 'click', target: this });
+        },
+        querySelectorAll(selector) {
+          if (selector === '[role="menuitem"]') {
+            return children.filter(c => c.getAttribute?.('role') === 'menuitem');
+          }
+          if (selector === '[role="separator"]') {
+            return children.filter(c => c.getAttribute?.('role') === 'separator');
+          }
+          return children;
+        },
+        remove() {},
+      };
+    }
+
+    function openContextMenu(rawEvent, targetOverride = null) {
+      if (disposed) return null;
+      closeContextMenu();
+      const mouseTarget = resolveEventTarget(rawEvent, targetOverride);
+      const found = findContextMenuOwner(mouseTarget);
+      if (!found) return null;
+      const { owner: contextMenuOwner, menu } = found;
+      rawEvent?.preventDefault?.();
+
+      if (ContextMenuEvent) {
+        const selectEv = new ContextMenuEvent(
+          ContextMenuEvent.MENU_SELECT || 'menuSelect',
+          false,
+          false,
+          mouseTarget,
+          contextMenuOwner
+        );
+        menu.dispatchEvent(selectEv);
+      }
+
+      const doc = options.document || global.document || null;
+      const container =
+        options.menuContainer ||
+        options.canvas?.parentElement ||
+        doc?.body ||
+        null;
+      const root = createFallbackDomNode('div', doc);
+      root.className = 'nf-as3-context-menu';
+      root.setAttribute('role', 'menu');
+      Object.assign(root.style, {
+        position: 'absolute',
+        left: `${Number(rawEvent?.clientX ?? rawEvent?.stageX ?? 0)}px`,
+        top: `${Number(rawEvent?.clientY ?? rawEvent?.stageY ?? 0)}px`,
+        zIndex: '10000',
+        display: 'flex',
+        flexDirection: 'column',
+      });
+
+      const appendSeparator = () => {
+        const sep = createFallbackDomNode('div', doc);
+        sep.className = 'nf-as3-context-menu-separator';
+        sep.setAttribute('role', 'separator');
+        root.appendChild(sep);
+      };
+
+      const appendButton = (caption, enabled, kind, extraAttrs, onClick) => {
+        const btn = createFallbackDomNode('button', doc);
+        btn.type = 'button';
+        btn.className = 'nf-as3-context-menu-item';
+        btn.setAttribute('role', 'menuitem');
+        btn.setAttribute('data-kind', kind);
+        btn.setAttribute('aria-disabled', String(!enabled));
+        for (const [k, v] of Object.entries(extraAttrs || {})) {
+          btn.setAttribute(k, String(v));
+        }
+        btn.textContent = String(caption);
+        btn.disabled = !enabled;
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          try {
+            onClick();
+          } finally {
+            closeContextMenu();
+          }
+        });
+        root.appendChild(btn);
+        return btn;
+      };
+
+      if (menu.link && menu.link.url) {
+        appendButton('Open Link', true, 'link', { 'data-url': menu.link.url }, () => {
+          if (typeof net?.navigateToURL === 'function') {
+            net.navigateToURL(menu.link, '_blank');
+          }
+        });
+      }
+
+      let renderedCustomCount = 0;
+      for (const item of menu.customItems) {
+        if (!item || !cmItemStates.has(item)) continue;
+        if (!item.visible || !item.caption) continue;
+        if (item.separatorBefore || (renderedCustomCount === 0 && root.children?.length > 0)) {
+          appendSeparator();
+        }
+        renderedCustomCount++;
+        appendButton(item.caption, Boolean(item.enabled), 'custom', {}, () => {
+          if (ContextMenuEvent) {
+            const itemEv = new ContextMenuEvent(
+              ContextMenuEvent.MENU_ITEM_SELECT || 'menuItemSelect',
+              false,
+              false,
+              mouseTarget,
+              contextMenuOwner
+            );
+            item.dispatchEvent(itemEv);
+          }
+        });
+      }
+
+      const clip = menu.clipboardItems;
+      const clipSpecs = [
+        ['cut', 'Cut'],
+        ['copy', 'Copy'],
+        ['paste', 'Paste'],
+        ['clear', 'Clear'],
+        ['selectAll', 'Select All'],
+      ];
+      const anyClipEnabled =
+        menu.clipboardMenu ||
+        clip.cut ||
+        clip.copy ||
+        clip.paste ||
+        clip.clear;
+      if (anyClipEnabled && clip) {
+        if (renderedCustomCount > 0) appendSeparator();
+        for (const [key, label] of clipSpecs) {
+          if (!menu.clipboardMenu && !clip[key]) continue;
+          appendButton(label, Boolean(clip[key]), 'clipboard', { 'data-action': key }, () => {
+            executeClipboardMenuAction(key, mouseTarget);
+          });
+        }
+      }
+
+      const builtIn = menu.builtInItems;
+      const builtInSpecs = [
+        ['zoom', 'Zoom'],
+        ['quality', 'Quality'],
+        ['play', 'Play'],
+        ['loop', 'Loop'],
+        ['rewind', 'Rewind'],
+        ['forwardAndBack', 'Forward / Back'],
+        ['print', 'Print...'],
+        ['save', 'Save'],
+      ];
+      if (!menu.clipboardMenu && builtIn) {
+        let addedBuiltInSeparator = false;
+        for (const [key, label] of builtInSpecs) {
+          if (!builtIn[key]) continue;
+          if (!addedBuiltInSeparator && (renderedCustomCount > 0 || anyClipEnabled)) {
+            appendSeparator();
+            addedBuiltInSeparator = true;
+          }
+          appendButton(label, true, 'builtin', { 'data-builtin': key }, () => {
+            if (typeof options.onBuiltInMenuAction === 'function') {
+              options.onBuiltInMenuAction(key, mouseTarget, contextMenuOwner);
+            }
+          });
+        }
+      }
+
+      if (container && typeof container.appendChild === 'function') {
+        container.appendChild(root);
+      }
+      activeMenuElement = root;
+      return root;
+    }
+
     // ---- GameInput, GameInputDevice, GameInputControl ----
     const gameCtrlToken = {};
     const gameCtrlStates = new WeakMap();
@@ -2249,10 +3231,12 @@
     tagType(GameInputDevice, 'GameInputDevice', v => gameDevStates.has(v));
 
     const gameInputSet = new WeakSet();
+    const liveGameInputs = new Set();
     class GameInput extends BaseDispatcher {
       constructor() {
         super();
         gameInputSet.add(this);
+        liveGameInputs.add(this);
       }
       static get isSupported() { return true; }
       static get numDevices() {
@@ -2270,6 +3254,121 @@
       }
     }
     tagType(GameInput, 'GameInput', v => gameInputSet.has(v));
+
+    const GameInputEvent =
+      events.GameInputEvent ||
+      airBuiltins?.['flash.events.GameInputEvent'] ||
+      (() => {
+        const giEvStates = new WeakMap();
+        class FallbackGameInputEvent extends BaseEvent {
+          constructor(type = 'deviceAdded', bubbles = false, cancelable = false, device = null) {
+            super(type, bubbles, cancelable);
+            giEvStates.set(this, { device: device ?? null });
+          }
+          get device() { return giEvStates.get(this).device; }
+          clone() {
+            return new FallbackGameInputEvent(this.type, this.bubbles, this.cancelable, this.device);
+          }
+          toString() {
+            return fmtEvent(this, 'GameInputEvent', ['device']);
+          }
+        }
+        Object.assign(FallbackGameInputEvent, {
+          DEVICE_ADDED: 'deviceAdded',
+          DEVICE_REMOVED: 'deviceRemoved',
+          DEVICE_UNUSABLE: 'deviceUnusable',
+        });
+        tagType(FallbackGameInputEvent, 'GameInputEvent', v => giEvStates.has(v));
+        return FallbackGameInputEvent;
+      })();
+
+    function syncGamepads(gamepadList) {
+      if (disposed || !Array.isArray(gamepadList)) return [];
+      const results = [];
+      for (let i = 0; i < gamepadList.length && i < 16; i++) {
+        const gp = gamepadList[i];
+        if (!gp) continue;
+        const id = String(gp.id || `gamepad-${i}`);
+        const name = String(gp.name || gp.id || `Gamepad ${i + 1}`);
+        const axes = Array.isArray(gp.axes) ? gp.axes.map(Number) : [];
+        const buttons = Array.isArray(gp.buttons)
+          ? gp.buttons.map(b => (typeof b === 'object' && b !== null ? Number(b.value ?? (b.pressed ? 1 : 0)) : Number(b)))
+          : [];
+        const syncRes = JSON.parse(
+          callKernel(() =>
+            kernel.game_device_sync_json(
+              i,
+              id,
+              name,
+              JSON.stringify(axes),
+              JSON.stringify(buttons)
+            )
+          )
+        );
+        const deviceObj = GameInput.getDeviceAt(i);
+        if (syncRes.is_new && GameInputEvent) {
+          for (const gi of liveGameInputs) {
+            if (gi.hasEventListener(GameInputEvent.DEVICE_ADDED || 'deviceAdded')) {
+              gi.dispatchEvent(
+                new GameInputEvent(
+                  GameInputEvent.DEVICE_ADDED || 'deviceAdded',
+                  false,
+                  false,
+                  deviceObj
+                )
+              );
+            }
+          }
+        }
+        if (Array.isArray(syncRes.changed_controls) && syncRes.changed_controls.length > 0 && deviceObj.enabled) {
+          const devState = syncRes.device;
+          for (const cid of syncRes.changed_controls) {
+            const ctrlIdx = devState.controls.findIndex(c => c.id === cid);
+            if (ctrlIdx >= 0) {
+              const ctrlObj = deviceObj.getControlAt(ctrlIdx);
+              if (ctrlObj.hasEventListener('change')) {
+                ctrlObj.dispatchEvent(new BaseEvent(BaseEvent.CHANGE || 'change', false, false));
+              }
+            }
+          }
+        }
+        results.push({ index: i, device: deviceObj, isNew: syncRes.is_new, changedControls: syncRes.changed_controls });
+      }
+      return results;
+    }
+
+    function removeGamepad(index) {
+      if (disposed) return null;
+      const idx = Number(index) | 0;
+      const deviceObj = gameDevInstances.get(idx) || null;
+      callKernel(() => kernel.game_device_remove_json(idx));
+      gameDevInstances.delete(idx);
+      if (GameInputEvent) {
+        for (const gi of liveGameInputs) {
+          if (gi.hasEventListener(GameInputEvent.DEVICE_REMOVED || 'deviceRemoved')) {
+            gi.dispatchEvent(
+              new GameInputEvent(
+                GameInputEvent.DEVICE_REMOVED || 'deviceRemoved',
+                false,
+                false,
+                deviceObj
+              )
+            );
+          }
+        }
+      }
+      return deviceObj;
+    }
+
+    function pollNavigatorGamepads() {
+      if (disposed || typeof global.navigator?.getGamepads !== 'function') return [];
+      try {
+        const pads = Array.from(global.navigator.getGamepads() || []).filter(Boolean);
+        return pads.length ? syncGamepads(pads) : [];
+      } catch (_) {
+        return [];
+      }
+    }
 
     // =========================================================================
     // 4. flash.accessibility.*
@@ -2365,6 +3464,44 @@
       }
     );
 
+    function applyAccessibilityPropertiesToSemanticNodes(nodes, resolveDisplayObject) {
+      if (!Array.isArray(nodes)) return [];
+      const out = [];
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue;
+        const baseAcc = { ...(node.accessibility || {}) };
+        let disp = null;
+        if (typeof resolveDisplayObject === 'function') {
+          try { disp = resolveDisplayObject(node); } catch (_) {}
+        }
+        const props = disp?.accessibilityProperties;
+        if (props && typeof props === 'object') {
+          if (typeof props.name === 'string' && props.name.length > 0) baseAcc.name = props.name;
+          if (typeof props.description === 'string') baseAcc.description = props.description;
+          if (typeof props.shortcut === 'string') baseAcc.shortcut = props.shortcut;
+          if (typeof props.silent === 'boolean') baseAcc.silent = props.silent;
+          if (typeof props.forceSimple === 'boolean') baseAcc.forceSimple = props.forceSimple;
+          if (typeof props.noAutoLabeling === 'boolean') baseAcc.noAutoLabeling = props.noAutoLabeling;
+        }
+        const impl = disp?.accessibilityImplementation;
+        if (impl && typeof impl === 'object' && !impl.stub) {
+          try {
+            const implName = impl.get_accName?.(0);
+            if (typeof implName === 'string' && implName.length > 0) baseAcc.name = implName;
+          } catch (_) {}
+          try {
+            const implVal = impl.get_accValue?.(0);
+            if (typeof implVal === 'string' && implVal.length > 0 && !baseAcc.description) {
+              baseAcc.description = implVal;
+            }
+          } catch (_) {}
+        }
+        if (baseAcc.silent) continue;
+        out.push({ ...node, accessibility: baseAcc });
+      }
+      return out;
+    }
+
     class Accessibility {
       constructor() {
         throw makeArgumentError('Error #2012: Accessibility$ class cannot be instantiated.', 2012);
@@ -2419,11 +3556,59 @@
     });
 
     // =========================================================================
-    // Lifecycle & Builtin Map
+    // Canvas DOM Listeners & Lifecycle
     // =========================================================================
+    const canvasEl = options.canvas || null;
+    const onCanvasContextMenu = ev => {
+      try {
+        openContextMenu(ev);
+      } catch (err) {
+        options.onError?.(err);
+      }
+    };
+    const onCanvasPointerDown = ev => {
+      closeContextMenu();
+      if (Multitouch.inputMode !== MultitouchInputMode.NONE) {
+        try {
+          handlePointerInput('pointerdown', ev);
+        } catch (err) {
+          options.onError?.(err);
+        }
+      }
+    };
+    const onCanvasPointerMove = ev => {
+      if (Multitouch.inputMode !== MultitouchInputMode.NONE && activeTouches.size > 0) {
+        try {
+          handlePointerInput('pointermove', ev);
+        } catch (err) {
+          options.onError?.(err);
+        }
+      }
+    };
+    const onCanvasPointerUp = ev => {
+      if (Multitouch.inputMode !== MultitouchInputMode.NONE && activeTouches.size > 0) {
+        try {
+          handlePointerInput('pointerup', ev);
+        } catch (err) {
+          options.onError?.(err);
+        }
+      }
+    };
+
+    if (canvasEl && typeof canvasEl.addEventListener === 'function') {
+      canvasEl.addEventListener('contextmenu', onCanvasContextMenu);
+      canvasEl.addEventListener('pointerdown', onCanvasPointerDown);
+      canvasEl.addEventListener('pointermove', onCanvasPointerMove);
+      canvasEl.addEventListener('pointerup', onCanvasPointerUp);
+    }
 
     function reset() {
       if (disposed) return;
+      closeContextMenu();
+      activeTouches.clear();
+      primaryTouchId = null;
+      activeGestureState = null;
+      liveGameInputs.clear();
       cameraInstances.clear();
       micInstances.clear();
       stageVideoPool.length = 0;
@@ -2436,6 +3621,17 @@
     function dispose() {
       if (disposed) return;
       disposed = true;
+      closeContextMenu();
+      if (canvasEl && typeof canvasEl.removeEventListener === 'function') {
+        canvasEl.removeEventListener('contextmenu', onCanvasContextMenu);
+        canvasEl.removeEventListener('pointerdown', onCanvasPointerDown);
+        canvasEl.removeEventListener('pointermove', onCanvasPointerMove);
+        canvasEl.removeEventListener('pointerup', onCanvasPointerUp);
+      }
+      activeTouches.clear();
+      primaryTouchId = null;
+      activeGestureState = null;
+      liveGameInputs.clear();
       cameraInstances.clear();
       micInstances.clear();
       stageVideoPool.length = 0;
@@ -2455,6 +3651,7 @@
       'flash.accessibility.ISimpleTextSelection': ISimpleTextSelection,
 
       // flash.events.*
+      'flash.events.GameInputEvent': GameInputEvent,
       'flash.events.AVDictionaryDataEvent': AVDictionaryDataEvent,
       'flash.events.AVHTTPStatusEvent': AVHTTPStatusEvent,
       'flash.events.AudioOutputChangeEvent': AudioOutputChangeEvent,
@@ -2478,6 +3675,7 @@
       'flash.events.VideoTextureEvent': VideoTextureEvent,
 
       // flash.media.*
+      'flash.media.scanHardware': scanHardware,
       'flash.media.AVTagData': AVTagData,
       'flash.media.AVURLLoader': AVURLLoader,
       'flash.media.AVURLStream': AVURLStream,
@@ -2516,8 +3714,20 @@
       builtins,
       cameraVideoAdapter,
       getStageVideos: () => createStageVideosVector(),
+      paintStageVideos,
+      stepMicrophones,
+      scanHardware,
+      handlePointerInput,
+      openContextMenu,
+      closeContextMenu,
+      getActiveContextMenu,
+      syncGamepads,
+      removeGamepad,
+      pollNavigatorGamepads,
+      applyAccessibilityPropertiesToSemanticNodes,
       setVectorFactory,
-      bindStage: StageClass => bindStageMediaProperties(StageClass, () => createStageVideosVector()),
+      bindStage: (StageClass, stageInst = null) =>
+        bindStageMediaProperties(StageClass, () => createStageVideosVector(), stageInst, dispatchStageVideoAvailability),
       bindLoaderInfo: LoaderInfoClass => bindLoaderInfoProperties(LoaderInfoClass, () => new UncaughtErrorEvents()),
       reset,
       dispose,

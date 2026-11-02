@@ -601,7 +601,7 @@ fn as3_air_remaining_surface_compiles_and_executes_end_to_end() {
                             "<DigestValue>a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e</DigestValue>" +
                             "</Reference>" +
                             "</SignedInfo>" +
-                            "<SignatureValue>TkVPRkxBU0hTU0lHTkFUVVJFVjE=</SignatureValue>" +
+                            "<SignatureValue>wbXPdq0Uaj7yWQPakjzSlQf2l5yIfh5gM4Z5PPEuHBI=</SignatureValue>" +
                             "</Signature>"
                         );
                         sigVal.verify(sigXml);

@@ -1397,6 +1397,37 @@ impl WebPlayer {
             .object_scene_step(&self.project, &object_ref(target)?, step)
             .map_or(-1, |frame| frame as i32))
     }
+    pub fn set_morph_shape_ops(&mut self, target: &str, json: &str) -> Result<(), JsValue> {
+        let ops: Vec<GraphicsOp> = serde_json::from_str(json).map_err(display_error)?;
+        self.player
+            .set_morph_shape_ops(&object_ref(target)?, &ops)
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn loader_replace_swf(
+        &mut self,
+        target: &str,
+        as_version: u32,
+        width: u32,
+        height: u32,
+        has_bg_color: bool,
+        bg_color: u32,
+        as2_replace: bool,
+    ) -> Result<String, JsValue> {
+        let result = self
+            .player
+            .loader_replace_swf(
+                &self.project,
+                &object_ref(target)?,
+                as_version,
+                width,
+                height,
+                has_bg_color.then_some(bg_color),
+                as2_replace,
+            )
+            .map_err(display_error)?;
+        serde_json::to_string(&result).map_err(display_error)
+    }
 }
 
 #[wasm_bindgen]
@@ -1980,6 +2011,19 @@ impl AirKernel {
         neoflash_core::as3_air::hmac_sha256(key, data).to_vec()
     }
 
+    pub fn xml_c14n(&self, xml_fragment: &str) -> String {
+        neoflash_core::as3_air::canonicalize_xml_fragment(xml_fragment)
+    }
+
+    pub fn device_rotation_quaternion(
+        &self,
+        alpha_deg: f64,
+        beta_deg: f64,
+        gamma_deg: f64,
+    ) -> Vec<f64> {
+        neoflash_core::as3_air::device_rotation_quaternion(alpha_deg, beta_deg, gamma_deg)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn rasterize_text_rgba(
         &self,
@@ -2398,6 +2442,38 @@ impl As3Fte3dKernel {
 
     pub fn present(&mut self, ctx_id: u32) -> Result<(), JsValue> {
         self.inner.stage3d.present(ctx_id).map_err(fte3d_js_err)
+    }
+
+    pub fn presented_width(&self, ctx_id: u32) -> Result<u32, JsValue> {
+        let (w, _, _) = self
+            .inner
+            .stage3d
+            .presented_rgba(ctx_id)
+            .map_err(fte3d_js_err)?;
+        Ok(w)
+    }
+
+    pub fn presented_height(&self, ctx_id: u32) -> Result<u32, JsValue> {
+        let (_, h, _) = self
+            .inner
+            .stage3d
+            .presented_rgba(ctx_id)
+            .map_err(fte3d_js_err)?;
+        Ok(h)
+    }
+
+    pub fn presented_rgba(&self, ctx_id: u32) -> Result<Vec<u8>, JsValue> {
+        let (_, _, rgba) = self
+            .inner
+            .stage3d
+            .presented_rgba(ctx_id)
+            .map_err(fte3d_js_err)?;
+        Ok(rgba)
+    }
+
+    pub fn inspect_swf_bytes_json(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        let info = neoflash_core::as3_fte_3d::inspect_swf_bytes(bytes).map_err(fte3d_js_err)?;
+        serde_json::to_string(&info).map_err(display_error)
     }
 
     pub fn backbuffer_width(&self, ctx_id: u32) -> Result<u32, JsValue> {
@@ -3072,6 +3148,83 @@ impl As3MediaEventsKernel {
             .game_device_drain_samples(index)
             .map_err(media_events_js_err)?;
         media_events_json(&serde_json::json!({ "rows": rows, "bytes": bytes }))
+    }
+
+    pub fn mic_sample_pcm_json(
+        &mut self,
+        index: u32,
+        sample_count: u32,
+    ) -> Result<String, JsValue> {
+        let (position, bytes) = self
+            .inner
+            .mic_sample_pcm_bytes(index as usize, sample_count as usize)
+            .map_err(media_events_js_err)?;
+        let state = self
+            .inner
+            .mic_get(index as usize)
+            .map_err(media_events_js_err)?;
+        media_events_json(&serde_json::json!({
+            "position": position,
+            "bytes": bytes,
+            "activity_level": state.activity_level,
+            "sample_position": state.sample_position,
+        }))
+    }
+
+    pub fn sync_hardware_devices_json(
+        &mut self,
+        cameras_json: &str,
+        microphones_json: &str,
+        audio_outputs_json: &str,
+    ) -> Result<String, JsValue> {
+        let cameras: Vec<String> = serde_json::from_str(cameras_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid cameras JSON: {e}")))?;
+        let microphones: Vec<String> = serde_json::from_str(microphones_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid microphones JSON: {e}")))?;
+        let audio_outputs: Vec<String> = serde_json::from_str(audio_outputs_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid audio_outputs JSON: {e}")))?;
+        self.inner
+            .sync_hardware_devices(cameras, microphones, audio_outputs);
+        media_events_json(&serde_json::json!({
+            "cameras": self.inner.camera_names(),
+            "microphones": self.inner.microphone_names(),
+            "audio_outputs": self.inner.audio_device_names,
+        }))
+    }
+
+    pub fn game_device_sync_json(
+        &mut self,
+        index: u32,
+        id: &str,
+        name: &str,
+        axes_json: &str,
+        buttons_json: &str,
+    ) -> Result<String, JsValue> {
+        let axes: Vec<f64> = serde_json::from_str(axes_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid axes JSON: {e}")))?;
+        let buttons: Vec<f64> = serde_json::from_str(buttons_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid buttons JSON: {e}")))?;
+        let (is_new, changed_controls) = self
+            .inner
+            .game_device_sync(index as usize, id, name, &axes, &buttons)
+            .map_err(media_events_js_err)?;
+        let device = self
+            .inner
+            .game_device_get(index as i32)
+            .map_err(media_events_js_err)?;
+        media_events_json(&serde_json::json!({
+            "is_new": is_new,
+            "changed_controls": changed_controls,
+            "device": device,
+        }))
+    }
+
+    pub fn game_device_remove_json(&mut self, index: u32) -> Result<String, JsValue> {
+        let removed = self
+            .inner
+            .game_device_remove(index as usize)
+            .map_err(media_events_js_err)?;
+        media_events_json(&removed)
     }
 
     pub fn validate_acc_string(&self, value: &str, field: &str) -> Result<String, JsValue> {

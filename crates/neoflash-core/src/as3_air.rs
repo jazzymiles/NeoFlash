@@ -6387,6 +6387,89 @@ struct ParsedCertMeta {
     ekus: Vec<String>,
     trust_settings: Vec<String>,
     system_trusted: bool,
+    rsa_public_key: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+fn decode_hex_bytes(hex: &str) -> Option<Vec<u8>> {
+    let clean: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.is_empty() || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let padded = if clean.len() % 2 == 1 {
+        format!("0{clean}")
+    } else {
+        clean
+    };
+    (0..padded.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&padded[i..i + 2], 16).ok())
+        .collect()
+}
+
+fn parse_der_length(bytes: &[u8], pos: usize) -> Option<(usize, usize)> {
+    let first = *bytes.get(pos)?;
+    if (first & 0x80) == 0 {
+        Some((first as usize, pos + 1))
+    } else {
+        let count = (first & 0x7f) as usize;
+        if count == 0 || count > 4 || pos + 1 + count > bytes.len() {
+            return None;
+        }
+        let mut len = 0usize;
+        for &b in &bytes[pos + 1..pos + 1 + count] {
+            len = (len << 8) | (b as usize);
+        }
+        Some((len, pos + 1 + count))
+    }
+}
+
+fn extract_der_rsa_public_key(der: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+    // OID 1.2.840.113549.1.1.1 (rsaEncryption): 06 09 2a 86 48 86 f7 0d 01 01 01
+    let rsa_oid = [
+        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    ];
+    let pos = der.windows(rsa_oid.len()).position(|w| w == rsa_oid)?;
+    let mut cur = pos + rsa_oid.len();
+    // Skip optional NULL (05 00) and find BIT STRING (0x03) or SEQUENCE (0x30)
+    while cur < der.len() && der[cur] != 0x03 && der[cur] != 0x30 {
+        cur += 1;
+    }
+    if cur >= der.len() {
+        return None;
+    }
+    if der[cur] == 0x03 {
+        let (_bit_len, next_pos) = parse_der_length(der, cur + 1)?;
+        cur = next_pos + 1; // skip unused-bits byte
+    }
+    if *der.get(cur)? != 0x30 {
+        return None;
+    }
+    let (_seq_len, seq_body) = parse_der_length(der, cur + 1)?;
+    cur = seq_body;
+    if *der.get(cur)? != 0x02 {
+        return None;
+    }
+    let (mod_len, mod_start) = parse_der_length(der, cur + 1)?;
+    let mod_end = mod_start.checked_add(mod_len)?;
+    let mut modulus = der.get(mod_start..mod_end)?.to_vec();
+    while modulus.first() == Some(&0) && modulus.len() > 1 {
+        modulus.remove(0);
+    }
+    cur = mod_end;
+    if *der.get(cur)? != 0x02 {
+        return None;
+    }
+    let (exp_len, exp_start) = parse_der_length(der, cur + 1)?;
+    let exp_end = exp_start.checked_add(exp_len)?;
+    let mut exponent = der.get(exp_start..exp_end)?.to_vec();
+    while exponent.first() == Some(&0) && exponent.len() > 1 {
+        exponent.remove(0);
+    }
+    if modulus.is_empty() || exponent.is_empty() {
+        None
+    } else {
+        Some((modulus, exponent))
+    }
 }
 
 fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
@@ -6418,18 +6501,30 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
                 })
                 .unwrap_or_else(|| vec!["signing".to_owned(), "codeSigning".to_owned()]);
             let sys = val["systemTrusted"].as_bool().unwrap_or(false);
+            let rsa_pk = val["rsaModulusHex"]
+                .as_str()
+                .and_then(decode_hex_bytes)
+                .zip(
+                    val["rsaExponentHex"]
+                        .as_str()
+                        .and_then(decode_hex_bytes)
+                        .or_else(|| Some(vec![0x01, 0x00, 0x01])),
+                );
             return ParsedCertMeta {
                 cn,
                 dn,
                 ekus,
                 trust_settings: trust,
                 system_trusted: sys,
+                rsa_public_key: rsa_pk,
             };
         }
         let mut cn = String::new();
         let mut org = String::new();
         let mut ekus = Vec::new();
         let mut sys = false;
+        let mut mod_hex: Option<Vec<u8>> = None;
+        let mut exp_hex: Option<Vec<u8>> = None;
         for part in text.split([';', ',', '\n']) {
             let p = part.trim();
             if let Some(v) = p.strip_prefix("CN=") {
@@ -6444,6 +6539,10 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
                 }
             } else if p.eq_ignore_ascii_case("SYSTEM_TRUSTED=true") {
                 sys = true;
+            } else if let Some(v) = p.strip_prefix("MOD=") {
+                mod_hex = decode_hex_bytes(v);
+            } else if let Some(v) = p.strip_prefix("EXP=") {
+                exp_hex = decode_hex_bytes(v);
             }
         }
         if cn.is_empty() {
@@ -6457,12 +6556,15 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
         if ekus.is_empty() {
             ekus.push("1.3.6.1.5.5.7.3.3".to_owned());
         }
+        let rsa_public_key =
+            mod_hex.map(|m| (m, exp_hex.unwrap_or_else(|| vec![0x01, 0x00, 0x01])));
         return ParsedCertMeta {
             cn,
             dn,
             ekus,
             trust_settings: vec!["signing".to_owned(), "codeSigning".to_owned()],
             system_trusted: sys,
+            rsa_public_key,
         };
     }
 
@@ -6480,7 +6582,191 @@ fn parse_cert_metadata(cert_bytes: &[u8]) -> ParsedCertMeta {
         ekus: vec!["1.3.6.1.5.5.7.3.3".to_owned()],
         trust_settings: vec!["signing".to_owned(), "codeSigning".to_owned()],
         system_trusted: false,
+        rsa_public_key: extract_der_rsa_public_key(cert_bytes),
     }
+}
+
+// Pure-Rust BigUint modular exponentiation (`base^exp mod modulus`) for RSA PKCS#1 v1.5 verification
+fn big_from_be(bytes: &[u8]) -> Vec<u32> {
+    let mut limbs = Vec::with_capacity(bytes.len().div_ceil(4));
+    let mut idx = bytes.len();
+    while idx > 0 {
+        let start = idx.saturating_sub(4);
+        let mut limb = 0u32;
+        for &b in &bytes[start..idx] {
+            limb = (limb << 8) | (b as u32);
+        }
+        limbs.push(limb);
+        idx = start;
+    }
+    big_trim(&mut limbs);
+    limbs
+}
+
+fn big_to_be(limbs: &[u32], target_len: usize) -> Vec<u8> {
+    let mut raw = Vec::with_capacity(limbs.len() * 4);
+    for &limb in limbs.iter().rev() {
+        raw.extend_from_slice(&limb.to_be_bytes());
+    }
+    let first_nz = raw.iter().position(|&b| b != 0).unwrap_or(raw.len());
+    let trimmed = &raw[first_nz..];
+    if trimmed.len() >= target_len {
+        trimmed.to_vec()
+    } else {
+        let mut out = vec![0u8; target_len - trimmed.len()];
+        out.extend_from_slice(trimmed);
+        out
+    }
+}
+
+fn big_trim(a: &mut Vec<u32>) {
+    while a.last() == Some(&0) {
+        a.pop();
+    }
+}
+
+fn big_cmp(a: &[u32], b: &[u32]) -> std::cmp::Ordering {
+    if a.len() != b.len() {
+        return a.len().cmp(&b.len());
+    }
+    for (x, y) in a.iter().rev().zip(b.iter().rev()) {
+        if x != y {
+            return x.cmp(y);
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+fn big_shl1(a: &mut Vec<u32>) {
+    let mut carry = 0u32;
+    for limb in a.iter_mut() {
+        let next = (*limb >> 31) & 1;
+        *limb = (*limb << 1) | carry;
+        carry = next;
+    }
+    if carry != 0 {
+        a.push(carry);
+    }
+}
+
+fn big_sub_assign(a: &mut Vec<u32>, b: &[u32]) {
+    let mut borrow = 0i64;
+    for (i, limb_a) in a.iter_mut().enumerate() {
+        let limb_b = *b.get(i).unwrap_or(&0) as i64;
+        let diff = (*limb_a as i64) - limb_b - borrow;
+        if diff < 0 {
+            *limb_a = (diff + (1i64 << 32)) as u32;
+            borrow = 1;
+        } else {
+            *limb_a = diff as u32;
+            borrow = 0;
+        }
+    }
+    big_trim(a);
+}
+
+fn big_mod(a: &[u32], m: &[u32]) -> Vec<u32> {
+    if m.is_empty() {
+        return Vec::new();
+    }
+    if big_cmp(a, m).is_lt() {
+        return a.to_vec();
+    }
+    let mut rem: Vec<u32> = Vec::new();
+    let total_bits = a.len() * 32;
+    for bit_idx in (0..total_bits).rev() {
+        let limb_idx = bit_idx / 32;
+        let bit_off = bit_idx % 32;
+        let bit = (a[limb_idx] >> bit_off) & 1;
+        big_shl1(&mut rem);
+        if bit != 0 {
+            if rem.is_empty() {
+                rem.push(1);
+            } else {
+                rem[0] |= 1;
+            }
+        }
+        if big_cmp(&rem, m).is_ge() {
+            big_sub_assign(&mut rem, m);
+        }
+    }
+    rem
+}
+
+fn big_mul_mod(a: &[u32], b: &[u32], m: &[u32]) -> Vec<u32> {
+    if a.is_empty() || b.is_empty() || m.is_empty() {
+        return Vec::new();
+    }
+    let mut prod = vec![0u32; a.len() + b.len()];
+    for (i, &xa) in a.iter().enumerate() {
+        let mut carry = 0u64;
+        for (j, &yb) in b.iter().enumerate() {
+            let acc = (prod[i + j] as u64) + (xa as u64) * (yb as u64) + carry;
+            prod[i + j] = acc as u32;
+            carry = acc >> 32;
+        }
+        prod[i + b.len()] = carry as u32;
+    }
+    big_trim(&mut prod);
+    big_mod(&prod, m)
+}
+
+pub fn rsa_mod_exp_be(base: &[u8], exp: &[u8], modulus: &[u8]) -> Vec<u8> {
+    let m = big_from_be(modulus);
+    if m.is_empty() {
+        return Vec::new();
+    }
+    let mut result = vec![1u32];
+    let mut b = big_mod(&big_from_be(base), &m);
+    for &byte in exp.iter().rev() {
+        for bit in 0..8 {
+            if ((byte >> bit) & 1) != 0 {
+                result = big_mul_mod(&result, &b, &m);
+            }
+            b = big_mul_mod(&b, &b, &m);
+        }
+    }
+    big_to_be(&result, modulus.len())
+}
+
+fn verify_rsa_pkcs1_v15(sig_bytes: &[u8], modulus: &[u8], exponent: &[u8], message: &[u8]) -> bool {
+    if sig_bytes.is_empty() || modulus.len() < 16 || exponent.is_empty() {
+        return false;
+    }
+    let em = rsa_mod_exp_be(sig_bytes, exponent, modulus);
+    let sha256_digest = sha256_bytes(message);
+    let sha1_digest = sha1_bytes(message);
+    // Standard PKCS#1 v1.5 DigestInfo prefixes for SHA-256 and SHA-1:
+    const SHA256_DER_PREFIX: &[u8] = &[
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        0x05, 0x00, 0x04, 0x20,
+    ];
+    const SHA1_DER_PREFIX: &[u8] = &[
+        0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
+    ];
+
+    // Check 0x00 0x01 0xFF* 0x00 || payload structure (or compact 0x01 ... 0x00 || digest)
+    let without_leading_zero = em.strip_prefix(&[0x00]).unwrap_or(&em);
+    let Some(rest) = without_leading_zero.strip_prefix(&[0x01]) else {
+        return false;
+    };
+    let ff_count = rest.iter().take_while(|&&b| b == 0xff).count();
+    let Some(payload) = rest.get(ff_count..).and_then(|s| s.strip_prefix(&[0x00])) else {
+        return false;
+    };
+
+    let mut sha256_info = Vec::with_capacity(SHA256_DER_PREFIX.len() + 32);
+    sha256_info.extend_from_slice(SHA256_DER_PREFIX);
+    sha256_info.extend_from_slice(&sha256_digest);
+
+    let mut sha1_info = Vec::with_capacity(SHA1_DER_PREFIX.len() + 20);
+    sha1_info.extend_from_slice(SHA1_DER_PREFIX);
+    sha1_info.extend_from_slice(&sha1_digest);
+
+    payload == sha256_info.as_slice()
+        || payload == sha256_digest.as_slice()
+        || payload == sha1_info.as_slice()
+        || payload == sha1_digest.as_slice()
 }
 
 fn extract_der_oid_string(der: &[u8], oid_bytes: &[u8]) -> Option<String> {
@@ -6551,27 +6837,160 @@ fn extract_all_xml_tag_blocks(xml: &str, local_name: &str) -> Vec<(String, Strin
     results
 }
 
-fn canonicalize_xml_fragment(xml_frag: &str) -> String {
-    let mut out = String::with_capacity(xml_frag.len());
-    let mut in_tag = false;
-    let mut pending_ws = false;
-    for ch in xml_frag.replace("\r\n", "\n").trim().chars() {
-        if ch == '<' {
-            in_tag = true;
-            pending_ws = false;
-            out.push('<');
-        } else if ch == '>' {
-            in_tag = false;
-            pending_ws = false;
-            out.push('>');
-        } else if ch.is_whitespace() {
-            pending_ws = true;
-        } else {
-            if pending_ws && (in_tag || !out.ends_with('>')) {
-                out.push(' ');
+fn parse_and_sort_c14n_attrs(attr_str: &str) -> Vec<(String, String)> {
+    let mut ns_attrs: Vec<(String, String)> = Vec::new();
+    let mut normal_attrs: Vec<(String, String)> = Vec::new();
+    let chars: Vec<char> = attr_str.chars().collect();
+    let n = chars.len();
+    let mut i = 0usize;
+    while i < n {
+        while i < n && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i >= n {
+            break;
+        }
+        let name_start = i;
+        while i < n && !chars[i].is_whitespace() && chars[i] != '=' {
+            i += 1;
+        }
+        let name: String = chars[name_start..i].iter().collect();
+        if name.is_empty() {
+            break;
+        }
+        while i < n && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i >= n || chars[i] != '=' {
+            continue;
+        }
+        i += 1; // skip '='
+        while i < n && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i >= n {
+            break;
+        }
+        let quote = chars[i];
+        let mut val = String::new();
+        if quote == '"' || quote == '\'' {
+            i += 1;
+            while i < n && chars[i] != quote {
+                let c = chars[i];
+                if matches!(c, '\t' | '\n' | '\r') {
+                    val.push(' ');
+                } else if c == '"' {
+                    val.push_str("&quot;");
+                } else {
+                    val.push(c);
+                }
+                i += 1;
             }
-            pending_ws = false;
-            out.push(ch);
+            if i < n && chars[i] == quote {
+                i += 1;
+            }
+        } else {
+            while i < n && !chars[i].is_whitespace() {
+                val.push(chars[i]);
+                i += 1;
+            }
+        }
+        // Omit redundant default XMLDSig namespace attributes injected by E4X re-serialization
+        if name == "xmlns" && val == "http://www.w3.org/2000/09/xmldsig#" {
+            continue;
+        }
+        if name == "xmlns" || name.starts_with("xmlns:") {
+            ns_attrs.push((name, val));
+        } else {
+            normal_attrs.push((name, val));
+        }
+    }
+    ns_attrs.sort_by(|a, b| a.0.cmp(&b.0));
+    normal_attrs.sort_by(|a, b| a.0.cmp(&b.0));
+    ns_attrs.extend(normal_attrs);
+    ns_attrs
+}
+
+/// W3C Canonical XML 1.0 (`http://www.w3.org/TR/2001/REC-xml-c14n-20010315`) canonicalizer:
+/// - Normalizes line endings (`\r\n` and `\r` -> `\n`) and removes XML comments / PI headers
+/// - Sorts namespace declarations and attributes lexicographically with double-quoted values
+/// - Expands self-closing empty elements `<tag .../>` into `<tag ...></tag>`
+/// - Normalizes inter-element whitespace while preserving character content
+pub fn canonicalize_xml_fragment(xml_frag: &str) -> String {
+    let normalized = xml_frag.replace("\r\n", "\n").replace('\r', "\n");
+    let src = normalized.trim();
+    let mut out = String::with_capacity(src.len() + 64);
+    let mut pos = 0usize;
+    while pos < src.len() {
+        if let Some(lt_rel) = src[pos..].find('<') {
+            let lt = pos + lt_rel;
+            let text_segment = &src[pos..lt];
+            if !text_segment.trim().is_empty() {
+                let mut prev_ws = false;
+                for ch in text_segment.trim().chars() {
+                    if ch.is_whitespace() {
+                        if !prev_ws {
+                            out.push(' ');
+                            prev_ws = true;
+                        }
+                    } else {
+                        out.push(ch);
+                        prev_ws = false;
+                    }
+                }
+            }
+            if src[lt..].starts_with("<!--") {
+                pos = src[lt + 4..]
+                    .find("-->")
+                    .map_or(src.len(), |r| lt + 4 + r + 3);
+                continue;
+            }
+            if src[lt..].starts_with("<?") {
+                pos = src[lt + 2..]
+                    .find("?>")
+                    .map_or(src.len(), |r| lt + 2 + r + 2);
+                continue;
+            }
+            let Some(gt_rel) = src[lt + 1..].find('>') else {
+                break;
+            };
+            let gt = lt + 1 + gt_rel;
+            let raw_tag = src[lt + 1..gt].trim();
+            if let Some(close_name) = raw_tag.strip_prefix('/') {
+                let clean_name = close_name.trim();
+                out.push_str("</");
+                out.push_str(clean_name);
+                out.push('>');
+            } else {
+                let self_closing = raw_tag.ends_with('/');
+                let body = raw_tag.trim_end_matches('/').trim();
+                let (tag_name, attr_part) = match body.find(char::is_whitespace) {
+                    Some(sp) => (&body[..sp], &body[sp..]),
+                    None => (body, ""),
+                };
+                out.push('<');
+                out.push_str(tag_name);
+                for (k, v) in parse_and_sort_c14n_attrs(attr_part) {
+                    out.push(' ');
+                    out.push_str(&k);
+                    out.push_str("=\"");
+                    out.push_str(&v);
+                    out.push('"');
+                }
+                out.push('>');
+                if self_closing {
+                    out.push_str("</");
+                    out.push_str(tag_name);
+                    out.push('>');
+                }
+            }
+            pos = gt + 1;
+        } else {
+            let tail = src[pos..].trim();
+            if !tail.is_empty() {
+                out.push_str(tail);
+            }
+            break;
         }
     }
     out
@@ -6630,26 +7049,21 @@ impl AirXmlSigEngine {
             .to_string();
         };
         let compact_sig_b64: String = sig_val_b64.chars().filter(|c| !c.is_whitespace()).collect();
-        let sig_bytes = if let Some(b) = (0..compact_sig_b64.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(compact_sig_b64.get(i..i + 2).unwrap_or(""), 16))
-            .collect::<Result<Vec<u8>, _>>()
-            .ok()
-            .filter(|v| v.len() == 32 || v.len() == 20)
-        {
-            b
-        } else if let Ok(b) = BASE64.decode(compact_sig_b64.as_bytes()) {
-            b
-        } else {
-            return serde_json::json!({
-                "error": "SignatureValue is not valid Base64.",
-                "digestStatus": "invalid",
-                "referencesStatus": "invalid",
-                "identityStatus": "invalid",
-                "validityStatus": "invalid",
-            })
-            .to_string();
-        };
+        let sig_bytes =
+            if let Some(b) = decode_hex_bytes(&compact_sig_b64).filter(|v| v.len() >= 16) {
+                b
+            } else if let Ok(b) = BASE64.decode(compact_sig_b64.as_bytes()) {
+                b
+            } else {
+                return serde_json::json!({
+                    "error": "SignatureValue is not valid Base64.",
+                    "digestStatus": "invalid",
+                    "referencesStatus": "invalid",
+                    "identityStatus": "invalid",
+                    "validityStatus": "invalid",
+                })
+                .to_string();
+            };
 
         let cert_bytes_opt = extract_xml_tag_body(signature_xml, "X509Certificate")
             .and_then(|b64| {
@@ -6679,15 +7093,16 @@ impl AirXmlSigEngine {
         concat_buf.extend_from_slice(&cert_bytes);
         concat_buf.extend_from_slice(canonical_si.as_bytes());
         let expected_sha256 = sha256_bytes(&concat_buf);
+        let rsa_valid = meta
+            .rsa_public_key
+            .as_ref()
+            .is_some_and(|(modulus, exponent)| {
+                verify_rsa_pkcs1_v15(&sig_bytes, modulus, exponent, canonical_si.as_bytes())
+            });
 
         let digest_valid = sig_bytes.as_slice() == expected_hmac.as_slice()
             || sig_bytes.as_slice() == expected_sha256.as_slice()
-            || (!sig_bytes.is_empty()
-                && compact_sig_b64.len() >= 16
-                && self
-                    .certs
-                    .iter()
-                    .any(|c| c.fingerprint == cert_fp && c.trusted));
+            || rsa_valid;
         let digest_status = if digest_valid { "valid" } else { "invalid" };
 
         let stored = self.certs.iter().find(|c| c.fingerprint == cert_fp);
@@ -6941,6 +7356,59 @@ fn glyph_5x7(ch: char) -> [u8; 7] {
     }
 }
 
+/// Computes the 3D orientation unit quaternion `[x, y, z, w, roll, pitch, yaw]` from W3C
+/// DeviceOrientation Euler angles `(alpha_deg, beta_deg, gamma_deg)` (Z-X'-Y'' intrinsic Tait-Bryan
+/// angles) for `flash.sensors.DeviceRotation` / `flash.events.DeviceRotationEvent`.
+pub fn device_rotation_quaternion(alpha_deg: f64, beta_deg: f64, gamma_deg: f64) -> Vec<f64> {
+    let deg_to_rad = std::f64::consts::PI / 180.0;
+    let z = (if alpha_deg.is_finite() {
+        alpha_deg
+    } else {
+        0.0
+    }) * deg_to_rad
+        * 0.5;
+    let x = (if beta_deg.is_finite() { beta_deg } else { 0.0 }) * deg_to_rad * 0.5;
+    let y = (if gamma_deg.is_finite() {
+        gamma_deg
+    } else {
+        0.0
+    }) * deg_to_rad
+        * 0.5;
+
+    let (cz, sz) = (z.cos(), z.sin());
+    let (cx, sx) = (x.cos(), x.sin());
+    let (cy, sy) = (y.cos(), y.sin());
+
+    let qx = sx * cy * cz - cx * sy * sz;
+    let qy = cx * sy * cz + sx * cy * sz;
+    let qz = cx * cy * sz + sx * sy * cz;
+    let qw = cx * cy * cz - sx * sy * sz;
+
+    let norm = (qx * qx + qy * qy + qz * qz + qw * qw).sqrt();
+    let (nx, ny, nz, nw) = if norm > 1e-12 {
+        (qx / norm, qy / norm, qz / norm, qw / norm)
+    } else {
+        (0.0, 0.0, 0.0, 1.0)
+    };
+    vec![nx, ny, nz, nw, gamma_deg, beta_deg, alpha_deg]
+}
+
+fn parse_selection_range(flags_align: &str) -> Option<(usize, usize)> {
+    for part in flags_align.split(':') {
+        if let Some(sel) = part.strip_prefix("sel=")
+            && let Some((a, b)) = sel.split_once(',')
+            && let (Ok(i1), Ok(i2)) = (a.parse::<usize>(), b.parse::<usize>())
+        {
+            let lo = i1.min(i2);
+            let hi = i1.max(i2);
+            if lo < hi {
+                return Some((lo, hi));
+            }
+        }
+    }
+    None
+}
+
 pub fn rasterize_text_rgba(
     width: u32,
     height: u32,
@@ -6970,6 +7438,7 @@ pub fn rasterize_text_rgba(
     let multiline = !flags_align.contains("single");
     let align_center = flags_align.contains("center");
     let align_right = flags_align.contains("right");
+    let sel_range = parse_selection_range(flags_align);
 
     let scale = (font_size.max(8) / 8).clamp(1, 6) as usize;
     let adv_x = 6 * scale;
@@ -6985,9 +7454,20 @@ pub fn rasterize_text_rgba(
         text.to_owned()
     };
 
-    let mut lines: Vec<Vec<char>> = Vec::new();
-    for raw_line in display_text.split('\n') {
-        let chars: Vec<char> = raw_line.chars().collect();
+    let mut lines: Vec<Vec<(usize, char)>> = Vec::new();
+    let mut global_idx = 0usize;
+    for (raw_idx, raw_line) in display_text.split('\n').enumerate() {
+        if raw_idx > 0 {
+            global_idx += 1; // account for '\n'
+        }
+        let chars: Vec<(usize, char)> = raw_line
+            .chars()
+            .map(|ch| {
+                let idx = global_idx;
+                global_idx += 1;
+                (idx, ch)
+            })
+            .collect();
         if !multiline {
             lines.push(chars);
             break;
@@ -7015,10 +7495,22 @@ pub fn rasterize_text_rgba(
             pad
         };
 
-        for (ci, &ch) in line_chars.iter().enumerate() {
+        for (ci, &(char_idx, ch)) in line_chars.iter().enumerate() {
             let gx = base_x + ci * adv_x;
             if gx >= w {
                 break;
+            }
+            let selected = sel_range.is_some_and(|(lo, hi)| char_idx >= lo && char_idx < hi);
+            if selected {
+                for py in base_y..(base_y + 7 * scale).min(h) {
+                    for px in gx..(gx + adv_x).min(w) {
+                        let off = (py * w + px) * 4;
+                        rgba[off] = 0x33;
+                        rgba[off + 1] = 0x90;
+                        rgba[off + 2] = 0xff;
+                        rgba[off + 3] = 0xff;
+                    }
+                }
             }
             let rows = glyph_5x7(ch);
             for (ry, &bits) in rows.iter().enumerate() {
@@ -7035,10 +7527,17 @@ pub fn rasterize_text_rgba(
                                     continue;
                                 }
                                 let off = (py * w + px) * 4;
-                                rgba[off] = fg_r;
-                                rgba[off + 1] = fg_g;
-                                rgba[off + 2] = fg_b;
-                                rgba[off + 3] = 0xff;
+                                if selected {
+                                    rgba[off] = 0xff;
+                                    rgba[off + 1] = 0xff;
+                                    rgba[off + 2] = 0xff;
+                                    rgba[off + 3] = 0xff;
+                                } else {
+                                    rgba[off] = fg_r;
+                                    rgba[off + 1] = fg_g;
+                                    rgba[off + 2] = fg_b;
+                                    rgba[off + 3] = 0xff;
+                                }
                             }
                         }
                     }
@@ -7519,9 +8018,38 @@ mod tests {
         assert_eq!(tampered["referencesStatus"], "invalid");
         assert_eq!(tampered["validityStatus"], "invalid");
 
-        // Text rasterizer produces foreground glyph pixels
-        let rgba = rasterize_text_rgba(64, 24, "AIR", 0x112233, 0xFFFFFFFF, 16, "left");
+        // Tampering with <SignedInfo> without re-signing must fail digestStatus!
+        let tampered_si_xml = xml_sig.replace("urn:order:42", "urn:order:99");
+        let tampered_si: serde_json::Value = serde_json::from_str(&rt.xml_sig.verify_json(
+            &tampered_si_xml,
+            &deref_ok,
+            "validIdentity",
+            "bestEffort",
+            false,
+        ))
+        .unwrap();
+        assert_eq!(tampered_si["digestStatus"], "invalid");
+        assert_eq!(tampered_si["validityStatus"], "invalid");
+
+        // W3C Canonical XML 1.0 sorts attributes and expands self-closing tags
+        assert_eq!(
+            canonicalize_xml_fragment("<Ref z='2' a=\"1\"/>"),
+            "<Ref a=\"1\" z=\"2\"></Ref>"
+        );
+
+        // DeviceRotation quaternion calculation produces normalized unit quaternion
+        let q = device_rotation_quaternion(90.0, 30.0, -15.0);
+        assert_eq!(q.len(), 7);
+        let norm_sq = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+        assert!((norm_sq - 1.0).abs() < 1e-9);
+        assert_eq!(q[4], -15.0);
+        assert_eq!(q[5], 30.0);
+        assert_eq!(q[6], 90.0);
+
+        // Text rasterizer produces foreground glyph pixels and selection highlight
+        let rgba = rasterize_text_rgba(64, 24, "AIR", 0x112233, 0xFFFFFFFF, 16, "left:sel=0,2");
         assert_eq!(rgba.len(), 64 * 24 * 4);
         assert!(rgba.as_chunks::<4>().0.contains(&[0x11, 0x22, 0x33, 0xff]));
+        assert!(rgba.as_chunks::<4>().0.contains(&[0x33, 0x90, 0xff, 0xff]));
     }
 }

@@ -21,6 +21,7 @@ struct CompileContext {
     interfaces: std::collections::BTreeSet<String>,
     namespaces: std::collections::BTreeMap<String, String>,
     open_namespaces: Vec<String>,
+    namespace_members: std::collections::BTreeSet<(String, String)>,
     members: std::collections::BTreeMap<String, Option<String>>,
     static_members: std::collections::BTreeMap<String, String>,
     as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
@@ -2133,6 +2134,15 @@ impl<'a> Frontend<'a> {
                 self.pos += 1;
                 if matches!(name.as_str(), "true" | "false" | "null" | "undefined" | "NaN" | "Infinity") {
                     Ok(Expr::Literal(name))
+                } else if self.script.language == ScriptLanguage::ActionScript3 && self.eat("::") {
+                    let local = self.xml_name()?;
+                    Ok(Expr::XmlSelect {
+                        base: Box::new(Expr::Name("this".into())),
+                        local: Box::new(local),
+                        namespace: Some(Box::new(Expr::Name(name))),
+                        attribute: false,
+                        descendant: false,
+                    })
                 } else { Ok(Expr::Name(name)) }
             }
             Kind::Punct("(") => { self.pos += 1; let previous=self.no_in;self.no_in=false; let expr = self.sequence_expression()?;self.no_in=previous; self.expect(")")?; Ok(expr) }
@@ -3206,6 +3216,12 @@ impl Emitter<'_> {
             }
             return format!("__nfProgram.type({qname:?})");
         }
+        if self.as3
+            && self.analysis.resolve(self.scope, name).is_none()
+            && let Some(uri) = self.analysis.context.namespaces.get(name)
+        {
+            return format!("(__nfXML?.namespace?.({name:?}, {uri:?}) ?? {uri:?})");
+        }
         if name == "parseInt" && self.analysis.resolve(self.scope, name).is_none() {
             return if self.as3 {
                 "__nfParseInt3"
@@ -3235,6 +3251,22 @@ impl Emitter<'_> {
             .class_name
             .as_ref()
             .map_or_else(String::new, |name| format!(", {name:?}"))
+    }
+    fn open_namespace_uri_for_member(&self, name: &str) -> Option<&str> {
+        if !self.as3 {
+            return None;
+        }
+        for uri in &self.analysis.context.open_namespaces {
+            if self
+                .analysis
+                .context
+                .namespace_members
+                .contains(&(uri.clone(), name.to_owned()))
+            {
+                return Some(uri.as_str());
+            }
+        }
+        None
     }
     fn bare_member_receiver(&self, name: &str) -> Option<String> {
         if self.analysis.context.class_name.is_none() && !self.analysis.context.legacy_case {
@@ -3528,11 +3560,19 @@ impl Emitter<'_> {
                 Some(format!("__nfLegacy.globalPropRef({name:?})"))
             }
             Expr::Name(name) => self.bare_member_receiver(name).map(|receiver| {
-                format!(
-                    "__nfContainerRef({receiver}, {name:?}, {}{})",
-                    self.as3,
-                    self.container_tail()
-                )
+                if let Some(uri) = self.open_namespace_uri_for_member(name) {
+                    format!(
+                        "__nfQualifiedRef({receiver}, {uri:?}, {name:?}, {}{})",
+                        self.as3,
+                        self.container_tail()
+                    )
+                } else {
+                    format!(
+                        "__nfContainerRef({receiver}, {name:?}, {}{})",
+                        self.as3,
+                        self.container_tail()
+                    )
+                }
             }),
             Expr::Member(base, name) => self.as2_var_scroll_ref(base, name).or_else(|| {
                 Some(format!(
@@ -3655,17 +3695,25 @@ impl Emitter<'_> {
                 .analysis
                 .resolve(self.scope, name.split('.').next().unwrap())
                 .is_none()
-            && let Some(qname) = self
+        {
+            if let Some(qname) = self
                 .analysis
                 .context
                 .types
                 .get(&name)
                 .or_else(|| self.analysis.context.functions.get(&name))
-        {
-            if !self.as3 && qname == "flash.external.ExternalInterface" {
-                return "__nfLegacy.ExternalInterface".into();
+            {
+                if !self.as3 && qname == "flash.external.ExternalInterface" {
+                    return "__nfLegacy.ExternalInterface".into();
+                }
+                return format!("__nfProgram.type({qname:?})");
             }
-            return format!("__nfProgram.type({qname:?})");
+            if self.as3
+                && let Some(uri) = self.analysis.context.namespaces.get(&name)
+            {
+                let short = name.rsplit('.').next().unwrap_or(&name);
+                return format!("(__nfXML?.namespace?.({short:?}, {uri:?}) ?? {uri:?})");
+            }
         }
         match expr {
             Expr::XmlLiteral(template, holes) => format!(
@@ -3755,11 +3803,19 @@ impl Emitter<'_> {
             Expr::Name(name) => self.bare_member_receiver(name).map_or_else(
                 || self.name(name),
                 |receiver| {
-                    format!(
-                        "__nfFamilyPropertyValue({receiver}, {name:?}, {}{})",
-                        self.as3,
-                        self.container_tail()
-                    )
+                    if let Some(uri) = self.open_namespace_uri_for_member(name) {
+                        format!(
+                            "__nfQualifiedRef({receiver}, {uri:?}, {name:?}, {}{}).get()",
+                            self.as3,
+                            self.container_tail()
+                        )
+                    } else {
+                        format!(
+                            "__nfFamilyPropertyValue({receiver}, {name:?}, {}{})",
+                            self.as3,
+                            self.container_tail()
+                        )
+                    }
                 },
             ),
             Expr::RegExpLiteral(pattern, flags) => {
@@ -4471,6 +4527,17 @@ impl Emitter<'_> {
                     && self.as3
                     && let Some(receiver) = self.bare_member_receiver(name)
                 {
+                    if let Some(uri) = self.open_namespace_uri_for_member(name) {
+                        return format!(
+                            "__nfQualifiedMethod({receiver}, {uri:?}, {name:?}, {}{})({})",
+                            self.as3,
+                            self.caller_argument(),
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     return format!(
                         "__nfContainerMethod({receiver}, {name:?}, {}{})({})",
                         self.as3,

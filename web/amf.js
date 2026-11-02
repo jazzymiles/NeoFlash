@@ -19,10 +19,30 @@
     const value=global.atob(text);if(value.length>MAX_BYTES)throw new RangeError('AMF byte payload exceeds 16 MiB.');return Uint8Array.from(value,char=>char.charCodeAt(0));
   }
   function plain(value){const p=Object.getPrototypeOf(value);if(p===null||p===Object.prototype)return true;const ctor=Object.getOwnPropertyDescriptor(p,'constructor')?.value;return Object.getPrototypeOf(p)===null&&typeof ctor==='function'&&ctor.name==='Object'&&ctor.prototype===p;}
+  const dynamicOutputs=new WeakMap();
+  class DynamicPropertyOutput {
+    constructor(){
+      dynamicOutputs.set(this,new Map());
+    }
+    writeDynamicProperty(name,value){
+      const map=dynamicOutputs.get(this);
+      if(!map)throw new TypeError('DynamicPropertyOutput requires a valid instance.');
+      if(name===null||name===undefined)throw new TypeError('Error #2007: Parameter name must be non-null.');
+      map.set(String(name),value);
+    }
+  }
+  Object.defineProperties(DynamicPropertyOutput,{
+    __nfIs:{value:v=>dynamicOutputs.has(v)},
+    __nfInitialize:{value:target=>{if(!dynamicOutputs.has(target))dynamicOutputs.set(target,new Map());return target;}},
+  });
   function create(options={}){
     const {binary}=options;
     if(typeof options.encode!=='function'||typeof options.decode!=='function'||!binary?.fromByteArrays)throw new TypeError('AMF requires the shared Rust codec and ByteArray service.');
     const aliasToClass=new Map(),classToAlias=new Map(),classNameToAlias=new Map();
+    let dynamicWriterGetter=typeof options.getDynamicPropertyWriter==='function'?options.getDynamicPropertyWriter:null;
+    function setDynamicPropertyWriterGetter(fn){
+      dynamicWriterGetter=typeof fn==='function'?fn:null;
+    }
     function registerClassAlias(aliasName,classObject){
       if(aliasName==null||classObject==null)throw new TypeError('Error #2007: Parameter aliasName and classObject must be non-null.');
       const prog=options.getProgram?.(),alias=String(aliasName);
@@ -47,8 +67,9 @@
       classToAlias.clear();
       classNameToAlias.clear();
     }
-    function graph(value){
+    function graph(value,graphOptions={}){
       const seen=new Map(),nodes=[],prog=options.getProgram?.();let visits=0,bytes=0;
+      const dynWriter=dynamicWriterGetter?.()||null;
       function text(value){
         if(typeof value!=='string'||value.length>MAX_BYTES)throw new RangeError('AMF strings exceed the 16 MiB graph budget.');
         for(let i=0;i<value.length;i++){const c=value.charCodeAt(i);if(c>=0xd800&&c<=0xdbff){const low=value.charCodeAt(++i);if(!(low>=0xdc00&&low<=0xdfff))throw new TypeError('AMF strings require complete Unicode characters.');}else if(c>=0xdc00&&c<=0xdfff)throw new TypeError('AMF strings require complete Unicode characters.');}
@@ -72,11 +93,23 @@
         const instanceName=!array?prog?.instanceClassName?.(value):null;
         const alias=!array?((instanceName&&classNameToAlias.get(instanceName))||(value.constructor&&classToAlias.get(value.constructor))||null):null;
         if(!array&&publicKeys==null&&alias==null&&!plain(value))throw new TypeError('AMF serialization of this native/class object is unsupported; use a plain data record.');
-        const keys=publicKeys??Object.keys(value);if(keys.length>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
         function read(key){const descriptor=Object.getOwnPropertyDescriptor(value,key);if(publicKeys!=null)return value[key];if(!descriptor)return undefined;if(!Object.hasOwn(descriptor,'value'))throw new TypeError('AMF ordinary records require data properties; accessors are unsupported.');return descriptor.value;}
         const entries=[],dense=[];
         if(array){if(value.length>MAX_VALUES)throw new RangeError('AMF array exceeds 100000 entries.');for(let i=0;i<value.length;i++)dense.push(visit(read(String(i)),depth+1));}
-        for(const key of keys){if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;entries.push([text(key),visit(read(key),depth+1)]);}
+        const useDynWriter=dynWriter&&typeof dynWriter.writeDynamicProperties==='function'&&publicKeys==null&&!(depth===0&&graphOptions.ignoreRootDynamicWriter);
+        if(useDynWriter){
+          const output=new DynamicPropertyOutput();
+          dynWriter.writeDynamicProperties(value,output);
+          const customMap=dynamicOutputs.get(output);
+          if(customMap.size>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
+          for(const[key,propVal]of customMap.entries()){
+            if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;
+            entries.push([text(key),visit(propVal,depth+1)]);
+          }
+        }else{
+          const keys=publicKeys??Object.keys(value);if(keys.length>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
+          for(const key of keys){if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;entries.push([text(key),visit(read(key),depth+1)]);}
+        }
         nodes[index]=array?{type:'array',dense,entries}:(alias?{type:'object',class_name:text(alias),entries}:{type:'object',entries});return {type:'ref',value:index};
       }
       return {root:visit(value,0),nodes};
@@ -129,7 +162,7 @@
         throw new Error(typeof error==='string'?error:'Rust AMF codec failed.',{cause:error});
       }
     }
-    function encode(value,encoding=3){const source=JSON.stringify(graph(value));if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');const mode=format(encoding);return codecCall(()=>options.encode(mode,source));}
+    function encode(value,encoding=3,graphOptions={}){const source=JSON.stringify(graph(value,graphOptions));if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');const mode=format(encoding);return codecCall(()=>options.encode(mode,source));}
     function decode(bytes,encoding=3,requirements={}){
       if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('AMF decode requires a byte view no larger than 16 MiB.');
       const mode=format(encoding),result=JSON.parse(codecCall(()=>options.decode(mode,bytes)));if(!Number.isInteger(result.consumed)||result.consumed<1||result.consumed>bytes.byteLength)throw new TypeError('AMF codec returned an invalid consumed length.');
@@ -137,7 +170,7 @@
       if(requirements.record&&(result.graph?.root?.type!=='ref'||result.graph.nodes?.[result.graph.root.value]?.type!=='object'))throw new TypeError('Saved SharedObject root must be an ordinary data record.');
       return {value:materialize(result.graph),consumed:result.consumed};
     }
-    return Object.freeze({encode,decode,registerClassAlias,getClassByAlias,reset,base64,unbase64});
+    return Object.freeze({encode,decode,registerClassAlias,getClassByAlias,setDynamicPropertyWriterGetter,DynamicPropertyOutput,reset,base64,unbase64});
   }
-  const api=Object.freeze({create,base64,unbase64});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAMF=api;
+  const api=Object.freeze({create,DynamicPropertyOutput,base64,unbase64});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAMF=api;
 })(globalThis);

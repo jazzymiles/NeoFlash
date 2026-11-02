@@ -34,7 +34,8 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   globals.NeoFlashAS2Capture={...as2CaptureModule,create:(wasm,settings)=>as2CaptureModule.create(wasm,{...settings,...options.capture})};
   const as2ConnectionsModule=require(resolve(root,'web/as2-connections.js'));
   globals.NeoFlashAS2Connections={...as2ConnectionsModule,create:settings=>as2ConnectionsModule.create({...settings,...options.connections})};
-  globals.NeoFlashAS2Stage=require(resolve(root,'web/as2-stage.js'));
+  const as2StageModule=require(resolve(root,'web/as2-stage.js'));
+  globals.NeoFlashAS2Stage={...as2StageModule,create:settings=>as2StageModule.create({...settings,...options.as2Stage})};
   globals.NeoFlashAS2Media=require(resolve(root,'web/as2-media.js'));
   globals.NeoFlashAS2Services=require(resolve(root,'web/as2-services.js'));
   const as2FilesModule=require(resolve(root,'web/as2-files.js'));
@@ -108,7 +109,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const host = new Function('createScenePainter', 'player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport', 'semanticLayer',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
-    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, video:()=>videoHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, external:()=>externalHost, air:()=>airHost, netSys:()=>as3NetSysHost, fte3d:()=>fte3dHost, mediaEvents:()=>as3MediaEventsHost, program:()=>program, lastTrace: () => lastTrace };'
+    'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, as2Stage:()=>as2StageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, video:()=>videoHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, external:()=>externalHost, air:()=>airHost, netSys:()=>as3NetSysHost, fte3d:()=>fte3dHost, mediaEvents:()=>as3MediaEventsHost, program:()=>program, lastTrace: () => lastTrace };'
   )(createScenePainter, player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget, options.semanticLayer);
   return { host, traceCalls, hostConsole, scriptConsole };

@@ -106,6 +106,10 @@ const __nfProgram = (() => {
     function slotMap(receiver) {let map=slots.get(receiver);if(!map)slots.set(receiver,map=new Map());return map;}
     function eligible(member,caller) {
         if(member.access==='public')return true;
+        if(member.access==='namespace'){
+            if(!caller)return false;
+            return chain(caller).some(definition=>definition.openNamespaces?.includes(member.namespace));
+        }
         const context=definitions.get(caller);if(!context)return false;
         if(member.access==='private')return member.owner===caller;
         if(member.access==='internal')return definitions.get(member.owner).package===context.package;
@@ -122,10 +126,23 @@ const __nfProgram = (() => {
         }
         const matches=[...map.values()].filter(slot=>slot.member.name===name&&eligible(slot.member,caller));
         if(matches.length>1)throw new ReferenceError(`Ambiguous project property ${name}; qualify the declaration or use a public accessor.`);
-        return matches[0]||null;
+        if(matches.length===1)return matches[0];
+        if(!caller){
+            const nsMatches=[...map.values()].filter(slot=>slot.member.name===name&&slot.member.access==='namespace');
+            if(nsMatches.length===1)return nsMatches[0];
+        }
+        return null;
     }
     function publicSlot(receiver,name){return [...(slots.get(receiver)?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='public')||null;}
-    function resolveQualifiedSlot(receiver,name,caller){
+    function namespaceSlot(receiver,name,uri){
+        if(!uri)return null;
+        return [...(slots.get(receiver)?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='namespace'&&slot.member.namespace===uri)||null;
+    }
+    function resolveQualifiedSlot(receiver,name,caller,uri=null){
+        if(uri){
+            const nsSlot=namespaceSlot(receiver,name,uri);
+            if(nsSlot)return nsSlot;
+        }
         return resolveSlot(receiver,name,caller||identities.get(receiver))||publicSlot(receiver,name);
     }
     function isProxy(receiver){
@@ -222,6 +239,9 @@ const __nfProgram = (() => {
     function installSlot(receiver,member,kind,get,set,readable=true) {
         slotMap(receiver).set(member.slot,{member,kind,get,set,readable});
         if(member.access==='public')Object.defineProperty(receiver,member.name,{configurable:true,enumerable:kind==='field',get,set});
+        else if(member.access==='namespace'&&member.namespace){
+            Object.defineProperty(receiver,Symbol.for('neoflash.ns.'+member.namespace+'::'+member.name),{configurable:true,enumerable:false,get,set});
+        }
     }
     function installFields(receiver, definition, isStatic) {
         if (definition.dialect === 'as2') {
@@ -415,8 +435,9 @@ const __nfProgram = (() => {
         const packageName=options.package??name.slice(0,Math.max(0,name.lastIndexOf('.')));
         if(dialect==='as3'&&definitions.get(base)?.final)throw new TypeError(`Cannot extend final class ${base}.`);
         function member(value){
-            const access=dialect==='as2'?'public':value.access||'public';
-            let namespace=access==='private'?name:access==='internal'?packageName:'';
+            const customNs=dialect==='as3'&&typeof value.ns==='string'&&value.ns.length>0?value.ns:null;
+            const access=dialect==='as2'?'public':customNs?'namespace':(value.access||'public');
+            let namespace=customNs?customNs:access==='private'?name:access==='internal'?packageName:'';
             if(access==='protected'){
                 const inherited=chain(base).flatMap(definition=>[...definition.fields,...definition.methods,...definition.accessors]).find(item=>item.name===value.name&&item.static===value.static&&item.access==='protected');
                 namespace=inherited?.namespace||name;
@@ -427,7 +448,8 @@ const __nfProgram = (() => {
         }
         fields=fields.map(member);methods=methods.map(member);accessors=accessors.map(member);
         const ordinary=dialect==='as3'&&(!base||base==='Object'||base==='flash.utils.Proxy'||definitions.get(base)?.ordinary===true);
-        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,dynamic:Boolean(options.dynamic),final:Boolean(options.final),reflection:options.reflection,ordinary };
+        const openNamespaces=Array.isArray(options.openNamespaces)?options.openNamespaces:[];
+        const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,openNamespaces,dynamic:Boolean(options.dynamic),final:Boolean(options.final),reflection:options.reflection,ordinary };
         classFacades.set(facade,name);
         definitions.set(name, definition);
         if(ordinary){
@@ -561,12 +583,16 @@ const __nfProgram = (() => {
         return result;
     }
     for(const name of ['getQualifiedClassName','getQualifiedSuperclassName','getDefinitionByName','describeType'])builtins['flash.utils.'+name]=(...args)=>reflect(name,args);
+    function defineNamespace(name,uri) {
+        const prefix=String(name).split('.').pop();
+        builtins[name]=typeof __nfXML?.namespace==='function'?__nfXML.namespace(prefix,uri):Object.freeze({prefix,uri,toString(){return this.uri;},valueOf(){return this.uri;}});
+    }
     function declareIntrinsic(name) { intrinsics.add(name); }
     function registerInitClip(key, fn) { initClips.push({ key, fn }); }
     function runInitClips(root) {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

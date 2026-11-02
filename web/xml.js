@@ -733,8 +733,30 @@
     function enumerate(value,values,as3){const r=state(value);if(r.kind==='legacy'){if(as3)unsupported('XMLNode enumeration; use childNodes or attributes');const keys=[];for(const k in value)keys.push(k);return (function*(){for(const k of keys){state(value);if(k in value)yield values?value[k]:k;}})();}if(!as3)unsupported('AS3 XMLList iteration from AS2');const items=r.nodes.slice();return (function*(){for(let i=0;i<items.length;i++){state(value);yield values?wrapped(items[i]):String(i);}})();}
     function method(value,key,as3){const r=state(value);if(r.kind==='legacy'){const fn=value[key];return(...args)=>Reflect.apply(fn,value,args);}if(!as3)unsupported('AS3 XML methods from AS2');if(typeof key!=='string'||!Object.hasOwn(xmlMethods,key))unsupported('method '+String(key));return(...args)=>xmlMethods[key](value,...args);}
     function reset(){active();for(const op of [...loads])cancel(op.record);generation++;nodes.clear();nodeCount=0;stringBytes=0;listRefs=0;settings={...defaults};defaultNamespace='';}
+    function disposeXML(value){
+      if(value==null||disposed)return false;
+      const r=records.get(value);
+      if(!r||r.generation!==generation)return false;
+      const targets=Array.isArray(r.nodes)?r.nodes.slice():(r.node?[r.node]:[]);
+      if(!targets.length)return false;
+      const visited=walk(targets);
+      for(const root of targets)detach(root);
+      for(const n of visited){
+        if(nodes.has(n)){
+          nodes.delete(n);
+          nodeCount=Math.max(0,nodeCount-units(n));
+          stringBytes=Math.max(0,stringBytes-bytes(n));
+        }
+        n.children.length=0;
+        n.attributes.length=0;
+        n.declarations.length=0;
+        n.value='';
+        n.parent=null;
+      }
+      return true;
+    }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({XML,XMLList,LegacyXML,XMLDocument,XMLNode,XMLNodeType,Namespace,QName,namespace:makeNamespace,setDefaultNamespace,getDefaultNamespace,selector,select,filter,concat,equals,strictEquals,literal,is,kind,ref,enumerate,method,reset,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
+    return Object.freeze({XML,XMLList,LegacyXML,XMLDocument,XMLNode,XMLNodeType,Namespace,QName,namespace:makeNamespace,setDefaultNamespace,getDefaultNamespace,selector,select,filter,concat,equals,strictEquals,literal,is,kind,ref,enumerate,method,reset,disposeXML,dispose,stats:()=>({nodes:nodeCount,stringBytes,listRefs})});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashXML=api;
 })(globalThis);

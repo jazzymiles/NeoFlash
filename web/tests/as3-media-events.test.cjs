@@ -1358,3 +1358,453 @@ test('runtime host wires DisplayObject.accessibilityProperties, Stage.accessibil
     player.free();
   }
 });
+
+test('Wave 6: interactive HTML5 DOM ContextMenu renders custom, clipboard, and built-in items and dispatches MENU_SELECT + MENU_ITEM_SELECT', async () => {
+  await ready;
+  const h = createMediaEventsHarness();
+  try {
+    const { mediaEvents: host, B, E } = h;
+    const ContextMenu = B['flash.ui.ContextMenu'];
+    const ContextMenuItem = B['flash.ui.ContextMenuItem'];
+
+    const target = new E.EventDispatcher();
+    target.text = 'Hello Flash World';
+    target.selectionBeginIndex = 6;
+    target.selectionEndIndex = 11;
+
+    const cm = new ContextMenu();
+    cm.hideBuiltInItems();
+    cm.builtInItems.play = true;
+    cm.clipboardItems.copy = true;
+    cm.clipboardItems.cut = true;
+    cm.clipboardItems.paste = true;
+    cm.clipboardItems.clear = true;
+    cm.clipboardItems.selectAll = true;
+
+    const item1 = new ContextMenuItem('Inspect Symbol', false, true, true);
+    const item2 = new ContextMenuItem('Disabled Action', true, false, true);
+    const itemHidden = new ContextMenuItem('Secret Action', false, true, false);
+    cm.customItems = [item1, item2, itemHidden];
+    target.contextMenu = cm;
+
+    const menuSelectEvents = [];
+    const itemSelectEvents = [];
+    cm.addEventListener(E.ContextMenuEvent.MENU_SELECT, ev => menuSelectEvents.push(ev));
+    item1.addEventListener(E.ContextMenuEvent.MENU_ITEM_SELECT, ev => itemSelectEvents.push(ev));
+
+    let prevented = false;
+    const domMenu = host.openContextMenu(
+      {
+        clientX: 120,
+        clientY: 80,
+        preventDefault() {
+          prevented = true;
+        },
+      },
+      target
+    );
+    assert.equal(prevented, true);
+    assert.ok(domMenu);
+    assert.equal(domMenu.getAttribute('role'), 'menu');
+    assert.equal(menuSelectEvents.length, 1);
+    assert.equal(menuSelectEvents[0].mouseTarget, target);
+    assert.equal(menuSelectEvents[0].contextMenuOwner, target);
+
+    const buttons = domMenu.querySelectorAll('[role="menuitem"]');
+    const captions = buttons.map(b => b.textContent);
+    assert.ok(captions.includes('Inspect Symbol'));
+    assert.ok(captions.includes('Disabled Action'));
+    assert.ok(!captions.includes('Secret Action'));
+    assert.ok(captions.includes('Cut'));
+    assert.ok(captions.includes('Copy'));
+    assert.ok(captions.includes('Paste'));
+    assert.ok(captions.includes('Clear'));
+    assert.ok(captions.includes('Select All'));
+    assert.ok(captions.includes('Play'));
+
+    const separators = domMenu.querySelectorAll('[role="separator"]');
+    assert.ok(separators.length >= 2);
+
+    // Click disabled item -> should NOT fire MENU_ITEM_SELECT
+    const disabledBtn = buttons.find(b => b.textContent === 'Disabled Action');
+    assert.equal(disabledBtn.disabled, true);
+    disabledBtn.click();
+    assert.equal(itemSelectEvents.length, 0);
+
+    // Click enabled custom item -> fires MENU_ITEM_SELECT and closes menu
+    const inspectBtn = buttons.find(b => b.textContent === 'Inspect Symbol');
+    inspectBtn.click();
+    assert.equal(itemSelectEvents.length, 1);
+    assert.equal(itemSelectEvents[0].mouseTarget, target);
+    assert.equal(itemSelectEvents[0].contextMenuOwner, target);
+    assert.equal(host.getActiveContextMenu(), null);
+
+    // Reopen and test clipboard Cut + Paste + Select All on target
+    const menu2 = host.openContextMenu({ clientX: 10, clientY: 10 }, target);
+    const cutBtn = menu2.querySelectorAll('[role="menuitem"]').find(b => b.textContent === 'Cut');
+    cutBtn.click();
+    assert.equal(target.text, 'Hello  World');
+
+    target.selectionBeginIndex = 6;
+    target.selectionEndIndex = 6;
+    const menu3 = host.openContextMenu({ clientX: 10, clientY: 10 }, target);
+    const pasteBtn = menu3.querySelectorAll('[role="menuitem"]').find(b => b.textContent === 'Paste');
+    pasteBtn.click();
+    assert.equal(target.text, 'Hello Flash World');
+
+    const menu4 = host.openContextMenu({ clientX: 10, clientY: 10 }, target);
+    const selectAllBtn = menu4.querySelectorAll('[role="menuitem"]').find(b => b.textContent === 'Select All');
+    selectAllBtn.click();
+    assert.equal(target.selectionBeginIndex, 0);
+    assert.equal(target.selectionEndIndex, target.text.length);
+  } finally {
+    h.dispose();
+  }
+});
+
+test('Wave 6: Multitouch recognizer dispatches multi-pointer TouchEvent and 2-finger TransformGestureEvent / GestureEvent / PressAndTapGestureEvent', async () => {
+  await ready;
+  const h = createMediaEventsHarness();
+  try {
+    const { mediaEvents: host, B, E, binary } = h;
+    const Multitouch = B['flash.ui.Multitouch'];
+    const MultitouchInputMode = B['flash.ui.MultitouchInputMode'];
+
+    const targetA = new E.EventDispatcher();
+    const targetB = new E.EventDispatcher();
+
+    // 1. TOUCH_POINT mode
+    Multitouch.inputMode = MultitouchInputMode.TOUCH_POINT;
+    const touchLog = [];
+    for (const t of [
+      E.TouchEvent.TOUCH_BEGIN,
+      E.TouchEvent.TOUCH_MOVE,
+      E.TouchEvent.TOUCH_END,
+      E.TouchEvent.TOUCH_TAP,
+      E.TouchEvent.TOUCH_OVER,
+      E.TouchEvent.TOUCH_OUT,
+    ]) {
+      targetA.addEventListener(t, ev => touchLog.push({ target: 'A', type: ev.type, id: ev.touchPointID, primary: ev.isPrimaryTouchPoint, ev }));
+      targetB.addEventListener(t, ev => touchLog.push({ target: 'B', type: ev.type, id: ev.touchPointID, primary: ev.isPrimaryTouchPoint, ev }));
+    }
+
+    host.handlePointerInput('pointerdown', { pointerId: 10, stageX: 50, stageY: 60, pressure: 0.75 }, targetA);
+    host.handlePointerInput('pointermove', { pointerId: 10, stageX: 52, stageY: 61, pressure: 0.8 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 10, stageX: 52, stageY: 61, pressure: 0.8 }, targetA);
+
+    assert.ok(touchLog.some(e => e.type === 'touchBegin' && e.id === 10 && e.primary === true));
+    const moveEntry = touchLog.find(e => e.type === 'touchMove' && e.id === 10);
+    assert.ok(moveEntry);
+    const sampleBuf = new binary.ByteArray();
+    const numSamples = moveEntry.ev.getSamples(sampleBuf, false);
+    assert.equal(numSamples, 2);
+    assert.equal(sampleBuf.length, 24);
+    assert.ok(touchLog.some(e => e.type === 'touchEnd' && e.id === 10));
+    assert.ok(touchLog.some(e => e.type === 'touchTap' && e.id === 10));
+
+    // Pointer transition from targetA to targetB dispatches touchOut on A and touchOver on B
+    touchLog.length = 0;
+    host.handlePointerInput('pointerdown', { pointerId: 20, stageX: 10, stageY: 10 }, targetA);
+    host.handlePointerInput('pointermove', { pointerId: 20, stageX: 100, stageY: 100 }, targetB);
+    host.handlePointerInput('pointerup', { pointerId: 20, stageX: 100, stageY: 100 }, targetB);
+    assert.ok(touchLog.some(e => e.target === 'A' && e.type === 'touchOut'));
+    assert.ok(touchLog.some(e => e.target === 'B' && e.type === 'touchOver'));
+
+    // 2. GESTURE mode: 2-finger pinch zoom + rotate + pan, 2-finger tap, press-and-tap, and 1-finger swipe
+    Multitouch.inputMode = MultitouchInputMode.GESTURE;
+    const gestureLog = [];
+    for (const g of [
+      E.TransformGestureEvent.GESTURE_ZOOM,
+      E.TransformGestureEvent.GESTURE_ROTATE,
+      E.TransformGestureEvent.GESTURE_PAN,
+      E.TransformGestureEvent.GESTURE_SWIPE,
+      E.GestureEvent.GESTURE_TWO_FINGER_TAP,
+      E.PressAndTapGestureEvent.GESTURE_PRESS_AND_TAP,
+    ]) {
+      targetA.addEventListener(g, ev => gestureLog.push(ev));
+    }
+
+    // Pinch zoom + rotate + pan
+    host.handlePointerInput('pointerdown', { pointerId: 1, stageX: 100, stageY: 100 }, targetA);
+    host.handlePointerInput('pointerdown', { pointerId: 2, stageX: 200, stageY: 100 }, targetA);
+    host.handlePointerInput('pointermove', { pointerId: 2, stageX: 250, stageY: 150 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 2, stageX: 250, stageY: 150 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 1, stageX: 100, stageY: 100 }, targetA);
+
+    assert.ok(gestureLog.some(e => e.type === 'gestureZoom' && e.scaleX > 1));
+    assert.ok(gestureLog.some(e => e.type === 'gestureRotate' && e.rotation !== 0));
+    assert.ok(gestureLog.some(e => e.type === 'gesturePan'));
+
+    // Two-finger tap
+    gestureLog.length = 0;
+    host.handlePointerInput('pointerdown', { pointerId: 3, stageX: 100, stageY: 100 }, targetA);
+    host.handlePointerInput('pointerdown', { pointerId: 4, stageX: 140, stageY: 100 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 4, stageX: 140, stageY: 100 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 3, stageX: 100, stageY: 100 }, targetA);
+    assert.ok(gestureLog.some(e => e.type === 'gestureTwoFingerTap'));
+
+    // Press and tap
+    gestureLog.length = 0;
+    host.handlePointerInput('pointerdown', { pointerId: 5, stageX: 80, stageY: 90 }, targetA);
+    host.handlePointerInput('pointerdown', { pointerId: 6, stageX: 120, stageY: 95 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 6, stageX: 120, stageY: 95, pressAndTap: true }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 5, stageX: 80, stageY: 90 }, targetA);
+    assert.ok(gestureLog.some(e => e.type === 'gesturePressAndTap' && e.tapLocalX === 120));
+
+    // One-finger swipe
+    gestureLog.length = 0;
+    host.handlePointerInput('pointerdown', { pointerId: 7, stageX: 50, stageY: 50 }, targetA);
+    host.handlePointerInput('pointermove', { pointerId: 7, stageX: 150, stageY: 55 }, targetA);
+    host.handlePointerInput('pointerup', { pointerId: 7, stageX: 150, stageY: 55 }, targetA);
+    assert.ok(gestureLog.some(e => e.type === 'gestureSwipe' && e.offsetX === 1));
+  } finally {
+    h.dispose();
+  }
+});
+
+test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microphone PCM SampleDataEvent, scanHardware, and SemanticLayer AccessibilityProperties', async () => {
+  await ready;
+  const h = createMediaEventsHarness();
+  try {
+    const { mediaEvents: host, B, E, binary, geom, stage: mockStage } = h;
+
+    // 1. GameInput live gamepad sync & events
+    const GameInput = B['flash.ui.GameInput'];
+    const GameInputEvent = B['flash.events.GameInputEvent'];
+    const gi = new GameInput();
+    const addedDevices = [];
+    const removedDevices = [];
+    gi.addEventListener(GameInputEvent.DEVICE_ADDED, ev => addedDevices.push(ev.device));
+    gi.addEventListener(GameInputEvent.DEVICE_REMOVED, ev => removedDevices.push(ev.device));
+
+    const dev0 = GameInput.getDeviceAt(0);
+    dev0.enabled = true;
+    dev0.startCachingSamples(8, ['AXIS_0', 'BUTTON_0']);
+    const axis0 = dev0.getControlAt(0);
+    let axisChangeCount = 0;
+    axis0.addEventListener('change', () => {
+      axisChangeCount++;
+    });
+
+    host.syncGamepads([
+      { id: 'xbox-0', name: 'Xbox Wireless Controller', axes: [0.85, -0.5], buttons: [{ value: 1, pressed: true }] },
+      { id: 'dualshock-1', name: 'DualSense Wireless Controller', axes: [0.0, 0.25], buttons: [0] },
+    ]);
+    assert.equal(GameInput.numDevices, 2);
+    assert.equal(addedDevices.length, 1);
+    assert.equal(addedDevices[0].id, 'dualshock-1');
+    assert.equal(axisChangeCount, 1);
+    assert.ok(Math.abs(axis0.value - 0.85) < 1e-5);
+
+    const sampleBytes = new binary.ByteArray();
+    const cachedCount = dev0.getCachedSamples(sampleBytes, false);
+    assert.equal(cachedCount, 2); // initial snapshot + synced sample
+    assert.equal(sampleBytes.length, 16);
+
+    host.removeGamepad(1);
+    assert.equal(GameInput.numDevices, 1);
+    assert.equal(removedDevices.length, 1);
+
+    // 2. StageVideo canvas compositing & StageVideoAvailabilityEvent on stage
+    let availReceived = null;
+    mockStage.addEventListener('stageVideoAvailability', ev => {
+      availReceived = ev;
+    });
+    assert.ok(availReceived);
+    assert.equal(availReceived.availability, 'available');
+
+    const sv0 = mockStage.stageVideos[0];
+    const sv1 = mockStage.stageVideos[1];
+    const Camera = B['flash.media.Camera'];
+    const cam = Camera.getCamera('0');
+    cam.setMode(320, 240, 30, true);
+    sv0.viewPort = new geom.Rectangle(10, 20, 400, 300);
+    sv0.depth = 5;
+    sv0.attachCamera(cam);
+
+    sv1.viewPort = new geom.Rectangle(0, 0, 800, 600);
+    sv1.depth = 1;
+    sv1.attachNetStream({ videoWidth: 640, videoHeight: 360 });
+
+    const drawCalls = [];
+    const mockCtx = {
+      fillStyle: '#000000',
+      save() {},
+      restore() {},
+      beginPath() {},
+      rect() {},
+      clip() {},
+      fillRect(x, y, w, h) {
+        drawCalls.push({ x, y, w, h, fillStyle: this.fillStyle });
+      },
+    };
+    const compositeSummary = host.paintStageVideos(mockCtx, 800, 600);
+    assert.equal(compositeSummary.length, 2);
+    // Sorted by depth ascending: slot 1 (depth 1) painted before slot 0 (depth 5)
+    assert.equal(compositeSummary[0].slotIndex, 1);
+    assert.equal(compositeSummary[1].slotIndex, 0);
+    assert.equal(drawCalls.length, 2);
+
+    // 3. Camera live video source override
+    cam.attachVideoSource({
+      getPixel32(x, y) {
+        return (0xFF112200 | ((x + y) & 0xFF)) >>> 0;
+      },
+    });
+    const customVec = [];
+    cam.copyToVector(new geom.Rectangle(0, 0, 2, 2), customVec);
+    assert.equal(customVec[0], 0xFF112200);
+    assert.equal(customVec[1], 0xFF112201);
+    cam.attachVideoSource(null);
+
+    // 4. Microphone SampleDataEvent PCM float32 capture & scanHardware
+    const Microphone = B['flash.media.Microphone'];
+    const mic = Microphone.getMicrophone(0);
+    mic.rate = 44;
+    mic.gain = 75;
+    const micSamples = [];
+    mic.addEventListener(E.SampleDataEvent.SAMPLE_DATA, ev => {
+      micSamples.push({ position: ev.position, length: ev.data.length, firstSample: ev.data.readFloat() });
+    });
+    host.stepMicrophones(256);
+    assert.equal(micSamples.length, 1);
+    assert.equal(micSamples[0].position, 0);
+    assert.equal(micSamples[0].length, 1024);
+    assert.ok(Number.isFinite(micSamples[0].firstSample));
+    assert.ok(mic.activityLevel > 0);
+
+    const AudioDeviceManager = B['flash.media.AudioDeviceManager'];
+    const adm = AudioDeviceManager.audioDeviceManager;
+    let deviceChangeReason = null;
+    adm.addEventListener('audioOutputChange', ev => {
+      deviceChangeReason = ev.reason;
+    });
+    const hw = B['flash.media.scanHardware']({
+      cameras: ['Studio Camera Pro'],
+      microphones: ['Studio Condenser Mic'],
+      audioOutputs: ['Studio Monitors', 'Headphones Out'],
+    });
+    assert.deepEqual(Array.from(Camera.names), ['Studio Camera Pro']);
+    assert.deepEqual(Array.from(Microphone.names), ['Studio Condenser Mic']);
+    assert.deepEqual(Array.from(adm.deviceNames), ['Studio Monitors', 'Headphones Out']);
+    assert.equal(deviceChangeReason, 'deviceChange');
+    assert.ok(hw);
+
+    // 5. SemanticLayer AccessibilityProperties (shortcut, silent, forceSimple, noAutoLabeling)
+    const AccessibilityLib = require('../accessibility.js');
+    const AccessibilityProperties = B['flash.accessibility.AccessibilityProperties'];
+    const domRecords = [];
+    const fakeDoc = {
+      activeElement: null,
+      createElement(tag) {
+        const attrs = new Map();
+        const children = [];
+        return {
+          tagName: tag.toUpperCase(),
+          className: '',
+          type: '',
+          hidden: false,
+          id: '',
+          disabled: false,
+          textContent: '',
+          style: {},
+          children,
+          setAttribute(k, v) { attrs.set(k, String(v)); },
+          getAttribute(k) { return attrs.has(k) ? attrs.get(k) : null; },
+          removeAttribute(k) { attrs.delete(k); },
+          appendChild(c) { children.push(c); return c; },
+          addEventListener() {},
+          remove() {
+            const idx = domRecords.indexOf(this);
+            if (idx >= 0) domRecords.splice(idx, 1);
+          },
+          get nextElementSibling() {
+            const idx = domRecords.indexOf(this);
+            return idx >= 0 ? domRecords[idx + 1] || null : null;
+          },
+        };
+      },
+    };
+    const fakeContainer = {
+      ownerDocument: fakeDoc,
+      get firstElementChild() { return domRecords[0] || null; },
+      insertBefore(el, before) {
+        const existing = domRecords.indexOf(el);
+        if (existing >= 0) domRecords.splice(existing, 1);
+        const idx = before ? domRecords.indexOf(before) : -1;
+        if (idx >= 0) domRecords.splice(idx, 0, el);
+        else domRecords.push(el);
+      },
+    };
+    const semanticLayer = new AccessibilityLib.SemanticLayer(fakeContainer, () => {});
+    const dispMap = new Map();
+    const pParent = new AccessibilityProperties();
+    pParent.name = 'Toolbar Container';
+    pParent.description = 'Main toolbar';
+    pParent.shortcut = 'Ctrl+T';
+    pParent.forceSimple = true;
+    pParent.noAutoLabeling = true;
+    dispMap.set('parent', { accessibilityProperties: pParent });
+
+    const pChild = new AccessibilityProperties();
+    pChild.name = 'Suppressed Child';
+    dispMap.set('child', { accessibilityProperties: pChild });
+
+    const pSilent = new AccessibilityProperties();
+    pSilent.name = 'Hidden Node';
+    pSilent.silent = true;
+    dispMap.set('silent', { accessibilityProperties: pSilent });
+
+    const rawNodes = [
+      {
+        instance_path: ['toolbar'],
+        lifetime_id: 1,
+        key: 'parent',
+        accessibility: { role: 'button', name: 'Old', description: '' },
+      },
+      {
+        instance_path: ['toolbar', 'innerBtn'],
+        lifetime_id: 2,
+        key: 'child',
+        accessibility: { role: 'button', name: 'Inner', description: '' },
+      },
+      {
+        instance_path: ['ghost'],
+        lifetime_id: 3,
+        key: 'silent',
+        accessibility: { role: 'button', name: 'Ghost', description: '' },
+      },
+    ];
+    const enriched = host.applyAccessibilityPropertiesToSemanticNodes(rawNodes, n => dispMap.get(n.key));
+    const sceneItems = [
+      {
+        instance_path: ['toolbar'],
+        alpha: 1,
+        transform: [1, 0, 0, 1, 0, 0],
+        kind: { type: 'rectangle', width: 100, height: 40, fill: [255, 0, 0, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+      },
+      {
+        instance_path: ['toolbar', 'innerBtn'],
+        alpha: 1,
+        transform: [1, 0, 0, 1, 10, 5],
+        kind: { type: 'rectangle', width: 30, height: 20, fill: [0, 255, 0, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+      },
+      {
+        instance_path: ['ghost'],
+        alpha: 1,
+        transform: [1, 0, 0, 1, 200, 5],
+        kind: { type: 'rectangle', width: 30, height: 20, fill: [0, 0, 255, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+      },
+    ];
+    const count = semanticLayer.update(enriched, sceneItems, { width: 800, height: 600 }, 1, () => 20);
+    // Only 'toolbar' remains: 'silent' was omitted by silent=true, and 'innerBtn' was suppressed by parent forceSimple=true
+    assert.equal(count, 1);
+    assert.equal(domRecords.length, 1);
+    assert.equal(domRecords[0].getAttribute('aria-label'), 'Toolbar Container');
+    assert.equal(domRecords[0].getAttribute('aria-keyshortcuts'), 'Ctrl+T');
+    assert.equal(domRecords[0].getAttribute('data-force-simple'), 'true');
+    assert.equal(domRecords[0].getAttribute('data-no-auto-labeling'), 'true');
+  } finally {
+    h.dispose();
+  }
+});

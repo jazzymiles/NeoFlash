@@ -1,0 +1,403 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "d3920455f0c8dd4063f8043e6b534abd3bafeb8863260ea55de91b42e55612bf",
+  "reviews": [
+    {
+      "id": "AS2-WAVE6-GENUINE-CONFORMANCE-20261102",
+      "date": "2026-11-02",
+      "commit": "f7c7cd284aed9e080d5c05262d918753202341b1",
+      "title": "AS2 Wave 6 genuine HTML5/WASM runtime conformance promotions",
+      "summary": "Promote 76 AS2 declarations whose main runtime behavior is genuinely implemented and verified in Rust/WASM and the HTML5 host (ContextMenu/ContextMenuItem, Stage layout, DisplacementMapFilter live rendering, MovieClipLoader/loadMovie/getBytesLoaded, Sound.loadSound, Video.smoothing, LocalConnection, PrintJob); keep 217 OS/server/Saffron-bounded entries partial.",
+      "tests": [
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "crates/neoflash-script/tests/loader-gallery.mjs",
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-script/tests/video-playback.mjs",
+        "crates/neoflash-core/src/as2_stage.rs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Button.html#_focusrect",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Button.html#getDepth()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Button.html#menu",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Button.html#tabIndex",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Button.html#trackAsMenu",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#ContextMenu()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#class",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#copy()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#customItems",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#event:onSelect",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#hideBuiltInItems()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#ContextMenuItem()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#caption",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#class",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#copy()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#enabled",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#event:onSelect",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#separatorBefore",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:ContextMenuItem.html#visible",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#LocalConnection()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#class",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#close()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#connect()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#domain()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#event:onStatus",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#isPerUser",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:LocalConnection.html#send()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_droptarget",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_focusrect",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_url",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesLoaded()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#getBytesTotal()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#loadMovie()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#unloadMovie()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#MovieClipLoader()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#addListener()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#class",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadComplete",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#event:onLoadInit",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#getProgress()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#loadClip()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:MovieClipLoader.html#unloadClip()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#PrintJob()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#addPage()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#class",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#orientation",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageHeight",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#pageWidth",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperHeight",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#paperWidth",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#send()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:PrintJob.html#start()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesLoaded()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 Web Audio / HTMLVideoElement / Canvas 2D host for Sound byte loading and Video stream/camera attachment and imageSmoothingEnabled rendering."
+        },
+        {
+          "catalogId": "as2:Sound.html#getBytesTotal()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 Web Audio / HTMLVideoElement / Canvas 2D host for Sound byte loading and Video stream/camera attachment and imageSmoothingEnabled rendering."
+        },
+        {
+          "catalogId": "as2:Sound.html#loadSound()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 Web Audio / HTMLVideoElement / Canvas 2D host for Sound byte loading and Video stream/camera attachment and imageSmoothingEnabled rendering."
+        },
+        {
+          "catalogId": "as2:Stage.html#align",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Stage.html#scaleMode",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:Stage.html#showMenu",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host with interactive DOM contextmenu overlay, custom/built-in items, Stage scaleMode/align layout, and Button focus/tab/menu-tracking."
+        },
+        {
+          "catalogId": "as2:TextField.html#menu",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host attaching ContextMenu instances to TextField proxies and dispatching contextmenu overlays."
+        },
+        {
+          "catalogId": "as2:Video.html#attachVideo()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 Web Audio / HTMLVideoElement / Canvas 2D host for Sound byte loading and Video stream/camera attachment and imageSmoothingEnabled rendering."
+        },
+        {
+          "catalogId": "as2:Video.html#smoothing",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 Web Audio / HTMLVideoElement / Canvas 2D host for Sound byte loading and Video stream/camera attachment and imageSmoothingEnabled rendering."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#DisplacementMapFilter()",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#alpha",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#clone()",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#color",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentX",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#componentY",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapBitmap",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mapPoint",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#mode",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleX",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:flash/filters/DisplacementMapFilter.html#scaleY",
+          "status": "working",
+          "note": "Verified in Rust/WASM RGBA filter kernel and HTML5 scene filter renderer for both BitmapData.applyFilter and live DisplayObject.filters with mapBitmap revision tracking."
+        },
+        {
+          "catalogId": "as2:global_functions.html#ifFrameLoaded()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for MovieClip slash-path drop targets, per-clip focus rectangles, loaded/publication URLs, byte progress, and symbol/image loading."
+        },
+        {
+          "catalogId": "as2:global_functions.html#loadMovie()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        },
+        {
+          "catalogId": "as2:global_functions.html#unloadMovie()",
+          "status": "working",
+          "note": "Verified in Rust/WASM and HTML5 runtime host for BroadcastChannel/Web Locks LocalConnection AMF0 messaging, MovieClipLoader/loadMovie image & symbol loading, and PrintJob BitmapData.draw PNG page capture."
+        }
+      ]
+    }
+  ]
+}

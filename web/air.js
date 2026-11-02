@@ -2304,7 +2304,15 @@
       hasFormat(format) {
         const s = clipboardStates.get(this);
         if (!s) throw new TypeError('Expected a Clipboard instance.');
-        return s.entries.has(String(format));
+        const fmt = String(format);
+        if (s.entries.has(fmt)) return true;
+        if (
+          fmt === ClipboardFormats.FILE_LIST_FORMAT &&
+          s.entries.has(ClipboardFormats.FILE_PROMISE_LIST_FORMAT)
+        ) {
+          return true;
+        }
+        return false;
       }
       setData(format, data, serializable = true) {
         const s = clipboardStates.get(this);
@@ -2313,6 +2321,13 @@
           return false;
         }
         const fmt = String(format);
+        if (fmt === ClipboardFormats.FILE_PROMISE_LIST_FORMAT) {
+          if (!Array.isArray(data) || !data.every(item => IFilePromise.__nfIs(item))) {
+            throw new TypeError(
+              'ClipboardFormats.FILE_PROMISE_LIST_FORMAT requires an Array of IFilePromise objects.'
+            );
+          }
+        }
         const canSerialize = Boolean(serializable);
         const cloned = canSerialize ? cloneClipboardValue(data, true) : undefined;
         s.entries.set(fmt, {
@@ -2321,6 +2336,15 @@
           cloned,
           serializable: canSerialize,
         });
+        if (
+          this === generalClipboardSingleton &&
+          fmt === ClipboardFormats.TEXT_FORMAT &&
+          typeof global.navigator?.clipboard?.writeText === 'function'
+        ) {
+          try {
+            Promise.resolve(global.navigator.clipboard.writeText(String(data))).catch(() => {});
+          } catch (_) {}
+        }
         return true;
       }
       setDataHandler(format, handler, serializable = true) {
@@ -2348,7 +2372,34 @@
         ) {
           throw argErr(`Invalid ClipboardTransferMode '${mode}'.`);
         }
-        const entry = s.entries.get(String(format));
+        const fmt = String(format);
+        let entry = s.entries.get(fmt);
+        if (
+          !entry &&
+          fmt === ClipboardFormats.FILE_LIST_FORMAT &&
+          s.entries.has(ClipboardFormats.FILE_PROMISE_LIST_FORMAT)
+        ) {
+          const promises = this.getData(ClipboardFormats.FILE_PROMISE_LIST_FORMAT, 'originalPreferred');
+          if (Array.isArray(promises)) {
+            const files = [];
+            for (const p of promises) {
+              try {
+                const rel = String(p.relativePath || 'promised.dat').replace(/^\/+/, '');
+                const targetPath = callKernel('resolve_path', '/tmp/promises', rel);
+                const input = p.open();
+                const bytes = readDataInputBytes(input);
+                if (typeof p.close === 'function') p.close();
+                callKernel('fs_write_bytes', targetPath, bytes, Date.now());
+                files.push(fileFromNativePath(targetPath));
+              } catch (err) {
+                if (typeof p?.reportError === 'function') {
+                  p.reportError(new BaseErrorEvent('error', false, false, String(err.message)));
+                }
+              }
+            }
+            return files;
+          }
+        }
         if (!entry) return null;
         const raw = entry.kind === 'handler' ? entry.handler() : entry.original;
         if (mode === 'originalOnly' || mode === 'originalPreferred') {
@@ -4793,31 +4844,43 @@
         super();
         const st = { interval: 0, lastDispatched: 0 };
         deviceRotationStates.set(this, st);
-        if (typeof global.addEventListener === 'function' && DeviceRotation.isSupported) {
+        if (typeof global.addEventListener === 'function') {
           const onOrient = ev => {
             if (disposed) return;
             const now = Date.now();
             if (st.interval > 0 && now - st.lastDispatched < st.interval) return;
-            st.lastDispatched = now;
-            const yaw = Number(ev?.alpha) || 0;
-            const pitch = Number(ev?.beta) || 0;
-            const roll = Number(ev?.gamma) || 0;
-            this.dispatchEvent(
-              new DeviceRotationEvent(
-                DeviceRotationEvent.UPDATE,
-                false,
-                false,
-                now,
-                roll,
-                pitch,
-                yaw,
-                [0, 0, 0, 1]
-              )
-            );
+            this._dispatchOrientation(ev?.alpha, ev?.beta, ev?.gamma, now);
           };
           global.addEventListener('deviceorientation', onOrient);
           hostCleanups.push(() => global.removeEventListener?.('deviceorientation', onOrient));
         }
+      }
+      _dispatchOrientation(alpha = 0, beta = 0, gamma = 0, timestamp = Date.now()) {
+        const st = deviceRotationStates.get(this);
+        if (!st) throw new TypeError('Expected a DeviceRotation instance.');
+        st.lastDispatched = Number(timestamp) || Date.now();
+        const q = callKernel(
+          'device_rotation_quaternion',
+          Number(alpha) || 0,
+          Number(beta) || 0,
+          Number(gamma) || 0
+        );
+        const quat = [Number(q[0]) || 0, Number(q[1]) || 0, Number(q[2]) || 0, Number(q[3]) || 1];
+        const roll = Number(q[4]) || 0;
+        const pitch = Number(q[5]) || 0;
+        const yaw = Number(q[6]) || 0;
+        this.dispatchEvent(
+          new DeviceRotationEvent(
+            DeviceRotationEvent.UPDATE,
+            false,
+            false,
+            st.lastDispatched,
+            roll,
+            pitch,
+            yaw,
+            quat
+          )
+        );
       }
       static get isSupported() {
         return Boolean(typeof global.DeviceOrientationEvent === 'function');
@@ -4855,26 +4918,7 @@
               if (disposed) return;
               const now = Number(pos?.timestamp) || Date.now();
               if (st.interval > 0 && now - st.lastDispatched < st.interval) return;
-              st.lastDispatched = now;
-              const c = pos?.coords || {};
-              const GeoEv = options.eventFamilies?.GeolocationEvent;
-              if (GeoEv) {
-                this.dispatchEvent(
-                  new GeoEv(
-                    'update',
-                    false,
-                    false,
-                    Number(c.latitude) || 0,
-                    Number(c.longitude) || 0,
-                    Number(c.altitude) || 0,
-                    Number(c.accuracy) || 0,
-                    Number(c.altitudeAccuracy) || 0,
-                    Number(c.speed) || 0,
-                    Number(c.heading) || 0,
-                    now
-                  )
-                );
-              }
+              this._dispatchPosition(pos?.coords || {}, now);
             });
             hostCleanups.push(() => {
               if (st.watchId !== null) {
@@ -4884,6 +4928,29 @@
               }
             });
           } catch (_) {}
+        }
+      }
+      _dispatchPosition(coords = {}, timestamp = Date.now()) {
+        const st = geoStates.get(this);
+        if (!st) throw new TypeError('Expected a Geolocation instance.');
+        st.lastDispatched = Number(timestamp) || Date.now();
+        const GeoEv = options.eventFamilies?.GeolocationEvent;
+        if (GeoEv) {
+          this.dispatchEvent(
+            new GeoEv(
+              'update',
+              false,
+              false,
+              Number(coords.latitude) || 0,
+              Number(coords.longitude) || 0,
+              Number(coords.altitude) || 0,
+              Number(coords.accuracy) || 0,
+              Number(coords.altitudeAccuracy) || 0,
+              Number(coords.speed) || 0,
+              Number(coords.heading) || 0,
+              st.lastDispatched
+            )
+          );
         }
       }
       static get isSupported() {
@@ -7887,13 +7954,107 @@
       return s;
     }
 
+    function syncStageTextDom(receiver, s) {
+      if (!s) return;
+      if (!s.domElement) {
+        const tag = s.multiline ? 'textarea' : 'input';
+        const realEl =
+          typeof global.document?.createElement === 'function'
+            ? global.document.createElement(tag)
+            : null;
+        const el = realEl || {
+          tagName: tag.toUpperCase(),
+          style: {},
+          dataset: {},
+          setAttribute(k, v) {
+            this[k] = String(v);
+          },
+          focus() {
+            receiver.assignFocus();
+          },
+          blur() {
+            receiver._blurFocus();
+          },
+          setSelectionRange(start, end) {
+            this.selectionStart = start;
+            this.selectionEnd = end;
+          },
+        };
+        if (realEl && typeof realEl.addEventListener === 'function') {
+          realEl.addEventListener('input', () => {
+            if (s.disposed) return;
+            receiver.text = realEl.value;
+            receiver.dispatchEvent(new BaseEvent(BaseEvent.CHANGE));
+          });
+          realEl.addEventListener('blur', () => {
+            if (!s.disposed) receiver._blurFocus();
+          });
+        }
+        s.domElement = el;
+      }
+      const el = s.domElement;
+      if (!s.multiline) {
+        el.type = s.displayAsPassword
+          ? 'password'
+          : s.softKeyboardType === 'email'
+            ? 'email'
+            : s.softKeyboardType === 'url'
+              ? 'url'
+              : s.softKeyboardType === 'phone'
+                ? 'tel'
+                : 'text';
+      }
+      el.value = s.text;
+      el.readOnly = !s.editable;
+      el.maxLength = s.maxChars > 0 ? s.maxChars : -1;
+      el.lang = s.locale || 'en';
+      el.autocapitalize =
+        s.autoCapitalize === 'all'
+          ? 'characters'
+          : s.autoCapitalize === 'word'
+            ? 'words'
+            : s.autoCapitalize === 'sentence'
+              ? 'sentences'
+              : 'off';
+      el.autocorrect = s.autoCorrect ? 'on' : 'off';
+      el.enterKeyHint = s.returnKeyLabel === 'default' ? '' : s.returnKeyLabel;
+      el.inputMode = s.softKeyboardType === 'default' ? 'text' : s.softKeyboardType;
+      el.selectionStart = Math.min(s.selectionAnchorIndex, s.selectionActiveIndex);
+      el.selectionEnd = Math.max(s.selectionAnchorIndex, s.selectionActiveIndex);
+      if (el.style) {
+        el.style.position = 'absolute';
+        el.style.left = `${s.viewPort ? s.viewPort.x : 0}px`;
+        el.style.top = `${s.viewPort ? s.viewPort.y : 0}px`;
+        el.style.width = `${s.viewPort ? s.viewPort.width : 0}px`;
+        el.style.height = `${s.viewPort ? s.viewPort.height : 0}px`;
+        el.style.fontFamily = s.fontFamily || 'sans-serif';
+        el.style.fontSize = `${s.fontSize}px`;
+        el.style.fontWeight = s.fontWeight;
+        el.style.fontStyle = s.fontPosture;
+        el.style.color = `#${(s.color >>> 0).toString(16).padStart(6, '0')}`;
+        el.style.textAlign = s.textAlign;
+        el.style.display = s.stage && s.visible && s.viewPort && !s.disposed ? 'block' : 'none';
+      }
+      if (typeof global.document?.body?.appendChild === 'function') {
+        if (s.stage && !s.disposed && !el.parentNode) {
+          try {
+            global.document.body.appendChild(el);
+          } catch (_) {}
+        } else if ((!s.stage || s.disposed) && el.parentNode) {
+          try {
+            el.parentNode.removeChild(el);
+          } catch (_) {}
+        }
+      }
+    }
+
     class StageText extends BaseDispatcher {
       constructor(initOptions = null) {
         ensureActive();
         super();
         const multiline =
           initOptions instanceof StageTextInitOptions ? Boolean(initOptions.multiline) : false;
-        stageTextStates.set(this, {
+        const st = {
           multiline,
           autoCapitalize: 'none',
           autoCorrect: false,
@@ -7918,54 +8079,92 @@
           viewPort: null,
           visible: true,
           disposed: false,
-        });
+          domElement: null,
+        };
+        stageTextStates.set(this, st);
+        syncStageTextDom(this, st);
       }
+      get _domElement() { return stState(this).domElement; }
       get autoCapitalize() { return stState(this).autoCapitalize; }
       set autoCapitalize(v) {
         const val = String(v ?? 'none');
         if (!['all', 'none', 'sentence', 'word'].includes(val)) {
           throw argErr(`Invalid AutoCapitalize '${val}'.`);
         }
-        stState(this).autoCapitalize = val;
+        const s = stState(this);
+        s.autoCapitalize = val;
+        syncStageTextDom(this, s);
       }
       get autoCorrect() { return stState(this).autoCorrect; }
-      set autoCorrect(v) { stState(this).autoCorrect = Boolean(v); }
+      set autoCorrect(v) {
+        const s = stState(this);
+        s.autoCorrect = Boolean(v);
+        syncStageTextDom(this, s);
+      }
       get clearButtonMode() { return stState(this).clearButtonMode; }
       set clearButtonMode(v) {
         const val = String(v ?? 'whileEditing');
         if (!['always', 'never', 'unlessEditing', 'whileEditing'].includes(val)) {
           throw argErr(`Invalid StageTextClearButtonMode '${val}'.`);
         }
-        stState(this).clearButtonMode = val;
+        const s = stState(this);
+        s.clearButtonMode = val;
+        syncStageTextDom(this, s);
       }
       get color() { return stState(this).color; }
-      set color(v) { stState(this).color = (Number(v) >>> 0) & 0xffffff; }
+      set color(v) {
+        const s = stState(this);
+        s.color = (Number(v) >>> 0) & 0xffffff;
+        syncStageTextDom(this, s);
+      }
       get displayAsPassword() { return stState(this).displayAsPassword; }
-      set displayAsPassword(v) { stState(this).displayAsPassword = Boolean(v); }
+      set displayAsPassword(v) {
+        const s = stState(this);
+        s.displayAsPassword = Boolean(v);
+        syncStageTextDom(this, s);
+      }
       get editable() { return stState(this).editable; }
-      set editable(v) { stState(this).editable = Boolean(v); }
+      set editable(v) {
+        const s = stState(this);
+        s.editable = Boolean(v);
+        syncStageTextDom(this, s);
+      }
       get fontFamily() { return stState(this).fontFamily; }
-      set fontFamily(v) { stState(this).fontFamily = v == null ? null : String(v); }
+      set fontFamily(v) {
+        const s = stState(this);
+        s.fontFamily = v == null ? null : String(v);
+        syncStageTextDom(this, s);
+      }
       get fontPosture() { return stState(this).fontPosture; }
       set fontPosture(v) {
         const val = String(v ?? 'normal');
         if (val !== 'normal' && val !== 'italic') throw argErr(`Invalid FontPosture '${val}'.`);
-        stState(this).fontPosture = val;
+        const s = stState(this);
+        s.fontPosture = val;
+        syncStageTextDom(this, s);
       }
       get fontSize() { return stState(this).fontSize; }
       set fontSize(v) {
         const n = Number(v) | 0;
         if (n <= 0) throw argErr('StageText.fontSize must be positive.');
-        stState(this).fontSize = n;
+        const s = stState(this);
+        s.fontSize = n;
+        syncStageTextDom(this, s);
       }
       get fontWeight() { return stState(this).fontWeight; }
       set fontWeight(v) {
         const val = String(v ?? 'normal');
         if (val !== 'normal' && val !== 'bold') throw argErr(`Invalid FontWeight '${val}'.`);
-        stState(this).fontWeight = val;
+        const s = stState(this);
+        s.fontWeight = val;
+        syncStageTextDom(this, s);
       }
       get locale() { return stState(this).locale; }
-      set locale(v) { stState(this).locale = String(v ?? 'en'); }
+      set locale(v) {
+        const s = stState(this);
+        s.locale = String(v ?? 'en');
+        syncStageTextDom(this, s);
+      }
       get maxChars() { return stState(this).maxChars; }
       set maxChars(v) {
         const s = stState(this);
@@ -7973,6 +8172,7 @@
         if (s.maxChars > 0 && s.text.length > s.maxChars) {
           s.text = s.text.slice(0, s.maxChars);
         }
+        syncStageTextDom(this, s);
       }
       get multiline() { return stState(this).multiline; }
       get restrict() { return stState(this).restrict; }
@@ -7982,6 +8182,7 @@
         if (s.restrict !== null) {
           s.text = applyStageTextRestrict(s.text, s.restrict);
         }
+        syncStageTextDom(this, s);
       }
       get returnKeyLabel() { return stState(this).returnKeyLabel; }
       set returnKeyLabel(v) {
@@ -7989,7 +8190,9 @@
         if (!['default', 'done', 'go', 'next', 'search'].includes(val)) {
           throw argErr(`Invalid ReturnKeyLabel '${val}'.`);
         }
-        stState(this).returnKeyLabel = val;
+        const s = stState(this);
+        s.returnKeyLabel = val;
+        syncStageTextDom(this, s);
       }
       get selectionActiveIndex() { return stState(this).selectionActiveIndex; }
       get selectionAnchorIndex() { return stState(this).selectionAnchorIndex; }
@@ -7999,10 +8202,16 @@
         if (!['contact', 'decimal', 'default', 'email', 'number', 'phone', 'punctuation', 'url'].includes(val)) {
           throw argErr(`Invalid SoftKeyboardType '${val}'.`);
         }
-        stState(this).softKeyboardType = val;
+        const s = stState(this);
+        s.softKeyboardType = val;
+        syncStageTextDom(this, s);
       }
       get stage() { return stState(this).stage; }
-      set stage(v) { stState(this).stage = v ?? null; }
+      set stage(v) {
+        const s = stState(this);
+        s.stage = v ?? null;
+        syncStageTextDom(this, s);
+      }
       get text() { return stState(this).text; }
       set text(v) {
         const s = stState(this);
@@ -8013,6 +8222,7 @@
         s.text = next;
         s.selectionAnchorIndex = Math.min(s.selectionAnchorIndex, next.length);
         s.selectionActiveIndex = Math.min(s.selectionActiveIndex, next.length);
+        syncStageTextDom(this, s);
       }
       get textAlign() { return stState(this).textAlign; }
       set textAlign(v) {
@@ -8020,7 +8230,9 @@
         if (!['start', 'end', 'left', 'right', 'center', 'justify'].includes(val)) {
           throw argErr(`Invalid StageText.textAlign '${val}'.`);
         }
-        stState(this).textAlign = val;
+        const s = stState(this);
+        s.textAlign = val;
+        syncStageTextDom(this, s);
       }
       get viewPort() {
         const vp = stState(this).viewPort;
@@ -8030,6 +8242,7 @@
         const s = stState(this);
         if (v === null) {
           s.viewPort = null;
+          syncStageTextDom(this, s);
           return;
         }
         if (typeof v !== 'object' || Number(v.width) < 0 || Number(v.height) < 0) {
@@ -8041,19 +8254,42 @@
           Number(v.width) || 0,
           Number(v.height) || 0
         );
+        syncStageTextDom(this, s);
       }
       get visible() { return stState(this).visible; }
-      set visible(v) { stState(this).visible = Boolean(v); }
+      set visible(v) {
+        const s = stState(this);
+        s.visible = Boolean(v);
+        syncStageTextDom(this, s);
+      }
 
       selectRange(anchorIndex, activeIndex) {
         const s = stState(this);
         const len = s.text.length;
         s.selectionAnchorIndex = Math.max(0, Math.min(len, Number(anchorIndex) | 0));
         s.selectionActiveIndex = Math.max(0, Math.min(len, Number(activeIndex) | 0));
+        syncStageTextDom(this, s);
+      }
+
+      _blurFocus() {
+        const s = stageTextStates.get(this);
+        if (!s || s.disposed) return;
+        if (activeStageText === this) activeStageText = null;
+        const SkEv = options.eventFamilies?.SoftKeyboardEvent;
+        if (SkEv) {
+          this.dispatchEvent(new SkEv('softKeyboardDeactivate', false, false, null, 'contentTriggered'));
+        } else {
+          this.dispatchEvent(new BaseEvent('softKeyboardDeactivate', false, false));
+        }
+        const FocusEv = events.FocusEvent || BaseEvent;
+        this.dispatchEvent(new FocusEv('focusOut'));
       }
 
       assignFocus() {
-        stState(this);
+        const s = stState(this);
+        if (activeStageText && activeStageText !== this) {
+          activeStageText._blurFocus();
+        }
         activeStageText = this;
         const SkEv = options.eventFamilies?.SoftKeyboardEvent;
         if (SkEv) {
@@ -8067,6 +8303,7 @@
         }
         const FocusEv = events.FocusEvent || BaseEvent;
         this.dispatchEvent(new FocusEv('focusIn'));
+        syncStageTextDom(this, s);
       }
 
       drawViewPortToBitmapData(bitmap) {
@@ -8082,10 +8319,15 @@
         if ((Number(bitmap.width) | 0) !== w || (Number(bitmap.height) | 0) !== h) {
           throw argErr('BitmapData dimensions must match StageText.viewPort dimensions.');
         }
+        const selPart =
+          s.selectionAnchorIndex !== s.selectionActiveIndex
+            ? `sel=${s.selectionAnchorIndex},${s.selectionActiveIndex}`
+            : '';
         const flagsAlign = [
           s.multiline ? 'multiline' : 'single',
           s.displayAsPassword ? 'password' : '',
           s.textAlign || 'left',
+          selPart,
         ]
           .filter(Boolean)
           .join(':');
@@ -8164,6 +8406,7 @@
         if (!s || s.disposed) return;
         s.disposed = true;
         if (activeStageText === this) activeStageText = null;
+        syncStageTextDom(this, s);
       }
     }
     tagType(StageText, 'StageText', v => stageTextStates.has(v));

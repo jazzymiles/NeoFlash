@@ -207,6 +207,26 @@ fn as3_fte_ime_stage3d_shaders_and_3d_display_compile_and_execute_end_to_end() {
                         var pt2d:Point = sp.local3DToGlobal(new Vector3D(5, 5, 0));
                         var v3d:Vector3D = sp.globalToLocal3D(pt2d);
 
+                        // 4. FTE TextLine BitmapData.draw rasterization + MirrorRegion event forwarding
+                        rootClip.addChild(line);
+                        var lineBmp:BitmapData = new BitmapData(120, 40, true, 0);
+                        lineBmp.draw(line);
+                        var hasLineInk:Boolean = false;
+                        for (var ly:int = 0; ly < 40 && !hasLineInk; ly++) {
+                            for (var lx:int = 0; lx < 120; lx++) {
+                                if (((lineBmp.getPixel32(lx, ly) >>> 24) & 0xff) > 0) {
+                                    hasLineInk = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        var mirrorHits:int = 0;
+                        mirror.addEventListener("fteMirrorPing", function(ev:Event):void {
+                            mirrorHits++;
+                        });
+                        line.dispatchEvent(new Event("fteMirrorPing"));
+
                         var li:LoaderInfo = LoaderInfo.getLoaderInfoByDefinition(sp);
 
                         return [
@@ -222,7 +242,9 @@ fn as3_fte_ime_stage3d_shaders_and_3d_display_compile_and_execute_end_to_end() {
                             li.actionScriptVersion,
                             ActionScriptVersion.ACTIONSCRIPT3,
                             SWFVersion.FLASH10,
-                            ColorCorrection.DEFAULT
+                            ColorCorrection.DEFAULT,
+                            hasLineInk,
+                            mirrorHits
                         ].join("|");
                     }
                 }
@@ -279,7 +301,7 @@ fn as3_fte_ime_stage3d_shaders_and_3d_display_compile_and_execute_end_to_end() {
         const out = Verifier.verifyAll(rootClip);
         assert.equal(
             out,
-            'true|16|15|true|NeoFlash IME!|ff00ff00|ff0000ff|true|5|3|3|10|default'
+            'true|16|15|true|NeoFlash IME!|ff00ff00|ff0000ff|true|5|3|3|10|default|true|1'
         );
 
         host.disposeFamily();
@@ -340,4 +362,160 @@ fn as3_fte_ime_and_stage3d_diagnostics_reject_incomplete_interfaces_and_final_su
             "Extending {base_qname} should be rejected with an actionable diagnostic"
         );
     }
+}
+
+#[test]
+fn as3_wave6_custom_namespace_uri_isolation_default_xml_namespace_and_statements_execute() {
+    let proj = fte3d_project(&[
+        (
+            "app/IIdentifiable.as",
+            r#"
+            package app {
+                public interface IIdentifiable {
+                    function identify():String;
+                }
+            }
+            "#,
+        ),
+        (
+            "app/BaseEntity.as",
+            r#"
+            package app {
+                public class BaseEntity implements IIdentifiable {
+                    protected var baseTag:String = "base";
+                    public function identify():String {
+                        return this.baseTag;
+                    }
+                }
+            }
+            "#,
+        ),
+        (
+            "app/NamespaceSuite.as",
+            r#"
+            package app {
+                public namespace nsAlpha = "urn:neoflash:alpha";
+                public namespace nsBeta = "urn:neoflash:beta";
+
+                public dynamic final class NamespaceSuite extends BaseEntity {
+                    nsAlpha var slot:String = "alpha-slot";
+                    nsBeta var slot:String = "beta-slot";
+
+                    nsAlpha function compute(v:int):int {
+                        return v + 10;
+                    }
+
+                    nsBeta function compute(v:int):int {
+                        return v * 10;
+                    }
+
+                    public override function identify():String {
+                        return super.identify() + ":suite";
+                    }
+
+                    public function readViaUseAlpha():String {
+                        use namespace nsAlpha;
+                        return slot + ":" + compute(3);
+                    }
+
+                    public function readViaUseBeta():String {
+                        use namespace nsBeta;
+                        return slot + ":" + compute(3);
+                    }
+
+                    private static function innerXml():String {
+                        default xml namespace = "urn:neoflash:inner";
+                        var child:XML = <leaf/>;
+                        return String(child.namespace());
+                    }
+
+                    public static function verifyDefaultXmlScope():String {
+                        default xml namespace = "urn:neoflash:outer";
+                        var before:String = String((<root/>).namespace());
+                        var during:String = innerXml();
+                        var after:String = String((<after/>).namespace());
+                        return [before, during, after].join("|");
+                    }
+
+                    public static function verifyAll():String {
+                        var s:NamespaceSuite = new NamespaceSuite();
+                        var q1:String = s.nsAlpha::slot + ":" + s.nsAlpha::compute(4);
+                        var q2:String = s.nsBeta::slot + ":" + s.nsBeta::compute(4);
+                        s.nsAlpha::slot = "alpha-updated";
+                        var afterSet:String = s.nsAlpha::slot + "/" + s.nsBeta::slot;
+                        var u1:String = s.readViaUseAlpha();
+                        var u2:String = s.readViaUseBeta();
+                        var xmlScopes:String = verifyDefaultXmlScope();
+                        return [s.identify(), q1, q2, afterSet, u1, u2, xmlScopes].join("||");
+                    }
+                }
+            }
+            "#,
+        ),
+    ]);
+
+    let program = neoflash_script::compile_project(&proj)
+        .expect("AS3 Wave 6 custom namespace & XML scope suite must compile");
+    let frame_script = Script {
+        language: ScriptLanguage::ActionScript3,
+        source: "import app.NamespaceSuite;\ntrace(NamespaceSuite.verifyAll());".into(),
+    };
+    let compiled_frame = neoflash_script::compile_with_program(&frame_script, &program)
+        .expect("AS3 Wave 6 frame script must compile");
+
+    let project_json = serde_json::to_string(&proj).unwrap();
+    let bundle_json = serde_json::json!({
+        "project": proj,
+        "program": {
+            "code": program.code,
+            "class_names": program.class_names,
+        }
+    })
+    .to_string();
+    let script_json = serde_json::to_string(&frame_script).unwrap();
+    let code_json = serde_json::to_string(&compiled_frame).unwrap();
+
+    let node_runner = format!(
+        r#"
+        import assert from 'node:assert/strict';
+        import {{ resolve }} from 'node:path';
+        import {{ runtimeWasm }} from './tests/rust-runtime-host.mjs';
+        import {{ createRuntimeHost }} from './tests/host-integration.mjs';
+
+        const root = resolve('../..');
+        const projectJson = {project_json};
+        const bundle = {bundle_json};
+        const script = {script_json};
+        const code = {code_json};
+
+        const player = new runtimeWasm.WebPlayer(JSON.stringify(projectJson));
+        const {{ host }} = createRuntimeHost(
+            root,
+            player,
+            [{{ script, code, location: 'Scene 1 / frame 1' }}],
+            {{ bundle, project: projectJson }}
+        );
+
+        const Suite = host.program().type('app.NamespaceSuite');
+        const out = Suite.verifyAll();
+        assert.equal(
+            out,
+            'base:suite||alpha-slot:14||beta-slot:40||alpha-updated/beta-slot||alpha-updated:13||beta-slot:30||urn:neoflash:outer|urn:neoflash:inner|urn:neoflash:outer'
+        );
+
+        host.disposeFamily();
+        player.free();
+        "#,
+    );
+
+    let output = Command::new("node")
+        .args(["--input-type=module", "-e", &node_runner])
+        .output()
+        .expect("node must execute AS3 Wave 6 custom namespace suite");
+    assert!(
+        output.status.success(),
+        "Node AS3 Wave 6 custom namespace execution failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

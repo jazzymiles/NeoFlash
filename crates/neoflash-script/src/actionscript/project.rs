@@ -423,6 +423,7 @@ const BUILTINS: &[&str] = &[
     "flash.globalization.Collator",
     "flash.globalization.StringTools",
     "flash.net.Responder",
+    "flash.net.DynamicPropertyOutput",
     "flash.net.FileFilter",
     "flash.net.GroupSpecifier",
     "flash.net.NetGroupReceiveMode",
@@ -1383,6 +1384,24 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "drawTrianglesInstanced"
                 | "uploadFromBitmapDataAsync"
                 | "uploadFromByteArrayAsync"
+                | "writeDynamicProperty"
+                | "writeDynamicProperties"
+                | "getQualifiedDefinitionNames"
+                | "li8"
+                | "li16"
+                | "li32"
+                | "lf32"
+                | "lf64"
+                | "si8"
+                | "si16"
+                | "si32"
+                | "sf32"
+                | "sf64"
+                | "sxi1"
+                | "sxi8"
+                | "sxi16"
+                | "pauseForGCIfCollectionImminent"
+                | "returnVoucher"
         )
 }
 
@@ -1472,6 +1491,7 @@ struct Method {
     override_: bool,
     access: Access,
     namespace: Option<String>,
+    open_namespaces: Vec<String>,
     final_: bool,
     kind: MethodKind,
 }
@@ -2730,12 +2750,20 @@ fn parse_class(
                 });
             }
         } else if p.is("function") {
+            let saved_open = p.context.open_namespaces.clone();
             let (mut f, accessor) = p.project_function(
                 true,
                 true,
                 header.is_interface || header.intrinsic,
                 (header.intrinsic && !header.is_interface) || native_,
             )?;
+            let method_open_namespaces = p.context.open_namespaces.clone();
+            p.context.open_namespaces = saved_open;
+            for uri in &method_open_namespaces {
+                if !c.open_namespaces.contains(uri) {
+                    c.open_namespaces.push(uri.clone());
+                }
+            }
             let kind = match accessor.as_deref() {
                 Some("get") => MethodKind::Get,
                 Some("set") => MethodKind::Set,
@@ -2806,6 +2834,7 @@ fn parse_class(
                 override_,
                 access,
                 namespace: member_ns,
+                open_namespaces: method_open_namespaces,
                 final_,
                 kind,
             });
@@ -3877,6 +3906,11 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     ),
                 ));
             }
+            if let Some(ns) = &f.namespace {
+                c.context
+                    .namespace_members
+                    .insert((ns.clone(), f.name.clone()));
+            }
             if f.namespace.is_none()
                 || c.context
                     .open_namespaces
@@ -3985,6 +4019,9 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     owner: name.clone(),
                     is_static: m.is_static,
                 });
+                if let Some(ns) = &m.namespace {
+                    c.context.namespace_members.insert((ns.clone(), n.clone()));
+                }
                 if m.namespace.is_none()
                     || c.context
                         .open_namespaces
@@ -4512,6 +4549,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         let f = &method.function;
         let name = f.name.as_ref().unwrap();
         let mut context = c.context.clone();
+        context.open_namespaces = method.open_namespaces.clone();
         context.method_id = Some(f.id);
         context.static_method = method.is_static;
         let mut f = f.clone();

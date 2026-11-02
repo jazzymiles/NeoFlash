@@ -156,6 +156,8 @@ pub struct MicrophoneState {
     pub volume: f64,
     pub pan: f64,
     pub permission_status: String,
+    #[serde(default)]
+    pub sample_position: u64,
 }
 
 impl MicrophoneState {
@@ -180,6 +182,7 @@ impl MicrophoneState {
             volume: 1.0,
             pan: 0.0,
             permission_status: "granted".into(),
+            sample_position: 0,
         }
     }
 }
@@ -1001,6 +1004,101 @@ impl As3MediaEventsRuntime {
         Ok(mic.clone())
     }
 
+    pub fn mic_sample_pcm_bytes(
+        &mut self,
+        index: usize,
+        sample_count: usize,
+    ) -> Result<(f64, Vec<u8>), MediaEventsError> {
+        let count = sample_count.clamp(1, 16_384);
+        let mic = self.mic_mut(index)?;
+        let start_pos = mic.sample_position;
+        let sample_rate_hz = (mic.rate.max(5) as f64) * 1_000.0;
+        let scale = if mic.muted {
+            0.0
+        } else {
+            ((mic.gain / 100.0) * mic.volume.clamp(0.0, 4.0)).clamp(0.0, 4.0)
+        };
+        let mut bytes = Vec::with_capacity(count * 4);
+        let mut peak = 0.0_f64;
+        for i in 0..count {
+            let t = ((start_pos + i as u64) as f64) / sample_rate_hz;
+            let sample = ((t * 440.0 * std::f64::consts::TAU).sin() * scale) as f32;
+            peak = peak.max((sample.abs() as f64) * 100.0);
+            bytes.extend_from_slice(&sample.to_be_bytes());
+        }
+        mic.sample_position = mic.sample_position.saturating_add(count as u64);
+        mic.activity_level = peak.clamp(0.0, 100.0);
+        Ok((start_pos as f64, bytes))
+    }
+
+    pub fn sync_hardware_devices(
+        &mut self,
+        cameras: Vec<String>,
+        microphones: Vec<String>,
+        audio_outputs: Vec<String>,
+    ) {
+        if !cameras.is_empty() {
+            let mut next = Vec::with_capacity(cameras.len().min(16));
+            for (idx, name) in cameras.into_iter().take(16).enumerate() {
+                if let Some(existing) = self.cameras.get(idx) {
+                    let mut cloned = existing.clone();
+                    cloned.index = idx;
+                    if !name.trim().is_empty() {
+                        cloned.name = name;
+                    }
+                    next.push(cloned);
+                } else {
+                    next.push(CameraState::new(
+                        idx,
+                        if name.trim().is_empty() {
+                            format!("Camera {}", idx + 1)
+                        } else {
+                            name
+                        },
+                        "unknown",
+                    ));
+                }
+            }
+            self.cameras = next;
+        }
+        if !microphones.is_empty() {
+            let mut next = Vec::with_capacity(microphones.len().min(16));
+            for (idx, name) in microphones.into_iter().take(16).enumerate() {
+                if let Some(existing) = self.microphones.get(idx) {
+                    let mut cloned = existing.clone();
+                    cloned.index = idx;
+                    if !name.trim().is_empty() {
+                        cloned.name = name;
+                    }
+                    next.push(cloned);
+                } else {
+                    next.push(MicrophoneState::new(
+                        idx,
+                        if name.trim().is_empty() {
+                            format!("Microphone {}", idx + 1)
+                        } else {
+                            name
+                        },
+                    ));
+                }
+            }
+            self.microphones = next;
+        }
+        if !audio_outputs.is_empty() {
+            let filtered: Vec<String> = audio_outputs
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .take(16)
+                .collect();
+            if !filtered.is_empty() {
+                self.audio_device_names = filtered;
+                if (self.selected_audio_device as usize) >= self.audio_device_names.len() {
+                    self.selected_audio_device = 0;
+                }
+            }
+        }
+    }
+
     // ---- VideoStreamSettings ----
 
     pub fn create_video_stream_settings(
@@ -1287,6 +1385,119 @@ impl As3MediaEventsRuntime {
         }
         Ok((count, bytes))
     }
+
+    pub fn game_device_sync(
+        &mut self,
+        index: usize,
+        id: &str,
+        name: &str,
+        axes: &[f64],
+        buttons: &[f64],
+    ) -> Result<(bool, Vec<String>), MediaEventsError> {
+        if index > 15 {
+            return Err(MediaEventsError::range(
+                2006,
+                format!("GameInput device index {index} exceeds maximum slot count (16)."),
+            ));
+        }
+        let mut is_new = false;
+        while self.game_devices.len() <= index {
+            let new_idx = self.game_devices.len();
+            let mut pad = GameInputDeviceState::default_virtual_pad();
+            pad.id = format!("neoflash-gamepad-{new_idx}");
+            pad.name = format!("Gamepad {}", new_idx + 1);
+            self.game_devices.push(pad);
+            if new_idx == index {
+                is_new = true;
+            }
+        }
+        let dev = &mut self.game_devices[index];
+        if !id.trim().is_empty() && dev.id != id {
+            dev.id = id.into();
+        }
+        if !name.trim().is_empty() && dev.name != name {
+            dev.name = name.into();
+        }
+        let mut changed_controls = Vec::new();
+        for (axis_idx, &raw_val) in axes.iter().take(16).enumerate() {
+            let cid = format!("AXIS_{axis_idx}");
+            let clamped = if raw_val.is_finite() {
+                raw_val.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+            if let Some(ctrl) = dev.controls.iter_mut().find(|c| c.id == cid) {
+                if (ctrl.value - clamped).abs() > 1e-6 {
+                    ctrl.value = clamped;
+                    changed_controls.push(cid);
+                }
+            } else {
+                dev.controls.push(GameInputControlState {
+                    id: cid.clone(),
+                    min_value: -1.0,
+                    max_value: 1.0,
+                    value: clamped,
+                });
+                if clamped.abs() > 1e-6 {
+                    changed_controls.push(cid);
+                }
+            }
+        }
+        for (btn_idx, &raw_val) in buttons.iter().take(32).enumerate() {
+            let cid = format!("BUTTON_{btn_idx}");
+            let clamped = if raw_val.is_finite() {
+                raw_val.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            if let Some(ctrl) = dev.controls.iter_mut().find(|c| c.id == cid) {
+                if (ctrl.value - clamped).abs() > 1e-6 {
+                    ctrl.value = clamped;
+                    changed_controls.push(cid);
+                }
+            } else {
+                dev.controls.push(GameInputControlState {
+                    id: cid.clone(),
+                    min_value: 0.0,
+                    max_value: 1.0,
+                    value: clamped,
+                });
+                if clamped.abs() > 1e-6 {
+                    changed_controls.push(cid);
+                }
+            }
+        }
+        if dev.enabled && dev.caching_num_samples > 0 && !dev.caching_controls.is_empty() {
+            let row: Vec<f32> = dev
+                .caching_controls
+                .iter()
+                .map(|cid| {
+                    dev.controls
+                        .iter()
+                        .find(|c| &c.id == cid)
+                        .map_or(0.0, |c| c.value as f32)
+                })
+                .collect();
+            if dev.cached_rows.len() >= dev.caching_num_samples {
+                dev.cached_rows.remove(0);
+            }
+            dev.cached_rows.push(row);
+        }
+        Ok((is_new, changed_controls))
+    }
+
+    pub fn game_device_remove(
+        &mut self,
+        index: usize,
+    ) -> Result<GameInputDeviceState, MediaEventsError> {
+        if index >= self.game_devices.len() {
+            return Err(MediaEventsError::range(
+                2006,
+                format!("GameInput device index {index} is out of bounds."),
+            ));
+        }
+        Ok(self.game_devices.remove(index))
+    }
 }
 
 impl MediaEventsError {
@@ -1403,5 +1614,44 @@ mod tests {
         assert!(built_in.play && built_in.zoom);
         built_in.hide_all();
         assert!(!built_in.play && !built_in.zoom && !built_in.print);
+
+        // Microphone PCM sample generation
+        let (pos0, pcm0) = rt.mic_sample_pcm_bytes(0, 64).unwrap();
+        assert_eq!(pos0, 0.0);
+        assert_eq!(pcm0.len(), 256);
+        let (pos1, _pcm1) = rt.mic_sample_pcm_bytes(0, 32).unwrap();
+        assert_eq!(pos1, 64.0);
+        assert!(rt.mic_get(0).unwrap().activity_level > 0.0);
+
+        // Live GameInput sync and caching
+        rt.game_device_start_caching(0, 4, vec!["AXIS_0".into(), "BUTTON_0".into()])
+            .unwrap();
+        let (is_new, changed) = rt
+            .game_device_sync(0, "pad-0", "Pro Controller", &[0.75, -0.25], &[1.0, 0.0])
+            .unwrap();
+        assert!(!is_new);
+        assert!(changed.contains(&"AXIS_0".to_string()));
+        assert!(changed.contains(&"BUTTON_0".to_string()));
+        let (rows2, bytes2) = rt.game_device_drain_samples(0).unwrap();
+        assert_eq!(rows2, 2); // initial snapshot + synced sample
+        assert_eq!(bytes2.len(), 16);
+
+        let (is_new_second, _) = rt
+            .game_device_sync(1, "pad-1", "Second Pad", &[0.0], &[0.0])
+            .unwrap();
+        assert!(is_new_second);
+        assert_eq!(rt.game_devices.len(), 2);
+        let removed = rt.game_device_remove(1).unwrap();
+        assert_eq!(removed.id, "pad-1");
+        assert_eq!(rt.game_devices.len(), 1);
+
+        rt.sync_hardware_devices(
+            vec!["FaceTime HD Camera".into()],
+            vec!["Built-in Microphone".into()],
+            vec!["External Headphones".into()],
+        );
+        assert_eq!(rt.camera_names(), vec!["FaceTime HD Camera"]);
+        assert_eq!(rt.microphone_names(), vec!["Built-in Microphone"]);
+        assert_eq!(rt.audio_device_names, vec!["External Headphones"]);
     }
 }

@@ -239,6 +239,14 @@ fn as3_area8_packages_interfaces_vectors_and_package_functions_compile_and_execu
 
                     var jlc:JPEGLoaderContext = new JPEGLoaderContext(0.75, true);
                     var isLcSub:Boolean = (jlc is LoaderContext);
+                    var fastMem:ByteArray = new ByteArray();
+                    fastMem.length = ApplicationDomain.MIN_DOMAIN_MEMORY_LENGTH;
+                    ApplicationDomain.currentDomain.domainMemory = fastMem;
+                    ApplicationDomain.currentDomain.si32(0x12345678, 64);
+                    var fastRead:int = ApplicationDomain.currentDomain.li32(64);
+                    var fastSxi:int = ApplicationDomain.currentDomain.sxi8(0xfe);
+                    var dispXml:XML = new XML("<root><leaf>1</leaf></root>");
+                    System.disposeXML(dispXml);
                     var w:Worker = WorkerDomain.current.createWorker(rnd, false);
                     var ch:MessageChannel = Worker.current.createMessageChannel(w);
                     ch.send("ping-worker");
@@ -272,6 +280,8 @@ fn as3_area8_packages_interfaces_vectors_and_package_functions_compile_and_execu
                         pjOpts.printAsBitmap ? "bmp1" : "bmp0",
                         sampleCount >= 1 ? "smp1" : "smp0",
                         isLcSub ? "lc1" : "lc0",
+                        fastRead == 0x12345678 && fastSxi == -2 ? "fmem1" : "fmem0",
+                        dispXml.children().length() == 0 ? "xml0" : "xml1",
                         msgBack,
                         runningWorkers.length,
                         Capabilities.language,
@@ -335,7 +345,7 @@ fn as3_area8_packages_interfaces_vectors_and_package_functions_compile_and_execu
         const out = AuditClass.run();
         assert.equal(
             out,
-            'wait1|16|share1|Area8Clipboard|tr|fr-FR|$1,234.50|1234.5|col1|\u0130|loc1|osm1|loopback-ok|trusted|example.test|sub1|us1|exact|1|switch|Images|drm1|pj1|bmp1|smp1|lc1|ping-worker|1|en|localTrusted'
+            'wait1|16|share1|Area8Clipboard|tr|fr-FR|$1,234.50|1234.5|col1|\u0130|loc1|osm1|loopback-ok|trusted|example.test|sub1|us1|exact|1|switch|Images|drm1|pj1|bmp1|smp1|lc1|fmem1|xml0|ping-worker|1|en|localTrusted'
         );
 
         host.disposeFamily();

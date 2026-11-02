@@ -113,9 +113,9 @@
     if(mode&&['justify','start','end'].includes(mode))result.align=mode;
     return result;
   }
-  function cssFont(format){return `${format.italic?'italic ':''}${format.bold?'bold ':''}${format.size}px ${JSON.stringify(format.font)}, sans-serif`;}
-  function applyFont(context,format,measurement=false){
-    context.font=cssFont(format);
+  function cssFont(format,embedOnly=false){return `${format.italic?'italic ':''}${format.bold?'bold ':''}${format.size}px ${JSON.stringify(format.font)}${embedOnly?'':', sans-serif'}`;}
+  function applyFont(context,format,measurement=false,embedOnly=false){
+    context.font=cssFont(format,embedOnly);
     if('fontKerning' in context)context.fontKerning=format.kerning===null||format.kerning===undefined?'auto':format.kerning?'normal':'none';
     else if(format.kerning!==null&&format.kerning!==undefined)throw new Error('Explicit kerning requires Canvas fontKerning support in this browser.');
     if('letterSpacing' in context)context.letterSpacing=measurement?'0px':(format.letterSpacing||0)+'px';
@@ -348,6 +348,13 @@
       if(field.alpha>0)for(const [x,y,radius]of layout(field).bullets||[]){const marker={left:x-radius,top:y-radius,right:x+radius,bottom:y+radius};if(field.box){marker.left=Math.max(0,marker.left);marker.top=Math.max(0,marker.top);marker.right=Math.min(field.box.width,marker.right);marker.bottom=Math.min(field.box.height,marker.bottom);}if(marker.right>marker.left&&marker.bottom>marker.top)box=box?{left:Math.min(box.left,marker.left),top:Math.min(box.top,marker.top),right:Math.max(box.right,marker.right),bottom:Math.max(box.bottom,marker.bottom)}:marker;}
       return box;
     }
+    function isEmbeddedFontAvailable(family){
+      if(!family)return false;
+      const wanted=String(family).toLowerCase();
+      if(registeredFonts.some(f=>String(f?.fontName||'').toLowerCase()===wanted))return true;
+      if(Array.isArray(project?.resources)&&project.resources.some(r=>String(r?.mime||'').startsWith('font/')&&String(r?.name||r?.id||'').toLowerCase().includes(wanted)))return true;
+      return false;
+    }
     function draw(context,field){
       const result=layout(field);context.save();
       try{
@@ -355,15 +362,33 @@
         if(surface?.background!==null&&surface?.background!==undefined){context.fillStyle=`rgba(${surface.background>>>16},${surface.background>>>8&255},${surface.background&255},${field.alpha/255})`;context.fillRect(0,0,surface.width,surface.height);}
         if(surface?.border!==null&&surface?.border!==undefined&&surface.width>0&&surface.height>0){context.strokeStyle=`rgba(${surface.border>>>16},${surface.border>>>8&255},${surface.border&255},${field.alpha/255})`;context.lineWidth=1;context.strokeRect(0.5,0.5,Math.max(0,surface.width-1),Math.max(0,surface.height-1));}
         if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
-        applyFont(context,field.format);context.textAlign='left';context.textBaseline='top';
-        const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${field.alpha/255})`;
+        const antiAlias=field.anti_alias_type||'normal';
+        const gridFit=field.grid_fit_type||'pixel';
+        const thickness=Number(field.thickness)||0;
+        const sharpness=Number(field.sharpness)||0;
+        const embedOnly=Boolean(field.embed_fonts);
+        const sharpMod=antiAlias==='advanced'?Math.max(0.35,Math.min(1,1+sharpness/1600)):1;
+        const thickAlphaMod=(antiAlias==='advanced'&&thickness<0)?Math.max(0.4,1+thickness/400):1;
+        const baseAlpha=Math.max(0,Math.min(1,(field.alpha/255)*sharpMod*thickAlphaMod));
+        applyFont(context,field.format,false,embedOnly);context.textAlign='left';context.textBaseline='top';
+        const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${baseAlpha})`;
         for(const item of result.runs?.length?result.runs:result.lines){
+          const fmt=item.format||field.format;
+          if(embedOnly&&registeredFonts.length>0&&!isEmbeddedFontAvailable(fmt.font))continue;
           if(item.format){
-            applyFont(context,item.format);
+            applyFont(context,item.format,false,embedOnly);
             const itemRgb=item.format.color;
-            context.fillStyle=`rgba(${itemRgb>>>16},${itemRgb>>>8&255},${itemRgb&255},${field.alpha/255})`;
+            context.fillStyle=`rgba(${itemRgb>>>16},${itemRgb>>>8&255},${itemRgb&255},${baseAlpha})`;
           }
-          context.fillText(item.text,item.x,item.y);
+          const gx=gridFit==='pixel'?Math.round(item.x):gridFit==='subpixel'?Math.round(item.x*3)/3:item.x;
+          const gy=gridFit==='pixel'?Math.round(item.y):item.y;
+          context.fillText(item.text,gx,gy);
+          if(antiAlias==='advanced'&&thickness>0&&typeof context.strokeText==='function'){
+            const cRgb=fmt.color;
+            context.strokeStyle=`rgba(${cRgb>>>16},${cRgb>>>8&255},${cRgb&255},${Math.min(1,baseAlpha*(thickness/200)*0.6)})`;
+            context.lineWidth=(thickness/200)*0.8;
+            context.strokeText(item.text,gx,gy);
+          }
         }
         for(const [x,y,radius]of result.bullets||[]){context.beginPath();context.arc(x,y,radius,0,Math.PI*2);context.fill();}
         for(const item of result.decorations||[])context.fillRect(item.x,item.y,item.width,item.height);

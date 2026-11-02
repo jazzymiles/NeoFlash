@@ -35,6 +35,7 @@
   function create(options={}){
     const {amf}=options,events=options.events||global.NeoFlashEvents;
     if(!amf?.encode||!amf?.decode||!events?.EventDispatcher)throw new TypeError('SharedObject requires the shared AMF and event services.');
+    amf.setDynamicPropertyWriterGetter?.(()=>dynamicWriter);
     const records=new Map(),remoteRecords=new Map(),states=new WeakMap(),legacyStates=new WeakMap(),token=Symbol('SharedObject');
     let generation=1,disposed=false,defaultEncoding=3;
     const hub=events.create({weakTargets:true,alive:value=>!disposed&&states.get(value)?.generation===generation});
@@ -61,7 +62,7 @@
       }
       return PREFIX+JSON.stringify([url.origin,path,name,secure]);
     }
-    function bytes(record){return amf.encode(record.data,record.encoding);}
+    function bytes(record){return amf.encode(record.data,record.encoding,{ignoreRootDynamicWriter:true});}
     function unpack(text){
       if(typeof text!=='string'||text.length>Math.ceil(MAX_BYTES/3)*4+256)throw new RangeError('Saved SharedObject exceeds the 16 MiB AMF envelope limit.');
       let envelope;try{envelope=JSON.parse(text);}catch(error){throw new Error('Saved SharedObject envelope is malformed; clear this named record to recover.',{cause:error});}
@@ -216,7 +217,7 @@
     }
     const _as3Hook=Object.freeze({createRemoteModern,state:v=>state(v,false),bytes,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
-    function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;}
+    function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;dynamicWriter=null;}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({SharedObject,LegacySharedObject,ObjectEncoding,SharedObjectFlushStatus,flushAll,reset,dispose,_as3Hook});
   }

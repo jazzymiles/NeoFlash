@@ -358,6 +358,12 @@ pub struct FteDrawRunOut {
     pub font_family: String,
     pub font_size: f64,
     pub color: [u8; 4],
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub rotation: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -413,6 +419,8 @@ struct RawAtom {
     font_name: String,
     font_size: f64,
     color: [u8; 4],
+    bold: bool,
+    italic: bool,
 }
 
 fn is_cjk(ch: char) -> bool {
@@ -543,6 +551,8 @@ fn flatten_paragraph(
                 font_name,
                 font_size: run.font_size.max(0.0),
                 color: rgba,
+                bold: false,
+                italic: false,
             });
             utf16_pos += 1;
             prev_ch = Some(FTE_GRAPHIC_CHAR);
@@ -550,6 +560,7 @@ fn flatten_paragraph(
         }
 
         let bold = run.font_weight == "bold";
+        let italic = run.font_posture == "italic";
         let tabular = run.digit_width == "tabular";
         let size = run.font_size.max(0.0);
         let ascent = size * 0.8;
@@ -586,6 +597,8 @@ fn flatten_paragraph(
                     font_name: font_name.clone(),
                     font_size: size,
                     color: rgba,
+                    bold,
+                    italic,
                 });
                 utf16_pos += 2;
                 prev_ch = Some('\n');
@@ -663,6 +676,8 @@ fn flatten_paragraph(
                 font_name: font_name.clone(),
                 font_size: if small_cap { size * 0.78 } else { size },
                 color: rgba,
+                bold,
+                italic,
             });
 
             utf16_pos += u16_len;
@@ -1012,13 +1027,24 @@ pub fn layout_text_line(req: &FteLayoutRequest) -> Result<FteLayoutResponse, Fte
         if !atom.is_graphic && !atom.is_newline && !atom.is_tab && atom.font_size > 0.0 {
             let ch_str = atom.display_ch.to_string();
             let y_top = roman_y - atom.ascent + atom.baseline_shift;
+            let eff_rot = if !req.line_rotation.is_empty() && req.line_rotation != "rotate0" {
+                req.line_rotation.clone()
+            } else if atom.text_rotation.is_empty() {
+                "rotate0".to_owned()
+            } else {
+                atom.text_rotation.clone()
+            };
             if !should_justify
                 && !atom.small_cap
+                && eff_rot == "rotate0"
                 && let Some(prev_draw) = draw_runs.last_mut()
                 && (prev_draw.y - y_top).abs() < 1e-6
                 && prev_draw.font_family == atom.font_name
                 && (prev_draw.font_size - atom.font_size).abs() < 1e-6
                 && prev_draw.color == atom.color
+                && prev_draw.bold == atom.bold
+                && prev_draw.italic == atom.italic
+                && prev_draw.rotation == eff_rot
             {
                 prev_draw.text.push(atom.display_ch);
             } else {
@@ -1029,6 +1055,9 @@ pub fn layout_text_line(req: &FteLayoutRequest) -> Result<FteLayoutResponse, Fte
                     font_family: atom.font_name.clone(),
                     font_size: atom.font_size,
                     color: atom.color,
+                    bold: atom.bold,
+                    italic: atom.italic,
+                    rotation: eff_rot,
                 });
             }
         }
@@ -1309,6 +1338,8 @@ pub enum TextureKind {
     Video,
 }
 
+pub type MipLevelMap = BTreeMap<u32, (u32, u32, Vec<u8>)>;
+
 #[derive(Debug, Clone)]
 pub struct TextureRecord {
     pub kind: TextureKind,
@@ -1317,6 +1348,7 @@ pub struct TextureRecord {
     pub format: String,
     pub optimize_for_rtt: bool,
     pub faces: Vec<Vec<u8>>, // 1 face for 2D/Rect/Video, 6 faces for Cube; straight RGBA8
+    pub mips: Vec<MipLevelMap>,
     pub disposed: bool,
 }
 
@@ -1325,18 +1357,27 @@ impl TextureRecord {
         if self.disposed {
             0
         } else {
-            self.faces.iter().map(Vec::len).sum()
+            let base: usize = self.faces.iter().map(Vec::len).sum();
+            let mip_bytes: usize = self
+                .mips
+                .iter()
+                .flat_map(|m| m.values())
+                .map(|(_, _, buf)| buf.len())
+                .sum();
+            base + mip_bytes
         }
     }
 
-    fn sample(&self, u: f32, v: f32, wrap: &str, filter: &str, face: usize) -> [f32; 4] {
-        let Some(pixels) = self.faces.get(face).or_else(|| self.faces.first()) else {
-            return [1.0, 1.0, 1.0, 1.0];
-        };
-        if self.width == 0
-            || self.height == 0
-            || pixels.len() < (self.width * self.height * 4) as usize
-        {
+    fn sample_buffer(
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+        u: f32,
+        v: f32,
+        wrap: &str,
+        filter: &str,
+    ) -> [f32; 4] {
+        if width == 0 || height == 0 || pixels.len() < (width * height * 4) as usize {
             return [1.0, 1.0, 1.0, 1.0];
         }
         let wrap_coord = |c: f32, repeat: bool| -> f32 {
@@ -1356,8 +1397,8 @@ impl TextureRecord {
         };
         let wu = wrap_coord(u, rep_u);
         let wv = wrap_coord(v, rep_v);
-        let w = self.width as usize;
-        let h = self.height as usize;
+        let w = width as usize;
+        let h = height as usize;
 
         let fetch = |ix: usize, iy: usize| -> [f32; 4] {
             let off = (iy.min(h - 1) * w + ix.min(w - 1)) * 4;
@@ -1394,6 +1435,99 @@ impl TextureRecord {
             }
             out
         }
+    }
+
+    fn sample(&self, u: f32, v: f32, wrap: &str, filter: &str, face: usize) -> [f32; 4] {
+        let Some(pixels) = self.faces.get(face).or_else(|| self.faces.first()) else {
+            return [1.0, 1.0, 1.0, 1.0];
+        };
+        Self::sample_buffer(pixels, self.width, self.height, u, v, wrap, filter)
+    }
+
+    fn sample_coord(&self, coord: [f32; 4], wrap: &str, filter: &str, mipfilter: &str) -> [f32; 4] {
+        let (face, u, v) = if self.kind == TextureKind::Cube
+            && (coord[0].abs() > 1e-6 || coord[1].abs() > 1e-6 || coord[2].abs() > 1e-6)
+            && coord[2].abs() > 1e-6
+        {
+            let x = coord[0];
+            let y = coord[1];
+            let z = coord[2];
+            let ax = x.abs();
+            let ay = y.abs();
+            let az = z.abs();
+            let (face_idx, sc, tc, ma) = if ax >= ay && ax >= az {
+                if x >= 0.0 {
+                    (0usize, -z, -y, ax)
+                } else {
+                    (1usize, z, -y, ax)
+                }
+            } else if ay >= ax && ay >= az {
+                if y >= 0.0 {
+                    (2usize, x, z, ay)
+                } else {
+                    (3usize, x, -z, ay)
+                }
+            } else if z >= 0.0 {
+                (4usize, x, -y, az)
+            } else {
+                (5usize, -x, -y, az)
+            };
+            let inv_ma = if ma > 1e-6 { 1.0 / ma } else { 0.0 };
+            (
+                face_idx,
+                0.5 * (sc * inv_ma + 1.0),
+                0.5 * (tc * inv_ma + 1.0),
+            )
+        } else {
+            (0usize, coord[0], coord[1])
+        };
+
+        let filt = if mipfilter == "miplinear" && filter == "nearest" {
+            "linear"
+        } else {
+            filter
+        };
+
+        if mipfilter != "mipnone"
+            && let Some(face_mips) = self.mips.get(face)
+            && !face_mips.is_empty()
+        {
+            let req_level = if self.kind != TextureKind::Cube && coord[2] > 0.0 {
+                coord[2].round() as u32
+            } else {
+                *face_mips.keys().next().unwrap_or(&1)
+            };
+            if let Some((mw, mh, mpixels)) = face_mips
+                .get(&req_level)
+                .or_else(|| face_mips.values().next())
+            {
+                let mip_col = Self::sample_buffer(mpixels, *mw, *mh, u, v, wrap, filt);
+                let base_has_data = self
+                    .faces
+                    .get(face)
+                    .is_some_and(|b| b.iter().any(|&px| px != 0));
+                if mipfilter == "miplinear"
+                    && base_has_data
+                    && (self.kind == TextureKind::Cube || coord[2] < 1.0)
+                {
+                    let base_col = self.sample(u, v, wrap, filt, face);
+                    let t = if self.kind != TextureKind::Cube && coord[2] > 0.0 {
+                        coord[2].clamp(0.0, 1.0)
+                    } else {
+                        0.5
+                    };
+                    return [
+                        base_col[0] * (1.0 - t) + mip_col[0] * t,
+                        base_col[1] * (1.0 - t) + mip_col[1] * t,
+                        base_col[2] * (1.0 - t) + mip_col[2] * t,
+                        base_col[3] * (1.0 - t) + mip_col[3] * t,
+                    ];
+                }
+                return mip_col;
+            }
+        }
+
+        self.sample(u, v, wrap, filt, face)
     }
 }
 
@@ -1442,6 +1576,9 @@ pub struct Context3dState {
     pub anti_alias: i32,
     pub enable_depth_and_stencil: bool,
     pub color_buffer: Vec<u8>,
+    pub presented_buffer: Vec<u8>,
+    pub presented_width: u32,
+    pub presented_height: u32,
     pub depth_buffer: Vec<f32>,
     pub stencil_buffer: Vec<u8>,
     pub disposed: bool,
@@ -1722,12 +1859,7 @@ fn run_agal(
                 && let Some(tex) = tex_arena.get(tid)
             {
                 let st = &samplers[sampler_idx];
-                let filt = if st.mipfilter == "miplinear" && st.filter == "nearest" {
-                    "linear"
-                } else {
-                    &st.filter
-                };
-                tex.sample(coord[0], coord[1], &st.wrap, filt, 0)
+                tex.sample_coord(coord, &st.wrap, &st.filter, &st.mipfilter)
             } else {
                 [1.0, 1.0, 1.0, 1.0]
             };
@@ -1968,6 +2100,9 @@ impl Stage3dArena {
                 anti_alias: 0,
                 enable_depth_and_stencil: true,
                 color_buffer: Vec::new(),
+                presented_buffer: Vec::new(),
+                presented_width: 0,
+                presented_height: 0,
                 depth_buffer: Vec::new(),
                 stencil_buffer: Vec::new(),
                 disposed: false,
@@ -2031,6 +2166,9 @@ impl Stage3dArena {
         if let Some(c) = self.contexts.get_mut(&ctx_id) {
             c.disposed = true;
             c.color_buffer.clear();
+            c.presented_buffer.clear();
+            c.presented_width = 0;
+            c.presented_height = 0;
             c.depth_buffer.clear();
             c.stencil_buffer.clear();
             c.rtt = None;
@@ -2056,6 +2194,7 @@ impl Stage3dArena {
             if *owner == ctx_id {
                 tex.disposed = true;
                 tex.faces.clear();
+                tex.mips.clear();
             }
         }
     }
@@ -2444,6 +2583,7 @@ impl Stage3dArena {
                     format: format.to_owned(),
                     optimize_for_rtt,
                     faces: vec![vec![0u8; face_bytes]; face_count],
+                    mips: vec![BTreeMap::new(); face_count],
                     disposed: false,
                 },
             ),
@@ -2481,6 +2621,29 @@ impl Stage3dArena {
                 return Err(Fte3dError::Argument(format!(
                     "Mip level {miplevel} expects {expected_w}x{expected_h}, got {src_w}x{src_h}."
                 )));
+            }
+            let need = (expected_w as usize) * (expected_h as usize) * 4;
+            if rgba.len() < need {
+                return Err(Fte3dError::Range(
+                    "Texture mip upload byte buffer is smaller than width*height*4.".into(),
+                ));
+            }
+            let mut mip_buf = vec![0u8; need];
+            if bgra_input {
+                for (d, s) in mip_buf
+                    .chunks_exact_mut(4)
+                    .zip(rgba[..need].chunks_exact(4))
+                {
+                    d[0] = s[2];
+                    d[1] = s[1];
+                    d[2] = s[0];
+                    d[3] = s[3];
+                }
+            } else {
+                mip_buf.copy_from_slice(&rgba[..need]);
+            }
+            if let Some(face_mips) = tex.mips.get_mut(side) {
+                face_mips.insert(miplevel, (expected_w, expected_h, mip_buf));
             }
             return Ok(());
         }
@@ -3067,7 +3230,7 @@ impl Stage3dArena {
                             && let Some(tex) = tex_map.get(&tid)
                         {
                             let st = &c_snap.samplers[0];
-                            Some(tex.sample(vars[0][0], vars[0][1], &st.wrap, &st.filter, 0))
+                            Some(tex.sample_coord(vars[0], &st.wrap, &st.filter, &st.mipfilter))
                         } else {
                             Some(vars[0])
                         }
@@ -3275,7 +3438,22 @@ impl Stage3dArena {
                 "Context3D.present requires configureBackBuffer first.".into(),
             ));
         }
+        c.presented_width = c.back_buffer_width;
+        c.presented_height = c.back_buffer_height;
+        c.presented_buffer.clone_from(&c.color_buffer);
         Ok(())
+    }
+
+    pub fn presented_rgba(&self, ctx_id: u32) -> Result<(u32, u32, Vec<u8>), Fte3dError> {
+        let c = self.ctx(ctx_id)?;
+        if c.presented_width == 0 || c.presented_height == 0 || c.presented_buffer.is_empty() {
+            return Ok((0, 0, Vec::new()));
+        }
+        Ok((
+            c.presented_width,
+            c.presented_height,
+            c.presented_buffer.clone(),
+        ))
     }
 
     pub fn backbuffer_rgba(&self, ctx_id: u32) -> Result<(u32, u32, Vec<u8>), Fte3dError> {
@@ -3403,6 +3581,12 @@ enum PbjInst {
         src_reg: u16,
         src_swz: [u8; 4],
     },
+    If {
+        src_reg: u16,
+        src_swz: [u8; 4],
+    },
+    Else,
+    EndIf,
 }
 
 #[derive(Debug, Clone)]
@@ -3795,21 +3979,30 @@ fn parse_pbj_or_json(bytes: &[u8]) -> Result<ParsedPbj, Fte3dError> {
                     last.metadata.insert(key, val);
                 }
             }
-            0x32 => {
-                // loadFloat / loadInt immediate (7 bytes after opcode)
+            0x32 | 0x33 => {
+                // 0x32 loadFloat / 0x33 loadInt immediate (7 bytes after opcode)
                 if pos + 7 > bytes.len() {
                     return Err(Fte3dError::Argument(
-                        "Invalid Shader byteCode: truncated 0x32 immediate instruction.".into(),
+                        "Invalid Shader byteCode: truncated immediate instruction.".into(),
                     ));
                 }
                 let dst_reg = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
                 let dst_mask = bytes[pos + 2] >> 4;
-                let value = f32::from_bits(u32::from_be_bytes([
-                    bytes[pos + 3],
-                    bytes[pos + 4],
-                    bytes[pos + 5],
-                    bytes[pos + 6],
-                ]));
+                let value = if op == 0x33 {
+                    i32::from_be_bytes([
+                        bytes[pos + 3],
+                        bytes[pos + 4],
+                        bytes[pos + 5],
+                        bytes[pos + 6],
+                    ]) as f32
+                } else {
+                    f32::from_bits(u32::from_be_bytes([
+                        bytes[pos + 3],
+                        bytes[pos + 4],
+                        bytes[pos + 5],
+                        bytes[pos + 6],
+                    ]))
+                };
                 pos += 7;
                 code.push(PbjInst::LoadConst {
                     dst_reg,
@@ -3846,8 +4039,8 @@ fn parse_pbj_or_json(bytes: &[u8]) -> Result<ParsedPbj, Fte3dError> {
                 }
                 pos += 7;
             }
-            0x01..=0x2F => {
-                // Standard 8-byte PBJ ALU op
+            0x01..=0x2F | 0x37..=0x3D => {
+                // Standard 8-byte PBJ ALU / vector op
                 if pos + 7 > bytes.len() {
                     return Err(Fte3dError::Argument(format!(
                         "Invalid Shader byteCode: truncated ALU instruction 0x{op:02X}."
@@ -3870,12 +4063,22 @@ fn parse_pbj_or_json(bytes: &[u8]) -> Result<ParsedPbj, Fte3dError> {
                     src_swz,
                 });
             }
-            0x33..=0x37 => {
-                // Control-flow markers (if/else/endif) — advance 7 bytes
+            0x34..=0x36 => {
+                // Control-flow opcodes (0x34 if, 0x35 else, 0x36 endif) — 7 bytes after opcode
                 if pos + 7 > bytes.len() {
                     return Err(Fte3dError::Argument(
                         "Invalid Shader byteCode: truncated control-flow instruction.".into(),
                     ));
+                }
+                if op == 0x34 {
+                    let src_reg = u16::from_le_bytes([bytes[pos + 3], bytes[pos + 4]]);
+                    let swz = bytes[pos + 5];
+                    let src_swz = [(swz >> 6) & 3, (swz >> 4) & 3, (swz >> 2) & 3, swz & 3];
+                    code.push(PbjInst::If { src_reg, src_swz });
+                } else if op == 0x35 {
+                    code.push(PbjInst::Else);
+                } else {
+                    code.push(PbjInst::EndIf);
                 }
                 pos += 7;
             }
@@ -4176,6 +4379,8 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
             PbjInst::Alu {
                 dst_reg, src_reg, ..
             } => (*dst_reg as usize).max(*src_reg as usize) + 1,
+            PbjInst::If { src_reg, .. } => *src_reg as usize + 1,
+            PbjInst::Else | PbjInst::EndIf => 0,
         }))
         .max()
         .unwrap_or(16)
@@ -4206,14 +4411,36 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
                         }
                     }
                 }
+                // Condition stack: (parent_active, branch_cond)
+                let mut cond_stack: Vec<(bool, bool)> = Vec::new();
                 for inst in &parsed.code {
+                    let active = cond_stack.last().is_none_or(|&(p, c)| p && c);
                     match *inst {
+                        PbjInst::If { src_reg, src_swz } => {
+                            let cond = if active {
+                                let s_raw = regs.get(src_reg as usize).copied().unwrap_or([0.0; 4]);
+                                s_raw[src_swz[0] as usize].abs() > 1e-6
+                            } else {
+                                false
+                            };
+                            cond_stack.push((active, cond));
+                        }
+                        PbjInst::Else => {
+                            if let Some((parent_act, cur_cond)) = cond_stack.last_mut() {
+                                *cur_cond = *parent_act && !*cur_cond;
+                            }
+                        }
+                        PbjInst::EndIf => {
+                            cond_stack.pop();
+                        }
                         PbjInst::LoadConst {
                             dst_reg,
                             dst_mask,
                             value,
                         } => {
-                            write_pbj_reg(&mut regs, dst_reg, dst_mask, &[value]);
+                            if active {
+                                write_pbj_reg(&mut regs, dst_reg, dst_mask, &[value]);
+                            }
                         }
                         PbjInst::Sample {
                             dst_reg,
@@ -4223,6 +4450,9 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
                             tex_index,
                             linear,
                         } => {
+                            if !active {
+                                continue;
+                            }
                             let c_reg = regs
                                 .get(coord_reg as usize)
                                 .copied()
@@ -4253,6 +4483,9 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
                             src_reg,
                             src_swz,
                         } => {
+                            if !active {
+                                continue;
+                            }
                             let d_idx = dst_reg as usize;
                             let s_idx = src_reg as usize;
                             if d_idx >= regs.len() || s_idx >= regs.len() {
@@ -4269,6 +4502,67 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
                             let d_cur: Vec<f32> =
                                 dst_comps.iter().map(|&c| regs[d_idx][c]).collect();
                             let n = (dst_len as usize).min(dst_comps.len()).max(1);
+                            // Vector reduction & cross/normalize opcodes
+                            if matches!(op, 0x26 | 0x27 | 0x37..=0x3D) {
+                                let vec_len = (dst_len as usize).clamp(1, 4);
+                                let d_full = regs[d_idx];
+                                let res_vec: Vec<f32> = match op {
+                                    0x26 => {
+                                        // any(src)
+                                        let any_true = (0..vec_len).any(|i| s[i].abs() > 1e-6);
+                                        vec![if any_true { 1.0 } else { 0.0 }]
+                                    }
+                                    0x27 => {
+                                        // all(src)
+                                        let all_true = (0..vec_len).all(|i| s[i].abs() > 1e-6);
+                                        vec![if all_true { 1.0 } else { 0.0 }]
+                                    }
+                                    0x38 => {
+                                        // dot(dst, src)
+                                        let mut acc = 0.0f32;
+                                        for i in 0..vec_len {
+                                            let a = d_cur.get(i).copied().unwrap_or(d_full[i]);
+                                            acc += a * s[i];
+                                        }
+                                        vec![acc]
+                                    }
+                                    0x39 => {
+                                        // cross(dst, src)
+                                        let a0 = d_cur.first().copied().unwrap_or(d_full[0]);
+                                        let a1 = d_cur.get(1).copied().unwrap_or(d_full[1]);
+                                        let a2 = d_cur.get(2).copied().unwrap_or(d_full[2]);
+                                        vec![
+                                            a1 * s[2] - a2 * s[1],
+                                            a2 * s[0] - a0 * s[2],
+                                            a0 * s[1] - a1 * s[0],
+                                        ]
+                                    }
+                                    0x3A => {
+                                        // length(src)
+                                        let sq: f32 = (0..vec_len).map(|i| s[i] * s[i]).sum();
+                                        vec![sq.sqrt()]
+                                    }
+                                    0x3B => {
+                                        // distance(dst, src)
+                                        let mut sq = 0.0f32;
+                                        for i in 0..vec_len {
+                                            let a = d_cur.get(i).copied().unwrap_or(d_full[i]);
+                                            let diff = a - s[i];
+                                            sq += diff * diff;
+                                        }
+                                        vec![sq.sqrt()]
+                                    }
+                                    0x3C => {
+                                        // normalize(src)
+                                        let sq: f32 = (0..vec_len).map(|i| s[i] * s[i]).sum();
+                                        let len = sq.sqrt().max(1e-12);
+                                        (0..n).map(|i| s[i.min(3)] / len).collect()
+                                    }
+                                    _ => (0..n).map(|i| s[i.min(3)]).collect(),
+                                };
+                                write_pbj_reg(&mut regs, dst_reg, dst_mask, &res_vec);
+                                continue;
+                            }
                             let mut res = d_cur.clone();
                             for i in 0..n {
                                 let a = d_cur[i];
@@ -4337,8 +4631,73 @@ pub fn evaluate_shader(req: &ShaderEvalRequest) -> Result<ShaderEvalResult, Fte3
                                     0x1A => b.floor(),
                                     0x1B => b.ceil(),
                                     0x1C => b - b.floor(),
-                                    0x1D..=0x1F => b,
+                                    0x1D => b,
+                                    0x1E => b.trunc(),
+                                    0x1F => b,
                                     0x20 => -b,
+                                    0x21..=0x23 => {
+                                        if b.abs() > 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x24 | 0x28 => {
+                                        if (a - b).abs() <= 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x25 | 0x29 => {
+                                        if (a - b).abs() > 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2A => {
+                                        if a < b {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2B => {
+                                        if a <= b {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2C => {
+                                        if b.abs() <= 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2D => {
+                                        if a.abs() > 1e-6 && b.abs() > 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2E => {
+                                        if a.abs() > 1e-6 || b.abs() > 1e-6 {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
+                                    0x2F => {
+                                        if (a.abs() > 1e-6) != (b.abs() > 1e-6) {
+                                            1.0
+                                        } else {
+                                            0.0
+                                        }
+                                    }
                                     _ => b,
                                 };
                             }
@@ -4561,8 +4920,27 @@ pub fn evaluate_shader_filter_rgba(
     let Ok(meta) = parse_shader_bytecode(&bc) else {
         return src.to_vec();
     };
-    let parameters: BTreeMap<String, Vec<f64>> =
-        serde_json::from_str(params_json).unwrap_or_default();
+    let raw_json: serde_json::Value =
+        serde_json::from_str(params_json).unwrap_or(serde_json::Value::Null);
+    let mut parameters: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut extra_inputs: BTreeMap<String, ShaderRuntimeInput> = BTreeMap::new();
+    if let Some(obj) = raw_json.as_object() {
+        for (k, v) in obj {
+            if k == "__extra_inputs__" {
+                if let Some(arr) = v.as_array() {
+                    for item in arr {
+                        if let Ok(inp) = serde_json::from_value::<ShaderRuntimeInput>(item.clone())
+                        {
+                            extra_inputs.insert(inp.name.clone(), inp);
+                        }
+                    }
+                }
+            } else if let Some(arr) = v.as_array() {
+                let vals: Vec<f64> = arr.iter().filter_map(|x| x.as_f64()).collect();
+                parameters.insert(k.clone(), vals);
+            }
+        }
+    }
     let src_b64 = BASE64.encode(src);
     let mut inputs = Vec::new();
     if let Some(first_in) = meta.inputs.first() {
@@ -4575,16 +4953,20 @@ pub fn evaluate_shader_filter_rgba(
             rgba_base64: Some(src_b64),
         });
     }
-    // Any secondary inputs supplied in params_json or left unbound get a copy of src so multi-input filter shaders still run cleanly if pre-bound on the JS side.
+    // Use pre-bound secondary ShaderInputs from __extra_inputs__ when provided, falling back to src.
     for extra in meta.inputs.iter().skip(1) {
-        inputs.push(ShaderRuntimeInput {
-            name: extra.name.clone(),
-            width,
-            height,
-            channels: extra.channels,
-            floats: Vec::new(),
-            rgba_base64: Some(BASE64.encode(src)),
-        });
+        if let Some(supplied) = extra_inputs.remove(&extra.name) {
+            inputs.push(supplied);
+        } else {
+            inputs.push(ShaderRuntimeInput {
+                name: extra.name.clone(),
+                width,
+                height,
+                channels: extra.channels,
+                floats: Vec::new(),
+                rgba_base64: Some(BASE64.encode(src)),
+            });
+        }
     }
     let req = ShaderEvalRequest {
         bytecode_base64: bytecode_base64.to_string(),
@@ -4604,6 +4986,141 @@ pub fn evaluate_shader_filter_rgba(
             .unwrap_or_else(|_| src.to_vec()),
         Err(_) => src.to_vec(),
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwfHeaderInfo {
+    pub swf_version: u32,
+    pub action_script_version: u32,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+    pub frame_count: u32,
+    pub background_color: Option<u32>,
+}
+
+pub fn inspect_swf_bytes(bytes: &[u8]) -> Result<SwfHeaderInfo, Fte3dError> {
+    if bytes.len() < 8 {
+        return Err(Fte3dError::Argument(
+            "SWF header is shorter than 8 bytes.".into(),
+        ));
+    }
+    let sig = &bytes[0..3];
+    if sig != b"FWS" && sig != b"CWS" && sig != b"ZWS" {
+        return Err(Fte3dError::Argument(
+            "Not a valid SWF header signature.".into(),
+        ));
+    }
+    let swf_version = bytes[3] as u32;
+    let _file_len = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    let body: Vec<u8> = if sig == b"FWS" {
+        bytes[8..].to_vec()
+    } else if sig == b"CWS" {
+        use std::io::Read;
+        let mut decoder = flate2::read::ZlibDecoder::new(&bytes[8..]);
+        let mut out = Vec::new();
+        decoder
+            .read_to_end(&mut out)
+            .map_err(|e| Fte3dError::Argument(format!("Invalid CWS zlib stream: {e}")))?;
+        out
+    } else {
+        return Err(Fte3dError::Argument(
+            "LZMA-compressed ZWS SWF requires an external LZMA stream.".into(),
+        ));
+    };
+
+    if body.len() < 5 {
+        return Err(Fte3dError::Argument("Truncated SWF RECT header.".into()));
+    }
+    let nbits = (body[0] >> 3) as usize;
+    let total_rect_bits = 5 + nbits * 4;
+    let rect_bytes = total_rect_bits.div_ceil(8);
+    if body.len() < rect_bytes + 4 {
+        return Err(Fte3dError::Argument(
+            "Truncated SWF frame rate / count header.".into(),
+        ));
+    }
+    let read_sbits = |start_bit: usize, count: usize| -> i32 {
+        if count == 0 {
+            return 0;
+        }
+        let mut val = 0u32;
+        for i in 0..count {
+            let bit_idx = start_bit + i;
+            let b = body[bit_idx / 8];
+            let bit = (b >> (7 - (bit_idx % 8))) & 1;
+            val = (val << 1) | (bit as u32);
+        }
+        let sign_bit = 1u32 << (count - 1);
+        if (val & sign_bit) != 0 {
+            (val | (!0u32 << count)) as i32
+        } else {
+            val as i32
+        }
+    };
+    let xmin = read_sbits(5, nbits);
+    let xmax = read_sbits(5 + nbits, nbits);
+    let ymin = read_sbits(5 + nbits * 2, nbits);
+    let ymax = read_sbits(5 + nbits * 3, nbits);
+    let width = ((xmax - xmin).max(20) / 20) as u32;
+    let height = ((ymax - ymin).max(20) / 20) as u32;
+
+    let fr_raw = u16::from_le_bytes([body[rect_bytes], body[rect_bytes + 1]]);
+    let frame_rate = ((fr_raw as f64) / 256.0).max(1.0);
+    let frame_count =
+        u16::from_le_bytes([body[rect_bytes + 2], body[rect_bytes + 3]]).max(1) as u32;
+
+    let mut pos = rect_bytes + 4;
+    let mut action_script_version = if swf_version >= 9 { 3u32 } else { 2u32 };
+    let mut saw_file_attributes = false;
+    let mut background_color = None;
+
+    while pos + 2 <= body.len() {
+        let tag_code_and_len = u16::from_le_bytes([body[pos], body[pos + 1]]);
+        pos += 2;
+        let tag_code = tag_code_and_len >> 6;
+        let mut tag_len = (tag_code_and_len & 0x3F) as usize;
+        if tag_len == 0x3F {
+            if pos + 4 > body.len() {
+                break;
+            }
+            tag_len = u32::from_le_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]])
+                as usize;
+            pos += 4;
+        }
+        if pos + tag_len > body.len() {
+            break;
+        }
+        if tag_code == 0 {
+            break;
+        }
+        if tag_code == 69 && tag_len >= 1 {
+            // FileAttributes tag: bit 3 (0x08) is ActionScript3
+            saw_file_attributes = true;
+            let flags = body[pos];
+            action_script_version = if (flags & 0x08) != 0 { 3 } else { 2 };
+        } else if tag_code == 9 && tag_len >= 3 {
+            // SetBackgroundColor tag
+            background_color = Some(
+                ((body[pos] as u32) << 16) | ((body[pos + 1] as u32) << 8) | (body[pos + 2] as u32),
+            );
+        }
+        pos += tag_len;
+    }
+    if !saw_file_attributes && swf_version < 9 {
+        action_script_version = 2;
+    }
+
+    Ok(SwfHeaderInfo {
+        swf_version,
+        action_script_version,
+        width,
+        height,
+        frame_rate,
+        frame_count,
+        background_color,
+    })
 }
 
 // ============================================================================

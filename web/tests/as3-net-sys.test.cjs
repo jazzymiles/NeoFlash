@@ -98,8 +98,8 @@ function createArea8Harness(customOptions = {}) {
   };
   const player = new wasm.WebPlayer(JSON.stringify(dummyProject));
   const amf = NeoFlashAMF.create({
-    encode: (val, enc) => player.amf_encode(val, enc),
-    decode: (bytes, enc) => JSON.parse(player.amf_decode(bytes, enc)),
+    encode: (format, graph) => player.amf_encode(format, graph),
+    decode: (format, bytes) => player.amf_decode(format, bytes),
     binary,
   });
   binary.setObjectCodec(amf);
@@ -191,6 +191,8 @@ function createArea8Harness(customOptions = {}) {
     storage,
     external,
     numberFormat,
+    xml,
+    geometry: geom2d,
     getBuiltins: () => builtins,
     getProgram: () => customOptions.program || null,
     getViewportSize: () => [800, 600],
@@ -1104,8 +1106,13 @@ test('flash.net.drm, flash.printing, flash.profiler, flash.sampler, flash.sensor
   System.gc();
   System.pause();
   System.resume();
-  const xmlDoc = new h.xml.XML('<node>1</node>');
+  const xmlDoc = new h.xml.XML('<root><child>1</child><child>2</child></root>');
+  const statsBeforeDispose = h.xml.stats();
+  assert.equal(statsBeforeDispose.nodes >= 3, true);
   System.disposeXML(xmlDoc);
+  const statsAfterDispose = h.xml.stats();
+  assert.equal(statsAfterDispose.nodes < statsBeforeDispose.nodes, true);
+  assert.equal(xmlDoc.children().length(), 0);
 
   assert.equal(SystemUpdaterType.SYSTEM, 'system');
   assert.equal(SystemUpdaterType.DRM, 'drm');
@@ -1151,8 +1158,14 @@ test('flash.net.drm, flash.printing, flash.profiler, flash.sampler, flash.sensor
   // flash.utils: ByteArray.shareable, CompressionAlgorithm, Dictionary, Endian, Timer
   const ba = new h.binary.ByteArray();
   assert.equal(ba.shareable, false);
+  assert.equal(h.binary.isSharedBacking(ba), false);
+  ba.writeInt(42);
   ba.shareable = true;
   assert.equal(ba.shareable, true);
+  assert.equal(h.binary.isSharedBacking(ba), typeof SharedArrayBuffer === 'function');
+  assert.equal(ba.atomicCompareAndSwapIntAt(0, 42, 99), 42);
+  ba.position = 0;
+  assert.equal(ba.readInt(), 99);
   ba.shareable = false; // Adobe AS3 spec: once true, stays true
   assert.equal(ba.shareable, true);
   assert.equal(h.binary.CompressionAlgorithm.ZLIB, 'zlib');
@@ -1168,6 +1181,343 @@ test('flash.net.drm, flash.printing, flash.profiler, flash.sampler, flash.sensor
   h.flushTasks();
   assert.equal(ticked, true);
   t.reset();
+
+  h.dispose();
+});
+
+test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersampling, TextField advanced antiAlias/gridFit/embedFonts, Sound PCM AudioBuffer + SoundMixer mixing, and NetStream Data Generation + Video deblocking', async () => {
+  await ready;
+  const h = createArea8Harness();
+  const NeoFlashAudio = require('../audio.js');
+  const NeoFlashBitmap = require('../bitmap.js');
+  const NeoFlashText = require('../text.js');
+
+  // 1. Area 5: BitmapData.drawWithQuality supersampling ('low' vs 'best' / '8x8linear')
+  let geom2d;
+  const geom3d = NeoFlashGeom3D.create(wasm, { getPoint: () => geom2d.Point });
+  geom2d = NeoFlashGeom.create(wasm, { getVector3D: () => geom3d.Vector3D });
+  const bitmapHost = NeoFlashBitmap.create({
+    player: h.player,
+    geometry: geom2d,
+    getBinary: () => h.binary,
+  });
+  const srcBmp = new bitmapHost.BitmapData(4, 4, false, 0x000000);
+  // 2x2 checkerboard of black and white
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 4; x++) {
+      srcBmp.setPixel(x, y, (x + y) % 2 === 0 ? 0xffffff : 0x000000);
+    }
+  }
+  const halfMat = new geom2d.Matrix(0.5, 0, 0, 0.5, 0, 0);
+  const dstLow = new bitmapHost.BitmapData(2, 2, false, 0x000000);
+  const dstBest = new bitmapHost.BitmapData(2, 2, false, 0x000000);
+  dstLow.drawWithQuality(srcBmp, halfMat, null, null, null, false, 'low');
+  dstBest.drawWithQuality(srcBmp, halfMat, null, null, null, false, 'best');
+  // 'low' point-samples top-left pixel (white = 0xffffff), while 'best' 4x4 supersamples the 2x2 checkerboard to mid-gray!
+  assert.equal(dstLow.getPixel(0, 0), 0xffffff);
+  const bestChannel = (dstBest.getPixel(0, 0) >> 16) & 0xff;
+  assert.equal(bestChannel > 64 && bestChannel < 192, true);
+
+  // 2. Area 6: TextField embedFonts, gridFitType, antiAliasType, thickness & sharpness in NeoFlashText.draw()
+  const drawCalls = [];
+  const mockCtx = {
+    font: '',
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    lineJoin: '',
+    textAlign: '',
+    textBaseline: '',
+    save() {},
+    restore() {},
+    beginPath() {},
+    rect() {},
+    clip() {},
+    fillRect() {},
+    strokeRect() {},
+    measureText(s) { return { width: s.length * 8 }; },
+    fillText(text, x, y) {
+      drawCalls.push({ op: 'fillText', text, x, y, font: this.font, fillStyle: this.fillStyle });
+    },
+    strokeText(text, x, y) {
+      drawCalls.push({ op: 'strokeText', text, x, y, lineWidth: this.lineWidth, strokeStyle: this.strokeStyle });
+    },
+  };
+  const textHost = NeoFlashText.create({
+    player: h.player,
+    wasm,
+    measureText: (s, fmt) => s.length * ((fmt && fmt.size) || 12) * 0.55,
+  });
+  textHost.draw(mockCtx, {
+    box: { width: 200, height: 40 },
+    text: 'Sharp',
+    multiline: false,
+    word_wrap: false,
+    alpha: 1,
+    revision: '1',
+    embed_fonts: true,
+    anti_alias_type: 'advanced',
+    grid_fit_type: 'pixel',
+    thickness: 100,
+    sharpness: 200,
+    format: {
+      font: 'CustomEmbeddedFont',
+      size: 16,
+      color: 0x336699,
+      align: 'center',
+    },
+    default_format: {
+      font: 'CustomEmbeddedFont',
+      size: 16,
+      color: 0x336699,
+      align: 'center',
+    },
+  });
+  assert.equal(drawCalls.some(c => c.op === 'fillText' && Number.isInteger(c.x) && Number.isInteger(c.y)), true);
+  assert.equal(drawCalls.some(c => c.op === 'strokeText' && c.lineWidth > 0), true);
+  // When embedFonts is true, generic sans-serif fallback is omitted
+  assert.equal(drawCalls[0].font.includes('sans-serif'), false);
+
+  // 3. Area 7: Sound.loadPCMFromByteArray -> playable AudioBuffer + SoundMixer.computeSpectrum channel mixing
+  const audioHost = NeoFlashAudio.create({
+    player: h.player,
+    wasm,
+    events: NeoFlashEvents,
+    net: h.net,
+    binary: h.binary,
+    createContext: () => ({
+      state: 'running',
+      sampleRate: 44100,
+      currentTime: 0,
+      destination: {},
+      decodeAudioData: () => Promise.resolve(null),
+      createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }),
+      createStereoPanner: () => ({ pan: { value: 0 }, connect() {}, disconnect() {} }),
+      createBufferSource: () => ({
+        buffer: null,
+        loop: false,
+        loopStart: 0,
+        loopEnd: 0,
+        connect() {},
+        disconnect() {},
+        start() {},
+        stop() {},
+      }),
+      createBuffer: (channels, length, sampleRate) => {
+        const chData = Array.from({ length: channels }, () => new Float32Array(length));
+        return {
+          numberOfChannels: channels,
+          length,
+          sampleRate,
+          duration: length / sampleRate,
+          getChannelData: idx => chData[idx],
+        };
+      },
+      resume: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+    }),
+    isUserGesture: () => true,
+  });
+  audioHost.SoundMixer.bufferTime = 2500;
+  assert.equal(audioHost.SoundMixer.bufferTime, 2500);
+  const pcmBytes = new h.binary.ByteArray();
+  for (let i = 0; i < 512; i++) {
+    const sample = Math.sin((i / 32) * Math.PI * 2) * 0.5;
+    pcmBytes.writeFloat(sample);
+    pcmBytes.writeFloat(sample);
+  }
+  pcmBytes.position = 0;
+  const snd = new audioHost.Sound();
+  snd.loadPCMFromByteArray(pcmBytes, 512, 'float', true, 44100);
+  assert.equal(Math.round(snd.length), Math.round((512 / 44100) * 1000));
+  const channel = snd.play(0, 0, new audioHost.SoundTransform(0.8, 0));
+  assert.equal(channel !== null, true);
+  const specOut = new h.binary.ByteArray();
+  audioHost.SoundMixer.computeSpectrum(specOut, false, 0);
+  assert.equal(specOut.bytesAvailable, 2048);
+  let nonZeroBins = 0;
+  for (let i = 0; i < 512; i++) {
+    if (Math.abs(specOut.readFloat()) > 1e-5) nonZeroBins++;
+  }
+  assert.equal(nonZeroBins > 0, true);
+  channel.stop();
+
+  // 4. Area 7: NetStream Data Generation Mode + Video.attachNetStream + Video.deblocking
+  const nc = new h.video.NetConnection();
+  nc.connect(null);
+  const ns = new h.video.NetStream(nc);
+  const statusCodes = [];
+  ns.addEventListener('netStatus', e => statusCodes.push(e.info.code));
+  ns.play(null);
+  const flvChunk = new h.binary.ByteArray();
+  // FLV header (9 bytes) + PrevTagSize0 (4 bytes) + Video Tag (type 9, ScreenVideo 320x240)
+  const headerAndVideoTag = [
+    0x46, 0x4c, 0x56, 0x01, 0x05, 0x00, 0x00, 0x00, 0x09,
+    0x00, 0x00, 0x00, 0x00,
+    // Tag type 9 (video), data size 5, timestamp 40ms (0x000028), streamId 0
+    0x09, 0x00, 0x00, 0x05, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00,
+    // ScreenVideo keyframe (0x13), blockW=1/width=160 (0x10, 0xa0), blockH=1/height=120 (0x10, 0x78)
+    0x13, 0x10, 0xa0, 0x10, 0x78,
+    // PrevTagSize1 = 16 (0x00000010)
+    0x00, 0x00, 0x00, 0x10,
+  ];
+  for (const b of headerAndVideoTag) flvChunk.writeByte(b);
+  flvChunk.position = 0;
+  ns.appendBytes(flvChunk);
+  ns.pause();
+  ns.resume();
+  ns.togglePause();
+  ns.seek(0.5);
+  h.flushTasks();
+  assert.equal(statusCodes.includes('NetStream.Play.Start'), true);
+  assert.equal(statusCodes.includes('NetStream.Pause.Notify'), true);
+  assert.equal(statusCodes.includes('NetStream.Unpause.Notify'), true);
+  assert.equal(statusCodes.includes('NetStream.Seek.Notify'), true);
+  assert.equal(ns.time, 0.5);
+
+  audioHost.dispose();
+  h.dispose();
+});
+
+test('Wave 6 Conformance: ApplicationDomain fast memory opcodes, DynamicPropertyOutput, LocalConnection AMF cloning, PrintJob rasterization & Worker shared properties', async () => {
+  await ready;
+  const h = createArea8Harness();
+  const {
+    ApplicationDomain,
+    DynamicPropertyOutput,
+    FileFilter,
+    FileReference,
+    LocalConnection,
+    PrintJob,
+    PrintJobOptions,
+    Worker,
+    WorkerDomain,
+    Mutex,
+    Condition,
+  } = h.netSys;
+  const { ObjectEncoding } = h.storage;
+
+  // 1. ApplicationDomain fast memory opcodes (li8..sf64, sxi1..sxi16) and parent-first lookup
+  const parentDom = new ApplicationDomain(null);
+  const childDom = new ApplicationDomain(parentDom);
+  const parentSentinel = function ParentClass() {};
+  const childSentinel = function ChildClass() {};
+  h.netSys.inspectState(parentDom).definitions.set('pkg.SharedType', parentSentinel);
+  h.netSys.inspectState(childDom).definitions.set('pkg.SharedType', childSentinel);
+  // Parent-first resolution returns parentDom's definition when defined in both
+  assert.equal(childDom.getDefinition('pkg::SharedType'), parentSentinel);
+
+  const mem = new h.binary.ByteArray();
+  mem.length = 1024;
+  ApplicationDomain.currentDomain.domainMemory = mem;
+
+  ApplicationDomain.si8(0xfe, 0);
+  assert.equal(ApplicationDomain.li8(0), 0xfe);
+  assert.equal(ApplicationDomain.sxi8(ApplicationDomain.li8(0)), -2);
+  assert.equal(ApplicationDomain.sxi1(1), -1);
+  assert.equal(ApplicationDomain.sxi1(2), 0);
+
+  ApplicationDomain.si16(0xff80, 4);
+  assert.equal(ApplicationDomain.li16(4), 0xff80);
+  assert.equal(ApplicationDomain.sxi16(ApplicationDomain.li16(4)), -128);
+
+  ApplicationDomain.si32(-123456789, 8);
+  assert.equal(ApplicationDomain.li32(8), -123456789);
+
+  ApplicationDomain.sf32(3.25, 16);
+  assert.equal(Math.abs(ApplicationDomain.lf32(16) - 3.25) < 1e-6, true);
+
+  ApplicationDomain.sf64(Math.PI, 24);
+  assert.equal(Math.abs(ApplicationDomain.lf64(24) - Math.PI) < 1e-12, true);
+
+  assert.throws(() => ApplicationDomain.li32(1022), /Error #1506/);
+  assert.throws(() => ApplicationDomain.si64?.(0, -1) ?? ApplicationDomain.sf64(0, -1), /Error #1506/);
+
+  // 2. ObjectEncoding.dynamicPropertyWriter + DynamicPropertyOutput during ByteArray.writeObject
+  assert.equal(typeof DynamicPropertyOutput, 'function');
+  ObjectEncoding.dynamicPropertyWriter = {
+    writeDynamicProperties(obj, output) {
+      assert.equal(output instanceof DynamicPropertyOutput, true);
+      for (const k of Object.keys(obj)) {
+        if (!k.startsWith('_')) {
+          output.writeDynamicProperty(k, obj[k]);
+        }
+      }
+    },
+  };
+  const baObj = new h.binary.ByteArray();
+  baObj.writeObject({ visibleProp: 'kept', _secretProp: 'filtered' });
+  baObj.position = 0;
+  const decodedObj = baObj.readObject();
+  assert.deepEqual(decodedObj, { visibleProp: 'kept' });
+  ObjectEncoding.dynamicPropertyWriter = null;
+
+  // 3. LocalConnection AMF argument cloning (no shared object identity mutation)
+  const lcRecv = new LocalConnection();
+  let receivedPayload = null;
+  lcRecv.client = {
+    onMessage(obj) {
+      receivedPayload = obj;
+    },
+  };
+  lcRecv.connect('wave6_channel');
+  const lcSend = new LocalConnection();
+  const originalArg = { nested: { count: 7 } };
+  lcSend.send('wave6_channel', 'onMessage', originalArg);
+  originalArg.nested.count = 999;
+  h.flushTasks();
+  assert.deepEqual(receivedPayload, { nested: { count: 7 } });
+  assert.notEqual(receivedPayload, originalArg);
+  lcRecv.close();
+
+  // 4. FileReference accept filter, save bytes, and RFC 2388 multipart upload body
+  const fr = new FileReference();
+  fr.browse([new FileFilter('Images', '*.png;*.jpg')]);
+  h.flushTasks();
+  assert.equal(h.netSys.inspectState(fr).lastAcceptFilter, '.png,.jpg');
+  fr.upload({ url: 'https://example.test/upload' }, 'Filedata', false);
+  h.flushTasks();
+  const mpText = new TextDecoder().decode(h.netSys.inspectState(fr).lastMultipartBody);
+  assert.equal(mpText.includes('Content-Disposition: form-data; name="Filedata"'), true);
+
+  // 5. PrintJob addPage rasterization and send()
+  const pj = new PrintJob();
+  assert.equal(pj.start(), true);
+  let gotoFrame = 0;
+  const fakeSprite = {
+    gotoAndStop(f) { gotoFrame = f; },
+    getBounds() { return { x: 0, y: 0, width: 64, height: 48 }; },
+  };
+  pj.addPage(fakeSprite, { x: 0, y: 0, width: 32, height: 24 }, new PrintJobOptions(true), 3);
+  assert.equal(gotoFrame, 3);
+  pj.send();
+  const pjRec = h.netSys.inspectState(pj);
+  assert.equal(pjRec.sentPages.length, 1);
+  assert.equal(pjRec.sentPages[0].width, 32);
+  assert.equal(pjRec.sentPages[0].height, 24);
+  assert.equal(pjRec.sentPages[0].rgbaBytes.byteLength, 32 * 24 * 4);
+
+  // 6. Worker.setSharedProperty / getSharedProperty & MessageChannel shareable vs AMF-cloned values
+  const prim = Worker.current;
+  const plainShared = { label: 'clone-me' };
+  prim.setSharedProperty('plainObj', plainShared);
+  plainShared.label = 'mutated-after-set';
+  const gotPlain = prim.getSharedProperty('plainObj');
+  assert.deepEqual(gotPlain, { label: 'clone-me' });
+  assert.notEqual(gotPlain, plainShared);
+
+  const shareableBa = new h.binary.ByteArray();
+  shareableBa.shareable = true;
+  shareableBa.writeByte(0x5a);
+  prim.setSharedProperty('sharedBa', shareableBa);
+  assert.equal(prim.getSharedProperty('sharedBa'), shareableBa);
+
+  const mtx = new Mutex();
+  const cond = new Condition(mtx);
+  prim.setSharedProperty('sharedMutex', mtx);
+  prim.setSharedProperty('sharedCond', cond);
+  assert.equal(prim.getSharedProperty('sharedMutex'), mtx);
+  assert.equal(prim.getSharedProperty('sharedCond'), cond);
 
   h.dispose();
 });

@@ -1370,7 +1370,7 @@ test('flash.printing & flash.security: PrintJob, PaperSize, XMLSignatureValidato
         '<DigestValue>a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e</DigestValue>' +
         '</Reference>' +
         '</SignedInfo>' +
-        '<SignatureValue>TkVPRkxBU0hTU0lHTkFUVVJFVjE=</SignatureValue>' +
+        '<SignatureValue>WNKhssm76xkUR6XKKe9IE44SGwH3C20SB1LkO054ExA=</SignatureValue>' +
         '</Signature>'
     );
 
@@ -1387,11 +1387,47 @@ test('flash.printing & flash.security: PrintJob, PaperSize, XMLSignatureValidato
     assert.equal(validator.signerCN, 'NeoFlash Signer');
     assert.equal(validator.signerDN, 'CN=NeoFlash Signer, O=NeoFlash Test Org');
 
-    // Tamper with dereferenced data -> INVALID
+    // Tamper with <SignedInfo> without re-signing -> digestStatus INVALID
+    const tamperedSiXml = new h.xml.XML(
+      sigXml.toXMLString().replace('urn:doc1', 'urn:doc2')
+    );
+    validator.verify(tamperedSiXml);
+    assert.equal(validator.digestStatus, SignatureStatus.INVALID);
+    assert.equal(validator.validityStatus, SignatureStatus.INVALID);
+
+    // Tamper with dereferenced data -> referencesStatus INVALID
     derefMap['urn:doc1'] = 'Tampered Content';
     validator.verify(sigXml);
+    assert.equal(validator.digestStatus, SignatureStatus.VALID);
     assert.equal(validator.referencesStatus, SignatureStatus.INVALID);
     assert.equal(validator.validityStatus, SignatureStatus.INVALID);
+
+    // RSA-SHA256 PKCS#1 v1.5 verification with modular exponentiation (s^e mod n)
+    derefMap['urn:doc1'] = 'Hello World';
+    const rsaCert = new h.binary.ByteArray();
+    rsaCert.writeUTFBytes(
+      'CN=RSA Signer,O=NeoFlash Crypto,MOD=01000000000000000000000000000000000000012a00000000000000000000000000000000000007f5,EXP=010001'
+    );
+    validator.addCertificate(rsaCert, true);
+    const rsaSigXml = new h.xml.XML(
+      '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">' +
+        '<SignedInfo>' +
+        '<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>' +
+        '<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>' +
+        '<Reference URI="urn:doc1">' +
+        '<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>' +
+        '<DigestValue>a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e</DigestValue>' +
+        '</Reference>' +
+        '</SignedInfo>' +
+        '<SignatureValue>AMTPYoaq2xc5OhIQoTUglHZwGsNZi7LriP9JCrCHjCN+K9vAjFN3LTY=</SignatureValue>' +
+        '</Signature>'
+    );
+    validator.verify(rsaSigXml);
+    assert.equal(validator.digestStatus, SignatureStatus.VALID);
+    assert.equal(validator.referencesStatus, SignatureStatus.VALID);
+    assert.equal(validator.identityStatus, SignatureStatus.VALID);
+    assert.equal(validator.validityStatus, SignatureStatus.VALID);
+    assert.equal(validator.signerCN, 'RSA Signer');
   } finally {
     h.dispose();
   }
@@ -1439,10 +1475,72 @@ test('flash.text, flash.ui, flash.external, flash.display3D, flash.system & desk
     assert.equal(st.text, '');
 
     st.text = 'RENDER';
+    st.selectRange(0, 3);
+    assert.equal(st._domElement.value, 'RENDER');
+    assert.equal(st._domElement.selectionStart, 0);
+    assert.equal(st._domElement.selectionEnd, 3);
+    assert.equal(st._domElement.style.width, '200px');
     const stBmd = new h.bitmap.BitmapData(200, 40, true, 0);
     st.drawViewPortToBitmapData(stBmd);
     assert.notEqual(stBmd.getPixel32(0, 0), 0);
+    let deactivated = false;
+    st.addEventListener('softKeyboardDeactivate', () => {
+      deactivated = true;
+    });
+    st._blurFocus();
+    assert.equal(deactivated, true);
     st.dispose();
+
+    // Clipboard FILE_PROMISE_LIST_FORMAT materializes promised files into FILE_LIST_FORMAT
+    const promiseCb = new Clipboard();
+    const promisedInput = new h.binary.ByteArray();
+    promisedInput.writeUTFBytes('promised-payload');
+    promisedInput.position = 0;
+    const filePromise = {
+      relativePath: 'exports/report.txt',
+      isAsync: false,
+      open() {
+        promisedInput.position = 0;
+        return promisedInput;
+      },
+      close() {},
+      reportError() {},
+    };
+    assert.equal(promiseCb.setData('air:file promise list', [filePromise]), true);
+    assert.equal(promiseCb.hasFormat('air:file list'), true);
+    const materializedFiles = promiseCb.getData('air:file list');
+    assert.equal(materializedFiles.length, 1);
+    assert.equal(materializedFiles[0].exists, true);
+    assert.equal(materializedFiles[0].name, 'report.txt');
+
+    // DeviceRotation quaternion calculation via Rust AirKernel & Geolocation position updates
+    const rot = new B['flash.sensors.DeviceRotation']();
+    let rotEvent = null;
+    rot.addEventListener('update', ev => {
+      rotEvent = ev;
+    });
+    rot._dispatchOrientation(90, 30, -15, 123456);
+    assert.ok(rotEvent);
+    assert.equal(rotEvent.yaw, 90);
+    assert.equal(rotEvent.pitch, 30);
+    assert.equal(rotEvent.roll, -15);
+    assert.equal(rotEvent.quaternion.length, 4);
+    const qNorm =
+      rotEvent.quaternion[0] ** 2 +
+      rotEvent.quaternion[1] ** 2 +
+      rotEvent.quaternion[2] ** 2 +
+      rotEvent.quaternion[3] ** 2;
+    assert.ok(Math.abs(qNorm - 1) < 1e-6);
+
+    const geo = new B['flash.sensors.Geolocation']();
+    let geoEvent = null;
+    geo.addEventListener('update', ev => {
+      geoEvent = ev;
+    });
+    geo._dispatchPosition({ latitude: 37.7749, longitude: -122.4194, accuracy: 5 }, 123457);
+    assert.ok(geoEvent);
+    assert.equal(geoEvent.latitude, 37.7749);
+    assert.equal(geoEvent.longitude, -122.4194);
 
     // NativeDragManager 7-event lifecycle
     const dragEvents = [];

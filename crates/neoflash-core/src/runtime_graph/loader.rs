@@ -349,4 +349,75 @@ impl Player {
             retired_refs: retired.into_iter().collect(),
         })
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn loader_replace_swf(
+        &mut self,
+        project: &Project,
+        target: &ObjectRef,
+        as_version: u32,
+        width: u32,
+        height: u32,
+        bg_color: Option<u32>,
+        as2_replace: bool,
+    ) -> Result<LoaderMutation, DisplayError> {
+        let mut mutation = self.loader_replace(project, target, None, as2_replace)?;
+        let snapshot = self.runtime_snapshot(project);
+        let attached = snapshot
+            .objects
+            .iter()
+            .find(|o| &o.object_ref == target)
+            .is_some_and(|o| o.on_stage);
+        let id = self.graph.allocate();
+        let kind = if as_version < 3 {
+            DynamicKind::Avm1Movie
+        } else {
+            DynamicKind::MovieClip
+        };
+        let mut graphics = GraphicsState::default();
+        let color = bg_color.unwrap_or(0x336699) & 0x00ff_ffff;
+        graphics.apply(&crate::GraphicsOp::BeginFill { color, alpha: 1.0 });
+        graphics.apply(&crate::GraphicsOp::DrawRect {
+            x: 0.0,
+            y: 0.0,
+            width: (width.max(1)) as f64,
+            height: (height.max(1)) as f64,
+        });
+        graphics.apply(&crate::GraphicsOp::EndFill);
+        self.graph.graphics_cost += graphics.cost();
+        self.graph.dynamic.insert(
+            id.clone(),
+            DynamicObject {
+                kind,
+                parent: Some(target.clone()),
+                transform: Transform::default(),
+                visible: true,
+                name: "content".into(),
+                playing: as_version >= 3,
+                graphics,
+            },
+        );
+        self.graph.suffix.insert(target.clone(), vec![id.clone()]);
+        mutation.events.push(DisplayEvent {
+            kind: "added".into(),
+            target_ref: id.clone(),
+            route: self.graph.route(&id),
+        });
+        if attached {
+            mutation.events.push(DisplayEvent {
+                kind: "added_to_stage".into(),
+                target_ref: id.clone(),
+                route: self.graph.route(&id),
+            });
+        }
+        self.graph.loaders.insert(
+            target.clone(),
+            LoaderState {
+                content: Some(id.clone()),
+                as2: as2_replace,
+            },
+        );
+        mutation.content_ref = Some(id);
+        Ok(mutation)
+    }
 }

@@ -42,8 +42,19 @@ class DomElement {
     }
   }
   addEventListener(k, fn) { this.events[k] = fn; }
+  removeEventListener(k, fn) { if (this.events[k] === fn) delete this.events[k]; }
   focus() { this.ownerDocument.activeElement = this; this.events.focus?.(); }
   scrollIntoView() {}
+  getBoundingClientRect() { return { left: 0, top: 0, right: 200, bottom: 120, width: 200, height: 120 }; }
+  contains(el) { return el === this || this.children.some(c => c.contains?.(el)); }
+  querySelectorAll(sel) {
+    const out = [];
+    const match = node => sel === 'button:not(:disabled)' ? node.tagName === 'button' && !node.disabled : node.tagName === sel;
+    const walk = node => { for (const c of node.children) { if (match(c)) out.push(c); walk(c); } };
+    walk(this);
+    return out;
+  }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   get firstElementChild() { return this.children[0] || null; }
   get nextElementSibling() {
     if (!this.parentNode) return null;
@@ -52,7 +63,7 @@ class DomElement {
 }
 
 function createSemanticDom() {
-  const doc = { activeElement: null, createElement(tag) { return new DomElement(doc, tag); } };
+  const doc = { activeElement: null, addEventListener() {}, removeEventListener() {}, createElement(tag) { return new DomElement(doc, tag); } };
   return new DomElement(doc, 'div');
 }
 
@@ -737,7 +748,9 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         'import app.GraphicsTextAudit;',
         'import ext.HostWidget;',
         'import flash.display.BitmapData;',
+        'import flash.filters.DisplacementMapFilter;',
         'import flash.geom.Matrix;',
+        'import flash.geom.Point;',
         'import flash.geom.Rectangle;',
         'import flash.text.TextRenderer;',
         'class app.FoundationMain extends MovieClip {',
@@ -980,6 +993,130 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
         '  }',
         '  public function runBatch4():Object {',
         '    return { core: CoreLangAudit.run(this), gfx: GraphicsTextAudit.run(this), includedSum: includedMacroSum };',
+        '  }',
+        '  public function runWave6():Object {',
+        '    var out:Object = {};',
+        '    var menuLog:Array = [];',
+        '    out.menuLog = menuLog;',
+        '    var cm:ContextMenu = new ContextMenu(function(obj:Object, menu:ContextMenu):Void {',
+        '      menuLog.push("menuSelect:" + obj._name + ":" + (menu === cm));',
+        '    });',
+        '    var builtIn0:Boolean = cm.builtInItems.play === true && cm.builtInItems.rewind === true && cm.builtInItems.forward_back === true && cm.builtInItems.print === true;',
+        '    cm.hideBuiltInItems();',
+        '    var builtInHidden:Boolean = cm.builtInItems.play === false && cm.builtInItems.rewind === false && cm.builtInItems.forward_back === false && cm.builtInItems.print === false;',
+        '    var item1:ContextMenuItem = new ContextMenuItem("Inspect Clip", function(obj:Object, item:ContextMenuItem):Void {',
+        '      menuLog.push("item1:" + obj._name + ":" + item.caption);',
+        '    }, true, true, true);',
+        '    var item2:ContextMenuItem = item1.copy();',
+        '    item2.caption = "Disabled Item";',
+        '    item2.enabled = false;',
+        '    item2.separatorBefore = false;',
+        '    item2.onSelect = function(obj:Object, item:ContextMenuItem):Void {',
+        '      menuLog.push("item2:" + item.caption);',
+        '    };',
+        '    var item3:ContextMenuItem = new ContextMenuItem("Hidden Item", null, false, true, false);',
+        '    cm.customItems.push(item1, item2, item3);',
+        '    var cmCopy:ContextMenu = cm.copy();',
+        '    this.left.menu = cm;',
+        '    this.actionBtn.menu = cmCopy;',
+        '    var tfMenuTarget:TextField = this.createTextField("menuTf", 190, 10, 260, 120, 24);',
+        '    tfMenuTarget.menu = cm;',
+        '    out.menuChecks = [',
+        '      (cm instanceof ContextMenu) && (item1 instanceof ContextMenuItem),',
+        '      builtIn0 && builtInHidden,',
+        '      item1.caption == "Inspect Clip" && item1.separatorBefore === true && item1.enabled === true && item1.visible === true,',
+        '      (item2 instanceof ContextMenuItem) && item2 !== item1 && item2.caption == "Disabled Item" && item2.enabled === false && item2.separatorBefore === false,',
+        '      (cmCopy instanceof ContextMenu) && cmCopy !== cm && cmCopy.customItems.length == 3 && cmCopy.customItems[0] !== item1 && cmCopy.customItems[0].caption == "Inspect Clip",',
+        '      this.left.menu === cm && this.actionBtn.menu === cmCopy && tfMenuTarget.menu === cm',
+        '    ];',
+        '    Stage.scaleMode = "showAll";',
+        '    Stage.align = "TL";',
+        '    var sm0:String = Stage.scaleMode;',
+        '    var al0:String = Stage.align;',
+        '    Stage.scaleMode = "exactFit";',
+        '    Stage.align = "BR";',
+        '    var sm1:String = Stage.scaleMode;',
+        '    var al1:String = Stage.align;',
+        '    Stage.align = "TL";',
+        '    Stage.scaleMode = "noScale";',
+        '    var sm2:String = Stage.scaleMode;',
+        '    var al2:String = Stage.align;',
+        '    out.stageChecks = [sm0 == "showAll", al0 == "TL", sm1 == "exactFit", al1 == "BR", sm2 == "noScale", al2 == "TL"];',
+        '    var btnDepth:Number = this.actionBtn.getDepth();',
+        '    this.actionBtn.tabIndex = 14;',
+        '    this.actionBtn.trackAsMenu = true;',
+        '    this.actionBtn._focusrect = false;',
+        '    var btnFocus0:Boolean = this.actionBtn._focusrect;',
+        '    this.actionBtn._focusrect = true;',
+        '    var btnFocus1:Boolean = this.actionBtn._focusrect;',
+        '    this.left._focusrect = false;',
+        '    var mcFocus0:Boolean = this.left._focusrect;',
+        '    this.left._focusrect = true;',
+        '    var mcFocus1:Boolean = this.left._focusrect;',
+        '    out.buttonInputChecks = [',
+        '      !isNaN(btnDepth),',
+        '      this.actionBtn.tabIndex === 14,',
+        '      this.actionBtn.trackAsMenu === true,',
+        '      btnFocus0 === false && btnFocus1 === true,',
+        '      mcFocus0 === false && mcFocus1 === true',
+        '    ];',
+        '    var dragChip:MovieClip = this.createEmptyMovieClip("dragChip", 191);',
+        '    dragChip._x = 170; dragChip._y = 292;',
+        '    this.artRef._visible = false;',
+        '    dragChip.startDrag(false, 0, 0, 500, 500);',
+        '    dragChip.stopDrag();',
+        '    this.artRef._visible = true;',
+        '    out.dropTargetPath = dragChip._droptarget;',
+        '    var rootLoaded:Number = this.getBytesLoaded();',
+        '    var rootTotal:Number = this.getBytesTotal();',
+        '    var symSlot:MovieClip = this.createEmptyMovieClip("symSlot", 192);',
+        '    var symBeforeLoaded:Number = symSlot.getBytesLoaded();',
+        '    var symBeforeTotal:Number = symSlot.getBytesTotal();',
+        '    var symEvents:Array = [];',
+        '    out.symEvents = symEvents;',
+        '    var symMcl:MovieClipLoader = new MovieClipLoader();',
+        '    var symListener:Object = {',
+        '      onLoadStart: function(t:MovieClip):Void { symEvents.push("start:" + t._name); },',
+        '      onLoadProgress: function(t:MovieClip, l:Number, tot:Number):Void { symEvents.push("prog:" + (l == tot && tot > 0)); },',
+        '      onLoadComplete: function(t:MovieClip, st:Number):Void { symEvents.push("comp:" + st); },',
+        '      onLoadInit: function(t:MovieClip):Void { symEvents.push("init:" + t._url + ":" + (t.getBytesLoaded() == t.getBytesTotal() && t.getBytesTotal() > 0)); }',
+        '    };',
+        '    symMcl.addListener(symListener);',
+        '    symMcl.loadClip("symbol:CardClip", symSlot);',
+        '    out.symSlot = symSlot;',
+        '    out.symMcl = symMcl;',
+        '    out.byteChecks = [rootLoaded > 0 && rootLoaded == rootTotal, symBeforeLoaded === 0 && symBeforeTotal === 0];',
+        '    var dispClip:MovieClip = this.createEmptyMovieClip("dispClip", 193);',
+        '    dispClip.beginFill(0x00cc44, 100);',
+        '    dispClip.moveTo(0, 0); dispClip.lineTo(24, 0); dispClip.lineTo(24, 24); dispClip.lineTo(0, 24); dispClip.lineTo(0, 0);',
+        '    dispClip.endFill();',
+        '    var dMap:BitmapData = new BitmapData(24, 24, false, 0xff8080);',
+        '    var dmf:DisplacementMapFilter = new DisplacementMapFilter(dMap, new Point(0, 0), 1, 2, 16, 0, "clamp", 0x112233, 0.5);',
+        '    dispClip.filters = [dmf];',
+        '    out.dispClip = dispClip;',
+        '    out.dMap = dMap;',
+        '    out.dmfChecks = [',
+        '      (dmf instanceof DisplacementMapFilter),',
+        '      dmf.mapBitmap === dMap && dmf.mapPoint.x == 0 && dmf.mapPoint.y == 0,',
+        '      dmf.componentX == 1 && dmf.componentY == 2 && dmf.scaleX == 16 && dmf.scaleY == 0,',
+        '      dmf.mode == "clamp" && dmf.color == 0x112233 && dmf.alpha == 0.5,',
+        '      dispClip.filters.length == 1 && (dispClip.filters[0] instanceof DisplacementMapFilter)',
+        '    ];',
+        '    this.stageVideo.smoothing = true;',
+        '    var smooth1:Boolean = this.stageVideo.smoothing;',
+        '    this.stageVideo.smoothing = false;',
+        '    var smooth0:Boolean = this.stageVideo.smoothing;',
+        '    this.stageVideo.smoothing = true;',
+        '    this.stageVideo.attachVideo(null);',
+        '    out.videoWave6Checks = [smooth1 === true, smooth0 === false, this.stageVideo.smoothing === true];',
+        '    var pj:PrintJob = new PrintJob();',
+        '    var pjStarted:Boolean = pj.start();',
+        '    var pjPropsOk:Boolean = pj.paperWidth > 0 && pj.paperHeight > 0 && pj.pageWidth > 0 && pj.pageHeight > 0 && (pj.orientation == "portrait" || pj.orientation == "landscape");',
+        '    var pjPageOk:Boolean = pj.addPage(this, {xMin: 0, yMin: 0, xMax: 120, yMax: 80}, {printAsBitmap: true}, 2);',
+        '    var frameAfterPrintPage:Number = this._currentframe;',
+        '    pj.send();',
+        '    out.printJobChecks = [pjStarted === true, pjPropsOk === true, pjPageOk === true, frameAfterPrintPage === 2];',
+        '    return out;',
         '  }',
         '}',
       ].join('\n'),
@@ -1451,8 +1588,19 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
     close() { bcPeers.delete(this); }
   }
   const fCanvas = Object.assign(new Surface(), { id: 'stage' });
+  const stageViewport = createSemanticDom();
+  let stageLayoutFn = null;
+  const stagePreview = {
+    view: { scale: 1, scaleY: 1 },
+    panMode: false,
+    suppressClick: false,
+    setStageLayout(fn) { stageLayoutFn = fn; },
+    resize() { if (stageLayoutFn) stageLayoutFn(960, 540); },
+  };
   const hadLocation = Object.hasOwn(globalThis, 'location'), prevLocation = globalThis.location;
+  const hadPath2D = Object.hasOwn(globalThis, 'Path2D'), prevPath2D = globalThis.Path2D;
   globalThis.location = { href: 'https://app.example.test/index.html', protocol: 'https:' };
+  globalThis.Path2D = class Path2D { moveTo() {} lineTo() {} quadraticCurveTo() {} bezierCurveTo() {} closePath() {} };
   let fHost;
   try {
     ({ host: fHost } = createRuntimeHost(root, fPlayer, Array.from(bundle.scripts, item => ({
@@ -1461,7 +1609,45 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
       bundle,
       canvas: fCanvas,
       semanticLayer,
-      context: { save() {}, restore() {}, font: '', fontKerning: 'auto', letterSpacing: '0px', measureText: line => ({ width: line.length * 8 }) },
+      as2Stage: {
+        viewport: stageViewport,
+        preview: stagePreview,
+        document: stageViewport.ownerDocument,
+        screen: { width: 1920, height: 1080 },
+      },
+      filters: {
+        createCanvas: () => {
+          const surface = {
+            width: 1,
+            height: 1,
+            rgba: new Uint8ClampedArray(4),
+            getContext() {
+              return {
+                canvas: surface,
+                globalAlpha: 1,
+                globalCompositeOperation: 'source-over',
+                fillStyle: '#000',
+                setTransform() {},
+                clearRect() { surface.rgba = new Uint8ClampedArray(Math.max(1, surface.width * surface.height * 4)); },
+                fillRect(_x, _y, w, h) {
+                  const total = Math.max(1, (w | 0) * (h | 0) * 4);
+                  if (surface.rgba.length < total) surface.rgba = new Uint8ClampedArray(total);
+                  for (let i = 0; i < surface.rgba.length; i += 4) { surface.rgba[i] = 0; surface.rgba[i + 1] = 204; surface.rgba[i + 2] = 68; surface.rgba[i + 3] = 255; }
+                },
+                createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+                getImageData: (_x, _y, w, h) => {
+                  const total = w * h * 4;
+                  if (surface.rgba.length < total) surface.rgba = new Uint8ClampedArray(total);
+                  return { width: w, height: h, data: new Uint8ClampedArray(surface.rgba.subarray(0, total)) };
+                },
+                putImageData: img => { surface.rgba = new Uint8ClampedArray(img.data); },
+              };
+            },
+          };
+          return surface;
+        },
+      },
+      context: { save() {}, restore() {}, setTransform() {}, isPointInPath: () => false, isPointInStroke: () => false, font: '', fontKerning: 'auto', letterSpacing: '0px', measureText: line => ({ width: line.length * 8 }) },
       external: {
         hostObject: fCanvas,
         hostGlobal: { stage_DoFSCommand: (cmd, args) => fsCommands.push([cmd, args]) },
@@ -1897,9 +2083,109 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
 
     const strProg = b3Root.loaderRef.getProgress('slotOk');
     assert.equal(typeof strProg.bytesLoaded, 'number', 'MovieClipLoader accepts string target paths');
+
+    // Wave 6 genuine behavioral verification:
+    // ContextMenu/ContextMenuItem DOM overlay, Stage.scaleMode/align/showMenu,
+    // Button/MovieClip _focusrect/trackAsMenu/tabIndex/getDepth, _droptarget,
+    // MovieClipLoader/loadMovie symbol:CardClip & byte counts & _url,
+    // DisplacementMapFilter live DisplayObject.filters rendering & cache invalidation,
+    // Video.smoothing & PrintJob.addPage with frameNum.
+    fHost.stage().handlePointer('pointermove', { clientX: 170, clientY: 292 }, b3Root.left);
+    const w6 = b3Root.runWave6();
+    assert.deepEqual(Array.from(w6.menuChecks), Array(6).fill(true));
+    assert.deepEqual(Array.from(w6.stageChecks), Array(6).fill(true));
+    assert.deepEqual(Array.from(w6.buttonInputChecks), Array(5).fill(true));
+    assert.equal(w6.dropTargetPath, '/left');
+    assert.deepEqual(Array.from(w6.byteChecks), [true, true]);
+    assert.deepEqual(Array.from(w6.dmfChecks), Array(5).fill(true));
+    assert.deepEqual(Array.from(w6.videoWave6Checks), [true, true, true]);
+    assert.deepEqual(Array.from(w6.printJobChecks), [true, true, true, true]);
+
+    await until(() => Array.from(w6.symEvents).length === 4, 'MovieClipLoader symbol:CardClip load lifecycle settles');
+    assert.deepEqual(Array.from(w6.symEvents), [
+      'start:symSlot',
+      'prog:true',
+      'comp:200',
+      'init:symbol:CardClip:true',
+    ]);
+    assert.equal(w6.symSlot._url, 'symbol:CardClip');
+    assert.ok(w6.symSlot.getBytesLoaded() > 0 && w6.symSlot.getBytesLoaded() === w6.symSlot.getBytesTotal());
+    assert.equal(w6.symMcl.unloadClip(w6.symSlot), true);
+    assert.equal(w6.symSlot.getBytesLoaded(), 0);
+
+    // ContextMenu DOM overlay dispatch on fCanvas
+    fCanvas.send('contextmenu', { clientX: 170, clientY: 292 });
+    assert.deepEqual(Array.from(w6.menuLog), ['menuSelect:left:true']);
+    const menuPanel = stageViewport.children.find(el => el.getAttribute('role') === 'menu');
+    assert.ok(menuPanel, 'ContextMenu mounts role=menu panel in viewport');
+    const menuButtons = menuPanel.children.filter(el => el.tagName === 'button');
+    assert.equal(menuButtons.length, 2, 'visible custom items are rendered; visible=false item is omitted');
+    assert.equal(menuButtons[0].textContent, 'Inspect Clip');
+    assert.equal(menuButtons[0].disabled, false);
+    assert.equal(menuButtons[1].textContent, 'Disabled Item');
+    assert.equal(menuButtons[1].disabled, true);
+    menuButtons[0].events.click({ preventDefault() {}, stopPropagation() {} });
+    assert.deepEqual(Array.from(w6.menuLog), ['menuSelect:left:true', 'item1:left:Inspect Clip']);
+    assert.equal(stageViewport.children.includes(menuPanel), false, 'clicking menuitem closes the ContextMenu panel');
+
+    // Stage.showMenu = false prevents default browser contextmenu
+    fHost.legacy().Stage.showMenu = false;
+    assert.equal(fHost.legacy().Stage.showMenu, false);
+    const cmEvt = new Event('contextmenu', { cancelable: true });
+    Object.defineProperty(cmEvt, 'clientX', { value: 10 });
+    Object.defineProperty(cmEvt, 'clientY', { value: 10 });
+    fCanvas.dispatchEvent(cmEvt);
+    assert.equal(cmEvt.defaultPrevented, true);
+    fHost.legacy().Stage.showMenu = true;
+
+    // Stage.scaleMode & Stage.align layout calculations
+    fHost.legacy().Stage.scaleMode = 'exactFit';
+    fHost.legacy().Stage.align = 'BR';
+    const exactLayout = fHost.as2Stage().layout(1200, 900);
+    assert.equal(exactLayout.stageWidth, 1200);
+    assert.equal(exactLayout.stageHeight, 900);
+    fHost.legacy().Stage.align = 'TL';
+    fHost.legacy().Stage.scaleMode = 'noScale';
+    const noScaleLayout = fHost.as2Stage().layout(1200, 900);
+    assert.equal(noScaleLayout.left, 0);
+    assert.equal(noScaleLayout.top, 0);
+    assert.equal(noScaleLayout.logicalWidth, 1200);
+    assert.equal(noScaleLayout.logicalHeight, 900);
+
+    // Focus bounds with _focusrect
+    fHost.legacy().Selection.setFocus(b3Root.actionBtn);
+    const focusBoxOn = fHost.display().as2FocusBounds();
+    assert.ok(focusBoxOn && focusBoxOn.width > 0 && focusBoxOn.height > 0, 'as2FocusBounds returns bounds when _focusrect is true');
+    b3Root.actionBtn._focusrect = false;
+    assert.equal(fHost.display().as2FocusBounds(), null, 'as2FocusBounds returns null when _focusrect is false');
+    b3Root.actionBtn._focusrect = true;
+
+    // DisplacementMapFilter rendered through Filter Renderer + cache invalidation on mapBitmap mutation
+    const snap1 = JSON.parse(fPlayer.runtime_snapshot_json());
+    const dispGroup = snap1.filter_groups.find(g => g.filters.some(f => f.type === 'displacement'));
+    assert.ok(dispGroup, 'runtime_snapshot_json emits DisplacementMapFilter in filter_groups');
+    let compositedSurface = null;
+    fHost.filters().renderer.draw({ fillRect() {} }, snap1, {
+      bounds: () => ({ left: 0, top: 0, right: 24, bottom: 24 }),
+      paint: target => { target.fillRect(0, 0, 24, 24); },
+      composite: (_target, canvas) => { compositedSurface = canvas; },
+    });
+    assert.ok(compositedSurface, 'Filter renderer composites DisplacementMapFilter group');
+    const cachedVersion1 = fHost.filters().renderer.stats().cached;
+    assert.ok(cachedVersion1 >= 1);
+    w6.dMap.setPixel(0, 0, 0x008080);
+    const snap2 = JSON.parse(fPlayer.runtime_snapshot_json());
+    fHost.filters().renderer.draw({ fillRect() {} }, snap2, {
+      bounds: () => ({ left: 0, top: 0, right: 24, bottom: 24 }),
+      paint: target => { target.fillRect(0, 0, 24, 24); },
+      composite: (_target, canvas) => { compositedSurface = canvas; },
+    });
+    assert.ok(fHost.filters().renderer.stats().framePixels > 0, 'mutating mapBitmap in-place invalidates cached DisplacementMapFilter surface');
   } finally {
     if (hadLocation) globalThis.location = prevLocation;
     else delete globalThis.location;
+    if (hadPath2D) globalThis.Path2D = prevPath2D;
+    else delete globalThis.Path2D;
     fHost?.disposeFamily();
     fPlayer.free();
   }

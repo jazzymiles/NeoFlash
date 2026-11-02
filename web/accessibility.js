@@ -142,10 +142,36 @@
       const scaleX=typeof scale==='object'?scale.x:scale,scaleY=typeof scale==='object'?scale.y:scale;
       const doc=this.container.ownerDocument, previouslyFocused=doc.activeElement, wanted=[];
       const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText);
+      const forceSimplePaths=[], forceSimpleRefs=new Set();
       for (const node of nodes) {
+        const meta=node&&node.accessibility;
+        if (!meta || meta.silent) continue;
+        if (meta.forceSimple || meta.force_simple) {
+          if (Array.isArray(node.instance_path)) forceSimplePaths.push(node.instance_path);
+          if (node.owner_ref) forceSimpleRefs.add(referenceKey(node.owner_ref));
+        }
+      }
+      const isSuppressedByForceSimple=node=>{
+        if (Array.isArray(node.instance_path)) {
+          for (const prefix of forceSimplePaths) {
+            if (node.instance_path.length>prefix.length && prefix.every((seg,idx)=>node.instance_path[idx]===seg)) return true;
+          }
+        }
+        if (forceSimpleRefs.size && Array.isArray(node.ancestry_refs)) {
+          const ownKey=node.owner_ref?referenceKey(node.owner_ref):null;
+          for (const ref of node.ancestry_refs) {
+            const rk=referenceKey(ref);
+            if (rk!==ownKey && forceSimpleRefs.has(rk)) return true;
+          }
+        }
+        return false;
+      };
+      for (const node of nodes) {
+        const metadata=node&&node.accessibility;
+        if (!metadata || metadata.silent || isSuppressedByForceSimple(node)) continue;
         const bounds=boundsByPath.get(node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path));
         if (!bounds) continue;
-        const key=node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id, metadata=node.accessibility;
+        const key=node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id;
         let record=this.records.get(key);
         if (record && record.role!==metadata.role) { record.element.remove(); this.records.delete(key); record=null; }
         if (!record) {
@@ -167,6 +193,12 @@
         if (element.getAttribute('aria-label')!==metadata.name) element.setAttribute('aria-label',metadata.name);
         if (metadata.description) { if(record.description.textContent!==metadata.description)record.description.textContent=metadata.description; if(element.getAttribute('aria-describedby')!==record.description.id)element.setAttribute('aria-describedby',record.description.id); }
         else { if(record.description.textContent)record.description.textContent=''; if(element.getAttribute('aria-describedby'))element.removeAttribute('aria-describedby'); }
+        if (metadata.shortcut) { if(element.getAttribute('aria-keyshortcuts')!==metadata.shortcut)element.setAttribute('aria-keyshortcuts',metadata.shortcut); }
+        else if (element.getAttribute('aria-keyshortcuts')) element.removeAttribute('aria-keyshortcuts');
+        if (metadata.forceSimple || metadata.force_simple) element.setAttribute('data-force-simple','true');
+        else if (element.getAttribute('data-force-simple')) element.removeAttribute('data-force-simple');
+        if (metadata.noAutoLabeling || metadata.no_auto_labeling) element.setAttribute('data-no-auto-labeling','true');
+        else if (element.getAttribute('data-no-auto-labeling')) element.removeAttribute('data-no-auto-labeling');
         if (metadata.role==='button') element.disabled=Boolean(metadata.disabled);
         Object.assign(element.style,{left:bounds.left*scaleX+'px',top:bounds.top*scaleY+'px',width:(bounds.right-bounds.left)*scaleX+'px',height:(bounds.bottom-bounds.top)*scaleY+'px'});
         wanted.push(record);

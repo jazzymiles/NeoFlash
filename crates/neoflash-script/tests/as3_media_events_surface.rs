@@ -162,6 +162,11 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
                         var tag:AVTagData = new AVTagData("EXT-X-KEY", 3.5);
 
                         // 5. Stage.stageVideos & StageVideo
+                        scanHardware();
+                        var svAvail:String = "";
+                        stage.addEventListener(StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY, function(e:StageVideoAvailabilityEvent):void {
+                            svAvail = e.availability;
+                        });
                         var svList:Vector.<StageVideo> = stage.stageVideos;
                         var sv:StageVideo = svList[0];
                         sv.viewPort = new Rectangle(0, 0, 800, 450);
@@ -174,6 +179,12 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
                             renderSeen = e.status + ":" + e.colorSpace;
                         });
                         sv.attachCamera(cam);
+
+                        var micSampleBytes:int = 0;
+                        mic.addEventListener(SampleDataEvent.SAMPLE_DATA, function(e:SampleDataEvent):void {
+                            micSampleBytes = e.data.length;
+                        });
+                        mic.setLoopBack(true);
 
                         // 6. ContextMenu, Multitouch, GameInput
                         var cm:ContextMenu = new ContextMenu();
@@ -252,7 +263,9 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
                             vidEv.status,
                             shEv.byteArray.length,
                             httpEv.redirected,
-                            ProgressEvent.SOCKET_DATA
+                            ProgressEvent.SOCKET_DATA,
+                            svAvail,
+                            micSampleBytes
                         ].join("|");
                     }
                 }
@@ -321,7 +334,7 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
         const summary = Controller.verifyAll(rootClip.stage);
         assert.equal(
             summary,
-            'NeoFlash Player|15|42|64|16|32|0|256|H264Avc|main|4.1|VP6|false|DolbyDigital|0|true|3.5|4|true|software:BT.709|false|1|touchPoint|true|AXIS_0|err-ok|true|2|9|accelerated|64|true|socketData'
+            'NeoFlash Player|15|42|64|16|32|0|256|H264Avc|main|4.1|VP6|false|DolbyDigital|0|true|3.5|4|true|software:BT.709|false|1|touchPoint|true|AXIS_0|err-ok|true|2|9|accelerated|64|true|socketData|available|2048'
         );
 
         host.disposeFamily();

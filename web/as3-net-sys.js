@@ -83,10 +83,24 @@
     const videoHost = options.video || null;
     const storageHost = options.storage || null;
     const externalHost = options.external || null;
+    const xmlHost = options.xml || null;
+    const displayHost = options.display || null;
+    const geometryHost = options.geometry || null;
+    const getBitmap = options.getBitmap || (() => null);
     const numberFormatHost = options.numberFormat || null;
     const getBuiltins = options.getBuiltins || (() => null);
     const getProgram = options.getProgram || (() => null);
     const getViewportSize = options.getViewportSize || (() => [1920, 1080]);
+    const DynamicPropertyOutput =
+      amf?.DynamicPropertyOutput ||
+      global.NeoFlashAMF?.DynamicPropertyOutput ||
+      class DynamicPropertyOutput {
+        constructor() { this._props = new Map(); }
+        writeDynamicProperty(name, value) {
+          if (name === null || name === undefined) throw new TypeError('Error #2007: Parameter name must be non-null.');
+          this._props.set(String(name), value);
+        }
+      };
     const schedule =
       options.schedule ||
       (cb => {
@@ -480,6 +494,15 @@
         const key = String(format);
         rec.data.set(key, data);
         rec.serializable.set(key, Boolean(serializable));
+        if (this === generalClipboardInstance && key === ClipboardFormats.TEXT_FORMAT) {
+          const textVal = String(data);
+          try {
+            global.navigator?.clipboard?.writeText?.(textVal);
+          } catch (_) {}
+          try {
+            global.localStorage?.setItem?.('neoflash.clipboard.v1', textVal);
+          } catch (_) {}
+        }
         return true;
       }
       setDataHandler(format, handler, serializable = true) {
@@ -1049,6 +1072,21 @@
       if (!rec) throw new TypeError('Expected a valid FileFilter instance.');
       return rec;
     }
+    function buildAcceptFilter(typeFilter) {
+      if (!Array.isArray(typeFilter) || typeFilter.length === 0) return '';
+      const exts = [];
+      for (const item of typeFilter) {
+        const rec = fileFilters.get(item);
+        if (!rec || !rec.extension) continue;
+        for (const part of String(rec.extension).split(';')) {
+          const trimmed = part.trim();
+          if (!trimmed || trimmed === '*.*' || trimmed === '*') continue;
+          const dotIdx = trimmed.lastIndexOf('.');
+          if (dotIdx >= 0) exts.push(trimmed.slice(dotIdx).toLowerCase());
+        }
+      }
+      return Array.from(new Set(exts)).join(',');
+    }
     tagType(FileFilter, 'FileFilter', v => fileFilters.has(v));
 
     const fileRefMap = new WeakMap();
@@ -1153,6 +1191,15 @@
       browse(typeFilter = null) {
         const r = frState(this);
         validateTypeFilterList(typeFilter);
+        r.lastAcceptFilter = buildAcceptFilter(typeFilter);
+        if (typeof global.document?.createElement === 'function' && !mockBrowseSelection) {
+          try {
+            const input = global.document.createElement('input');
+            input.type = 'file';
+            if (r.lastAcceptFilter) input.accept = r.lastAcceptFilter;
+            r.lastFileInput = input;
+          } catch (_) {}
+        }
         const opId = ++r.activeOp;
         const spec = Array.isArray(mockBrowseSelection) ? mockBrowseSelection[0] : mockBrowseSelection;
         if (spec && spec.cancel) {
@@ -1227,7 +1274,19 @@
         r.creationDate = now;
         r.modificationDate = now;
         r.rawBytes = bytes;
+        r.lastSavedBytes = bytes;
         r.data = binary?.fromBytes ? binary.fromBytes(bytes) : bytes;
+        if (typeof global.Blob === 'function' && typeof global.URL?.createObjectURL === 'function' && typeof global.document?.createElement === 'function') {
+          try {
+            const blob = new global.Blob([bytes], { type: 'application/octet-stream' });
+            const blobUrl = global.URL.createObjectURL(blob);
+            const anchor = global.document.createElement('a');
+            anchor.href = blobUrl;
+            anchor.download = name;
+            anchor.click?.();
+            global.URL.revokeObjectURL?.(blobUrl);
+          } catch (_) {}
+        }
         const opId = ++r.activeOp;
         dispatchLater(this, () => {
           if (r.activeOp !== opId) return null;
@@ -1290,7 +1349,27 @@
         }
         const _test = Boolean(testUpload);
         const opId = ++r.activeOp;
-        const size = r.size || 0;
+        const rawBytes = r.rawBytes || new Uint8Array(0);
+        const size = r.size || rawBytes.byteLength || 0;
+        const boundary = '----NeoFlashFormBoundary7MA4YWxkTrZu0gW';
+        const enc = new TextEncoder();
+        const headerPart = enc.encode(
+          `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="Filename"\r\n\r\n${r.name || 'file.dat'}\r\n` +
+            `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="${field}"; filename="${r.name || 'file.dat'}"\r\n` +
+            `Content-Type: application/octet-stream\r\n\r\n`
+        );
+        const footerPart = enc.encode(
+          `\r\n--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="Upload"\r\n\r\nSubmit Query\r\n` +
+            `--${boundary}--\r\n`
+        );
+        const multipartBody = new Uint8Array(headerPart.byteLength + rawBytes.byteLength + footerPart.byteLength);
+        multipartBody.set(headerPart, 0);
+        multipartBody.set(rawBytes, headerPart.byteLength);
+        multipartBody.set(footerPart, headerPart.byteLength + rawBytes.byteLength);
+        r.lastMultipartBody = multipartBody;
         if (/^invalid:|^disallowed:/i.test(request.url)) {
           dispatchLater(this, () => (r.activeOp === opId ? makeSecurityErrorEvent('securityError', 'Upload blocked by security policy.') : null));
           return;
@@ -1305,7 +1384,10 @@
           dispatchNow(this, makeProgressEvent('progress', size, size));
           dispatchNow(this, makeHTTPStatusEvent(200));
           dispatchNow(this, makeBasicEvent('complete'));
-          return makeDataEvent('uploadCompleteData', JSON.stringify({ field, file: r.name, size, testUpload: _test }));
+          return makeDataEvent(
+            'uploadCompleteData',
+            JSON.stringify({ field, file: r.name, size, multipartBytes: multipartBody.byteLength, testUpload: _test })
+          );
         });
       }
       cancel() {
@@ -1339,6 +1421,16 @@
       browse(typeFilter = null) {
         const r = frlState(this);
         validateTypeFilterList(typeFilter);
+        r.lastAcceptFilter = buildAcceptFilter(typeFilter);
+        if (typeof global.document?.createElement === 'function' && !mockBrowseSelection) {
+          try {
+            const input = global.document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            if (r.lastAcceptFilter) input.accept = r.lastAcceptFilter;
+            r.lastFileInput = input;
+          } catch (_) {}
+        }
         const opId = ++r.activeOp;
         if (mockBrowseSelection && mockBrowseSelection.cancel) {
           dispatchLater(this, () => (r.activeOp === opId ? makeBasicEvent('cancel') : null));
@@ -1745,6 +1837,7 @@
     // LocalConnection
     const localConnections = new WeakMap();
     const lcById = new Map();
+    const activeBroadcastChannels = new Set();
 
     function resolvePageDomain() {
       try {
@@ -1755,6 +1848,24 @@
         }
       } catch (_) {}
       return 'localhost';
+    }
+
+    function invokeLocalConnectionMethod(receiver, recvRec, methodName, invokeArgs) {
+      if (!recvRec || recvRec.generation !== generation) return;
+      const clientObj = recvRec.client || receiver;
+      const fn = clientObj ? clientObj[String(methodName)] : null;
+      if (typeof fn === 'function') {
+        try {
+          Reflect.apply(fn, clientObj, invokeArgs);
+        } catch (err) {
+          dispatchNow(receiver, makeAsyncErrorEvent('asyncError', String(err?.message || err), err));
+        }
+      } else {
+        dispatchNow(
+          receiver,
+          makeAsyncErrorEvent('asyncError', `Method ${String(methodName)} not found on LocalConnection.client`)
+        );
+      }
     }
 
     class LocalConnection extends events.EventDispatcher {
@@ -1769,6 +1880,8 @@
           domain: created.domain,
           client: this,
           isPerUser: true,
+          broadcastChannel: null,
+          qualifiedName: null,
         };
         localConnections.set(this, rec);
         lcById.set(created.id, this);
@@ -1809,10 +1922,39 @@
         if (connectionName === null || connectionName === undefined) {
           throw new TypeError('TypeError: Error #2007: Parameter connectionName must be non-null.');
         }
-        execKernel({ op: 'lc_op', id: rec.id, action: 'connect', name: String(connectionName) });
+        const res = execKernel({ op: 'lc_op', id: rec.id, action: 'connect', name: String(connectionName) });
+        rec.qualifiedName = res.qualifiedName;
+        if (typeof global.BroadcastChannel === 'function' && res.qualifiedName) {
+          try {
+            const bc = new global.BroadcastChannel(`neoflash.lc.v1:${res.qualifiedName}`);
+            bc.onmessage = ev => {
+              if (rec.generation !== generation) return;
+              const data = ev?.data;
+              if (!data || typeof data !== 'object' || typeof data.method !== 'string') return;
+              let decodedArgs = Array.isArray(data.args) ? data.args : [];
+              if (data.amfBytes instanceof Uint8Array && amf?.decode) {
+                try {
+                  decodedArgs = amf.decode(data.amfBytes, 3, { complete: true }).value;
+                } catch (_) {}
+              }
+              invokeLocalConnectionMethod(this, rec, data.method, decodedArgs);
+            };
+            bc.unref?.();
+            rec.broadcastChannel = bc;
+            activeBroadcastChannels.add(bc);
+          } catch (_) {}
+        }
       }
       close() {
         const rec = lcState(this);
+        if (rec.broadcastChannel) {
+          try {
+            rec.broadcastChannel.close();
+          } catch (_) {}
+          activeBroadcastChannels.delete(rec.broadcastChannel);
+          rec.broadcastChannel = null;
+        }
+        rec.qualifiedName = null;
         execKernel({ op: 'lc_op', id: rec.id, action: 'close' });
       }
       send(connectionName, methodName, ...args) {
@@ -1820,13 +1962,20 @@
         if (connectionName === null || connectionName === undefined || methodName === null || methodName === undefined) {
           throw new TypeError('TypeError: Error #2007: LocalConnection.send connectionName and methodName must be non-null.');
         }
+        let encodedArgs = null;
+        let clonedArgs = args;
         if (amf?.encode) {
-          const encoded = amf.encode(args, 3);
-          if (encoded.byteLength > 40960) {
+          encodedArgs = amf.encode(args, 3);
+          if (encodedArgs.byteLength > 40960) {
             const err = new Error('ArgumentError: Error #2084: The AMF encoding of the arguments cannot exceed 40K.');
             err.name = 'ArgumentError';
             err.errorID = 2084;
             throw err;
+          }
+          if (amf?.decode) {
+            try {
+              clonedArgs = amf.decode(encodedArgs, 3, { complete: true }).value;
+            } catch (_) {}
           }
         }
         const res = execKernel({
@@ -1841,28 +1990,22 @@
           return;
         }
         if (!res.found) {
+          if (typeof global.BroadcastChannel === 'function' && res.qualifiedName && options.allowCrossContextLocalConnection) {
+            try {
+              const bc = new global.BroadcastChannel(`neoflash.lc.v1:${res.qualifiedName}`);
+              bc.postMessage({ method: String(methodName), amfBytes: encodedArgs, args: clonedArgs });
+              bc.close();
+              dispatchLater(this, () => makeStatusEvent('status', null, 'status'));
+              return;
+            } catch (_) {}
+          }
           dispatchLater(this, () => makeStatusEvent('status', null, 'error'));
           return;
         }
         const receiver = lcById.get(res.targetId);
         const recvRec = receiver ? localConnections.get(receiver) : null;
         dispatchLater(this, () => {
-          if (recvRec && recvRec.generation === generation) {
-            const clientObj = recvRec.client || receiver;
-            const fn = clientObj ? clientObj[String(methodName)] : null;
-            if (typeof fn === 'function') {
-              try {
-                Reflect.apply(fn, clientObj, args);
-              } catch (err) {
-                dispatchNow(receiver, makeAsyncErrorEvent('asyncError', String(err?.message || err), err));
-              }
-            } else {
-              dispatchNow(
-                receiver,
-                makeAsyncErrorEvent('asyncError', `Method ${String(methodName)} not found on LocalConnection.client`)
-              );
-            }
-          }
+          invokeLocalConnectionMethod(receiver, recvRec, methodName, clonedArgs);
           return makeStatusEvent('status', null, 'status');
         });
       }
@@ -2394,6 +2537,8 @@
       }
 
       const origPlay = NetStream.prototype.play;
+      const origPause = NetStream.prototype.pause;
+      const origResume = NetStream.prototype.resume;
       const origClose = NetStream.prototype.close;
       const origSeek = NetStream.prototype.seek;
       const origTogglePause = NetStream.prototype.togglePause;
@@ -2435,7 +2580,9 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
-            return Math.min(r.time || 0, r.backBufferTimeVal);
+            const flv = execKernel({ op: 'flv_info', streamId: r.flvId });
+            const tracked = Number(flv.backBufferLength || 0);
+            return Math.min(Math.max(r.time || 0, tracked), r.backBufferTimeVal);
           },
         },
         bufferLength: {
@@ -2648,11 +2795,18 @@
             const r = nsRec(this);
             if (args.length === 1 && args[0] === null) {
               r.appendMode = true;
+              r.wanted = true;
+              r.playing = true;
+              r.started = true;
+              r.pauseRequested = false;
               r.encodedBytes = 0;
+              r.time = 0;
               execKernel({ op: 'flv_action', streamId: r.flvId, action: 'resetBegin' });
+              vh.later(r, () => vh.emit(r, 'NetStream.Play.Start'));
               return;
             }
             if (args.length === 1 && args[0] === false) {
+              r.appendMode = false;
               vh.stopMedia(r, false);
               return;
             }
@@ -2662,6 +2816,36 @@
               return Reflect.apply(origPlay, this, [url]);
             }
             return Reflect.apply(origPlay, this, args);
+          },
+        },
+        pause: {
+          configurable: true,
+          writable: true,
+          value: function pause() {
+            const r = nsRec(this);
+            if (r.media) return Reflect.apply(origPause, this, []);
+            const wasPlaying = r.wanted || r.playing;
+            r.wanted = false;
+            r.playing = false;
+            r.pauseRequested = true;
+            if (wasPlaying) {
+              vh.later(r, () => vh.emit(r, 'NetStream.Pause.Notify'));
+            }
+          },
+        },
+        resume: {
+          configurable: true,
+          writable: true,
+          value: function resume() {
+            const r = nsRec(this);
+            if (r.media) return Reflect.apply(origResume, this, []);
+            const wasPaused = !r.playing || r.pauseRequested;
+            r.wanted = true;
+            r.playing = true;
+            r.pauseRequested = false;
+            if (wasPaused) {
+              vh.later(r, () => vh.emit(r, 'NetStream.Unpause.Notify'));
+            }
           },
         },
         play2: {
@@ -2706,11 +2890,28 @@
             const raw = binary.toBytes ? binary.toBytes(bytes) : new Uint8Array(0);
             const res = JSON.parse(kernel.flv_append(r.flvId, raw));
             r.encodedBytes = Number(res.info?.byteCount ?? res.byteCount ?? 0);
-            r.time = Number(res.timeSeconds || r.time || 0);
+            if (typeof res.timeSeconds === 'number' && res.timeSeconds > 0) {
+              r.time = res.timeSeconds;
+            }
+            if (res.videoWidth > 0 && res.videoHeight > 0) {
+              r.width = Number(res.videoWidth) | 0;
+              r.height = Number(res.videoHeight) | 0;
+              r.metadata = true;
+            }
             if (Array.isArray(res.callbacks)) {
               for (const cb of res.callbacks) {
+                if (cb.handler === 'onMetaData' && cb.info && typeof cb.info === 'object') {
+                  if (cb.info.width > 0) r.width = Number(cb.info.width) | 0;
+                  if (cb.info.height > 0) r.height = Number(cb.info.height) | 0;
+                  if (cb.info.duration > 0) r.duration = Number(cb.info.duration);
+                  r.metadata = true;
+                }
                 invokeClientCallback(r, cb.handler, cb.info);
               }
+            }
+            if (res.decodedFrames > 0 || (r.width > 0 && r.height > 0)) {
+              r.decodedFrames = Number(res.decodedFrames || r.decodedFrames || 1);
+              vh.setAppendFrame?.(r, r.width || 320, r.height || 240, r.decodedFrames);
             }
           },
         },
@@ -2720,9 +2921,14 @@
           value: function appendBytesAction(netStreamAppendBytesAction) {
             const r = nsRec(this);
             const act = String(netStreamAppendBytesAction ?? '');
-            execKernel({ op: 'flv_action', streamId: r.flvId, action: act });
+            const res = execKernel({ op: 'flv_action', streamId: r.flvId, action: act });
             if (act === 'endSequence') {
-              vh.later(r, () => vh.emit(r, 'NetStream.Buffer.Flush'));
+              vh.later(r, () => {
+                vh.emit(r, 'NetStream.Buffer.Flush');
+                if (res.playStatus) {
+                  invokeClientCallback(r, 'onPlayStatus', res.playStatus);
+                }
+              });
             }
           },
         },
@@ -2857,8 +3063,10 @@
           configurable: true,
           writable: true,
           value: function togglePause() {
-            nsRec(this);
-            return Reflect.apply(origTogglePause, this, []);
+            const r = nsRec(this);
+            if (r.media) return Reflect.apply(origTogglePause, this, []);
+            if (r.wanted || r.playing) this.pause();
+            else this.resume();
           },
         },
         resetDRMVouchers: {
@@ -4210,16 +4418,77 @@
         if (options !== null && options !== undefined && !printJobOptionsSet.has(options)) {
           throw new TypeError('TypeError: Error #2007: PrintJob.addPage options must be a PrintJobOptions.');
         }
+        const fNum = Number(frameNum) | 0;
+        if (fNum > 0 && typeof sprite.gotoAndStop === 'function') {
+          try {
+            sprite.gotoAndStop(fNum);
+          } catch (_) {}
+        }
+        let cropX = 0;
+        let cropY = 0;
+        let cropW = r.pageWidth || 540;
+        let cropH = r.pageHeight || 720;
+        if (printArea !== null && printArea !== undefined) {
+          cropX = Number(printArea.x) || 0;
+          cropY = Number(printArea.y) || 0;
+          cropW = Number(printArea.width);
+          cropH = Number(printArea.height);
+          if (!Number.isFinite(cropW) || !Number.isFinite(cropH) || cropW <= 0 || cropH <= 0) {
+            const err = new Error('ArgumentError: Error #2004: PrintJob.addPage printArea must have positive width and height.');
+            err.name = 'ArgumentError';
+            err.errorID = 2004;
+            throw err;
+          }
+        } else if (typeof sprite.getBounds === 'function') {
+          try {
+            const b = sprite.getBounds(sprite);
+            if (b && Number(b.width) > 0 && Number(b.height) > 0) {
+              cropX = Number(b.x) || 0;
+              cropY = Number(b.y) || 0;
+              cropW = Number(b.width);
+              cropH = Number(b.height);
+            }
+          } catch (_) {}
+        }
+        const rasterW = Math.max(1, Math.min(256, Math.ceil(cropW)));
+        const rasterH = Math.max(1, Math.min(256, Math.ceil(cropH)));
+        let rgbaBytes = new Uint8Array(rasterW * rasterH * 4);
+        const bmpHost = getBitmap?.();
+        if (bmpHost?.BitmapData) {
+          try {
+            const bmd = new bmpHost.BitmapData(rasterW, rasterH, true, 0xffffffff);
+            if (typeof bmd.draw === 'function') {
+              let mat = null;
+              if ((cropX !== 0 || cropY !== 0) && geometryHost?.Matrix) {
+                mat = new geometryHost.Matrix(1, 0, 0, 1, -cropX, -cropY);
+              }
+              bmd.draw(sprite, mat);
+            }
+            if (typeof bmd.getPixels === 'function' && geometryHost?.Rectangle) {
+              const ba = bmd.getPixels(new geometryHost.Rectangle(0, 0, rasterW, rasterH));
+              if (binary?.toBytes && binary?.ByteArray?.__nfIs?.(ba)) {
+                rgbaBytes = binary.toBytes(ba);
+              }
+            }
+            bmd.dispose?.();
+          } catch (_) {}
+        }
         r.pages.push({
           sprite,
           printArea: printArea ?? null,
+          cropRect: { x: cropX, y: cropY, width: cropW, height: cropH },
           printAsBitmap: Boolean(options?.printAsBitmap),
-          frameNum: Number(frameNum) | 0,
+          frameNum: fNum,
+          width: rasterW,
+          height: rasterH,
+          rgbaBytes,
         });
       }
       send() {
         const r = pjState(this);
         if (!r.active) return;
+        r.sentPages = r.pages.slice();
+        options.onPrintJobSend?.(r.sentPages);
         r.active = false;
       }
     }
@@ -4528,6 +4797,20 @@
 
     const appDomains = new WeakMap();
     let currentAppDomain = null;
+    const fastMemScratch = new DataView(new ArrayBuffer(8));
+    function resolveDomainMemory(ctx, width, addr) {
+      ensureActive();
+      const domain = appDomains.has(ctx) ? ctx : ApplicationDomain.currentDomain;
+      const mem = adState(domain).domainMemory;
+      const numAddr = Number(addr);
+      const offset = numAddr | 0;
+      if (!mem || !Number.isFinite(numAddr) || numAddr < 0 || offset < 0 || offset + width > mem.length) {
+        const err = new RangeError('RangeError: Error #1506: The specified range is invalid.');
+        err.errorID = 1506;
+        throw err;
+      }
+      return { mem, offset };
+    }
     class ApplicationDomain {
       constructor(parentDomain = null) {
         ensureActive();
@@ -4579,13 +4862,13 @@
         if (name === null || name === undefined) {
           throw new TypeError('TypeError: Error #2007: Parameter name must be non-null.');
         }
+        if (rec.parentDomain && rec.parentDomain.hasDefinition(name)) return true;
         const key = String(name).replace(/::/g, '.');
-        if (rec.definitions.has(key)) return true;
+        if (rec.definitions.has(key) || rec.definitions.has(String(name))) return true;
         const b = getBuiltins();
         if (b && key in b) return true;
         const prog = getProgram();
         if (prog?.classes && (key in prog.classes || String(name) in prog.classes)) return true;
-        if (rec.parentDomain) return rec.parentDomain.hasDefinition(name);
         return false;
       }
       getDefinition(name) {
@@ -4593,8 +4876,12 @@
         if (name === null || name === undefined) {
           throw new TypeError('TypeError: Error #2007: Parameter name must be non-null.');
         }
+        if (rec.parentDomain && rec.parentDomain.hasDefinition(name)) {
+          return rec.parentDomain.getDefinition(name);
+        }
         const key = String(name).replace(/::/g, '.');
         if (rec.definitions.has(key)) return rec.definitions.get(key);
+        if (rec.definitions.has(String(name))) return rec.definitions.get(String(name));
         const b = getBuiltins();
         if (b && key in b) return b[key];
         const prog = getProgram();
@@ -4602,15 +4889,23 @@
           if (key in prog.classes) return prog.classes[key];
           if (String(name) in prog.classes) return prog.classes[String(name)];
         }
-        if (rec.parentDomain) return rec.parentDomain.getDefinition(name);
         throw new ReferenceError(`ReferenceError: Error #1065: Variable ${name} is not defined.`);
       }
       getQualifiedDefinitionNames() {
         const rec = adState(this);
         const names = new Set();
+        if (rec.parentDomain) {
+          for (const k of rec.parentDomain.getQualifiedDefinitionNames()) {
+            names.add(String(k));
+          }
+        }
         for (const k of rec.definitions.keys()) {
-          const dot = k.lastIndexOf('.');
-          names.add(dot > 0 ? `${k.slice(0, dot)}::${k.slice(dot + 1)}` : k);
+          if (k.includes('::')) {
+            names.add(k);
+          } else {
+            const dot = k.lastIndexOf('.');
+            names.add(dot > 0 ? `${k.slice(0, dot)}::${k.slice(dot + 1)}` : k);
+          }
         }
         const b = getBuiltins();
         if (b) {
@@ -4629,6 +4924,80 @@
         }
         return makeVector('String', Array.from(names).sort());
       }
+      li8(addr) {
+        const { mem, offset } = resolveDomainMemory(this, 1, addr);
+        return mem[offset] & 0xff;
+      }
+      li16(addr) {
+        const { mem, offset } = resolveDomainMemory(this, 2, addr);
+        return (mem[offset] & 0xff) | ((mem[offset + 1] & 0xff) << 8);
+      }
+      li32(addr) {
+        const { mem, offset } = resolveDomainMemory(this, 4, addr);
+        return (
+          (mem[offset] & 0xff) |
+          ((mem[offset + 1] & 0xff) << 8) |
+          ((mem[offset + 2] & 0xff) << 16) |
+          ((mem[offset + 3] & 0xff) << 24)
+        );
+      }
+      lf32(addr) {
+        const { mem, offset } = resolveDomainMemory(this, 4, addr);
+        for (let i = 0; i < 4; i++) fastMemScratch.setUint8(i, mem[offset + i] & 0xff);
+        return fastMemScratch.getFloat32(0, true);
+      }
+      lf64(addr) {
+        const { mem, offset } = resolveDomainMemory(this, 8, addr);
+        for (let i = 0; i < 8; i++) fastMemScratch.setUint8(i, mem[offset + i] & 0xff);
+        return fastMemScratch.getFloat64(0, true);
+      }
+      si8(val, addr) {
+        const { mem, offset } = resolveDomainMemory(this, 1, addr);
+        mem[offset] = Number(val) & 0xff;
+      }
+      si16(val, addr) {
+        const { mem, offset } = resolveDomainMemory(this, 2, addr);
+        const v = Number(val) | 0;
+        mem[offset] = v & 0xff;
+        mem[offset + 1] = (v >> 8) & 0xff;
+      }
+      si32(val, addr) {
+        const { mem, offset } = resolveDomainMemory(this, 4, addr);
+        const v = Number(val) | 0;
+        mem[offset] = v & 0xff;
+        mem[offset + 1] = (v >> 8) & 0xff;
+        mem[offset + 2] = (v >> 16) & 0xff;
+        mem[offset + 3] = (v >> 24) & 0xff;
+      }
+      sf32(val, addr) {
+        const { mem, offset } = resolveDomainMemory(this, 4, addr);
+        fastMemScratch.setFloat32(0, Number(val), true);
+        for (let i = 0; i < 4; i++) mem[offset + i] = fastMemScratch.getUint8(i);
+      }
+      sf64(val, addr) {
+        const { mem, offset } = resolveDomainMemory(this, 8, addr);
+        fastMemScratch.setFloat64(0, Number(val), true);
+        for (let i = 0; i < 8; i++) mem[offset + i] = fastMemScratch.getUint8(i);
+      }
+      sxi1(val) {
+        ensureActive();
+        return (Number(val) & 1) !== 0 ? -1 : 0;
+      }
+      sxi8(val) {
+        ensureActive();
+        return ((Number(val) & 0xff) << 24) >> 24;
+      }
+      sxi16(val) {
+        ensureActive();
+        return ((Number(val) & 0xffff) << 16) >> 16;
+      }
+    }
+    for (const opName of ['li8', 'li16', 'li32', 'lf32', 'lf64', 'si8', 'si16', 'si32', 'sf32', 'sf64', 'sxi1', 'sxi8', 'sxi16']) {
+      Object.defineProperty(ApplicationDomain, opName, {
+        configurable: true,
+        writable: true,
+        value: (...args) => ApplicationDomain.currentDomain[opName](...args),
+      });
     }
     function adState(instance) {
       ensureActive();
@@ -4645,12 +5014,15 @@
     });
 
     function capabilitiesSnap() {
-      const [w, h] = getViewportSize();
+      const [vw, vh] = getViewportSize();
+      const sw = Number(global.screen?.width) || vw || 1920;
+      const sh = Number(global.screen?.height) || vh || 1080;
+      const rawLang = typeof global.navigator?.language === 'string' && global.navigator.language ? global.navigator.language.split('-')[0].toLowerCase() : 'en';
       return execKernel({
         op: 'capabilities_snapshot',
-        width: w || 1920,
-        height: h || 1080,
-        language: 'en',
+        width: sw,
+        height: sh,
+        language: rawLang || 'en',
         os: 'Mac OS 10.15.7',
         dpi: 72,
         isDebugger: false,
@@ -4940,7 +5312,11 @@
       }
       static disposeXML(node) {
         ensureActive();
-        const _n = node;
+        if (node === null || node === undefined) return;
+        const host = xmlHost || getBuiltins()?.__nfXML;
+        if (typeof host?.disposeXML === 'function') {
+          host.disposeXML(node);
+        }
       }
       static gc() {
         ensureActive();
@@ -5024,11 +5400,36 @@
     });
 
     const messageChannels = new WeakMap();
+    const activeNativeChannels = new Set();
+    function cloneWorkerSharedValue(arg) {
+      if (arg === null || arg === undefined || typeof arg !== 'object') return arg;
+      if (binary?.ByteArray?.__nfIs?.(arg)) {
+        return arg.shareable ? arg : binary.fromBytes(binary.toBytes(arg));
+      }
+      if (mutexMap.has(arg) || conditionMap.has(arg) || messageChannels.has(arg)) {
+        return arg;
+      }
+      if (amf?.encode && amf?.decode) {
+        try {
+          return amf.decode(amf.encode(arg, 3), 3, { complete: true }).value;
+        } catch (_) {}
+      }
+      return arg;
+    }
     class MessageChannel extends events.EventDispatcher {
       constructor(id, senderWorker, receiverWorker) {
         super();
         ensureActive();
         registerDispatcher(this);
+        let nativeChannel = null;
+        if (typeof global.MessageChannel === 'function') {
+          try {
+            nativeChannel = new global.MessageChannel();
+            nativeChannel.port1?.unref?.();
+            nativeChannel.port2?.unref?.();
+            activeNativeChannels.add(nativeChannel);
+          } catch (_) {}
+        }
         messageChannels.set(this, {
           generation,
           id,
@@ -5037,6 +5438,7 @@
           state: 'open',
           queue: [],
           queueLimit: -1,
+          nativeChannel,
         });
       }
       get state() {
@@ -5053,16 +5455,7 @@
           id: rec.id,
           queueLimit: Number(queueLimit),
         });
-        let cloned = arg;
-        if (arg !== null && arg !== undefined && typeof arg === 'object') {
-          if (binary?.ByteArray?.__nfIs?.(arg)) {
-            cloned = arg.shareable ? arg : binary.fromBytes(binary.toBytes(arg));
-          } else if (!mutexMap.has(arg) && !conditionMap.has(arg) && !messageChannels.has(arg) && amf?.encode && amf?.decode) {
-            try {
-              cloned = amf.decode(amf.encode(arg, 3), 3, { complete: true }).value;
-            } catch (_) {}
-          }
-        }
+        const cloned = cloneWorkerSharedValue(arg);
         rec.queue.push(cloned);
         rec.state = res.state;
         dispatchLater(this, () => makeBasicEvent('channelMessage'));
@@ -5085,6 +5478,14 @@
         const prev = rec.state;
         const res = execKernel({ op: 'worker_op', action: 'channel_close', id: rec.id });
         rec.state = res.state;
+        if (rec.nativeChannel) {
+          try {
+            rec.nativeChannel.port1?.close?.();
+            rec.nativeChannel.port2?.close?.();
+          } catch (_) {}
+          activeNativeChannels.delete(rec.nativeChannel);
+          rec.nativeChannel = null;
+        }
         if (prev !== rec.state) {
           dispatchLater(this, () => makeBasicEvent('channelState'));
         }
@@ -5143,14 +5544,15 @@
         if (key === null || key === undefined) {
           throw new TypeError('TypeError: Error #2007: Worker.setSharedProperty key must be non-null.');
         }
-        rec.sharedProps.set(String(key), value);
+        rec.sharedProps.set(String(key), cloneWorkerSharedValue(value));
       }
       getSharedProperty(key) {
         const rec = wkState(this);
         if (key === null || key === undefined) {
           throw new TypeError('TypeError: Error #2007: Worker.getSharedProperty key must be non-null.');
         }
-        return rec.sharedProps.get(String(key));
+        const stored = rec.sharedProps.get(String(key));
+        return cloneWorkerSharedValue(stored);
       }
       createMessageChannel(receiver) {
         const rec = wkState(this);
@@ -5240,9 +5642,35 @@
       mockBrowseSelection = spec;
     }
 
+    function inspectState(instance) {
+      return (
+        fileRefMap.get(instance) ||
+        fileRefListMap.get(instance) ||
+        printJobs.get(instance) ||
+        appDomains.get(instance) ||
+        localConnections.get(instance) ||
+        messageChannels.get(instance) ||
+        workersMap.get(instance) ||
+        null
+      );
+    }
+
     function reset() {
       if (disposed) return;
       generation++;
+      for (const bc of activeBroadcastChannels) {
+        try {
+          bc.close();
+        } catch (_) {}
+      }
+      activeBroadcastChannels.clear();
+      for (const ch of activeNativeChannels) {
+        try {
+          ch.port1?.close?.();
+          ch.port2?.close?.();
+        } catch (_) {}
+      }
+      activeNativeChannels.clear();
       kernel.reset();
       hub.clear();
       netGroupsById.clear();
@@ -5300,6 +5728,7 @@
       // flash.media
       scanHardware,
       // flash.net
+      DynamicPropertyOutput,
       Responder,
       FileFilter,
       FileReference,
@@ -5398,6 +5827,7 @@
         'flash.globalization.Collator': Collator,
         'flash.globalization.StringTools': StringTools,
         'flash.media.scanHardware': scanHardware,
+        'flash.net.DynamicPropertyOutput': DynamicPropertyOutput,
         'flash.net.Responder': Responder,
         'flash.net.FileFilter': FileFilter,
         'flash.net.FileReference': FileReference,
@@ -5478,6 +5908,7 @@
       isDataInput,
       isDataOutput,
       setMockBrowseSelection,
+      inspectState,
       reset,
       dispose,
     });

@@ -171,6 +171,27 @@
       const meta=JSON.parse(new TextDecoder().decode(packed.subarray(4,4+metaLen)));
       return {meta,pcm:packed.slice(4+metaLen)};
     }
+    function createPcmAudioBuffer(pcm,sampleCount,sampleRate=44100){
+      const duration=sampleCount/sampleRate;
+      const view=new DataView(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+      const ch0=new Float32Array(sampleCount),ch1=new Float32Array(sampleCount);
+      for(let i=0;i<sampleCount;i++){
+        ch0[i]=view.getFloat32(i*8,true);
+        ch1[i]=view.getFloat32(i*8+4,true);
+      }
+      try{
+        const ctx=ensureContext();
+        if(typeof ctx?.createBuffer==='function'&&sampleCount>0){
+          const buf=ctx.createBuffer(2,sampleCount,sampleRate);
+          if(typeof buf.getChannelData==='function'){
+            buf.getChannelData(0).set(ch0);
+            if(buf.numberOfChannels>1)buf.getChannelData(1).set(ch1);
+          }
+          return buf;
+        }
+      }catch(_){}
+      return {numberOfChannels:2,sampleRate,length:sampleCount,duration,getChannelData(ch){return ch===1?ch1:ch0;}};
+    }
     class SoundChannel extends events.EventDispatcher {
       constructor(){super();fail('direct SoundChannel construction; use Sound.play()');}
       get position(){return position(state(this,channels));}
@@ -233,7 +254,14 @@
         if(!current(token))return;
         const actual=buffer.length*buffer.numberOfChannels*4;
         if(!Number.isSafeInteger(actual)||actual<1||actual>token.reserved||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Decoded audio exceeds its preflight PCM reservation.');
-        decodedBytes-=token.reserved-actual;token.reserved=0;token.sound.buffer=buffer;token.sound.bytes=actual;token.sound.load=null;token.committed=true;changed();
+        decodedBytes-=token.reserved-actual;token.reserved=0;token.sound.buffer=buffer;token.sound.bytes=actual;token.sound.load=null;token.committed=true;
+        if(!token.sound.pcmBytes&&typeof buffer.getChannelData==='function'){
+          const len=buffer.length>>>0,c0=buffer.getChannelData(0),c1=buffer.numberOfChannels>1?buffer.getChannelData(1):c0;
+          const pcm=new Uint8Array(len*8),dv=new DataView(pcm.buffer);
+          for(let i=0;i<len;i++){dv.setFloat32(i*8,c0[i]||0,true);dv.setFloat32(i*8+4,c1[i]||0,true);}
+          token.sound.pcmBytes=pcm;
+        }
+        changed();
         if(metadata){
           for(const warning of metadata.warnings)console.warn('NeoFlash AS2 Sound:',warning);
           const owner=token.sound.legacyOwner;
@@ -258,6 +286,9 @@
       if(!net.URLRequest.__nfIs(request))throw new TypeError('Sound.load requires URLRequest.');
       if(request.method!=='GET'||request.data!==null)fail('Sound loading methods other than GET without request data');
       if(record.buffer)throw new Error('This Sound already contains decoded audio. Create a new Sound for another resource.');
+      const lc=loaderContext?loaderContexts.get(loaderContext):null;
+      record.bufferTime=lc?lc.bufferTime:mixerBufferTime;
+      record.checkPolicyFile=lc?Boolean(lc.checkPolicyFile):false;
       cancelLoad(record);used=true;lastError='';
       const loader=new net.URLLoader();loader.dataFormat='binary';record.url=request.url;
       const token={sound:record,loader,generation,reserved:0,loadEpoch:record.loadEpoch=(record.loadEpoch||0)+1};record.load=token;
@@ -312,10 +343,10 @@
         bytes.position=pos+len;
         if(typeof wasm?.as3_sound_decode_compressed!=='function')throw new Error('Rust compressed audio decoder is unavailable.');
         let unpacked;try{unpacked=unpackCompressed(wasm.as3_sound_decode_compressed(slice));}catch(err){const e=new Error(message(err));e.name='IOError';throw e;}
-        const pcm=unpacked.pcm,sampleCount=pcm.byteLength>>>3,duration=sampleCount/44100;
+        const pcm=unpacked.pcm,sampleCount=pcm.byteLength>>>3;
         cancelLoad(record);
         record.pcmBytes=pcm;record.extractPosition=0;record.bytes=pcm.byteLength;record.loadedBytes=len;record.total=len;
-        record.buffer={numberOfChannels:2,sampleRate:44100,length:sampleCount,duration};
+        record.buffer=createPcmAudioBuffer(pcm,sampleCount,44100);
         if(unpacked.meta?.id3){
           record.id3Info=createId3Info(unpacked.meta.id3);
           emit(this,new events.Event('id3'));
@@ -335,10 +366,10 @@
         bytes.position=pos+byteLen;
         if(typeof wasm?.as3_sound_decode_pcm!=='function')throw new Error('Rust PCM audio decoder is unavailable.');
         let pcm;try{pcm=wasm.as3_sound_decode_pcm(slice,count,fmt,stereo,Number(sampleRate),bytes.endian==='littleEndian');}catch(err){const e=new RangeError(message(err));e.name='ArgumentError';throw e;}
-        const sampleCount=pcm.byteLength>>>3,duration=sampleCount/44100;
+        const sampleCount=pcm.byteLength>>>3;
         cancelLoad(record);
         record.pcmBytes=pcm;record.extractPosition=0;record.bytes=pcm.byteLength;record.loadedBytes=byteLen;record.total=byteLen;
-        record.buffer={numberOfChannels:2,sampleRate:44100,length:sampleCount,duration};
+        record.buffer=createPcmAudioBuffer(pcm,sampleCount,44100);
       }
     }
     function legacyCallback(record,name,args){
@@ -420,10 +451,35 @@
       static set soundTransform(value){open();mixerTransform=transformCopy(value);}
       static computeSpectrum(outputArray,FFTMode=false,stretchFactor=0){
         open();binary.toBytes(outputArray);
-        let pcm=null,offsetFrames=0;
-        for(const ch of playing){if(ch.sound?.pcmBytes){pcm=ch.sound.pcmBytes;offsetFrames=Math.floor((position(ch)/1000)*44100);break;}}
-        if(!pcm){for(const rec of soundRecords){if(rec.pcmBytes){pcm=rec.pcmBytes;break;}}}
-        const pcmSlice=pcm?pcm.subarray(Math.min(pcm.byteLength,Math.max(0,offsetFrames)*8)):new Uint8Array(0);
+        const windowFrames=Math.max(512,Math.min(4096,256*(Math.max(1,Math.trunc(Number(stretchFactor))||1))));
+        const mixed=new Uint8Array(windowFrames*8),mixedView=new DataView(mixed.buffer);
+        let hasMixed=false;
+        const mll=mixerTransform.leftToLeft,mrl=mixerTransform.rightToLeft,mlr=mixerTransform.leftToRight,mrr=mixerTransform.rightToRight;
+        for(const ch of playing){
+          const pcm=ch.sound?.pcmBytes;
+          if(!pcm||ch.stopped)continue;
+          const totalFrames=pcm.byteLength>>>3;
+          if(totalFrames<=0)continue;
+          const offsetFrames=Math.max(0,Math.floor((position(ch)/1000)*44100));
+          const srcView=new DataView(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+          const t=ch.transform||{leftToLeft:1,rightToLeft:0,leftToRight:0,rightToRight:1};
+          for(let i=0;i<windowFrames;i++){
+            const idx=offsetFrames+i;
+            if(idx>=totalFrames)break;
+            const rawL=srcView.getFloat32(idx*8,true),rawR=srcView.getFloat32(idx*8+4,true);
+            const chL=rawL*t.leftToLeft+rawR*t.rightToLeft,chR=rawL*t.leftToRight+rawR*t.rightToRight;
+            const outL=chL*mll+chR*mrl,outR=chL*mlr+chR*mrr;
+            mixedView.setFloat32(i*8,Math.max(-1,Math.min(1,mixedView.getFloat32(i*8,true)+outL)),true);
+            mixedView.setFloat32(i*8+4,Math.max(-1,Math.min(1,mixedView.getFloat32(i*8+4,true)+outR)),true);
+          }
+          hasMixed=true;
+        }
+        let pcmSlice=mixed;
+        if(!hasMixed){
+          let pcm=null;
+          for(const rec of soundRecords){if(rec.pcmBytes){pcm=rec.pcmBytes;break;}}
+          pcmSlice=pcm?pcm:new Uint8Array(0);
+        }
         let specBytes;
         if(typeof wasm?.as3_sound_compute_spectrum==='function'){
           specBytes=wasm.as3_sound_compute_spectrum(pcmSlice,Boolean(FFTMode),Math.trunc(Number(stretchFactor))||0,true);

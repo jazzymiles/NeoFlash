@@ -358,7 +358,62 @@ test('Stage3D (flash.display.Stage3D, flash.display3D.*, flash.display3D.texture
     assert.equal(outBmp.getPixel32(2, 2) >>> 0, 0xff0000ff);
     assert.ok(ctx.totalGPUMemory > 0);
 
+    // Wave 6: Mipmap level sampling (upload miplevel 1 as yellow 0xffffff00 and sample with mipnearest)
+    function agalTex(dstType, dstIdx, src1Type, src1Idx, samplerIdx) {
+      const b = new Array(24).fill(0);
+      b[0] = 0x28; // tex
+      b[4] = dstIdx & 0xff;
+      b[5] = (dstIdx >> 8) & 0xff;
+      b[6] = 0x0f;
+      b[7] = dstType & 0x0f;
+      b[8] = src1Idx & 0xff;
+      b[9] = (src1Idx >> 8) & 0xff;
+      b[11] = 0xe4;
+      b[12] = src1Type & 0x0f;
+      b[16] = samplerIdx & 0xff;
+      b[17] = (samplerIdx >> 8) & 0xff;
+      b[20] = 5; // fs sampler
+      return b;
+    }
+    const fsTexBytes = new ByteArray();
+    for (const byte of [0xa0, 0x01, 0x00, 0x00, 0x00, 0xa1, 0x01, ...agalTex(3, 0, 4, 0, 0)]) {
+      fsTexBytes.writeByte(byte);
+    }
+    const progTex = ctx.createProgram();
+    progTex.upload(vsBytes, fsTexBytes);
+    ctx.setProgram(progTex);
+
+    const mip1Bmp = new BitmapData(8, 8, true, 0xffffff00);
+    tex.uploadFromBitmapData(mip1Bmp, 1);
+    ctx.setSamplerStateAt(0, Context3DWrapMode.CLAMP, Context3DTextureFilter.NEAREST, Context3DMipFilter.MIPNEAREST);
+    ctx.clear(0, 0, 0, 1);
+    ctx.drawTriangles(ib, 0, 1);
+    ctx.drawToBitmapData(outBmp);
+    assert.equal(outBmp.getPixel32(32, 32) >>> 0, 0xffffff00);
+
+    // Wave 6: CubeTexture 3D direction vector sampling (+X face 0 = cyan 0xff00ffff)
+    const cubeFace0 = new BitmapData(8, 8, true, 0xff00ffff);
+    cube.uploadFromBitmapData(cubeFace0, 0, 0);
+    // Upload vertices with +X direction vector (1, 0, 0) in va1
+    const cubeVerts = [
+      -1.0, -1.0, 0.0, 1.0, 1.0, 1.0,  1.0, 0.0, 0.0,
+       1.0, -1.0, 0.0, 1.0, 1.0, 1.0,  1.0, 0.0, 0.0,
+       0.0,  1.0, 0.0, 1.0, 1.0, 1.0,  1.0, 0.0, 0.0,
+    ];
+    const vbCube = ctx.createVertexBuffer(3, 9, Context3DBufferUsage.STATIC_DRAW);
+    vbCube.uploadFromVector(cubeVerts, 0, 3);
+    ctx.setVertexBufferAt(0, vbCube, 0, Context3DVertexBufferFormat.FLOAT_3);
+    ctx.setVertexBufferAt(1, vbCube, 6, Context3DVertexBufferFormat.FLOAT_3);
+    ctx.setTextureAt(0, cube);
+    ctx.setSamplerStateAt(0, Context3DWrapMode.CLAMP, Context3DTextureFilter.NEAREST, Context3DMipFilter.MIPNONE);
+    ctx.clear(0, 0, 0, 1);
+    ctx.drawTriangles(ib, 0, 1);
+    ctx.drawToBitmapData(outBmp);
+    assert.equal(outBmp.getPixel32(32, 32) >>> 0, 0xff00ffff);
+
     ctx.present();
+    progTex.dispose();
+    vbCube.dispose();
     tex.dispose();
     cube.dispose();
     rectTex.dispose();
@@ -479,8 +534,25 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
     // SoftKeyboard on InteractiveObject & Stage
     sp.needsSoftKeyboard = true;
     sp.softKeyboardInputAreaOfInterest = new Rectangle(0, 0, 100, 30);
+    const skEvents = [];
+    let cancelNextSoftKeyboard = false;
+    sp.addEventListener('softKeyboardActivating', e => {
+      skEvents.push(['activating', e.cancelable]);
+      if (cancelNextSoftKeyboard) e.preventDefault();
+    });
+    sp.addEventListener('softKeyboardActivate', () => skEvents.push(['activate']));
+    sp.addEventListener('softKeyboardDeactivate', () => skEvents.push(['deactivate']));
     assert.equal(sp.requestSoftKeyboard(), true);
     assert.ok(rootClip.stage.softKeyboardRect.height > 0);
+    assert.deepEqual(skEvents, [['activating', true], ['activate']]);
+    rootClip.stage.focus = sp;
+    rootClip.stage.focus = null;
+    assert.equal(skEvents.some(e => e[0] === 'deactivate'), true);
+    assert.equal(rootClip.stage.softKeyboardRect.height, 0);
+    cancelNextSoftKeyboard = true;
+    assert.equal(sp.requestSoftKeyboard(), false);
+    assert.equal(rootClip.stage.softKeyboardRect.height, 0);
+    cancelNextSoftKeyboard = false;
 
     // MorphShape & AVM1Movie
     const morph = new MorphShape();
@@ -509,6 +581,112 @@ test('Pixel Bender Shaders, ShaderJob, ShaderFilter, GraphicsShaderFill, 3D Disp
     const loader = new Loader();
     assert.ok(loader.uncaughtErrorEvents);
     loader.unloadAndStop(true);
+
+    // Wave 6 behavioral verification:
+    // 1. MorphShape ratio interpolation and BitmapData.draw rasterization
+    morph.setMorphEndpoints(
+      [{ type: 'begin_fill', color: [255, 0, 0], alpha: 1 }, { type: 'move_to', x: 0, y: 0 }, { type: 'line_to', x: 16, y: 0 }, { type: 'line_to', x: 16, y: 16 }, { type: 'line_to', x: 0, y: 16 }, { type: 'end_fill' }],
+      [{ type: 'begin_fill', color: [0, 0, 255], alpha: 1 }, { type: 'move_to', x: 0, y: 0 }, { type: 'line_to', x: 32, y: 0 }, { type: 'line_to', x: 32, y: 32 }, { type: 'line_to', x: 0, y: 32 }, { type: 'end_fill' }]
+    );
+    morph.ratio = 0.5;
+    assert.equal(morph.ratio, 0.5);
+    const morphBmp = new BitmapData(32, 32, true, 0);
+    morphBmp.draw(morph);
+    const morphPx = morphBmp.getPixel32(10, 10) >>> 0;
+    assert.equal((morphPx >>> 24) & 0xff, 0xff);
+    assert.ok(((morphPx >>> 16) & 0xff) >= 120 && ((morphPx >>> 16) & 0xff) <= 135);
+    assert.ok((morphPx & 0xff) >= 120 && (morphPx & 0xff) <= 135);
+
+    // 2. Multi-input ShaderFilter & binary .pbj conditional control flow (if/else/endif + LoadFloat)
+    const pbjBranch = new ByteArray();
+    // Construct a binary .pbj stream with version 1, parameter "threshold", and conditional instructions:
+    // LoadFloat r0.r = 0.75 (0x32), LoadFloat r1.r = 0.25 (0x32), GreaterThan (0x2A) r0.r > r1.r -> r2.r,
+    // If (0x34) r2.r: set dst (r1) = [0, 1, 0, 1] Else (0x35): set dst (r1) = [1, 0, 0, 1] EndIf (0x36)
+    const writeLoadFloat = (ba, reg, mask, v) => {
+      ba.writeByte(0x32);
+      ba.writeByte(reg & 0xff);
+      ba.writeByte((reg >> 8) & 0xff);
+      ba.writeByte((mask & 0x0f) << 4);
+      const buf = new ArrayBuffer(4);
+      new DataView(buf).setFloat32(0, v, false);
+      const u8 = new Uint8Array(buf);
+      for (const b of u8) ba.writeByte(b);
+    };
+    // Magic 0xA5, version 1 (LE), name 0xA4 "CondKernel" (u16 LE = 10, 0)
+    pbjBranch.writeByte(0xA5);
+    pbjBranch.writeByte(1); pbjBranch.writeByte(0); pbjBranch.writeByte(0); pbjBranch.writeByte(0);
+    pbjBranch.writeByte(0xA4); pbjBranch.writeByte(10); pbjBranch.writeByte(0); pbjBranch.writeUTFBytes('CondKernel');
+    // LoadFloat r2.r = 1.0 (true condition), r1 = [0, 1, 0, 1] inside If, [1, 0, 0, 1] inside Else
+    writeLoadFloat(pbjBranch, 2, 0x8, 1.0);
+    // 0x34 If src_reg=2, swz=0 (r2.r): 3 zero bytes + src_raw(u16 LE: 2) + swz(0) + pad(0) = 8 bytes total
+    pbjBranch.writeByte(0x34); pbjBranch.writeByte(0); pbjBranch.writeByte(0); pbjBranch.writeByte(0);
+    pbjBranch.writeByte(0x02); pbjBranch.writeByte(0x00); pbjBranch.writeByte(0x00); pbjBranch.writeByte(0x00);
+    // Inside If: set r1.r=0, r1.g=1, r1.b=0, r1.a=1
+    writeLoadFloat(pbjBranch, 1, 0x8, 0.0);
+    writeLoadFloat(pbjBranch, 1, 0x4, 1.0);
+    writeLoadFloat(pbjBranch, 1, 0x2, 0.0);
+    writeLoadFloat(pbjBranch, 1, 0x1, 1.0);
+    // 0x35 Else (8 bytes)
+    pbjBranch.writeByte(0x35); for (let i = 0; i < 7; i++) pbjBranch.writeByte(0);
+    // Inside Else (skipped): set r1.r=1, r1.g=0
+    writeLoadFloat(pbjBranch, 1, 0x8, 1.0);
+    writeLoadFloat(pbjBranch, 1, 0x4, 0.0);
+    // 0x36 EndIf (8 bytes)
+    pbjBranch.writeByte(0x36); for (let i = 0; i < 7; i++) pbjBranch.writeByte(0);
+
+    const branchShader = new Shader(pbjBranch);
+    const branchBmp = new BitmapData(4, 4, true, 0);
+    new ShaderJob(branchShader, branchBmp, 4, 4).start(true);
+    assert.equal(branchBmp.getPixel32(0, 0) >>> 0, 0xff00ff00);
+
+    // 3. Loader.loadBytes with GIF89a and SWF (FWS)
+    // Minimal 1x1 red GIF89a:
+    const gifRaw = [
+      0x47, 0x49, 0x46, 0x38, 0x39, 0x61, // GIF89a
+      0x01, 0x00, 0x01, 0x00,             // width=1, height=1
+      0x80, 0x00, 0x00,                   // GCT flag=1, size=2 entries
+      0xff, 0x00, 0x00,                   // color 0: red
+      0x00, 0x00, 0x00,                   // color 1: black
+      0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, // Image Descriptor 1x1
+      0x02, 0x02, 0x44, 0x01, 0x00,       // LZW min code size 2, 2 bytes: clear(4), index 0, EOI(5)
+      0x3b                                // Trailer
+    ];
+    const gifBytes = new ByteArray();
+    for (const b of gifRaw) gifBytes.writeByte(b);
+    const gifLoader = new Loader();
+    gifLoader.loadBytes(gifBytes);
+    await new Promise(r => setTimeout(r, 15));
+    assert.equal(gifLoader.contentLoaderInfo.contentType, 'image/gif');
+    assert.equal(gifLoader.contentLoaderInfo.width, 1);
+    assert.equal(gifLoader.contentLoaderInfo.height, 1);
+    assert.equal(gifLoader.content.bitmapData.getPixel32(0, 0) >>> 0, 0xffff0000);
+
+    // Minimal FWS SWF v10 (320x240 = 6400x4800 twips, 30 fps, 1 frame, FileAttributes tag 69 with AS3=1)
+    // RECT: nbits=14 (01110), xmin=0, xmax=6400 (0x1900), ymin=0, ymax=4800 (0x12c0)
+    // Bits: 01110 | 00000000000000 | 01100100000000 | 00000000000000 | 01001011000000 (61 bits -> 8 bytes)
+    // 01110000 00000000 00001100 10000000 00000000 00000000 10010110 00000000
+    // = 0x70, 0x00, 0x0c, 0x80, 0x00, 0x00, 0x96, 0x00
+    const swfRaw = [
+      0x46, 0x57, 0x53, 10,               // FWS, version 10
+      26, 0, 0, 0,                        // file length 26
+      0x70, 0x00, 0x0c, 0x80, 0x00, 0x00, 0x96, 0x00, // RECT 320x240
+      0x00, 30,                           // 30.0 fps
+      1, 0,                               // 1 frame
+      0x44, 0x11, 0x08, 0x00, 0x00, 0x00, // Tag 69 (FileAttributes, len 4): actionScript3 bit (0x08)
+      0x00, 0x00                          // End tag
+    ];
+    const swfBytes = new ByteArray();
+    for (const b of swfRaw) swfBytes.writeByte(b);
+    const swfLoader = new Loader();
+    swfLoader.loadBytes(swfBytes);
+    await new Promise(r => setTimeout(r, 15));
+    assert.equal(swfLoader.contentLoaderInfo.contentType, 'application/x-shockwave-flash');
+    assert.equal(swfLoader.contentLoaderInfo.swfVersion, 10);
+    assert.equal(swfLoader.contentLoaderInfo.actionScriptVersion, 3);
+    assert.equal(swfLoader.contentLoaderInfo.frameRate, 30);
+    assert.equal(swfLoader.contentLoaderInfo.width, 320);
+    assert.equal(swfLoader.contentLoaderInfo.height, 240);
+    assert.ok(swfLoader.content);
   } finally {
     host.disposeFamily();
     player.free();

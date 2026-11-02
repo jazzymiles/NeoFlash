@@ -95,15 +95,15 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
     return {
         get(){
             if(typeof receiver==='object'||typeof receiver==='function'){
-                if(sym in obj)return obj[sym];
-                const slot=program?.resolveQualifiedSlot?.(receiver,name,caller);
+                const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot)return slot.get();
+                if(sym in obj)return obj[sym];
             }
             return __nfContainerRef(receiver,name,true,caller).get();
         },
         set(value){
             if(typeof receiver==='object'||typeof receiver==='function'){
-                const slot=program?.resolveQualifiedSlot?.(receiver,name,caller);
+                const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
                 if(slot){slot.set(value);return value;}
                 obj[sym]=value;
                 return value;
@@ -116,7 +116,7 @@ function __nfQualifiedRef(receiver,namespace,key,as3,caller){
         },
         has(){
             if((typeof receiver==='object'||typeof receiver==='function')&&(sym in obj))return true;
-            if(program?.resolveQualifiedSlot?.(receiver,name,caller))return true;
+            if(program?.resolveQualifiedSlot?.(receiver,name,caller,uri))return true;
             return __nfContainerRef(receiver,name,true,caller).has();
         },
     };
@@ -132,16 +132,16 @@ function __nfQualifiedMethod(receiver,namespace,key,as3,caller){
         if(name==='isPrototypeOf')return (...args)=>args.length>0&&args[0]!=null&&Object.prototype.isPrototypeOf.call(Object(receiver),Object(args[0]));
         return __nfContainerMethod(receiver,name,true,caller);
     }
+    const program=__nfContainerProgram();
+    const slot=program?.resolveQualifiedSlot?.(receiver,name,caller,uri);
+    if(slot){
+        const fn=slot.get();
+        return (...args)=>__nfApply(fn,receiver,args);
+    }
     const sym=Symbol.for('neoflash.ns.'+uri+'::'+name);
     const obj=Object(receiver);
     if((typeof receiver==='object'||typeof receiver==='function')&&typeof obj[sym]==='function'){
         return (...args)=>__nfApply(obj[sym],receiver,args);
-    }
-    const program=__nfContainerProgram();
-    const slot=program?.resolveQualifiedSlot?.(receiver,name,caller);
-    if(slot){
-        const fn=slot.get();
-        return (...args)=>__nfApply(fn,receiver,args);
     }
     if(uri==='http://www.adobe.com/2006/actionscript/flash/proxy'&&program?.isProxy?.(receiver)){
         return (...args)=>program.invokeProxy(receiver,name,args);

@@ -2195,8 +2195,119 @@ pub struct NetStreamMulticastInfoSnapshot {
 pub struct FlvStreamState {
     buffer: Vec<u8>,
     header_parsed: bool,
+    pub video_width: u32,
+    pub video_height: u32,
+    pub decoded_frames: u32,
+    pub time_seconds: f64,
+    pub back_buffer_byte_length: f64,
+    pub back_buffer_length: f64,
     pub info: NetStreamInfoSnapshot,
     pub multicast: NetStreamMulticastInfoSnapshot,
+}
+
+/// Minimum `ByteArray` length required for `ApplicationDomain.domainMemory`
+/// per Adobe Alchemy / CrossBridge / FlasCC specification.
+pub const MIN_DOMAIN_MEMORY_LENGTH: usize = 1024;
+
+pub fn fast_mem_sxi1(val: i32) -> i32 {
+    if (val & 1) != 0 { -1 } else { 0 }
+}
+
+pub fn fast_mem_sxi8(val: i32) -> i32 {
+    (val as i8) as i32
+}
+
+pub fn fast_mem_sxi16(val: i32) -> i32 {
+    (val as i16) as i32
+}
+
+pub fn fast_mem_read(mem: &[u8], op: &str, addr: usize) -> Result<f64, String> {
+    if mem.len() < MIN_DOMAIN_MEMORY_LENGTH {
+        return Err(
+            "Error #1504: End of file or domainMemory smaller than MIN_DOMAIN_MEMORY_LENGTH."
+                .into(),
+        );
+    }
+    let width = match op {
+        "li8" => 1,
+        "li16" => 2,
+        "li32" | "lf32" => 4,
+        "lf64" => 8,
+        _ => return Err(format!("Unsupported fast_mem_read opcode '{op}'")),
+    };
+    if addr.checked_add(width).is_none_or(|end| end > mem.len()) {
+        return Err("RangeError: Error #1506: The specified range is invalid.".into());
+    }
+    let val = match op {
+        "li8" => f64::from(mem[addr]),
+        "li16" => f64::from(u16::from_le_bytes([mem[addr], mem[addr + 1]])),
+        "li32" => f64::from(i32::from_le_bytes([
+            mem[addr],
+            mem[addr + 1],
+            mem[addr + 2],
+            mem[addr + 3],
+        ])),
+        "lf32" => f64::from(f32::from_le_bytes([
+            mem[addr],
+            mem[addr + 1],
+            mem[addr + 2],
+            mem[addr + 3],
+        ])),
+        "lf64" => f64::from_le_bytes([
+            mem[addr],
+            mem[addr + 1],
+            mem[addr + 2],
+            mem[addr + 3],
+            mem[addr + 4],
+            mem[addr + 5],
+            mem[addr + 6],
+            mem[addr + 7],
+        ]),
+        _ => 0.0,
+    };
+    Ok(val)
+}
+
+pub fn fast_mem_write(mem: &mut [u8], op: &str, addr: usize, value: f64) -> Result<(), String> {
+    if mem.len() < MIN_DOMAIN_MEMORY_LENGTH {
+        return Err(
+            "Error #1504: End of file or domainMemory smaller than MIN_DOMAIN_MEMORY_LENGTH."
+                .into(),
+        );
+    }
+    let width = match op {
+        "si8" => 1,
+        "si16" => 2,
+        "si32" | "sf32" => 4,
+        "sf64" => 8,
+        _ => return Err(format!("Unsupported fast_mem_write opcode '{op}'")),
+    };
+    if addr.checked_add(width).is_none_or(|end| end > mem.len()) {
+        return Err("RangeError: Error #1506: The specified range is invalid.".into());
+    }
+    match op {
+        "si8" => {
+            mem[addr] = (value as i64) as u8;
+        }
+        "si16" => {
+            let bytes = ((value as i64) as u16).to_le_bytes();
+            mem[addr..addr + 2].copy_from_slice(&bytes);
+        }
+        "si32" => {
+            let bytes = ((value as i64) as i32).to_le_bytes();
+            mem[addr..addr + 4].copy_from_slice(&bytes);
+        }
+        "sf32" => {
+            let bytes = (value as f32).to_le_bytes();
+            mem[addr..addr + 4].copy_from_slice(&bytes);
+        }
+        "sf64" => {
+            let bytes = value.to_le_bytes();
+            mem[addr..addr + 8].copy_from_slice(&bytes);
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn parse_amf0_simple(data: &[u8], pos: &mut usize, depth: usize) -> Option<Value> {
@@ -2293,7 +2404,16 @@ impl FlvStreamState {
             }
             "endSequence" => {
                 self.buffer.clear();
-                Ok(json!({ "status": "NetStream.Buffer.Flush", "ended": true }))
+                Ok(json!({
+                    "status": "NetStream.Buffer.Flush",
+                    "ended": true,
+                    "playStatus": {
+                        "code": "NetStream.Play.Complete",
+                        "level": "status",
+                        "bytes": self.info.byte_count,
+                        "duration": self.info.video_buffer_length.max(self.info.audio_buffer_length),
+                    }
+                }))
             }
             _ => Err(format!(
                 "ArgumentError: Invalid NetStreamAppendBytesAction '{action}'."
@@ -2351,20 +2471,65 @@ impl FlvStreamState {
                     self.info.audio_buffer_byte_length += data_size as f64;
                     self.info.audio_buffer_length =
                         (timestamp / 1000.0).max(self.info.audio_buffer_length);
+                    self.time_seconds = (timestamp / 1000.0).max(self.time_seconds);
+                    self.back_buffer_byte_length += data_size as f64;
+                    self.back_buffer_length = (timestamp / 1000.0).max(self.back_buffer_length);
                 }
                 9 => {
                     self.info.video_byte_count += data_size as f64;
                     self.info.video_buffer_byte_length += data_size as f64;
                     self.info.video_buffer_length =
                         (timestamp / 1000.0).max(self.info.video_buffer_length);
+                    self.time_seconds = (timestamp / 1000.0).max(self.time_seconds);
+                    self.decoded_frames = self.decoded_frames.saturating_add(1);
+                    if payload.len() >= 5 && (payload[0] & 0x0f) == 3 {
+                        // Screen Video v1 header: 4-bit blockWidth, 12-bit imageWidth, 4-bit blockHeight, 12-bit imageHeight
+                        let w = (((payload[1] as u32) & 0x0f) << 8) | (payload[2] as u32);
+                        let h = (((payload[3] as u32) & 0x0f) << 8) | (payload[4] as u32);
+                        if w > 0 && h > 0 {
+                            self.video_width = w;
+                            self.video_height = h;
+                        }
+                    }
+                    if self.video_width == 0 {
+                        self.video_width = 320;
+                    }
+                    if self.video_height == 0 {
+                        self.video_height = 240;
+                    }
+                    self.back_buffer_byte_length += data_size as f64;
+                    self.back_buffer_length = (timestamp / 1000.0).max(self.back_buffer_length);
+                    if !payload.is_empty() && ((payload[0] >> 4) & 0x0f) == 1 {
+                        callbacks.push(json!({
+                            "handler": "onSeekPoint",
+                            "timestamp": timestamp,
+                            "info": {
+                                "time": timestamp / 1000.0,
+                                "offset": self.info.byte_count - (self.buffer.len() as f64),
+                            },
+                        }));
+                    }
                 }
                 18 => {
                     self.info.data_byte_count += data_size as f64;
                     self.info.data_buffer_byte_length += data_size as f64;
+                    self.time_seconds = (timestamp / 1000.0).max(self.time_seconds);
+                    self.info.data_buffer_length =
+                        (timestamp / 1000.0).max(self.info.data_buffer_length);
                     let mut pos = 0usize;
                     if let Some(Value::String(handler)) = parse_amf0_simple(payload, &mut pos, 0) {
                         let data_val = parse_amf0_simple(payload, &mut pos, 0).unwrap_or(json!({}));
                         if handler == "onMetaData" {
+                            if let Some(w) = data_val.get("width").and_then(|v| v.as_f64())
+                                && w > 0.0
+                            {
+                                self.video_width = w as u32;
+                            }
+                            if let Some(h) = data_val.get("height").and_then(|v| v.as_f64())
+                                && h > 0.0
+                            {
+                                self.video_height = h as u32;
+                            }
                             self.info.meta_data = Some(data_val.clone());
                         } else if handler == "onXMPData" {
                             self.info.xmp_data = Some(data_val.clone());
@@ -2385,6 +2550,12 @@ impl FlvStreamState {
         json!({
             "callbacks": callbacks,
             "info": self.info,
+            "timeSeconds": self.time_seconds,
+            "videoWidth": self.video_width,
+            "videoHeight": self.video_height,
+            "decodedFrames": self.decoded_frames,
+            "backBufferLength": self.back_buffer_length,
+            "backBufferByteLength": self.back_buffer_byte_length,
         })
     }
 }
@@ -3750,6 +3921,8 @@ impl As3NetSysKernel {
                 Ok(json!({
                     "info": st.info,
                     "multicastInfo": st.multicast,
+                    "backBufferLength": st.back_buffer_length,
+                    "backBufferByteLength": st.back_buffer_byte_length,
                 }))
             }
             // LocalConnection
@@ -3880,9 +4053,14 @@ impl As3NetSysKernel {
                             return Ok(json!({
                                 "found": true,
                                 "targetId": target_id,
+                                "qualifiedName": qname,
                             }));
                         }
-                        Ok(json!({ "found": false, "securityDenied": false }))
+                        Ok(json!({
+                            "found": false,
+                            "securityDenied": false,
+                            "qualifiedName": qname,
+                        }))
                     }
                     _ => Err(format!("Unknown lc_op {action}")),
                 }
@@ -4509,6 +4687,24 @@ impl As3NetSysKernel {
                     _ => Err(format!("Unknown telemetry_op {action}")),
                 }
             }
+            "fast_mem_op" => {
+                let kind = req.get("kind").and_then(Value::as_str).unwrap_or("");
+                match kind {
+                    "sxi1" => {
+                        let v = req.get("value").and_then(Value::as_i64).unwrap_or(0) as i32;
+                        Ok(json!({ "result": fast_mem_sxi1(v) }))
+                    }
+                    "sxi8" => {
+                        let v = req.get("value").and_then(Value::as_i64).unwrap_or(0) as i32;
+                        Ok(json!({ "result": fast_mem_sxi8(v) }))
+                    }
+                    "sxi16" => {
+                        let v = req.get("value").and_then(Value::as_i64).unwrap_or(0) as i32;
+                        Ok(json!({ "result": fast_mem_sxi16(v) }))
+                    }
+                    _ => Err(format!("Unknown fast_mem_op '{kind}'")),
+                }
+            }
             _ => Err(format!("Unsupported As3NetSysKernel op '{op}'")),
         }
     }
@@ -4517,6 +4713,29 @@ impl As3NetSysKernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_memory_opcodes_and_sign_extension() {
+        assert_eq!(fast_mem_sxi1(0), 0);
+        assert_eq!(fast_mem_sxi1(1), -1);
+        assert_eq!(fast_mem_sxi8(0x80), -128);
+        assert_eq!(fast_mem_sxi8(0x7f), 127);
+        assert_eq!(fast_mem_sxi16(0x8000), -32768);
+        assert_eq!(fast_mem_sxi16(0x7fff), 32767);
+
+        let mut mem = vec![0u8; MIN_DOMAIN_MEMORY_LENGTH];
+        fast_mem_write(&mut mem, "si8", 0, 250.0).unwrap();
+        assert_eq!(fast_mem_read(&mem, "li8", 0).unwrap(), 250.0);
+        fast_mem_write(&mut mem, "si16", 4, 0xCAFE as f64).unwrap();
+        assert_eq!(fast_mem_read(&mem, "li16", 4).unwrap(), 0xCAFE as f64);
+        fast_mem_write(&mut mem, "si32", 8, -123456789.0).unwrap();
+        assert_eq!(fast_mem_read(&mem, "li32", 8).unwrap(), -123456789.0);
+        fast_mem_write(&mut mem, "sf32", 16, 3.5).unwrap();
+        assert!((fast_mem_read(&mem, "lf32", 16).unwrap() - 3.5).abs() < 1e-6);
+        fast_mem_write(&mut mem, "sf64", 24, std::f64::consts::PI).unwrap();
+        assert!((fast_mem_read(&mem, "lf64", 24).unwrap() - std::f64::consts::PI).abs() < 1e-12);
+        assert!(fast_mem_read(&mem, "li32", MIN_DOMAIN_MEMORY_LENGTH - 2).is_err());
+    }
 
     #[test]
     fn sha256_and_csprng_bounds() {

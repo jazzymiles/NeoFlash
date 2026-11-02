@@ -62,14 +62,27 @@
     function later(r,fn){const epoch=generation,sequence=r.sequence;schedule(()=>{if(disposed||epoch!==generation||r.generation!==generation||r.sequence!==sequence)return;try{fn();}catch(error){if(!disposed&&epoch===generation)report(error);}});}
     function noBase(Type,predicate){Object.defineProperties(Type,{__nfIs:{value:predicate},[Symbol.hasInstance]:{value:predicate},__nfInitialize:{configurable:true,value:()=>unsupported(`${Type.name} native subclassing`)}});}
     function canvas(w,h){const surface=options.createCanvas?options.createCanvas(w,h):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(w,h):global.document?.createElement('canvas');if(!surface)throw new Error('Video painting requires Canvas 2D.');surface.width=w;surface.height=h;return surface;}
-    function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
+    function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);if(r.appendFrame?.canvas)keep.add(r.appendFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
     function frame(w,h){collectFrames();if(frames.size>=32||framePixels+w*h>MAX_PIXELS)throw new RangeError('Retained video frames exceed 16 Mi pixels / 32 surfaces; clear detached video images or restart.');const result={canvas:canvas(w,h),width:w,height:h,id:++serial};frames.add(result);framePixels+=w*h;return result;}
     function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1920||h>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');return[w,h];}
     function freeze(r){
       if(r.receiveState?.video===false)return r.suppressedFrame||null;
+      if(!r.media&&r.appendFrame)return r.appendFrame;
       if(!r.media||r.media.readyState<2)return r.frozen||null;
       const [w,h]=dimensions(r.media),f=frame(w,h),ctx=f.canvas.getContext('2d');if(!ctx)throw new Error('Video capture requires Canvas 2D.');
       try{ctx.drawImage(r.media,0,0,w,h);return f;}catch(error){f.canvas.width=f.canvas.height=0;frames.delete(f);framePixels-=w*h;throw error;}
+    }
+    function setAppendFrame(r,w,h,frameIndex=1){
+      const width=Math.max(1,Math.min(1920,w|0||320)),height=Math.max(1,Math.min(1080,h|0||240));
+      r.width=width;r.height=height;r.metadata=true;r.serial=++serial;
+      try{
+        const f=frame(width,height),ctx=f.canvas.getContext('2d');
+        if(ctx?.fillRect){ctx.fillStyle=`rgb(${(frameIndex*37)&255},${(frameIndex*73)&255},${(frameIndex*113)&255})`;ctx.fillRect(0,0,width,height);}
+        r.appendFrame=f;
+      }catch(_){
+        r.appendFrame={canvas:{width,height},width,height,id:r.serial};
+      }
+      collectFrames();repaint();changed();
     }
     function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.volume===0||r.receiveState?.audio===false;r.media.volume=r.volume;}
     function stopMedia(r,retain){
@@ -77,7 +90,7 @@
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
-      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
+      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
     }
     function playNative(r){
       if(!r.media||!r.wanted||!unlocked)return;
@@ -248,10 +261,10 @@
       b.capture?.release();b.capture=lease;b.captureClearId=null;b.stream=null;b.frozen=null;b.clearSerial=-1;b.revision=++serial;collectFrames();after(generation);
     }
     function clear(target){const b=binding(target);b.frozen=null;b.captureClearId=b.capture?.read()?.id??null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
-    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
+    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.appendFrame&&r.serial>b.clearSerial)return {...r.appendFrame,image:r.appendFrame.canvas};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
     function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:value=>attachAs3Camera(target,value)};}
     function get(target,name){if(name==='smoothing')return videoRef(target).info.smoothing;if(name==='deblocking')return videoRef(target).info.deblocking??0;if(name==='videoWidth'||name==='videoHeight'){const b=binding(target),r=b.stream,f=source(b);return r?(name==='videoWidth'?r.width:r.height):f?(name==='videoWidth'?f.width:f.height):0;}return UNHANDLED;}
-    function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,smoothing:value}));return true;}if(name==='deblocking'){if(!Number.isInteger(value)||value<0||value>5)throw new RangeError('Video.deblocking requires an integer from 0 through 5.');const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({...v.info,deblocking:value}));return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
+    function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target),next={...v.info,smoothing:value};native('object_video_update',v.key,JSON.stringify(next));const b=bindings.get(v.key);if(b)b.info=next;return true;}if(name==='deblocking'){if(!Number.isInteger(value)||value<0||value>5)throw new RangeError('Video.deblocking requires an integer from 0 through 5.');const v=videoRef(target),next={...v.info,deblocking:value};native('object_video_update',v.key,JSON.stringify(next));const b=bindings.get(v.key);if(b)b.info=next;return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
     class Video{
       constructor(width=320,height=240){open();number(width,'Video width',0,8192);number(height,'Video height',0,8192);if(!Number.isInteger(width)||!Number.isInteger(height))throw new TypeError('Video dimensions require integers.');const target=proxyForRef(JSON.parse(native('create_display','video')));const v=videoRef(target);native('object_video_update',v.key,JSON.stringify({width:width||320,height:height||240,smoothing:false,deblocking:0}));return target;}
     }
@@ -266,7 +279,7 @@
       if(ct.multipliers.some(v=>v!==1)||ct.offsets.some(v=>v!==0)){
         const key=JSON.stringify([f.id,ct]),old=derived.get(key);if(old)image=old.canvas;else{const output=frame(f.width,f.height),ctx=output.canvas.getContext('2d');if(!ctx)throw new Error('Video color transform requires Canvas 2D.');ctx.drawImage(image,0,0,f.width,f.height);const data=ctx.getImageData(0,0,f.width,f.height),matrix=[];for(let row=0;row<4;row++){for(let col=0;col<4;col++)matrix.push(row===col?ct.multipliers[row]:0);matrix.push(ct.offsets[row]);}const bytes=native('filter_rgba',f.width,f.height,data.data,JSON.stringify([{type:'color_matrix',matrix}]));data.data.set(bytes);ctx.putImageData(data,0,0);output.sourceId=f.id;derived.set(key,output);image=output.canvas;}
       }
-      context.save();try{context.imageSmoothingEnabled=kind.smoothing;context.drawImage(image,0,0,kind.width,kind.height);}finally{context.restore();}
+      context.save();try{const deblocking=Number(kind.deblocking??b?.info?.deblocking??0);context.imageSmoothingEnabled=Boolean(kind.smoothing||deblocking>0);if(deblocking>0){context.imageSmoothingQuality=deblocking>=4?'high':deblocking>=2?'medium':'low';if(deblocking>=2)context.filter=`blur(${((deblocking-1)*0.25).toFixed(2)}px)`;}context.drawImage(image,0,0,kind.width,kind.height);}finally{context.restore();}
     }
     function legacyController(target,observer){
       videoRef(target);if(typeof observer!=='function')throw new TypeError('AS2 video observer required.');
@@ -280,7 +293,7 @@
         dispose(){if(retired)return;retired=true;record.controllerObserver=null;if(record.generation!==generation||disposed)return;stopMedia(record,false);const b=bindings.get(referenceOf(target)?.key);if(b?.stream===record){b.stream=null;b.frozen=null;b.revision=++serial;}record.receivePolicy?.free();record.receivePolicy=null;streamRecords.delete(record);connectionRecords.delete(connections.get(connection));collectFrames();},
       });
     }
-    const _as3Hook=Object.freeze({connections,streams,connectionRecords,streamRecords,hub,NetStatusEvent,setOnStreamCreated:fn=>{onStreamCreated=fn;},state:(v,m)=>state(v,m),emit:(r,code,level,extra)=>emit(r,code,level,extra),later:(r,fn)=>later(r,fn),load:(r,url)=>load(r,url),stopMedia:(r,retain)=>stopMedia(r,retain),seek:(r,sec)=>seek(r,sec),pause:r=>pause(r),resume:r=>resume(r),audio:r=>audio(r),freeze:r=>freeze(r),collectFrames:()=>collectFrames(),repaint:()=>repaint(),bumpSerial:()=>++serial,getGeneration:()=>generation,isDisposed:()=>disposed});
+    const _as3Hook=Object.freeze({connections,streams,connectionRecords,streamRecords,hub,NetStatusEvent,setOnStreamCreated:fn=>{onStreamCreated=fn;},state:(v,m)=>state(v,m),emit:(r,code,level,extra)=>emit(r,code,level,extra),later:(r,fn)=>later(r,fn),load:(r,url)=>load(r,url),stopMedia:(r,retain)=>stopMedia(r,retain),seek:(r,sec)=>seek(r,sec),pause:r=>pause(r),resume:r=>resume(r),audio:r=>audio(r),freeze:r=>freeze(r),setAppendFrame:(r,w,h,idx)=>setAppendFrame(r,w,h,idx),collectFrames:()=>collectFrames(),repaint:()=>repaint(),bumpSerial:()=>++serial,getGeneration:()=>generation,isDisposed:()=>disposed});
     function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
