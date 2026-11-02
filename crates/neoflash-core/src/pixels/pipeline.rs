@@ -202,7 +202,34 @@ impl PixelArena {
                 rgba[j..j + 4].copy_from_slice(&p);
             }
         }
-        let result = filter_rgba(w, h, &rgba, std::slice::from_ref(filter))
+        let mut resolved_filter;
+        let active_filter = if let FilterSpec::Displacement {
+            map_bitmap: Some(ref map_ref),
+            ref map_rgba,
+            ..
+        } = *filter
+            && map_rgba.is_empty()
+        {
+            resolved_filter = filter.clone();
+            if let FilterSpec::Displacement {
+                ref mut map_width,
+                ref mut map_height,
+                ref mut map_rgba,
+                ..
+            } = resolved_filter
+                && let Ok(info) = self.info(map_ref)
+                && !info.disposed
+                && let Ok(bytes) = self.pixels(map_ref)
+            {
+                *map_width = info.width;
+                *map_height = info.height;
+                *map_rgba = bytes;
+            }
+            &resolved_filter
+        } else {
+            filter
+        };
+        let result = filter_rgba(w, h, &rgba, std::slice::from_ref(active_filter))
             .map_err(|e| BitmapError(e.to_string()))?;
         let b = self.live_mut(dst)?;
         let mut changed = false;
@@ -318,6 +345,39 @@ impl PixelArena {
         rect: Option<BitmapRect>,
         expected_revision: &str,
     ) -> Result<(), BitmapError> {
+        self.draw_rgba_blended(r, w, h, rgba, rect, expected_revision, "normal")
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn draw_rgba_blended(
+        &mut self,
+        r: &PixelRef,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+        rect: Option<BitmapRect>,
+        expected_revision: &str,
+        blend_mode: &str,
+    ) -> Result<(), BitmapError> {
+        if !matches!(
+            blend_mode,
+            "" | "normal"
+                | "layer"
+                | "multiply"
+                | "screen"
+                | "lighten"
+                | "darken"
+                | "difference"
+                | "add"
+                | "subtract"
+                | "invert"
+                | "alpha"
+                | "erase"
+                | "overlay"
+                | "hardlight"
+                | "shader"
+        ) {
+            return Err(error("unsupported BlendMode"));
+        }
         raster_budget(w, h)?;
         let b = self.live_mut(r)?;
         if b.width != w || b.height != h || rgba.len() != w as usize * h as usize * 4 {
@@ -342,20 +402,101 @@ impl PixelArena {
                 let s = &rgba[i..i + 4];
                 let source = premul(u32::from_be_bytes([s[3], s[0], s[1], s[2]]), true);
                 let d = &mut b.pixels.as_mut().unwrap()[i..i + 4];
-                for c in 0..4 {
-                    d[c] = (u32::from(source[c])
-                        + (u32::from(d[c]) * (255 - u32::from(source[3])) + 127) / 255)
-                        .min(255) as u8;
-                }
-                if !b.transparent {
-                    d[3] = 255;
-                }
+                blend_pixel(d, source, s, blend_mode, b.transparent);
             }
         }
         if x1 > x0 && y1 > y0 {
             b.revision += 1;
         }
         Ok(())
+    }
+}
+
+fn blend_pixel(d: &mut [u8], sp: [u8; 4], s_raw: &[u8], mode: &str, transparent: bool) {
+    let sa = u32::from(sp[3]);
+    match mode {
+        "alpha" => {
+            for item in d.iter_mut().take(4) {
+                *item = ((u32::from(*item) * sa + 127) / 255) as u8;
+            }
+        }
+        "erase" => {
+            let inv = 255 - sa;
+            for item in d.iter_mut().take(4) {
+                *item = ((u32::from(*item) * inv + 127) / 255) as u8;
+            }
+        }
+        "" | "normal" | "layer" | "shader" => {
+            let inv = 255 - sa;
+            for c in 0..4 {
+                d[c] = (u32::from(sp[c]) + (u32::from(d[c]) * inv + 127) / 255).min(255) as u8;
+            }
+        }
+        "add" => {
+            for c in 0..3 {
+                d[c] = (u32::from(d[c]) + u32::from(sp[c])).min(255) as u8;
+            }
+            d[3] = (sa + (u32::from(d[3]) * (255 - sa) + 127) / 255).min(255) as u8;
+        }
+        "subtract" => {
+            for c in 0..3 {
+                d[c] = u32::from(d[c]).saturating_sub(u32::from(sp[c])) as u8;
+            }
+            d[3] = (sa + (u32::from(d[3]) * (255 - sa) + 127) / 255).min(255) as u8;
+        }
+        "screen" => {
+            for c in 0..3 {
+                let sc = u32::from(sp[c]);
+                let dc = u32::from(d[c]);
+                d[c] = (sc + dc - (sc * dc + 127) / 255).min(255) as u8;
+            }
+            d[3] = (sa + (u32::from(d[3]) * (255 - sa) + 127) / 255).min(255) as u8;
+        }
+        _ => {
+            if sa == 0 {
+                if !transparent {
+                    d[3] = 255;
+                }
+                return;
+            }
+            let d_raw = straight(d);
+            let da_f = f64::from(d_raw[3]) / 255.0;
+            let sa_f = f64::from(s_raw[3]) / 255.0;
+            let out_a = sa_f + da_f * (1.0 - sa_f);
+            for c in 0..3 {
+                let cb = f64::from(d_raw[c]) / 255.0;
+                let cs = f64::from(s_raw[c]) / 255.0;
+                let mixed = match mode {
+                    "multiply" => cb * cs,
+                    "lighten" => cb.max(cs),
+                    "darken" => cb.min(cs),
+                    "difference" => (cb - cs).abs(),
+                    "invert" => 1.0 - cb,
+                    "overlay" => {
+                        if cb <= 0.5 {
+                            2.0 * cb * cs
+                        } else {
+                            1.0 - 2.0 * (1.0 - cb) * (1.0 - cs)
+                        }
+                    }
+                    "hardlight" => {
+                        if cs <= 0.5 {
+                            2.0 * cb * cs
+                        } else {
+                            1.0 - 2.0 * (1.0 - cb) * (1.0 - cs)
+                        }
+                    }
+                    _ => cs,
+                };
+                let premul_f =
+                    sa_f * (1.0 - da_f) * cs + da_f * (1.0 - sa_f) * cb + sa_f * da_f * mixed;
+                d[c] = (premul_f * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+            d[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    if !transparent {
+        d[3] = 255;
     }
 }
 fn raster_budget(w: u32, h: u32) -> Result<(), BitmapError> {

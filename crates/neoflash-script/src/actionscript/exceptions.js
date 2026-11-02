@@ -119,3 +119,22 @@ const __nfFlashErrors = (() => {
         'flash.errors.StackOverflowError': StackOverflowError,
     };
 })();
+const __nfErrorClasses = new Map();
+function __nfErrorClass(name, as3 = true) {
+    const key = `${as3 ? '3' : '2'}:${name}`;
+    if (!__nfErrorClasses.has(key)) {
+        if (!Object.hasOwn(__nfErrorTypes, name)) throw new __nfTypeError('Unsupported Error class ' + name);
+        const facade = function(...args) {
+            return __nfMakeError(name, as3, args);
+        };
+        Object.defineProperties(facade, {
+            name: { value: name },
+            length: { value: 1 },
+            prototype: { value: __nfErrorTypes[name].prototype, writable: false },
+            __nfIs: { value: value => __nfCatchType(value, name) },
+            [Symbol.hasInstance]: { value: value => __nfCatchType(value, name) },
+        });
+        __nfErrorClasses.set(key, Object.freeze(facade));
+    }
+    return __nfErrorClasses.get(key);
+}

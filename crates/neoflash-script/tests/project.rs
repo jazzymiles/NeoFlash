@@ -1240,9 +1240,7 @@ fn built_in_interfaces_interactive_object_font_subclasses_and_custom_namespaces_
         "package { import flash.text.FontStyle; public class BadFontStyle extends FontStyle {} }",
         "package { import flash.display.JPEGEncoderOptions; public class BadJpeg extends JPEGEncoderOptions {} }",
         "package { import flash.utils.CompressionAlgorithm; public class BadComp extends CompressionAlgorithm {} }",
-        "package { public class NsAs3 { AS3 function push():void {} } }",
-        "package { public class NsFlashProxy { flash_proxy function getProperty(name:*):* { return null; } } }",
-        "package { public class NsObjectProxy { object_proxy function getProperty(name:*):* { return null; } } }",
+        "package { public class BadNs { unknown_ns function push():void {} } }",
     ] {
         let bad = project(&[("Bad.as", invalid_source)]);
         assert!(

@@ -1,6 +1,6 @@
-//! AS2 textual includes resolve only immutable project resources, never disk/HTTP.
+//! AS1/AS2/AS3 textual includes resolve only immutable project resources, never disk/HTTP.
 use crate::Diagnostic;
-use neoflash_core::{ResourceUnit, Script};
+use neoflash_core::{ResourceUnit, Script, ScriptLanguage};
 use std::collections::BTreeMap;
 
 const MAX_BYTES: usize = 1_048_576;
@@ -87,13 +87,36 @@ pub(super) fn expand(
     script: &Script,
     resources: &BTreeMap<String, ResourceUnit>,
 ) -> Result<Expanded, Diagnostic> {
+    expand_at(script, "", resources)
+}
+
+pub(super) fn expand_at(
+    script: &Script,
+    base_path: &str,
+    resources: &BTreeMap<String, ResourceUnit>,
+) -> Result<Expanded, Diagnostic> {
     let mut expanded = Expanded {
         script: script.clone(),
         origins: vec![],
     };
     expanded.script.source.clear();
-    append(script, "", resources, &mut vec![], &mut expanded)?;
+    append(script, base_path, resources, &mut vec![], &mut expanded)?;
     Ok(expanded)
+}
+
+fn parse_as3_include_arg(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("#include")
+        && (rest.is_empty()
+            || rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\''))
+    {
+        return Some(rest.trim());
+    }
+    if let Some(rest) = trimmed.strip_prefix("include")
+        && rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+    {
+        return Some(rest.trim());
+    }
+    None
 }
 
 fn append(
@@ -103,11 +126,23 @@ fn append(
     stack: &mut Vec<String>,
     output: &mut Expanded,
 ) -> Result<(), Diagnostic> {
+    let is_as3 = script.language == ScriptLanguage::ActionScript3;
     let mut block = false;
     let mut offset = 0;
     for (line_number, line) in script.source.split_inclusive('\n').enumerate() {
         let trimmed = line.trim();
-        if !block && trimmed.starts_with("#include") {
+        let directive_arg = if !block {
+            if is_as3 {
+                parse_as3_include_arg(trimmed)
+            } else if trimmed.starts_with("#include") {
+                Some(trimmed.strip_prefix("#include").unwrap().trim())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(raw_arg) = directive_arg {
             let error = |message: String| {
                 let mut result = Diagnostic::at(script, offset, message);
                 if !path.is_empty() {
@@ -115,7 +150,12 @@ fn append(
                 }
                 result
             };
-            let argument = trimmed.strip_prefix("#include").unwrap().trim();
+            let argument = if is_as3 {
+                let no_comment = raw_arg.split("//").next().unwrap_or(raw_arg).trim();
+                no_comment.strip_suffix(';').map_or(no_comment, str::trim)
+            } else {
+                raw_arg
+            };
             let requested = argument
                 .strip_prefix('"')
                 .and_then(|v| v.strip_suffix('"'))
@@ -126,7 +166,11 @@ fn append(
                 })
                 .filter(|v| !v.contains(['"', '\'', '\\']))
                 .ok_or_else(|| {
-                    error("Use #include \"path.as\" on its own line without a semicolon".into())
+                    if is_as3 {
+                        error("Use include \"path.as\"; on its own line".into())
+                    } else {
+                        error("Use #include \"path.as\" on its own line without a semicolon".into())
+                    }
                 })?;
             let included = logical_path(path, requested).map_err(error)?;
             if stack.len() >= 32 || stack.contains(&included) {

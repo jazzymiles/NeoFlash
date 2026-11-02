@@ -291,6 +291,27 @@ impl Player {
             .pixels
             .draw_rgba(reference, width, height, rgba, clip_rect, expected_revision)
     }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_draw_rgba_blended(
+        &mut self,
+        reference: &PixelRef,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        clip_rect: Option<crate::BitmapRect>,
+        expected_revision: &str,
+        blend_mode: &str,
+    ) -> Result<(), BitmapError> {
+        self.graph.pixels.draw_rgba_blended(
+            reference,
+            width,
+            height,
+            rgba,
+            clip_rect,
+            expected_revision,
+            blend_mode,
+        )
+    }
     pub fn bitmap_get_pixel(
         &self,
         reference: &PixelRef,

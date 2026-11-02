@@ -887,6 +887,36 @@ impl WebPlayer {
             )
             .map_err(display_error)
     }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_draw_rgba_blended(
+        &mut self,
+        target: &str,
+        width: u32,
+        height: u32,
+        bytes: &[u8],
+        clip_rect: &str,
+        expected_revision: &str,
+        blend_mode: &str,
+    ) -> Result<(), JsValue> {
+        if clip_rect.len() > 4096 || expected_revision.len() > 32 || blend_mode.len() > 32 {
+            return Err(JsValue::from_str(
+                "BitmapData draw arguments exceed their input bounds",
+            ));
+        }
+        let rect: Option<neoflash_core::BitmapRect> =
+            serde_json::from_str(clip_rect).map_err(display_error)?;
+        self.player
+            .bitmap_draw_rgba_blended(
+                &pixel_ref(target)?,
+                width,
+                height,
+                bytes,
+                rect,
+                expected_revision,
+                blend_mode,
+            )
+            .map_err(display_error)
+    }
     pub fn bitmap_draw_snapshot(
         &self,
         source: &str,
@@ -1222,7 +1252,8 @@ impl WebPlayer {
         rgba: &[u8],
         filters: &str,
     ) -> Result<Vec<u8>, JsValue> {
-        neoflash_core::filter_rgba(width, height, rgba, &filter_specs(filters)?)
+        self.player
+            .filter_rgba(width, height, rgba, &filter_specs(filters)?)
             .map_err(display_error)
     }
     pub fn object_set_scroll_rect(&mut self, target: &str, rect: &str) -> Result<(), JsValue> {

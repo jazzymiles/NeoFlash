@@ -19,6 +19,8 @@ struct CompileContext {
     intrinsic_types: std::collections::BTreeSet<String>,
     functions: std::collections::BTreeMap<String, String>,
     interfaces: std::collections::BTreeSet<String>,
+    namespaces: std::collections::BTreeMap<String, String>,
+    open_namespaces: Vec<String>,
     members: std::collections::BTreeMap<String, Option<String>>,
     static_members: std::collections::BTreeMap<String, String>,
     as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
@@ -368,12 +370,18 @@ enum Expr {
         attribute: bool,
         descendant: bool,
     },
+    XmlFilter(Box<Expr>, Box<Expr>, usize),
+    XmlWithAttr {
+        local: Box<Expr>,
+        namespace: Option<Box<Expr>>,
+    },
     XmlLiteral(String, Vec<Expr>),
     RegExpLiteral(String, String),
     Array(Vec<Option<Expr>>),
     Object(Vec<(PropertyKey, Expr)>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
+    InstanceOf(Box<Expr>, Box<Expr>),
     TypeTest(String, Box<Expr>, String, usize),
     TypeValue(String, usize),
     Delete(Box<Expr>, usize),
@@ -461,9 +469,14 @@ impl Expr {
             | Self::Update(_, v, _)
             | Self::TypeTest(_, v, _, _)
             | Self::Delete(v, _) => v.depth(),
-            Self::Index(a, b) | Self::Binary(_, a, b) | Self::Assign(_, a, b) => {
-                a.depth().max(b.depth())
-            }
+            Self::Index(a, b)
+            | Self::Binary(_, a, b)
+            | Self::Assign(_, a, b)
+            | Self::XmlFilter(a, b, _)
+            | Self::InstanceOf(a, b) => a.depth().max(b.depth()),
+            Self::XmlWithAttr { local, namespace } => local
+                .depth()
+                .max(namespace.as_deref().map_or(0, Self::depth)),
             Self::XmlSelect {
                 base,
                 local,
@@ -491,7 +504,7 @@ impl Expr {
         match self {
             // Writes to globals are checked after lexical scope resolution.
             Self::Name(name) => name != "this",
-            Self::Member(_, _) | Self::Index(_, _) => true,
+            Self::Member(_, _) | Self::Index(_, _) | Self::XmlWithAttr { .. } => true,
             Self::XmlSelect { descendant, .. } => !descendant,
             _ => false,
         }
@@ -509,6 +522,7 @@ struct LegacyTrigger {
 enum Stmt {
     Empty,
     Expr(Expr),
+    DefaultXmlNamespace(Expr),
     Var(Vec<(String, Option<String>, Option<Expr>)>),
     Block(Vec<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
@@ -748,6 +762,98 @@ impl<'a> Frontend<'a> {
         let body = self.statement()?;
         Ok(Stmt::IfFrameLoaded(args, Box::new(body)))
     }
+    #[inline(never)]
+    fn parse_as3_directive(&mut self) -> Result<Option<Stmt>, Diagnostic> {
+        if self.is("default")
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "xml"))
+            && self
+                .peek(self.pos + 2)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "namespace"))
+        {
+            self.expect("default")?;
+            self.expect("xml")?;
+            self.expect("namespace")?;
+            self.expect("=")?;
+            let expr = self.expression(0)?;
+            self.semicolon()?;
+            return Ok(Some(Stmt::DefaultXmlNamespace(expr)));
+        }
+        if self.is("use")
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "namespace"))
+        {
+            self.expect("use")?;
+            self.expect("namespace")?;
+            loop {
+                let ns = self.ident()?;
+                let uri = self
+                    .context
+                    .namespaces
+                    .get(&ns)
+                    .cloned()
+                    .unwrap_or_else(|| ns.clone());
+                if !self.context.open_namespaces.contains(&uri) {
+                    self.context.open_namespaces.push(uri);
+                }
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            self.semicolon()?;
+            return Ok(Some(Stmt::Empty));
+        }
+        if self.is("namespace")
+            || ((self.is("public") || self.is("internal"))
+                && self
+                    .peek(self.pos + 1)
+                    .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "namespace")))
+        {
+            let _ = self.eat("public") || self.eat("internal");
+            let offset = self.token().offset;
+            self.expect("namespace")?;
+            let name = self.ident()?;
+            let uri = if self.eat("=") {
+                let expr = self.expression(0)?;
+                let Some(s) = literal_property_name(&expr) else {
+                    return Err(self.error("namespace URI requires a string literal."));
+                };
+                s
+            } else {
+                format!("neoflash://namespace/{name}")
+            };
+            self.semicolon()?;
+            self.context.namespaces.insert(name.clone(), uri.clone());
+            let uri_lit = serde_json::to_string(&uri).unwrap();
+            let init = Expr::Call(
+                Box::new(Expr::Name("Namespace".into())),
+                vec![Expr::Literal(uri_lit)],
+                offset,
+            );
+            return Ok(Some(Stmt::Var(vec![(name, None, Some(init))])));
+        }
+        if self.is("native")
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::Ident(s) if s == "function"))
+        {
+            self.expect("native")?;
+            let (func, _) = self.project_function(true, false, false, true)?;
+            return Ok(Some(Stmt::Function(Box::new(func))));
+        }
+        if self.is("include")
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| matches!(&t.kind, Kind::String(_)))
+        {
+            return Err(self.error(
+                "include requires compile_with_program and bundled .as project resources.",
+            ));
+        }
+        Ok(None)
+    }
     fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
         if self.is("#endinitclip") {
             return Err(self.error("Unexpected #endinitclip without a matching #initclip."));
@@ -775,11 +881,6 @@ impl<'a> Frontend<'a> {
         }
         if self.is("with") {
             let offset = self.token().offset;
-            if self.script.language != ScriptLanguage::ActionScript2 {
-                return Err(
-                    self.error("with is currently supported only in the AS2 source profile.")
-                );
-            }
             self.expect("with")?;
             self.expect("(")?;
             let target = self.expression(0)?;
@@ -791,6 +892,11 @@ impl<'a> Frontend<'a> {
                 return Err(self.error("Function definitions and eval/set calls inside with require captured/dynamic scope-chain semantics outside this profile. Define callbacks and resolve named paths outside the with block."));
             }
             return Ok(Stmt::With(target, Box::new(body), offset));
+        }
+        if self.script.language == ScriptLanguage::ActionScript3
+            && let Some(stmt) = self.parse_as3_directive()?
+        {
+            return Ok(stmt);
         }
         if self.is("on") || self.is("onClipEvent") {
             if self.script.language != ScriptLanguage::ActionScript2
@@ -1476,6 +1582,18 @@ impl<'a> Frontend<'a> {
         let body = if signature_only {
             self.expect(";")?;
             Vec::new()
+        } else if allow_as2_signature_accessor
+            && self.script.language == ScriptLanguage::ActionScript3
+            && self.eat(";")
+        {
+            if returns.as_deref() == Some("void") || returns.is_none() {
+                Vec::new()
+            } else {
+                vec![Stmt::Return(
+                    Some(Expr::Literal("undefined".into())),
+                    offset,
+                )]
+            }
         } else {
             self.expect("{")?;
             let outer_controls = std::mem::take(&mut self.controls);
@@ -1707,8 +1825,26 @@ impl<'a> Frontend<'a> {
                     lhs = Expr::TypeValue(format!("Vector.<{element}>"), offset);
                     continue;
                 }
-                if self.is("(") {
-                    return Err(self.error("E4X filters require an XML predicate scope not implemented yet; use explicit for each and conditions."));
+                if self.eat("(") {
+                    if self.script.language != ScriptLanguage::ActionScript3 {
+                        return Err(self.error("E4X filters require AS3."));
+                    }
+                    self.with_depth += 1;
+                    let outer_no_in = self.no_in;
+                    self.no_in = false;
+                    let predicate = self.sequence_expression()?;
+                    self.no_in = outer_no_in;
+                    self.with_depth -= 1;
+                    self.expect(")")?;
+                    if !scope::with_body_supported(&Stmt::Expr(predicate.clone())) {
+                        return Err(self.error(
+                            "Function definitions inside E4X filter predicates are not supported.",
+                        ));
+                    }
+                    let id = self.next_function;
+                    self.next_function += 1;
+                    lhs = Expr::XmlFilter(Box::new(lhs), Box::new(predicate), id);
+                    continue;
                 }
                 if self.is("@")
                     || self.is("*")
@@ -1804,6 +1940,15 @@ impl<'a> Frontend<'a> {
                     return Err(self.error("AS2 instanceof requires a resolved class or supported native constructor; dynamic constructor expressions are outside this profile."));
                 }
                 lhs = Expr::TypeTest(operator, Box::new(lhs), name, offset);
+                continue;
+            }
+            if operator == "instanceof" && self.script.language == ScriptLanguage::ActionScript3 {
+                if min_bp > 15 {
+                    break;
+                }
+                self.pos += 1;
+                let rhs = self.expression(16)?;
+                lhs = Expr::InstanceOf(Box::new(lhs), Box::new(rhs));
                 continue;
             }
             if operator == "in" && self.no_in {
@@ -1950,6 +2095,33 @@ impl<'a> Frontend<'a> {
         }
         if self.is("function") {
             return Ok(Expr::Function(Box::new(self.function(false)?)));
+        }
+        if self.script.language == ScriptLanguage::ActionScript3
+            && self.with_depth > 0
+            && self.eat("@")
+        {
+            let first = self.xml_name()?;
+            let (local, namespace) = if self.eat("::") {
+                let namespace = match &first {
+                    Expr::Literal(value) if value == "\"*\"" => Expr::Literal("null".into()),
+                    Expr::Literal(value) => Expr::Name(
+                        serde_json::from_str(value)
+                            .map_err(|_| self.error("Invalid namespace identifier."))?,
+                    ),
+                    _ => {
+                        return Err(self.error(
+                            "Computed namespace qualifiers are outside this selector profile; use an explicit QName value in brackets.",
+                        ))
+                    }
+                };
+                (self.xml_name()?, Some(Box::new(namespace)))
+            } else {
+                (first, None)
+            };
+            return Ok(Expr::XmlWithAttr {
+                local: Box::new(local),
+                namespace,
+            });
         }
         let token = self.token().clone();
         match token.kind {
@@ -2310,6 +2482,7 @@ const FAMILY_METHODS: &[&str] = &[
     "getStackTrace",
     "hasOwnProperty",
     "propertyIsEnumerable",
+    "setPropertyIsEnumerable",
     "isPrototypeOf",
     "childIndex",
     "comments",
@@ -2774,10 +2947,9 @@ impl Emitter<'_> {
         }
     }
     fn with_reference(&self, name: &str) -> Option<String> {
-        if self.as3
-            || self.with_targets.is_empty()
+        if self.with_targets.is_empty()
             || matches!(name, "this" | "super" | "eval" | "set")
-            || parse_as2_level(name).is_some()
+            || (!self.as3 && parse_as2_level(name).is_some())
         {
             return None;
         }
@@ -2796,31 +2968,42 @@ impl Emitter<'_> {
             .as_ref()
             .map(|owner| {
                 format!(
-                    "__nfContainerRef({owner},{name:?},false{})",
+                    "__nfContainerRef({owner},{name:?},{}{})",
+                    self.as3,
                     self.container_tail()
                 )
             })
             .or_else(|| plain.reference(&expression))
             .unwrap_or_else(|| {
                 let value = plain.unscoped_name(name);
-                let write = if self.analysis.resolve(self.scope, name).is_some()
+                let resolved = self.analysis.resolve(self.scope, name);
+                let write = if resolved.is_some()
                     || (!is_global(name) && !self.analysis.context.types.contains_key(name))
                 {
                     format!("__nfAssigned=>({value}=__nfAssigned)")
                 } else {
                     "()=>{throw new __nfTypeError('Cannot replace this built-in binding.');}".into()
                 };
-                format!("{{get:()=>{value},set:{write},delete:()=>false,has:()=>true}}")
+                let has_expr = if resolved.is_some_and(|(id, _)| id != 0)
+                    || is_global(name)
+                    || self.analysis.context.types.contains_key(name)
+                {
+                    "true".into()
+                } else {
+                    format!("({value} !== undefined)")
+                };
+                format!("{{get:()=>{value},set:{write},delete:()=>false,has:()=>{has_expr}}}")
             });
         let receiver = receiver.unwrap_or_else(|| "undefined".into());
         Some(format!(
-            "__nfWithRef([{}],{name:?},()=>({fallback}),{receiver}{})",
+            "__nfWithRef([{}],{name:?},()=>({fallback}),{receiver},{}{})",
             self.with_targets
                 .iter()
                 .rev()
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(","),
+            self.as3,
             self.container_tail()
         ))
     }
@@ -2834,6 +3017,33 @@ impl Emitter<'_> {
             && self.analysis.context.core_type(name)
         {
             return format!("__nfNumericClass({name:?})");
+        }
+        if self.as3
+            && name == "Class"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return "__nfClassMetaclass".into();
+        }
+        if self.as3
+            && name == "Function"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return "__nfFunctionClass".into();
+        }
+        if self.as3
+            && is_error_type(name)
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return format!("__nfErrorClass({name:?}, true)");
+        }
+        if self.as3
+            && self.analysis.resolve(self.scope, name).is_none()
+            && let Some(uri) = self.analysis.context.namespaces.get(name)
+        {
+            return format!("__nfXML.namespace(undefined, {uri:?})");
         }
         if name == "Math"
             && self.analysis.resolve(self.scope, name).is_none()
@@ -3184,9 +3394,16 @@ impl Emitter<'_> {
             .iter()
             .take_while(|value| value.is_none())
             .count();
+        let fn_body = if self.as3 && has_default_xml_ns(&f.body) {
+            format!(
+                "const __nfPrevXmlNs = typeof __nfXML !== 'undefined' && __nfXML?.getDefaultNamespace ? __nfXML.getDefaultNamespace() : '';\ntry {{\n{}\n}} finally {{\nif (typeof __nfXML !== 'undefined' && __nfXML?.setDefaultNamespace) __nfXML.setDefaultNamespace(__nfPrevXmlNs);\n}}",
+                inner.body(&f.body)
+            )
+        } else {
+            inner.body(&f.body)
+        };
         format!(
-            "__nfSourceFunction(function(__nfActivation) {{\n{prologue}{}\n}}, {{as3:{}, length:{}, required:{required}, allowExtra:{}, defaultReceiver:typeof __nfFrame === 'undefined' ? undefined : __nfFrame}})",
-            inner.body(&f.body),
+            "__nfSourceFunction(function(__nfActivation) {{\n{prologue}{fn_body}\n}}, {{as3:{}, length:{}, required:{required}, allowExtra:{}, defaultReceiver:typeof __nfFrame === 'undefined' ? undefined : __nfFrame}})",
             self.as3,
             f.params.len(),
             !self.as3 || f.rest.is_some() || uses_arguments,
@@ -3332,6 +3549,20 @@ impl Emitter<'_> {
                 attribute,
                 descendant,
             } => {
+                if self.as3
+                    && !*attribute
+                    && !*descendant
+                    && let Some(namespace) = namespace
+                {
+                    return Some(format!(
+                        "__nfQualifiedRef({}, {}, {}, {}{})",
+                        self.expression(base),
+                        self.expression(namespace),
+                        self.expression(local),
+                        self.as3,
+                        self.container_tail()
+                    ));
+                }
                 let selector = if let Some(namespace) = namespace {
                     format!(
                         "((__nfNamespace,__nfLocal)=>__nfXML.selector(__nfLocal,__nfNamespace,{attribute},{descendant}))({}, {})",
@@ -3348,6 +3579,29 @@ impl Emitter<'_> {
                     "__nfXML.ref({}, {selector}, {})",
                     self.expression(base),
                     self.as3
+                ))
+            }
+            Expr::XmlWithAttr { local, namespace } => {
+                let selector = if let Some(namespace) = namespace {
+                    format!(
+                        "((__nfNamespace,__nfLocal)=>__nfXML.selector(__nfLocal,__nfNamespace,true,false))({}, {})",
+                        self.expression(namespace),
+                        self.expression(local)
+                    )
+                } else {
+                    format!(
+                        "__nfXML.selector({},undefined,true,false)",
+                        self.expression(local)
+                    )
+                };
+                Some(format!(
+                    "__nfWithXmlAttr([{}], {selector})",
+                    self.with_targets
+                        .iter()
+                        .rev()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(",")
                 ))
             }
             Expr::Index(base, key) => Some(format!(
@@ -3425,6 +3679,32 @@ impl Emitter<'_> {
             Expr::XmlSelect { .. } => format!(
                 "({}).get()",
                 self.reference(expr).expect("XML selector ref")
+            ),
+            Expr::XmlWithAttr { .. } => format!(
+                "({}).get()",
+                self.reference(expr).expect("XML with attribute ref")
+            ),
+            Expr::XmlFilter(base, predicate, id) => {
+                let item = format!("__nfXmlFilter{id}");
+                let mut targets = self.with_targets.clone();
+                targets.push(item.clone());
+                let inner = Emitter {
+                    as3: self.as3,
+                    analysis: self.analysis,
+                    scope: self.scope,
+                    with_targets: targets,
+                    tell_target: self.tell_target.clone(),
+                };
+                format!(
+                    "__nfXML.filter({}, ({item}) => Boolean({}))",
+                    self.expression(base),
+                    inner.expression(predicate)
+                )
+            }
+            Expr::InstanceOf(lhs, rhs) => format!(
+                "__nfAs3InstanceOf({}, {})",
+                self.expression(lhs),
+                self.expression(rhs)
             ),
             Expr::TypeValue(ty, _) => self.vector_type(ty),
             Expr::NewVector(ty, args, _) => format!(
@@ -4084,6 +4364,33 @@ impl Emitter<'_> {
                                 .join(", ")
                         );
                     }
+                    if self.as3 && name == "Class" && self.analysis.context.core_type(name) {
+                        return format!(
+                            "__nfClassMetaclass({})",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    if self.as3 && name == "Function" && self.analysis.context.core_type(name) {
+                        return format!(
+                            "__nfFunctionClass({})",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    if self.as3 && is_error_type(name) && self.analysis.context.core_type(name) {
+                        return format!(
+                            "__nfMakeError({name:?}, true, [{}])",
+                            args.iter()
+                                .map(|a| self.expression(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                     if self.analysis.context.numeric_conversion(name, self.as3) {
                         let value = args
                             .first()
@@ -4317,6 +4624,22 @@ impl Emitter<'_> {
                         // value reads use the native-method identity guard, but
                         // calling a helper result here would erase this binding.
                         if self.as3
+                            && let Expr::XmlSelect {
+                                base,
+                                local,
+                                namespace: Some(namespace),
+                                attribute: false,
+                                descendant: false,
+                            } = callee.as_ref()
+                        {
+                            format!(
+                                "__nfQualifiedMethod({}, {}, {}, true{})",
+                                self.expression(base),
+                                self.expression(namespace),
+                                self.expression(local),
+                                self.container_tail()
+                            )
+                        } else if self.as3
                             && let Expr::Member(base, name) = callee.as_ref()
                         {
                             format!(
@@ -4357,6 +4680,9 @@ impl Emitter<'_> {
         match stmt {
             Stmt::Empty => ";".into(),
             Stmt::Expr(expr) => format!("{};", self.expression(expr)),
+            Stmt::DefaultXmlNamespace(expr) => {
+                format!("__nfXML.setDefaultNamespace({});", self.expression(expr))
+            }
             Stmt::LegacyEvent(triggers, func) => {
                 let code = format!(
                     "(function() {{\nconst __nfFrame = this, _parent = this._parent;\nreturn ({}).apply(this, arguments);\n}})",
@@ -4432,8 +4758,9 @@ impl Emitter<'_> {
                     tell_target: self.tell_target.clone(),
                 };
                 format!(
-                    "{{const {name}=__nfWithTarget({});\n{}\n}}",
+                    "{{const {name}=__nfWithTarget({}, {});\n{}\n}}",
                     self.expression(target),
+                    self.as3,
                     inner.statement(body)
                 )
             }
@@ -4725,7 +5052,19 @@ function __nfXMLSwitch(value) {
 function __nfXMLBinary(op,left,right) {
     if(typeof __nfXML!=='undefined'&&__nfXML) {
         const a=__nfXML.kind(left),b=__nfXML.kind(right);
-        if(a==='xml'||a==='list'||b==='xml'||b==='list'||(op!=='+'&&(a==='namespace'||a==='qname'||b==='namespace'||b==='qname')))throw new __nfTypeError('E4X XML addition and equality are not implemented; explicitly convert content with String()/toXMLString() before comparing or combining it.');
+        if(op==='+') {
+            if((a==='xml'||a==='list')&&(b==='xml'||b==='list'))return __nfXML.concat(left,right);
+            if(a==='xml'||a==='list'||b==='xml'||b==='list')return __nfString(left)+__nfString(right);
+        } else if(a==='xml'||a==='list'||b==='xml'||b==='list'||a==='namespace'||a==='qname'||b==='namespace'||b==='qname') {
+            if(op==='=='||op==='!=') {
+                const eq=__nfXML.equals(left,right);
+                return op==='=='?eq:!eq;
+            }
+            if(op==='==='||op==='!==') {
+                const eq=__nfXML.strictEquals(left,right);
+                return op==='==='?eq:!eq;
+            }
+        }
     }
     switch(op){case '+':return left+right;case '==':return left==right;case '!=':return left!=right;case '===':return left===right;case '!==':return left!==right;}
     throw new __nfTypeError('Unsupported XML operator.');
@@ -4779,7 +5118,49 @@ function __nfMemberMethod(receiver, key, as3, caller, legacyCase) {
     .join("\n")
 }
 
-fn compile_context(script: &Script, context: CompileContext) -> Result<String, Diagnostic> {
+fn has_default_xml_ns(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::DefaultXmlNamespace(_) => true,
+        Stmt::Block(body) => has_default_xml_ns(body),
+        Stmt::If(_, yes, no) => {
+            has_default_xml_ns(std::slice::from_ref(yes))
+                || no
+                    .as_ref()
+                    .is_some_and(|n| has_default_xml_ns(std::slice::from_ref(n)))
+        }
+        Stmt::While(_, body)
+        | Stmt::With(_, body, _)
+        | Stmt::TellTarget(_, body, _)
+        | Stmt::IfFrameLoaded(_, body)
+        | Stmt::For(_, _, _, body)
+        | Stmt::ForIn(_, _, _, body)
+        | Stmt::DoWhile(body, _)
+        | Stmt::Label(_, body) => has_default_xml_ns(std::slice::from_ref(body)),
+        Stmt::Switch(_, cases) => cases.iter().any(|c| has_default_xml_ns(&c.body)),
+        Stmt::Try(body, catches, finally) => {
+            has_default_xml_ns(body)
+                || catches.iter().any(|c| has_default_xml_ns(&c.body))
+                || finally.as_ref().is_some_and(|f| has_default_xml_ns(f))
+        }
+        _ => false,
+    })
+}
+
+fn compile_context(script: &Script, mut context: CompileContext) -> Result<String, Diagnostic> {
+    if script.language == ScriptLanguage::ActionScript3 {
+        context
+            .namespaces
+            .entry("AS3".into())
+            .or_insert_with(|| "http://adobe.com/AS3/2006/builtin".into());
+        context
+            .namespaces
+            .entry("flash_proxy".into())
+            .or_insert_with(|| "http://www.adobe.com/2006/actionscript/flash/proxy".into());
+        context
+            .namespaces
+            .entry("object_proxy".into())
+            .or_insert_with(|| "http://www.adobe.com/2006/flex/mx/internal".into());
+    }
     let legacy_case = context.legacy_case;
     let tokens = TokenCursor::default();
     let mut parser = Frontend {
@@ -4790,14 +5171,14 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         controls: Vec::new(),
         function_depth: 0,
         next_function: 1,
-        context: context.clone(),
+        context,
         no_in: false,
         with_depth: 0,
         in_initclip: false,
     };
     let statements = parser.statements(false)?;
-    let analysis = scope::Analysis::with_context(script, &statements, context)?;
-    let body = Emitter {
+    let analysis = scope::Analysis::with_context(script, &statements, parser.context)?;
+    let raw_body = Emitter {
         as3: script.language == ScriptLanguage::ActionScript3,
         analysis: &analysis,
         scope: 0,
@@ -4805,6 +5186,15 @@ fn compile_context(script: &Script, context: CompileContext) -> Result<String, D
         tell_target: None,
     }
     .body(&statements);
+    let body = if script.language == ScriptLanguage::ActionScript3
+        && has_default_xml_ns(&statements)
+    {
+        format!(
+            "const __nfPrevXmlNs = typeof __nfXML !== 'undefined' && __nfXML?.getDefaultNamespace ? __nfXML.getDefaultNamespace() : '';\ntry {{\n{raw_body}\n}} finally {{\nif (typeof __nfXML !== 'undefined' && __nfXML?.setDefaultNamespace) __nfXML.setDefaultNamespace(__nfPrevXmlNs);\n}}"
+        )
+    } else {
+        raw_body
+    };
     let legacy_prefix = if legacy_case {
         "const __nfLegacyCase = true;\n"
     } else {
@@ -4907,8 +5297,8 @@ mod tests {
     }
     #[test]
     fn missing_compatibility_features_fail_explicitly() {
+        assert!(compile_as("var x:XML = <a/>; x.(@id==1);").is_ok());
         for source in [
-            "var x:XML = <a/>; x.(@id==1);",
             "x = y is MissingType;",
             "on(release) { play(); }",
             "getURL('https://example.com');",

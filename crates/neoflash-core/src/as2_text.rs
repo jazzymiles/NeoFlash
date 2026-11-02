@@ -1,6 +1,6 @@
 //! Bounded AS2 styles and uniform HTML, adapted to NeoFlash's owned text model.
 //! CSS/TextFormat mappings follow Ruffle MIT v0.7.1 (89a7049965f3090e706265670df309a5128233ac).
-use crate::{TextAlign, TextError, TextFieldState, TextFormat, TextFormatPatch};
+use crate::{TextAlign, TextError, TextFieldState, TextFormat, TextFormatPatch, TextFormatRun};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -133,6 +133,8 @@ pub enum Request {
         styles: StyleSheet,
         #[serde(default)]
         condense_white: bool,
+        #[serde(default)]
+        multi_run: bool,
     },
     EscapeHtml {
         text: String,
@@ -140,6 +142,8 @@ pub enum Request {
     SerializeHtml {
         text: String,
         format: TextFormat,
+        #[serde(default)]
+        format_runs: Vec<TextFormatRun>,
     },
     ExtentField {
         text: String,
@@ -360,12 +364,21 @@ pub fn transform(style: &Style) -> Result<TextFormatPatch, TextError> {
                 })
             }
             "textAlign" => {
-                patch.align = Some(match text(value)?.to_ascii_lowercase().as_str() {
-                    "left" | "justify" => TextAlign::Left,
+                let mode = text(value)?.to_ascii_lowercase();
+                patch.align = Some(match mode.as_str() {
+                    "left" | "start" | "justify" => TextAlign::Left,
                     "center" => TextAlign::Center,
-                    "right" => TextAlign::Right,
+                    "right" | "end" => TextAlign::Right,
                     _ => return Err(error("CSS textAlign supports left/center/right/justify")),
-                })
+                });
+                patch.align_mode = Some(mode);
+            }
+            "display" => {
+                let mode = text(value)?.to_ascii_lowercase();
+                if !matches!(mode.as_str(), "inline" | "block" | "none") {
+                    return Err(error("CSS display supports inline/block/none"));
+                }
+                patch.display = Some(mode);
             }
             "marginLeft" => patch.left_margin = Some(number(value)?.max(0.)),
             "marginRight" => patch.right_margin = Some(number(value)?.max(0.)),
@@ -391,38 +404,152 @@ pub fn transform(style: &Style) -> Result<TextFormatPatch, TextError> {
     format.validate()?;
     Ok(patch)
 }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlImageSpec {
+    pub id: Option<String>,
+    pub src: String,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+    pub hspace: f64,
+    pub vspace: f64,
+    pub align: String,
+    pub char_index: u32,
+}
+
 #[derive(Serialize)]
 struct HtmlResult {
     text: String,
     format: TextFormat,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    format_runs: Vec<TextFormatRun>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<HtmlImageSpec>,
 }
+
+fn normalize_html_void_tags(source: &str) -> String {
+    let stage1 = source
+        .replace("<br>", "<br/>")
+        .replace("<BR>", "<BR/>")
+        .replace("&nbsp;", "&#160;");
+    // Self-close bare <img ...> tags when no closing </img> is present.
+    if stage1.to_ascii_lowercase().contains("</img") {
+        return stage1;
+    }
+    let bytes = stage1.as_bytes();
+    let mut out = String::with_capacity(stage1.len() + 16);
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'<'
+            && i + 4 <= bytes.len()
+            && stage1[i + 1..i + 4].eq_ignore_ascii_case("img")
+            && (i + 4 == bytes.len()
+                || bytes[i + 4].is_ascii_whitespace()
+                || bytes[i + 4] == b'/'
+                || bytes[i + 4] == b'>')
+        {
+            let tag_start = i;
+            i += 4;
+            let mut quote: Option<u8> = None;
+            while i < bytes.len() {
+                let b = bytes[i];
+                if let Some(q) = quote {
+                    if b == q {
+                        quote = None;
+                    }
+                } else if b == b'"' || b == b'\'' {
+                    quote = Some(b);
+                } else if b == b'>' {
+                    break;
+                }
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'>' {
+                let inner = &stage1[tag_start..i];
+                if inner.trim_end().ends_with('/') {
+                    out.push_str(inner);
+                    out.push('>');
+                } else {
+                    out.push_str(inner);
+                    out.push_str("/>");
+                }
+                i += 1;
+                continue;
+            }
+            out.push_str(&stage1[tag_start..]);
+            break;
+        }
+        let ch = stage1[i..].chars().next().expect("valid utf-8");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn append_html_slice(
+    out: &mut String,
+    utf16_cursor: &mut u32,
+    runs: &mut Vec<TextFormatRun>,
+    slice: &str,
+    format: &TextFormat,
+) {
+    if slice.is_empty() {
+        return;
+    }
+    let units = slice.encode_utf16().count() as u32;
+    let start = *utf16_cursor;
+    let end = start + units;
+    *utf16_cursor = end;
+    out.push_str(slice);
+    if let Some(last) = runs.last_mut()
+        && last.end == start
+        && last.format == *format
+    {
+        last.end = end;
+    } else {
+        runs.push(TextFormatRun {
+            start,
+            end,
+            format: format.clone(),
+        });
+    }
+}
+
 fn html(
     source: &str,
     base: TextFormat,
     styles: &StyleSheet,
     condense: bool,
+    multi_run: bool,
 ) -> Result<HtmlResult, TextError> {
     if source.len() > MAX_SOURCE {
         return Err(error("htmlText exceeds 1 MiB"));
     }
     styles.validate()?;
     base.validate()?;
-    let source = source
-        .replace("<br>", "<br/>")
-        .replace("<BR>", "<BR/>")
-        .replace("&nbsp;", "&#160;");
+    let source = normalize_html_void_tags(source);
     let tree = crate::parse_xml(&source)
         .map_err(|e| error(format!("htmlText requires balanced supported tags: {e:?}")))?;
     let mut result = String::new();
+    let mut utf16_cursor = 0u32;
     let mut uniform: Option<TextFormat> = None;
+    let mut runs: Vec<TextFormatRun> = Vec::new();
+    let mut images: Vec<HtmlImageSpec> = Vec::new();
+
+    #[allow(clippy::too_many_arguments)]
     fn visit(
         index: usize,
         tree: &crate::XmlParseTree,
         format: &TextFormat,
         styles: &StyleSheet,
         condense: bool,
+        multi_run: bool,
         out: &mut String,
+        utf16_cursor: &mut u32,
         uniform: &mut Option<TextFormat>,
+        runs: &mut Vec<TextFormatRun>,
+        images: &mut Vec<HtmlImageSpec>,
     ) -> Result<(), TextError> {
         let node = &tree.nodes[index];
         if node.kind == crate::XmlNodeKind::Text {
@@ -444,14 +571,16 @@ fn html(
                 value = clean;
             }
             if !value.trim().is_empty() {
-                if uniform.as_ref().is_some_and(|existing| existing != format) {
+                if !multi_run && uniform.as_ref().is_some_and(|existing| existing != format) {
                     return Err(error(
                         "htmlText contains mixed formatting; this batch supports one uniform TextFormat across visible text",
                     ));
                 }
-                *uniform = Some(format.clone());
+                if uniform.is_none() || !multi_run {
+                    *uniform = Some(format.clone());
+                }
             }
-            out.push_str(&value);
+            append_html_slice(out, utf16_cursor, runs, &value, format);
             return Ok(());
         }
         if node.kind == crate::XmlNodeKind::Comment {
@@ -462,13 +591,77 @@ fn html(
         }
         let tag = node.name.as_ref().unwrap().local.to_ascii_lowercase();
         if tag == "br" {
-            out.push('\n');
+            append_html_slice(out, utf16_cursor, runs, "\n", format);
             return Ok(());
         }
-        if !matches!(
-            tag.as_str(),
-            "p" | "span" | "b" | "strong" | "i" | "em" | "u" | "font" | "textformat" | "a"
-        ) {
+        if multi_run && tag == "img" {
+            let mut id = None;
+            let mut src = String::new();
+            let mut width = None;
+            let mut height = None;
+            let mut hspace = 8.0;
+            let mut vspace = 8.0;
+            let mut align = String::from("left");
+            for attr in &node.attributes {
+                let name = attr.name.local.to_ascii_lowercase();
+                let value = &attr.value;
+                match name.as_str() {
+                    "id" => id = Some(value.clone()),
+                    "src" => src = value.clone(),
+                    "width" => width = Some(number(&json!(value))?.max(0.0)),
+                    "height" => height = Some(number(&json!(value))?.max(0.0)),
+                    "hspace" => hspace = number(&json!(value))?.max(0.0),
+                    "vspace" => vspace = number(&json!(value))?.max(0.0),
+                    "align" => {
+                        let m = value.to_ascii_lowercase();
+                        if !matches!(m.as_str(), "left" | "right") {
+                            return Err(error("HTML <img> align supports left/right"));
+                        }
+                        align = m;
+                    }
+                    "checkpolicyfile" => {}
+                    _ => {
+                        return Err(error(format!(
+                            "htmlText attribute '{name}' on <img> is unsupported"
+                        )));
+                    }
+                }
+            }
+            images.push(HtmlImageSpec {
+                id,
+                src,
+                width,
+                height,
+                hspace,
+                vspace,
+                align,
+                char_index: *utf16_cursor,
+            });
+            return Ok(());
+        }
+        let allowed = if multi_run {
+            matches!(
+                tag.as_str(),
+                "p" | "span"
+                    | "b"
+                    | "strong"
+                    | "i"
+                    | "em"
+                    | "u"
+                    | "font"
+                    | "textformat"
+                    | "a"
+                    | "li"
+                    | "ul"
+                    | "ol"
+            )
+        } else {
+            matches!(
+                tag.as_str(),
+                "p" | "span" | "b" | "strong" | "i" | "em" | "u" | "font" | "textformat" | "a"
+            )
+        };
+        if !allowed {
             return Err(error(format!(
                 "htmlText tag <{tag}> is unsupported; content was not discarded"
             )));
@@ -482,6 +675,9 @@ fn html(
         }
         if tag == "u" {
             next.underline = true;
+        }
+        if tag == "li" {
+            next.bullet = true;
         }
         if let Some(style) = styles.styles.get(&tag) {
             transform(style)?.apply(&mut next);
@@ -498,12 +694,16 @@ fn html(
                     }
                 }
                 "align" if tag == "p" => {
-                    next.align = match value.to_ascii_lowercase().as_str() {
+                    let mode = value.to_ascii_lowercase();
+                    next.align = match mode.as_str() {
                         "left" | "justify" => TextAlign::Left,
                         "center" => TextAlign::Center,
                         "right" => TextAlign::Right,
                         _ => return Err(error("HTML paragraph alignment is unsupported")),
                     };
+                    if multi_run {
+                        next.align_mode = (mode == "justify").then_some(mode);
+                    }
                 }
                 "href" if tag == "a" => next.url = value.clone(),
                 "target" if tag == "a" => next.target = value.clone(),
@@ -523,6 +723,20 @@ fn html(
                 "indent" if tag == "textformat" => next.indent = number(&json!(value))?,
                 "blockindent" if tag == "textformat" => next.block_indent = number(&json!(value))?,
                 "leading" if tag == "textformat" => next.leading = number(&json!(value))?,
+                "tabstops" if tag == "textformat" && multi_run => {
+                    let mut stops = Vec::new();
+                    for part in value
+                        .trim_matches(['[', ']'])
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        stops.push(number(&json!(part))?);
+                    }
+                    stops.sort_by(|a, b| a.total_cmp(b));
+                    stops.dedup();
+                    next.tab_stops = stops;
+                }
                 _ => {
                     return Err(error(format!(
                         "htmlText attribute '{name}' on <{tag}> is unsupported"
@@ -531,14 +745,31 @@ fn html(
             }
         }
         next.validate()?;
-        if tag == "p" && !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
+        if multi_run && next.display.as_deref() == Some("none") {
+            return Ok(());
+        }
+        let is_block = matches!(tag.as_str(), "p" | "li")
+            || (multi_run && next.display.as_deref() == Some("block") && tag == "span");
+        if is_block && !out.is_empty() && !out.ends_with('\n') {
+            append_html_slice(out, utf16_cursor, runs, "\n", &next);
         }
         for child in &node.children {
-            visit(*child, tree, &next, styles, condense, out, uniform)?;
+            visit(
+                *child,
+                tree,
+                &next,
+                styles,
+                condense,
+                multi_run,
+                out,
+                utf16_cursor,
+                uniform,
+                runs,
+                images,
+            )?;
         }
-        if tag == "p" && !out.ends_with('\n') {
-            out.push('\n');
+        if is_block && !out.ends_with('\n') {
+            append_html_slice(out, utf16_cursor, runs, "\n", &next);
         }
         Ok(())
     }
@@ -549,15 +780,84 @@ fn html(
             &base,
             styles,
             condense,
+            multi_run,
             &mut result,
+            &mut utf16_cursor,
             &mut uniform,
+            &mut runs,
+            &mut images,
         )?;
     }
+    let representative = uniform.unwrap_or(base);
+    let out_runs = if !multi_run || runs.len() <= 1 {
+        Vec::new()
+    } else {
+        runs
+    };
     Ok(HtmlResult {
         text: result,
-        format: uniform.unwrap_or(base),
+        format: representative,
+        format_runs: out_runs,
+        images,
     })
 }
+
+fn serialize_single_run_html(text: &str, format: &TextFormat) -> String {
+    let escape = |value: &str| {
+        value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let mut body = escape(text).replace('\n', "<br/>");
+    if format.bold {
+        body = format!("<b>{body}</b>");
+    }
+    if format.italic {
+        body = format!("<i>{body}</i>");
+    }
+    if format.underline {
+        body = format!("<u>{body}</u>");
+    }
+    if !format.url.is_empty() {
+        body = format!(
+            "<a href=\"{}\" target=\"{}\">{body}</a>",
+            escape(&format.url),
+            escape(&format.target)
+        );
+    }
+    let body = format!(
+        "<font face=\"{}\" size=\"{}\" color=\"#{:06X}\">{body}</font>",
+        escape(&format.font),
+        format.size,
+        format.color
+    );
+    format!(
+        "<textformat leftmargin=\"{}\" rightmargin=\"{}\" indent=\"{}\" blockindent=\"{}\" leading=\"{}\">{body}</textformat>",
+        format.left_margin, format.right_margin, format.indent, format.block_indent, format.leading
+    )
+}
+
+fn utf16_slice(text: &str, start_u16: u32, end_u16: u32) -> &str {
+    let mut cur = 0u32;
+    let mut s_byte = text.len();
+    let mut e_byte = text.len();
+    let mut got_s = false;
+    for (b, ch) in text.char_indices() {
+        if !got_s && cur >= start_u16 {
+            s_byte = b;
+            got_s = true;
+        }
+        if cur >= end_u16 {
+            e_byte = b;
+            return &text[s_byte..e_byte];
+        }
+        cur += ch.len_utf16() as u32;
+    }
+    if !got_s { "" } else { &text[s_byte..e_byte] }
+}
+
 pub fn execute(request: Request) -> Result<Value, TextError> {
     match request {
         Request::HitLink {
@@ -570,11 +870,28 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
             if !x.is_finite() || !y.is_finite() {
                 return Err(error("Text link hit requires finite local coordinates"));
             }
-            if field.format.url.is_empty()
-                || field
-                    .box_size
-                    .is_some_and(|b| x < 0. || y < 0. || x > b.width || y > b.height)
+            if field
+                .box_size
+                .is_some_and(|b| x < 0. || y < 0. || x > b.width || y > b.height)
             {
+                return Ok(Value::Null);
+            }
+            if !field.format_runs.is_empty() {
+                for run in &layout.runs {
+                    if let Some(rfmt) = &run.format
+                        && !rfmt.url.is_empty()
+                        && !run.text.trim().is_empty()
+                    {
+                        let approx_w = run.text.chars().count() as f64 * rfmt.size * 0.65;
+                        let run_h = rfmt.size * 1.25;
+                        if x >= run.x && x <= run.x + approx_w && y >= run.y && y <= run.y + run_h {
+                            return Ok(json!({"url": rfmt.url, "target": rfmt.target}));
+                        }
+                    }
+                }
+                return Ok(Value::Null);
+            }
+            if field.format.url.is_empty() {
                 return Ok(Value::Null);
             }
             let hit = layout.lines.iter().any(|line| {
@@ -657,48 +974,32 @@ pub fn execute(request: Request) -> Result<Value, TextError> {
             format,
             styles,
             condense_white,
+            multi_run,
         } => Ok(
-            serde_json::to_value(html(&source, format, &styles, condense_white)?)
+            serde_json::to_value(html(&source, format, &styles, condense_white, multi_run)?)
                 .map_err(|e| error(e.to_string()))?,
         ),
-        Request::SerializeHtml { text, format } => {
+        Request::SerializeHtml {
+            text,
+            format,
+            format_runs,
+        } => {
             format.validate()?;
             if text.len() > MAX_SOURCE {
                 return Err(error("HTML source exceeds 1 MiB"));
             }
-            let escape = |value: &str| {
-                value
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;")
-                    .replace('"', "&quot;")
-            };
-            let mut body = escape(&text).replace('\n', "<br/>");
-            if format.bold {
-                body = format!("<b>{body}</b>");
+            if format_runs.is_empty() {
+                return Ok(json!({"result": serialize_single_run_html(&text, &format)}));
             }
-            if format.italic {
-                body = format!("<i>{body}</i>");
+            let mut out = String::new();
+            for run in &format_runs {
+                run.format.validate()?;
+                let sub = utf16_slice(&text, run.start, run.end);
+                if !sub.is_empty() {
+                    out.push_str(&serialize_single_run_html(sub, &run.format));
+                }
             }
-            if format.underline {
-                body = format!("<u>{body}</u>");
-            }
-            if !format.url.is_empty() {
-                body = format!(
-                    "<a href=\"{}\" target=\"{}\">{body}</a>",
-                    escape(&format.url),
-                    escape(&format.target)
-                );
-            }
-            let body = format!(
-                "<font face=\"{}\" size=\"{}\" color=\"#{:06X}\">{body}</font>",
-                escape(&format.font),
-                format.size,
-                format.color
-            );
-            Ok(
-                json!({"result":format!("<textformat leftmargin=\"{}\" rightmargin=\"{}\" indent=\"{}\" blockindent=\"{}\" leading=\"{}\">{body}</textformat>",format.left_margin,format.right_margin,format.indent,format.block_indent,format.leading)}),
-            )
+            Ok(json!({"result": out}))
         }
         Request::EscapeHtml { text } => {
             if text.len() > MAX_SOURCE {

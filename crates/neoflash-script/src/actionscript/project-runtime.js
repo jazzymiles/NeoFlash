@@ -11,7 +11,34 @@ const __nfProgram = (() => {
     const objectDefaults = {toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString};
     const classDefaultString = Function.prototype.toString;
     let nativeTypeNames = [];
-    const builtins = { Object, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), ...__nfFlashErrors, ...__nfBuiltins };
+    const flashProxyNs = typeof __nfXML?.namespace === 'function'
+        ? __nfXML.namespace('flash_proxy', 'http://www.adobe.com/2006/actionscript/flash/proxy')
+        : Object.freeze({ prefix: 'flash_proxy', uri: 'http://www.adobe.com/2006/actionscript/flash/proxy', toString() { return this.uri; } });
+    const objectProxyNs = typeof __nfXML?.namespace === 'function'
+        ? __nfXML.namespace('object_proxy', 'http://www.adobe.com/2006/flex/mx/internal')
+        : Object.freeze({ prefix: 'object_proxy', uri: 'http://www.adobe.com/2006/flex/mx/internal', toString() { return this.uri; } });
+    function FlashProxy() {}
+    FlashProxy.prototype = Object.create(Object.prototype);
+    Object.defineProperties(FlashProxy.prototype, {
+        constructor: { value: FlashProxy, writable: true, configurable: true },
+        getProperty: { value: function(name) { throw new __nfFlashErrors['flash.errors.IllegalOperationError'](`Proxy.getProperty(${name}) is not implemented.`); }, writable: true, configurable: true },
+        setProperty: { value: function(name, _value) { throw new __nfFlashErrors['flash.errors.IllegalOperationError'](`Proxy.setProperty(${name}) is not implemented.`); }, writable: true, configurable: true },
+        callProperty: { value: function(name) { throw new __nfFlashErrors['flash.errors.IllegalOperationError'](`Proxy.callProperty(${name}) is not implemented.`); }, writable: true, configurable: true },
+        hasProperty: { value: function(_name) { return false; }, writable: true, configurable: true },
+        deleteProperty: { value: function(_name) { return false; }, writable: true, configurable: true },
+        getDescendants: { value: function(name) { throw new __nfFlashErrors['flash.errors.IllegalOperationError'](`Proxy.getDescendants(${name}) is not implemented.`); }, writable: true, configurable: true },
+        isAttribute: { value: function(name) {
+            if (typeof __nfXML !== 'undefined' && __nfXML?.QName?.__nfIs?.(name) && name.__nfAttribute === true) return true;
+            if (typeof name === 'object' && name !== null && name.isAttribute === true) return true;
+            return typeof name === 'string' && name.startsWith('@');
+        }, writable: true, configurable: true },
+        nextNameIndex: { value: function(_index) { return 0; }, writable: true, configurable: true },
+        nextName: { value: function(_index) { return ''; }, writable: true, configurable: true },
+        nextValue: { value: function(_index) { return undefined; }, writable: true, configurable: true },
+    });
+    Object.defineProperty(FlashProxy, '__nfInitialize', { value: function() {} });
+    Object.defineProperty(FlashProxy, '__nfIs', { value: function(v) { return v instanceof FlashProxy; } });
+    const builtins = { Object, Class: __nfClassMetaclass, Function: __nfFunctionClass, Array: __nfArrayClass(true), Date: __nfDateClass(true), RegExp: __nfRegExpClass(true), JSON: __nfJSON, XML:__nfXML?.XML, XMLList:__nfXML?.XMLList, Namespace:__nfXML?.Namespace, QName:__nfXML?.QName, 'flash.utils.Dictionary':__nfDictionaryClass(true), 'flash.utils.Proxy': FlashProxy, 'flash.utils.flash_proxy': flashProxyNs, 'mx.utils.object_proxy': objectProxyNs, ...__nfFlashErrors, ...__nfBuiltins };
     function resolveIntrinsic(name) {
         let cur = __nfLegacy?._global;
         for (const part of name.split('.')) {
@@ -98,6 +125,29 @@ const __nfProgram = (() => {
         return matches[0]||null;
     }
     function publicSlot(receiver,name){return [...(slots.get(receiver)?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='public')||null;}
+    function resolveQualifiedSlot(receiver,name,caller){
+        return resolveSlot(receiver,name,caller||identities.get(receiver))||publicSlot(receiver,name);
+    }
+    function isProxy(receiver){
+        return receiver!=null&&(typeof receiver==='object'||typeof receiver==='function')&&!classFacades.has(receiver)&&is(receiver,'flash.utils.Proxy');
+    }
+    const proxyBypassProps=new Set(['isAttribute','hasOwnProperty','propertyIsEnumerable','setPropertyIsEnumerable','isPrototypeOf','toString','valueOf','toLocaleString','constructor']);
+    function hasTrait(receiver,name,caller){
+        if(!classDefinition(receiver))return false;
+        if(resolveSlot(receiver,name,caller||identities.get(receiver)))return true;
+        return proxyBypassProps.has(name);
+    }
+    function invokeProxy(receiver,trap,args){
+        const owner=identities.get(receiver);
+        const slot=resolveSlot(receiver,trap,owner)||publicSlot(receiver,trap);
+        if(slot){
+            const fn=slot.get();
+            if(typeof fn==='function')return Reflect.apply(fn,receiver,args);
+        }
+        const protoFn=FlashProxy.prototype[trap];
+        if(typeof protoFn==='function')return Reflect.apply(protoFn,receiver,args);
+        throw new TypeError(`Proxy trap ${trap} is unavailable.`);
+    }
     function dynamicAllowed(value){const definition=classDefinition(value);return !definition||(!classFacades.has(value)&&definition.dynamic);}
     function assertDynamicWrite(value,name){
         if(!dynamicAllowed(value))throw new ReferenceError(`Cannot create property ${name} on sealed class ${classDefinition(value).name}; declare it or mark the class dynamic.`);
@@ -106,6 +156,14 @@ const __nfProgram = (() => {
         if(!classDefinition(receiver))return null;
         const slot=resolveSlot(receiver,name,caller);
         if(slot)return {get:slot.get,set(value){slot.set(value);return value;},delete:()=>false,has:()=>true};
+        if(isProxy(receiver)&&!proxyBypassProps.has(name)){
+            return {
+                get:()=>invokeProxy(receiver,'getProperty',[name]),
+                set(value){invokeProxy(receiver,'setProperty',[name,value]);return value;},
+                delete:()=>Boolean(invokeProxy(receiver,'deleteProperty',[name])),
+                has:()=>Boolean(invokeProxy(receiver,'hasProperty',[name])),
+            };
+        }
         // Only public/native descriptors are installed on the actual receiver.
         // Nonpublic traits never leak through raw indexing, JSON or host callbacks.
         const object=Object(receiver);
@@ -368,7 +426,7 @@ const __nfProgram = (() => {
             return {...value,access,owner:name,namespace,slot};
         }
         fields=fields.map(member);methods=methods.map(member);accessors=accessors.map(member);
-        const ordinary=dialect==='as3'&&(!base||base==='Object'||definitions.get(base)?.ordinary===true);
+        const ordinary=dialect==='as3'&&(!base||base==='Object'||base==='flash.utils.Proxy'||definitions.get(base)?.ordinary===true);
         const definition = { name, base, fields, methods, ctor, facade, dialect, accessors, interfaces:implemented,package:packageName,dynamic:Boolean(options.dynamic),final:Boolean(options.final),reflection:options.reflection,ordinary };
         classFacades.set(facade,name);
         definitions.set(name, definition);
@@ -377,7 +435,7 @@ const __nfProgram = (() => {
             // core/MethodEnv.cpp::newclass connects prototype
             // delegates, then defines a nonenumerable constructor. Fixed traits
             // remain per-instance slots; native/display allocation is untouched.
-            Object.setPrototypeOf(facade.prototype,definitions.get(base)?.facade.prototype||Object.prototype);
+            Object.setPrototypeOf(facade.prototype,definitions.get(base)?.facade.prototype||(base==='flash.utils.Proxy'?FlashProxy.prototype:Object.prototype));
             Object.defineProperty(facade.prototype,'constructor',{value:facade,writable:true,configurable:true,enumerable:false});
             Object.defineProperty(facade,'prototype',{writable:false});
             prototypeOwners.set(facade.prototype,name);
@@ -415,6 +473,9 @@ const __nfProgram = (() => {
     function reflectionClass(name) {
         if(['Number','int','uint','Boolean'].includes(name))return __nfNumericClass(name);
         if(name==='String')return __nfStringClass(true);
+        if(name==='Class')return __nfClassMetaclass;
+        if(name==='Function')return __nfFunctionClass;
+        if(Object.hasOwn(__nfErrorTypes,name))return __nfErrorClass(name,true);
         return type(name);
     }
     function className(value) {
@@ -423,10 +484,17 @@ const __nfProgram = (() => {
         if(classFacades.has(value))return classFacades.get(value);
         if(value===__nfObjectClass(true))return 'Object';
         if(value===__nfStringClass(true))return 'String';
+        if(value===__nfClassMetaclass)return 'Class';
+        if(value===__nfFunctionClass)return 'Function';
+        if(typeof value==='function'&&typeof value.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name)&&value===__nfErrorClass(value.name,true))return value.name;
         for(const name of nativeTypeNames)if(builtins[name]!==undefined&&builtins[name]===value)return name;
         return null;
     }
-    function isClass(value) {return className(value)!==null;}
+    function isInterface(value) {
+        const name = classFacades.get(value);
+        return Boolean(name && interfaces.has(name));
+    }
+    function isClass(value) {return className(value)!==null&&!isInterface(value);}
     function constructClass(value,args) {
         const name=className(value);
         if(!name)throw new TypeError('Class construction requires a registered class; ordinary functions are unsupported.');
@@ -498,7 +566,7 @@ const __nfProgram = (() => {
     function runInitClips(root) {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, constructClass, className, reflect, defaultObjectMethod,
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

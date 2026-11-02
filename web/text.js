@@ -10,7 +10,7 @@
   'use strict';
   const formats=new WeakMap(),legacyFormats=new WeakSet();
   const fields=['font','size','color','bold','italic','underline','url','target','align','leftMargin','rightMargin','indent','leading'];
-  const extraFields=['blockIndent','letterSpacing','kerning','bullet','tabStops'];
+  const extraFields=['blockIndent','letterSpacing','kerning','bullet','tabStops','display'];
   const allFields=[...fields,...extraFields];
   const supported=new Set(allFields);
   const legacySupported=supported;
@@ -21,7 +21,8 @@
     else if(name==='size'){if(typeof value!=='number'||!Number.isFinite(value)||value<=0||value>10000)throw new RangeError('TextFormat.size requires a finite number greater than zero through 10000.');}
     else if(name==='color'){if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('TextFormat.color requires an RGB integer from zero through 0xffffff.');}
     else if(name==='bold'||name==='italic'||name==='underline'||name==='kerning'||name==='bullet'){if(typeof value!=='boolean')throw new TypeError(`TextFormat.${name} requires a Boolean or null.`);}
-    else if(name==='align'){if(!['left','center','right',...(legacy?['justify']:[])].includes(value))throw new TypeError('TextFormat.align supports left, center and right; justified layout is pending.');}
+    else if(name==='align'){if(!['left','center','right','justify','start','end'].includes(value))throw new TypeError('TextFormat.align requires left, center, right, justify, start or end.');}
+    else if(name==='display'){if(!['inline','block','none'].includes(value)){const err=new RangeError('TextFormat.display requires inline, block or none.');err.name='ArgumentError';throw err;}}
     else if(['leftMargin','rightMargin','indent','blockIndent'].includes(name)){if(typeof value!=='number'||!Number.isFinite(value)||Math.abs(value)>10000||(name!=='indent'&&value<0))throw new RangeError(`TextFormat.${name} requires a bounded paragraph length.`);}
     else if(name==='letterSpacing'){if(typeof value!=='number'||!Number.isFinite(value)||Math.abs(value)>1000)throw new RangeError('letterSpacing requires -1000 through1000.');}
     else if(name==='url'||name==='target'){if(typeof value!=='string'||value.length>(name==='url'?4096:256)||/[\u0000-\u001f\u007f]/.test(value))throw new TypeError('TextFormat url/target require bounded strings.');}
@@ -38,7 +39,6 @@
     }
   }
   for(const name of allFields)Object.defineProperty(TextFormat.prototype,name,{enumerable:true,get(){const value=formats.get(this);if(!value)throw new TypeError('Expected TextFormat.');const item=value[name];return Array.isArray(item)?item.slice():item;},set(value){const current=formats.get(this);if(!current)throw new TypeError('Expected TextFormat.');current[name]=formatValue(name,value,legacyFormats.has(this));}});
-  Object.defineProperty(TextFormat.prototype,'display',{get(){throw new TypeError('TextFormat.display is not supported by the uniform text profile.');},set(){throw new TypeError('TextFormat.display is not supported by the uniform text profile.');}});
   TextFormat.__nfIs=value=>formats.has(value);
   TextFormat.__nfInitialize=()=>{throw new TypeError('Native TextFormat subclassing is not supported.');};
   Object.defineProperty(TextFormat,Symbol.hasInstance,{value:TextFormat.__nfIs});
@@ -66,6 +66,7 @@
   const FontType=defineTextEnum('FontType',{DEVICE:'device',EMBEDDED:'embedded',EMBEDDED_CFF:'embeddedCFF'});
   const TextColorType=defineTextEnum('TextColorType',{DARK_COLOR:'dark',LIGHT_COLOR:'light'});
   const TextDisplayMode=defineTextEnum('TextDisplayMode',{CRT:'crt',DEFAULT:'default',LCD:'lcd'});
+  const TextFormatDisplay=defineTextEnum('TextFormatDisplay',{INLINE:'inline',BLOCK:'block'});
   const TextInteractionMode=defineTextEnum('TextInteractionMode',{NORMAL:'normal',SELECTION:'selection'});
   const csmRecords=new WeakMap(),csmFields=['fontSize','insideCutoff','outsideCutoff'];
   class CSMSettings {
@@ -98,10 +99,20 @@
   function formatPatch(value,raw=false){
     const record=formats.get(value);if(!record)throw new TypeError('Expected TextFormat from this runtime.');
     const patch=Object.fromEntries(Object.entries(record).filter(([,item])=>item!==null));
-    if(!raw&&patch.align==='justify')patch.align='left';
+    if(!raw&&patch.align!==undefined){
+      patch.alignMode=patch.align;
+      if(patch.align==='justify'||patch.align==='start')patch.align='left';
+      else if(patch.align==='end')patch.align='right';
+    }
     return patch;
   }
-  function formatCopy(value){const result=new TextFormat();for(const name of supported)if(value[name]!==undefined)result[name]=value[name];return result;}
+  function formatCopy(value){
+    const result=new TextFormat();
+    for(const name of supported)if(value[name]!==undefined)result[name]=value[name];
+    const mode=value.align_mode||value.alignMode;
+    if(mode&&['justify','start','end'].includes(mode))result.align=mode;
+    return result;
+  }
   function cssFont(format){return `${format.italic?'italic ':''}${format.bold?'bold ':''}${format.size}px ${JSON.stringify(format.font)}, sans-serif`;}
   function applyFont(context,format,measurement=false){
     context.font=cssFont(format);
@@ -133,7 +144,7 @@
     class As2TextFormat extends TextFormat {
       constructor(...args){
         super();if(args.length>fields.length)throw new TypeError('AS2 TextFormat accepts at most thirteen arguments.');
-        legacyFormats.add(this);const values={};for(let i=0;i<fields.length;i++)values[fields[i]]=formatValue(fields[i],args[i],true);values.blockIndent=null;values.letterSpacing=null;values.kerning=null;values.bullet=null;values.tabStops=null;formats.set(this,values);
+        legacyFormats.add(this);const values={};for(let i=0;i<fields.length;i++)values[fields[i]]=formatValue(fields[i],args[i],true);values.blockIndent=null;values.letterSpacing=null;values.kerning=null;values.bullet=null;values.tabStops=null;values.display=null;formats.set(this,values);
       }
       getTextExtent(value,width){
         if(!as2Execute)throw new Error('AS2 text kernel is missing; re-export the project.');
@@ -142,7 +153,7 @@
         return as2Execute({op:'extent_result',layout:layout(packet.field),format:packet.field.format});
       }
     }
-    for(const name of ['blockIndent','letterSpacing','kerning','bullet','tabStops'])Object.defineProperty(As2TextFormat.prototype,name,{get(){const value=formats.get(this)[name];return Array.isArray(value)?value.slice():value;},set(value){formats.get(this)[name]=formatValue(name,value,true);}});
+    for(const name of ['blockIndent','letterSpacing','kerning','bullet','tabStops','display'])Object.defineProperty(As2TextFormat.prototype,name,{get(){const value=formats.get(this)[name];return Array.isArray(value)?value.slice():value;},set(value){formats.get(this)[name]=formatValue(name,value,true);}});
     function legacyFormatCopy(value){const result=new As2TextFormat();for(const name of legacySupported)if(value[name]!==undefined)result[name]=value[name];return result;}
     let disposed=false,cacheBytes=0;const cache=new Map(),maxCacheBytes=8*1024*1024;
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
@@ -168,16 +179,18 @@
         const style=JSON.parse(format);return JSON.stringify(JSON.parse(strings).map(text=>measureText(text,style)));
       }));
     }
-    function wholeRange(field,begin=-1,end=-1){
-      if((begin===-1&&end===-1)||(begin===0&&(end===-1||end===field.text.length)))return;
-      throw new RangeError('TextField currently supports whole-field formatting only; mixed character-format ranges are pending.');
+    function validateRange(field,begin=-1,end=-1){
+      if(begin===-1&&end===-1)return {whole:true,begin:0,end:field.text.length};
+      const b=begin===-1?0:begin,e=end===-1?field.text.length:end;
+      if(!Number.isInteger(b)||!Number.isInteger(e)||b<0||e<b||e>field.text.length)throw new RangeError('TextField format range is out of bounds.');
+      return {whole:b===0&&e===field.text.length,begin:b,end:e};
     }
     function line(field,index){const result=layout(field);if(!Number.isInteger(index)||index<0||index>=result.lines.length)throw new RangeError('TextField line index is outside the current layout.');return result.lines[index];}
     function renderHtml(ref,state,source){
       const field=info(ref),styles=state.style?requireStyleSheet(state.style).state:{styles:{}};
-      const parsed=textKernel({op:'html',source,format:field.default_format,styles,condense_white:Boolean(field.condense_white)});
-      update(ref,{text:parsed.text,format:parsed.format});
-      state.source=source;state.revision=info(ref).revision;
+      const parsed=textKernel({op:'html',source,format:field.default_format,styles,condense_white:Boolean(field.condense_white),multi_run:true});
+      update(ref,{text:parsed.text,format:parsed.format,format_runs:parsed.format_runs||[]});
+      state.source=source;state.revision=info(ref).revision;state.images=parsed.images||[];state.imageRefs=null;
     }
     function get(ref,name){
       const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
@@ -188,7 +201,7 @@
       if(name==='styleSheet')return fieldStates.get(ref)?.style??null;
       if(name==='htmlText'){
         const st=fieldStates.get(ref);
-        return st?.source!==null&&st?.source!==undefined&&st.revision===field.revision?st.source:textKernel({op:'serialize_html',text:field.text,format:field.format}).result;
+        return st?.source!==null&&st?.source!==undefined&&st.revision===field.revision?st.source:textKernel({op:'serialize_html',text:field.text,format:field.format,format_runs:field.format_runs||[]}).result;
       }
       const inputNames={type:'field_type',selectable:'selectable',displayAsPassword:'display_as_password',password:'display_as_password',maxChars:'max_chars',restrict:'restrict',selectionBeginIndex:'selection_begin',selectionEndIndex:'selection_end',caretIndex:'caret',antiAliasType:'anti_alias_type',gridFitType:'grid_fit_type',sharpness:'sharpness',thickness:'thickness',embedFonts:'embed_fonts',condenseWhite:'condense_white',alwaysShowSelection:'always_show_selection'};
       if(Object.hasOwn(inputNames,name))return field[inputNames[name]]??({type:'dynamic',selectable:true,displayAsPassword:false,password:false,maxChars:0,restrict:null,selectionBeginIndex:0,selectionEndIndex:0,caretIndex:0,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0,embedFonts:false,condenseWhite:false,alwaysShowSelection:false}[name]);
@@ -278,11 +291,36 @@
         let format,begin=-1,end=-1;
         if(formats.has(args[0]))[format,begin=-1,end=-1]=args;
         else if(args.length===3)[begin,end,format]=args;
-        else throw new TypeError('setTextFormat requires a TextFormat and an optional whole-field range.');
+        else throw new TypeError('setTextFormat requires a TextFormat and an optional character range.');
         if(args.length>3)throw new TypeError('setTextFormat accepts at most three arguments.');
-        const field=info(ref);wholeRange(field,begin,end);update(ref,{format:formatPatch(format)});clearHtmlSource(ref);
+        const field=info(ref),r=validateRange(field,begin,end),patch=formatPatch(format);
+        if(r.whole)update(ref,{format:patch});
+        else update(ref,{format_range:{begin:r.begin,end:r.end,format:patch}});
+        clearHtmlSource(ref);
       },
-      getTextFormat:(begin=-1,end=-1)=>{const field=info(ref);wholeRange(field,begin,end);return formatCopy(field.format);},
+      getTextFormat:(begin=-1,end=-1)=>{
+        const field=info(ref),r=validateRange(field,begin,end);
+        if(r.whole&&(!field.format_runs||field.format_runs.length<=1))return formatCopy(field.format);
+        return formatCopy(query(field,{op:'get_format',begin:r.begin,end:r.end}));
+      },
+      getImageReference:id=>{
+        info(ref);
+        if(id===null||id===undefined)throw new TypeError('getImageReference requires a non-null id String.');
+        const st=stateFor(ref),found=(st.images||[]).find(img=>img.id===String(id));
+        if(!found)return null;
+        if(!st.imageRefs)st.imageRefs=new Map();
+        if(!st.imageRefs.has(found.id)){
+          let refObj=null;
+          try{
+            const prog=getProgram?.();
+            const Ctor=prog?.type?.('flash.display.Loader')||prog?.type?.('flash.display.Sprite');
+            if(Ctor){refObj=new Ctor();refObj.name=found.id;}
+          }catch(_){}
+          if(!refObj)refObj=Object.freeze({id:found.id,src:found.src,width:found.width,height:found.height});
+          st.imageRefs.set(found.id,refObj);
+        }
+        return st.imageRefs.get(found.id);
+      },
       setNewTextFormat:format=>update(ref,{default_format:formatPatch(format)}),
       getNewTextFormat:()=>formatCopy(info(ref).default_format),
       getLineText:index=>{const field=info(ref),item=line(field,index);return publicText(field.text.slice(item.start,item.end));},
@@ -319,7 +357,14 @@
         if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
         applyFont(context,field.format);context.textAlign='left';context.textBaseline='top';
         const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${field.alpha/255})`;
-        for(const item of result.runs?.length?result.runs:result.lines)context.fillText(item.text,item.x,item.y);
+        for(const item of result.runs?.length?result.runs:result.lines){
+          if(item.format){
+            applyFont(context,item.format);
+            const itemRgb=item.format.color;
+            context.fillStyle=`rgba(${itemRgb>>>16},${itemRgb>>>8&255},${itemRgb&255},${field.alpha/255})`;
+          }
+          context.fillText(item.text,item.x,item.y);
+        }
         for(const [x,y,radius]of result.bullets||[]){context.beginPath();context.arc(x,y,radius,0,Math.PI*2);context.fill();}
         for(const item of result.decorations||[])context.fillRect(item.x,item.y,item.width,item.height);
       }finally{context.restore();}
@@ -539,7 +584,7 @@
     function linkAt(ref,point){
       active();
       const field=info(ref);
-      if(!field.format.url)return null;
+      if(!field.format.url&&!(field.format_runs||[]).some(r=>r.format?.url))return null;
       return textKernel({op:'hit_link',field,layout:layout(field),x:point.x,y:point.y});
     }
     function isFontCompatible(fontName,fontStyle){
@@ -556,8 +601,8 @@
 
     function reset(){active();cache.clear();cacheBytes=0;fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
+  const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);

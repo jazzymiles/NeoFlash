@@ -158,8 +158,8 @@ var fractional:Function=(12.5).toString;var nativeFormatting=[fractional(16),(12
   fixture('as3', 'result=receiver.toString(); var saved:Function=receiver.toString;', c => {
     assert.equal(c.result, 'kept'); assert.equal(c.saved, c.receiver.toString);
   }, { receiver: { value: 'kept', toString() { return this.value; } } }),
-  fixture('as3', 'var parse:Function=parseInt; try {parse("1",10,0);} catch(e:Error) {parseMessage=e.message;} try {(1).toFixed(2,3);} catch(e:Error) {fixedMessage=e.message;} var tool={toFixed:function(a,b){return a+b;}}; custom=tool.toFixed(2,3);', c => {
-    assert.match(c.parseMessage, /Unsupported AS3 parseInt.*excess-argument/);
+  fixture('as3', 'var parse:Function=parseInt; try {parse("1",10,0);} catch(e:ArgumentError) {parseMessage=e.message;} try {(1).toFixed(2,3);} catch(e:Error) {fixedMessage=e.message;} var tool={toFixed:function(a,b){return a+b;}}; custom=tool.toFixed(2,3);', c => {
+    assert.match(c.parseMessage, /parseInt.*two arguments/);
     assert.match(c.fixedMessage, /Unsupported AS3 Number.toFixed.*excess-argument/);
     assert.equal(c.custom, 5);
   }),

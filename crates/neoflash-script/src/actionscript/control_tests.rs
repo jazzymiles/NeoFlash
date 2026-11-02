@@ -33,15 +33,15 @@ fn control_targets_are_validated_at_source_and_reset_at_functions() {
         "delete local;",
         "var value:Vector.<void>;",
         "var value:Vector;",
-        "tree.(value==1);",
         "delete tree..item;",
         "tree..item='value';",
         "var tree=<root>line\ntext</root> var n=1;",
-        "default xml namespace = \"urn:catalog\";",
     ] {
         assert!(as3(source).is_err(), "must reject {source}");
     }
     for source in [
+        "tree.(value==1);",
+        "default xml namespace = \"urn:catalog\";",
         "outer:for(;;){switch(1){case 1:continue outer;default:break;}break;}",
         "first:second:do{continue first;}while(false);",
         "block:{break block;}",
@@ -127,7 +127,7 @@ fn catch_scope_preserves_call_resolution_and_unsupported_boundaries() {
     assert!(as3("try{throw 1;}catch(e:int){e();}").is_err());
     assert!(as3("try{throw 1;}catch(e:*){function f(){}}").is_err());
     assert!(as3("function f(Error:Function){return new Error();}").is_err());
-    assert!(as3("var constructor=Error;").is_err());
+    assert!(as3("var constructor=Error;").is_ok());
     assert!(as3("new Custom();").is_err());
     assert!(as3("new Error(1,2,3);").is_err());
     assert!(as3("try{throw 1;}catch(__nfValue:*){}").is_err());

@@ -45,8 +45,47 @@ function __nfNumericClass(name) {
     }
     return state.classes.get(name);
 }
+const __nfClassMetaclass = (() => {
+    const facade = function(...args) {
+        if (new.target) throw new __nfTypeError('Class is not constructible.');
+        if (args.length !== 1) throw __nfMakeError('ArgumentError', true, ['Class() requires exactly 1 argument.', 1112]);
+        return __nfClassCast(args[0]);
+    };
+    Object.defineProperties(facade, {
+        name: { value: 'Class' },
+        length: { value: 1 },
+        prototype: { value: Object.prototype, writable: false },
+        __nfIs: { value: value => __nfClassIs(value) },
+        [Symbol.hasInstance]: { value: value => __nfClassIs(value) },
+    });
+    return Object.freeze(facade);
+})();
+const __nfFunctionClass = (() => {
+    const facade = function(...args) {
+        if (args.length > 1) throw __nfMakeError('ArgumentError', true, ['Function() accepts at most 1 argument.', 1063]);
+        if (args.length === 0) return __nfSourceFunction(function() {}, { as3: true, length: 0, required: 0, allowExtra: false });
+        const v = args[0];
+        if (typeof v === 'function' && __nfNumericClassName(v) === null) return v;
+        throw new __nfTypeError('Cannot convert value to Function.');
+    };
+    Object.defineProperties(facade, {
+        name: { value: 'Function' },
+        length: { value: 1 },
+        prototype: { value: Function.prototype, writable: false },
+        __nfIs: { value: value => typeof value === 'function' && __nfNumericClassName(value) === null },
+        [Symbol.hasInstance]: { value: value => typeof value === 'function' && __nfNumericClassName(value) === null },
+    });
+    return Object.freeze(facade);
+})();
 function __nfClassIs(value) {
-    return __nfNumericClassName(value)!==null || (typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true);
+    if (typeof value !== 'function') return false;
+    if (__nfNumericClassName(value) !== null) return true;
+    if (value === __nfClassMetaclass || value === __nfFunctionClass || value === __nfObjectClass(true) || value === __nfStringClass(true) || value === __nfArrayClass(true) || value === __nfDateClass(true) || value === __nfRegExpClass(true)) return true;
+    if (typeof __nfDictionaryClass === 'function' && value === __nfDictionaryClass(true)) return true;
+    if (typeof value.__nfElement === 'object' && value.__nfElement !== null) return true;
+    if (typeof __nfXML !== 'undefined' && __nfXML && (value === __nfXML.XML || value === __nfXML.XMLList || value === __nfXML.Namespace || value === __nfXML.QName)) return true;
+    if (typeof value.name === 'string' && Object.hasOwn(__nfErrorTypes, value.name) && value === __nfErrorClass(value.name, true)) return true;
+    return typeof __nfProgram !== 'undefined' && __nfProgram?.isClass?.(value) === true;
 }
 function __nfClassCast(value) {
     if(value==null)return null;
@@ -56,8 +95,47 @@ function __nfClassCast(value) {
 function __nfClassConstruct(value,args) {
     const name=__nfNumericClassName(value);
     if(name)return __nfNumericCreate(name,args);
+    if(value===__nfClassMetaclass)throw new __nfTypeError('Class is not constructible.');
+    if(value===__nfFunctionClass)return __nfFunctionClass(...args);
+    if(value===__nfObjectClass(true))return __nfObjectCreate(true,args,true);
+    if(value===__nfStringClass(true))return __nfStringCreate(true,args,true);
+    if(value===__nfArrayClass(true))return __nfArrayCreate(true,args);
+    if(value===__nfDateClass(true))return new (__nfDateClass(true))(...args);
+    if(value===__nfRegExpClass(true))return __nfRegExpCreate(true,args);
+    if(typeof __nfDictionaryClass==='function'&&value===__nfDictionaryClass(true))return new (__nfDictionaryClass(true))(...args);
+    if(typeof value?.__nfElement==='object'&&value.__nfElement!==null)return new value(...args);
+    if(typeof __nfXML!=='undefined'&&__nfXML&&(value===__nfXML.XML||value===__nfXML.XMLList||value===__nfXML.Namespace||value===__nfXML.QName))return new value(...args);
+    if(typeof value?.name==='string'&&Object.hasOwn(__nfErrorTypes,value.name)&&value===__nfErrorClass(value.name,true))return __nfMakeError(value.name,true,args);
     if(typeof __nfProgram!=='undefined' && __nfProgram?.isClass?.(value)===true)return __nfProgram.constructClass(value,args);
     throw new __nfTypeError('Constructor alias must reference a supported AS3 class; arbitrary Function construction is unsupported.');
+}
+function __nfAs3InstanceOf(value, ctor) {
+    if (typeof ctor !== 'function') throw new __nfTypeError('Right-hand side of instanceof must be a class or function.');
+    if (typeof __nfProgram !== 'undefined' && __nfProgram?.isInterface?.(ctor)) {
+        throw new __nfTypeError('Right-hand side of instanceof cannot be an interface.');
+    }
+    if (value === null || value === undefined) return false;
+    if (typeof value !== 'object' && typeof value !== 'function') {
+        if (typeof value === 'string' && (ctor === __nfStringClass(true) || ctor === String || ctor === __nfObjectClass(true) || ctor === Object)) return true;
+        return false;
+    }
+    if (ctor === __nfObjectClass(true) || ctor === Object) return true;
+    if (ctor === __nfFunctionClass || ctor === Function) return typeof value === 'function' && __nfNumericClassName(value) === null;
+    if (ctor === __nfArrayClass(true) || ctor === Array) return __nfArrayIsArray(value);
+    if (typeof ctor.__nfIs === 'function') return Boolean(ctor.__nfIs(value));
+    if (typeof __nfProgram !== 'undefined' && typeof __nfProgram?.className === 'function') {
+        const qname = __nfProgram.className(ctor);
+        if (qname) return __nfProgram.is(value, qname);
+    }
+    const proto = ctor.prototype;
+    if (proto && (typeof proto === 'object' || typeof proto === 'function')) {
+        let cur = Object.getPrototypeOf(value);
+        while (cur) {
+            if (cur === proto) return true;
+            cur = Object.getPrototypeOf(cur);
+        }
+    }
+    return value instanceof ctor;
 }
 const __nfLegacySuperStack = new WeakMap();
 function __nfPushLegacySuper(receiver, proto) {
@@ -231,7 +309,7 @@ function __nfParseInt3(value, radix) {
     // undefined is coerced to null by String's typed parameter, then read as
     // "null" by Toplevel::parseInt. This matters at high radices.
     if (arguments.length > 2) {
-        throw new __nfErrorTypes.Error('Unsupported AS3 parseInt call: excess-argument semantics are not verified; pass at most two arguments.');
+        throw __nfMakeError('ArgumentError', true, ['parseInt accepts at most two arguments.', 1063]);
     }
     const text = arguments.length === 0 ? 'NaN' : value == null ? 'null' : __nfString(value);
     return __nfNativeParseInt(text, __nfNumber(radix) | 0);
