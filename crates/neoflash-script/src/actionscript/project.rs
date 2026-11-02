@@ -396,6 +396,81 @@ const BUILTINS: &[&str] = &[
     "flash.notifications.RemoteNotifier",
     "flash.sensors.DeviceRotation",
     "flash.sensors.Geolocation",
+    // AS3 Area 8: FTE, IME, Stage3D, Shaders, Display/Loader 3D & metadata
+    "flash.display.ActionScriptVersion",
+    "flash.display.SWFVersion",
+    "flash.display.ColorCorrection",
+    "flash.display.ColorCorrectionSupport",
+    "flash.display.MorphShape",
+    "flash.display.AVM1Movie",
+    "flash.display.Shader",
+    "flash.display.ShaderData",
+    "flash.display.ShaderInput",
+    "flash.display.ShaderParameter",
+    "flash.display.ShaderParameterType",
+    "flash.display.ShaderPrecision",
+    "flash.display.ShaderJob",
+    "flash.display.GraphicsShaderFill",
+    "flash.display.Stage3D",
+    "flash.filters.ShaderFilter",
+    "flash.display3D.Context3D",
+    "flash.display3D.Context3DBlendFactor",
+    "flash.display3D.Context3DBufferUsage",
+    "flash.display3D.Context3DClearMask",
+    "flash.display3D.Context3DCompareMode",
+    "flash.display3D.Context3DFillMode",
+    "flash.display3D.Context3DMipFilter",
+    "flash.display3D.Context3DProfile",
+    "flash.display3D.Context3DProgramType",
+    "flash.display3D.Context3DRenderMode",
+    "flash.display3D.Context3DStencilAction",
+    "flash.display3D.Context3DTextureFilter",
+    "flash.display3D.Context3DTextureFormat",
+    "flash.display3D.Context3DTriangleFace",
+    "flash.display3D.Context3DVertexBufferFormat",
+    "flash.display3D.Context3DWrapMode",
+    "flash.display3D.IndexBuffer3D",
+    "flash.display3D.Program3D",
+    "flash.display3D.VertexBuffer3D",
+    "flash.display3D.textures.TextureBase",
+    "flash.display3D.textures.Texture",
+    "flash.display3D.textures.CubeTexture",
+    "flash.display3D.textures.RectangleTexture",
+    "flash.display3D.textures.VideoTexture",
+    "flash.text.engine.BreakOpportunity",
+    "flash.text.engine.CFFHinting",
+    "flash.text.engine.ContentElement",
+    "flash.text.engine.DigitCase",
+    "flash.text.engine.DigitWidth",
+    "flash.text.engine.EastAsianJustifier",
+    "flash.text.engine.ElementFormat",
+    "flash.text.engine.FontDescription",
+    "flash.text.engine.FontLookup",
+    "flash.text.engine.FontMetrics",
+    "flash.text.engine.FontPosture",
+    "flash.text.engine.FontWeight",
+    "flash.text.engine.GraphicElement",
+    "flash.text.engine.GroupElement",
+    "flash.text.engine.JustificationStyle",
+    "flash.text.engine.Kerning",
+    "flash.text.engine.LigatureLevel",
+    "flash.text.engine.LineJustification",
+    "flash.text.engine.RenderingMode",
+    "flash.text.engine.SpaceJustifier",
+    "flash.text.engine.TabAlignment",
+    "flash.text.engine.TabStop",
+    "flash.text.engine.TextBaseline",
+    "flash.text.engine.TextBlock",
+    "flash.text.engine.TextElement",
+    "flash.text.engine.TextJustifier",
+    "flash.text.engine.TextLine",
+    "flash.text.engine.TextLineCreationResult",
+    "flash.text.engine.TextLineMirrorRegion",
+    "flash.text.engine.TextLineValidity",
+    "flash.text.engine.TextRotation",
+    "flash.text.engine.TypographicCase",
+    "flash.text.ime.CompositionAttributeRange",
+    "flash.text.ime.IIMEClient",
 ];
 const BUILTIN_FUNCTIONS: &[&str] = &[
     "flash.utils.getQualifiedClassName",
@@ -835,6 +910,90 @@ pub(super) fn is_host_method(name: &str) -> bool {
                 | "subscribe"
                 | "unsubscribe"
                 | "setRequestedUpdateInterval"
+                | "local3DToGlobal"
+                | "globalToLocal3D"
+                | "getRelativeMatrix3D"
+                | "requestSoftKeyboard"
+                | "beginShaderFill"
+                | "lineShaderStyle"
+                | "unloadAndStop"
+                | "getLoaderInfoByDefinition"
+                | "isDeviceFontCompatible"
+                | "getFontMetrics"
+                | "getElementAt"
+                | "getElementAtCharIndex"
+                | "getElementIndex"
+                | "groupElements"
+                | "mergeTextElements"
+                | "replaceElements"
+                | "setElements"
+                | "splitTextElement"
+                | "ungroupElements"
+                | "getJustifierForLocale"
+                | "createJustifierForLocale"
+                | "createTextLine"
+                | "recreateTextLine"
+                | "findNextAtomBoundary"
+                | "findNextWordBoundary"
+                | "findPreviousAtomBoundary"
+                | "findPreviousWordBoundary"
+                | "getTextLineAtCharIndex"
+                | "releaseLineCreationData"
+                | "releaseLines"
+                | "dump"
+                | "flushAtomData"
+                | "getAtomBidiLevel"
+                | "getAtomBounds"
+                | "getAtomCenter"
+                | "getAtomGraphic"
+                | "getAtomIndexAtCharIndex"
+                | "getAtomIndexAtPoint"
+                | "getAtomTextBlockBeginIndex"
+                | "getAtomTextBlockEndIndex"
+                | "getAtomTextRotation"
+                | "getAtomWordBoundaryOnLeft"
+                | "getBaselinePosition"
+                | "getMirrorRegion"
+                | "confirmComposition"
+                | "getTextBounds"
+                | "getTextInRange"
+                | "selectRange"
+                | "updateComposition"
+                | "requestContext3D"
+                | "requestContext3DMatchingProfiles"
+                | "configureBackBuffer"
+                | "createCubeTexture"
+                | "createIndexBuffer"
+                | "createProgram"
+                | "createRectangleTexture"
+                | "createTexture"
+                | "createVertexBuffer"
+                | "createVideoTexture"
+                | "drawToBitmapData"
+                | "present"
+                | "setBlendFactors"
+                | "setColorMask"
+                | "setCulling"
+                | "setDepthTest"
+                | "setFillMode"
+                | "setProgram"
+                | "setProgramConstantsFromByteArray"
+                | "setProgramConstantsFromMatrix"
+                | "setProgramConstantsFromVector"
+                | "setRenderToBackBuffer"
+                | "setRenderToTexture"
+                | "setSamplerStateAt"
+                | "setScissorRectangle"
+                | "setStencilActions"
+                | "setStencilReferenceValue"
+                | "setTextureAt"
+                | "setVertexBufferAt"
+                | "uploadFromByteArray"
+                | "uploadFromVector"
+                | "upload"
+                | "uploadCompressedTextureFromByteArray"
+                | "uploadFromBitmapData"
+                | "attachCamera"
         )
 }
 
@@ -1664,6 +1823,7 @@ fn parse_class(
             || base.starts_with("flash.permissions.")
             || base.starts_with("flash.notifications.")
             || base.starts_with("flash.sensors.")
+            || base.starts_with("flash.display3D.")
             || matches!(
                 base.as_str(),
                 "flash.display.FocusDirection"
@@ -1680,6 +1840,21 @@ fn parse_class(
                     | "flash.display.NativeWindowRenderMode"
                     | "flash.display.NativeWindowInitOptions"
                     | "flash.display.NativeWindow"
+                    | "flash.display.ActionScriptVersion"
+                    | "flash.display.SWFVersion"
+                    | "flash.display.ColorCorrection"
+                    | "flash.display.ColorCorrectionSupport"
+                    | "flash.display.MorphShape"
+                    | "flash.display.AVM1Movie"
+                    | "flash.display.Shader"
+                    | "flash.display.ShaderData"
+                    | "flash.display.ShaderInput"
+                    | "flash.display.ShaderParameter"
+                    | "flash.display.ShaderParameterType"
+                    | "flash.display.ShaderPrecision"
+                    | "flash.display.ShaderJob"
+                    | "flash.display.GraphicsShaderFill"
+                    | "flash.display.Stage3D"
             )
     }) {
         return Err(Diagnostic::at(
@@ -2187,6 +2362,7 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
     let di = "flash.utils.IDataInput";
     let do_ = "flash.utils.IDataOutput";
     let fp = "flash.desktop.IFilePromise";
+    let ime = "flash.text.ime.IIMEClient";
     BTreeMap::from([
         (
             ev.to_owned(),
@@ -2412,6 +2588,56 @@ fn builtin_interface_contracts() -> BTreeMap<String, BTreeMap<(String, MethodKin
                     "reportError",
                     MethodKind::Method,
                     &[("flash.events.ErrorEvent", false)],
+                    "void",
+                ),
+            ]),
+        ),
+        (
+            ime.to_owned(),
+            BTreeMap::from([
+                entry(ime, "compositionEndIndex", MethodKind::Get, &[], "int"),
+                entry(ime, "compositionStartIndex", MethodKind::Get, &[], "int"),
+                entry(ime, "selectionActiveIndex", MethodKind::Get, &[], "int"),
+                entry(ime, "selectionAnchorIndex", MethodKind::Get, &[], "int"),
+                entry(ime, "verticalTextLayout", MethodKind::Get, &[], "Boolean"),
+                entry(
+                    ime,
+                    "confirmComposition",
+                    MethodKind::Method,
+                    &[("String", true), ("Boolean", true)],
+                    "void",
+                ),
+                entry(
+                    ime,
+                    "getTextBounds",
+                    MethodKind::Method,
+                    &[("int", false), ("int", false)],
+                    "flash.geom.Rectangle",
+                ),
+                entry(
+                    ime,
+                    "getTextInRange",
+                    MethodKind::Method,
+                    &[("int", false), ("int", false)],
+                    "String",
+                ),
+                entry(
+                    ime,
+                    "selectRange",
+                    MethodKind::Method,
+                    &[("int", false), ("int", false)],
+                    "void",
+                ),
+                entry(
+                    ime,
+                    "updateComposition",
+                    MethodKind::Method,
+                    &[
+                        ("String", false),
+                        ("Vector.<flash.text.ime.CompositionAttributeRange>", false),
+                        ("int", false),
+                        ("int", false),
+                    ],
                     "void",
                 ),
             ]),
@@ -3068,7 +3294,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfFte3dVectorFactory==='function')__nfBuiltins.__nfFte3dVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
         include_str!("project-runtime.js"),
         registrations

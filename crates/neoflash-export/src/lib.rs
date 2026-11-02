@@ -38,6 +38,7 @@ const AS2_DATA: &str = include_str!("../../../web/as2-data.js");
 const AS2_PLATFORM: &str = include_str!("../../../web/as2-platform.js");
 const AS2_STRINGS: &str = include_str!("../../../web/as2-strings.js");
 const AS3_STRINGS: &str = include_str!("../../../web/as3-strings.js");
+const AS3_FTE_3D: &str = include_str!("../../../web/as3-fte-3d.js");
 const SCRIPT_EASING: &str = include_str!("../../../web/easing.js");
 const SCRIPT_BROADCASTER: &str = include_str!("../../../web/broadcaster.js");
 const SCRIPT_MATH: &str = include_str!("../../../web/math.js");
@@ -334,6 +335,7 @@ pub fn export_project(
         ("as2-data.js", AS2_DATA),
         ("as2-binding.js", AS2_BINDING),
         ("as3-strings.js", AS3_STRINGS),
+        ("as3-fte-3d.js", AS3_FTE_3D),
         ("easing.js", SCRIPT_EASING),
         ("math.js", SCRIPT_MATH),
         ("date.js", SCRIPT_DATE),
@@ -450,6 +452,7 @@ fn html_document(title: &str) -> String {
   <script defer src="as2-data.js"></script>
   <script defer src="as2-binding.js"></script>
   <script defer src="as3-strings.js"></script>
+  <script defer src="as3-fte-3d.js"></script>
   <script defer src="easing.js"></script>
   <script defer src="math.js"></script>
   <script defer src="date.js"></script>

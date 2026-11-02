@@ -56,7 +56,7 @@ fn sprite(owner: &str) -> bool {
     matches!(owner, "sprite" | "movie_clip" | "graphic")
 }
 fn display_container(owner: &str) -> bool {
-    sprite(owner) || owner == "loader"
+    sprite(owner) || matches!(owner, "loader" | "text_line")
 }
 fn container(owner: &str) -> bool {
     display_container(owner) || owner == "button"

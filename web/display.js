@@ -59,7 +59,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -166,11 +166,13 @@
           for(const [x,y]of [[0,0],[rect.width,0],[rect.width,rect.height],[0,rect.height]]){const p=point(m,x,y);include(p.x,p.y);}
           continue;
         }
-        const shapes=leaf.video?[{type:'video_frame',...leaf.video}]:leaf.text?[{type:'text_field',field:leaf.text}]:leaf.owner==='bitmap'?(leaf.bitmap&&!leaf.bitmap.disposed?[{type:'bitmap_pixels',width:leaf.bitmap.width,height:leaf.bitmap.height}]:[]):leaf.kind?[leaf.kind]:[];
+        const shapes=leaf.video?[{type:'video_frame',...leaf.video}]:leaf.text?[{type:'text_field',field:leaf.text}]:leaf.owner==='bitmap'?(leaf.bitmap&&!leaf.bitmap.disposed?[{type:'bitmap_pixels',width:leaf.bitmap.width,height:leaf.bitmap.height}]:[]):leaf.fte_draws?.length?leaf.fte_draws.map(r=>({type:'fte_run',...r})):leaf.kind?[leaf.kind]:[];
+        if(leaf.owner==='text_line'&&!shapes.length){const tb=getFte3D()?.textLineBounds?.(nodeProxy(leaf));if(tb)shapes.push({type:'fte_run',x:tb.x,y:tb.y,width:tb.width,font_size:tb.height/1.2});}
         for(const kind of [...shapes,...(leaf.graphics||[])]) {
         const m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
         const corners=(x,y,w,h)=>{for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);include(p.x,p.y);}};
         if(kind.type==='text_field'){const b=getText().bounds(kind.field);if(b)corners(b.left,b.top,b.right-b.left,b.bottom-b.top);}
+        else if(kind.type==='fte_run')corners(kind.x,kind.y,(kind.width||kind.text.length*kind.font_size*0.6),kind.font_size*1.2);
         else if(kind.type==='bitmap_pixels'||kind.type==='video_frame')corners(0,0,kind.width,kind.height);
         else if(kind.type==='rectangle')corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);
         else if(kind.type==='ellipse') {
@@ -206,9 +208,16 @@
       constructor(target){descriptor(target);transformTargets.set(this,target);Object.seal(this);}
       get matrix(){const node=descriptor(transformTarget(this));return new Matrix(...(node.local_matrix||matrix(node.transform)));}
       set matrix(value){
-        const target=transformTarget(this),components=finiteComponents(value,['a','b','c','d','tx','ty']);
+        const target=transformTarget(this);
+        if(value===null){getFte3D()?.setMatrix3DForDisplay(target,null);return;}
+        const components=finiteComponents(value,['a','b','c','d','tx','ty']);
+        getFte3D()?.setMatrix3DForDisplay(target,null);
         if(!player.object_set_matrix(referenceOf(target).key,JSON.stringify(components)))throw new RangeError('Runtime rejected the matrix on this display object.');
       }
+      get matrix3D(){const host=getFte3D();if(!host)throw new Error('Transform.matrix3D requires the 3D display runtime.');return host.getMatrix3DForDisplay(transformTarget(this));}
+      set matrix3D(value){const host=getFte3D();if(!host)throw new Error('Transform.matrix3D requires the 3D display runtime.');host.setMatrix3DForDisplay(transformTarget(this),value);}
+      get perspectiveProjection(){const host=getFte3D();if(!host)throw new Error('Transform.perspectiveProjection requires the 3D display runtime.');return host.getPerspectiveProjectionForDisplay(transformTarget(this));}
+      set perspectiveProjection(value){const host=getFte3D();if(!host)throw new Error('Transform.perspectiveProjection requires the 3D display runtime.');host.setPerspectiveProjectionForDisplay(transformTarget(this),value);}
       get colorTransform(){return colorCopy(descriptor(transformTarget(this)).color_transform||identityColor);}
       set colorTransform(value){
         const target=transformTarget(this),components=finiteComponents(value,colorNames);
@@ -222,16 +231,15 @@
         const x=Math.floor(box.x),y=Math.floor(box.y);return new Rectangle(x,y,Math.ceil(box.right)-x,Math.ceil(box.bottom)-y);
       }
       getRelativeMatrix(relativeTo){const list=nodes(),node=descriptor(transformTarget(this),list),target=relativeTo===getStage()?null:descriptor(relativeTo,list);return new Matrix(...relative(node,target,list));}
+      getRelativeMatrix3D(relativeTo){const host=getFte3D();if(!host)throw new Error('Transform.getRelativeMatrix3D requires the 3D display runtime.');const target=transformTarget(this);if(relativeTo!==getStage())descriptor(relativeTo);return host.getRelativeMatrix3D(target,relativeTo);}
     }
     Object.defineProperties(Transform,{__nfIs:{value:value=>transformTargets.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native Transform subclassing is not supported.');}}});
-    for(const name of ['matrix3D','perspectiveProjection'])Object.defineProperty(Transform.prototype,name,{get(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);},set(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
-    for(const name of ['getRelativeMatrix3D'])Object.defineProperty(Transform.prototype,name,{value(){throw new TypeError(`Transform.${name} requires the unimplemented 3D family.`);}});
     function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
     function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
-    const containerOwners=['movie_clip','sprite','graphic','loader'];
+    const containerOwners=['movie_clip','sprite','graphic','loader','text_line'];
     const spriteOwners=['movie_clip','sprite','graphic'];
-    const interactiveOwners=['movie_clip','sprite','graphic','button','text','loader'];
+    const interactiveOwners=['movie_clip','sprite','graphic','button','text','loader','text_line'];
     function requireContainer(target) {const node=descriptor(target);if(!containerOwners.includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
     function convert(target,value,toGlobal) {
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
@@ -313,7 +321,17 @@
           apply({op:'begin_bitmap_fill',bitmap:{pixel_ref:pixelRef,matrix:components,repeat,smoothing}});
         },
         beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
+        beginShaderFill:(shader,matrix=null)=>{
+          const host=getFte3D();if(!host)throw new Error('Shader runtime is missing.');
+          const bmp=host.rasterizeShaderToBitmapData(shader);
+          methods.beginBitmapFill(bmp,matrix,true,false);
+        },
         lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
+        lineShaderStyle:(shader,matrix=null)=>{
+          const host=getFte3D();if(!host)throw new Error('Shader runtime is missing.');
+          const bmp=host.rasterizeShaderToBitmapData(shader);
+          methods.lineBitmapStyle(bmp,matrix,true,false);
+        },
         lineBitmapStyle:(bitmap,matrix=null,repeat=true,smooth=false)=>{
           const bitmapHost=getBitmap();if(!bitmapHost)throw new Error('Bitmap runtime is missing. Re-export this project.');
           const pixelRef=bitmapHost.refOf(bitmap);
@@ -379,6 +397,7 @@
             if(GraphicsSolidFill.__nfIs(item))methods.beginFill(item.color,item.alpha);
             else if(GraphicsGradientFill.__nfIs(item))methods.beginGradientFill(item.type,item.colors,item.alphas,item.ratios,item.matrix,item.spreadMethod,item.interpolationMethod,item.focalPointRatio);
             else if(GraphicsBitmapFill.__nfIs(item))methods.beginBitmapFill(item.bitmapData,item.matrix,item.repeat,item.smooth);
+            else if(getFte3D()?.GraphicsShaderFill?.__nfIs(item))methods.beginShaderFill(item.shader,item.matrix);
             else if(GraphicsEndFill.__nfIs(item))methods.endFill();
             else if(GraphicsStroke.__nfIs(item)){
               if(item.fill===null||item.fill===undefined||Number.isNaN(item.thickness)){
@@ -391,6 +410,9 @@
               }else if(GraphicsBitmapFill.__nfIs(item.fill)){
                 methods.lineStyle(item.thickness,0,1,item.pixelHinting,item.scaleMode,item.caps,item.joints,item.miterLimit);
                 methods.lineBitmapStyle(item.fill.bitmapData,item.fill.matrix,item.fill.repeat,item.fill.smooth);
+              }else if(getFte3D()?.GraphicsShaderFill?.__nfIs(item.fill)){
+                methods.lineStyle(item.thickness,0,1,item.pixelHinting,item.scaleMode,item.caps,item.joints,item.miterLimit);
+                methods.lineShaderStyle(item.fill.shader,item.fill.matrix);
               }else{
                 throw new TypeError('GraphicsStroke.fill must implement IGraphicsFill or be null.');
               }
@@ -812,11 +834,12 @@
         else if(name==='tabChildren')onTabChange(target,'tabChildrenChange');
       }
     }
-    function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];return node.kind?[node.kind]:[];}
+    function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];if(node.fte_draws?.length)return node.fte_draws.map(r=>({type:'fte_run',...r}));if(node.owner==='text_line'){const tb=getFte3D()?.textLineBounds?.(nodeProxy(node));if(tb)return[{type:'fte_run',x:tb.x,y:tb.y,width:tb.width,font_size:tb.height/1.2}];}return node.kind?[node.kind]:[];}
     function leafHit(node,x,y){
       let q;try{q=point(inverse(node.world),x,y);}catch(_){return false;}
       for(const kind of [...nodeShapes(node),...(node.graphics||[])]){
         if(kind.type==='rectangle'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;const inside=q.x>=0&&q.y>=0&&q.x<=kind.width&&q.y<=kind.height,outer=q.x>=-stroke&&q.y>=-stroke&&q.x<=kind.width+stroke&&q.y<=kind.height+stroke,inner=q.x>stroke&&q.y>stroke&&q.x<kind.width-stroke&&q.y<kind.height-stroke;if((kind.fill?.[3]>0&&inside)||(stroke&&outer&&!inner))return true;}
+        else if(kind.type==='fte_run'){const w=kind.width||kind.text.length*kind.font_size*0.6,h=kind.font_size*1.2;if(q.x>=kind.x&&q.x<=kind.x+w&&q.y>=kind.y&&q.y<=kind.y+h)return true;}
         else if(kind.type==='ellipse'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;if(kind.width>0&&kind.height>0){const ellipse=(rx,ry)=>rx>0&&ry>0&&Math.pow((q.x-kind.width/2)/rx,2)+Math.pow((q.y-kind.height/2)/ry,2)<=1;if((kind.fill?.[3]>0&&ellipse(kind.width/2,kind.height/2))||(stroke&&ellipse(kind.width/2+stroke,kind.height/2+stroke)&&!ellipse(kind.width/2-stroke,kind.height/2-stroke)))return true;}}
         else if(kind.type==='text_field'){const b=kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:getText().bounds({...kind.field,alpha:255},true);if(b&&q.x>=b.left&&q.y>=b.top&&q.x<=b.right&&q.y<=b.bottom)return true;}
         else if(kind.type==='text'){const lines=kind.text.split('\n');if(q.x>=0&&q.y>=0&&q.y<=lines.length*kind.font_size*1.2&&q.x<=Math.max(0,...lines.map(line=>measureText(line,kind))))return true;}
@@ -969,7 +992,12 @@
         getRect: space=>bounds(target,space===undefined?target:space,false),
         localToGlobal: value=>convert(target,value,true),
         globalToLocal: value=>convert(target,value,false),
+        local3DToGlobal: point3d=>{descriptor(target);const host=getFte3D();if(!host)throw new Error('3D display runtime is missing.');return host.local3DToGlobal(target,point3d);},
+        globalToLocal3D: pt=>{descriptor(target);const host=getFte3D();if(!host)throw new Error('3D display runtime is missing.');return host.globalToLocal3D(target,pt);},
       };
+      if(interactiveOwners.includes(descriptor(target).owner)&&!isStaticTextNode(descriptor(target))){
+        result.requestSoftKeyboard=()=>{descriptor(target);return Boolean(getFte3D()?.requestSoftKeyboard(target));};
+      }
       if(containerOwners.includes(descriptor(target).owner))Object.assign(result,{
         getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return nodeProxy(list[index]);},
         getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
@@ -1024,6 +1052,7 @@
       if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
       if(descriptor(target).owner==='movie_clip')result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
       if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
+      if(graph&&descriptor(target).owner==='text_line'&&getFte3D())Object.assign(result,getFte3D().textLineMethods(target));
       if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
       if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target))&&getText()){
         Object.assign(result,getText().methods(referenceOf(target).key));
@@ -1075,6 +1104,17 @@
         if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);}
       }
       if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
+      if(descriptor(target).owner==='text_line'&&getFte3D()){
+        const tlVal=getFte3D().textLineGet(target,name);
+        if(tlVal!==undefined)return tlVal;
+      }
+      if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
+        descriptor(target);return getFte3D()?.displayGet(target,name);
+      }
+      if(['needsSoftKeyboard','softKeyboardInputAreaOfInterest'].includes(name)){
+        const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;
+        return getFte3D()?.displayGet(target,name);
+      }
       if(descriptor(target).owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
@@ -1082,6 +1122,7 @@
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
         descriptor(target);
+        if(name==='blendMode'&&getFte3D()?.isBlendModeShaderActive(target))return 'shader';
         if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
         return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
       }
@@ -1092,7 +1133,7 @@
         return grid?new Rectangle(grid[0],grid[1],grid[2],grid[3]):null;
       }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
-      if(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
+      if(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
       if(name==='mask'){
         descriptor(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
@@ -1152,6 +1193,14 @@
       if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
       if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
+      if(descriptor(target).owner==='text_line'&&getFte3D()?.textLineSet(target,name,value))return true;
+      if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
+        descriptor(target);return Boolean(getFte3D()?.displaySet(target,name,value));
+      }
+      if(['needsSoftKeyboard','softKeyboardInputAreaOfInterest'].includes(name)){
+        const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;
+        return Boolean(getFte3D()?.displaySet(target,name,value));
+      }
       if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
@@ -1162,6 +1211,17 @@
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
         descriptor(target);
+        if(name==='blendMode'){
+          if(value==='shader'){
+            if(!getFte3D()?.hasBlendShader(target)){
+              const err=new RangeError('DisplayObject.blendMode = BlendMode.SHADER requires blendShader to be assigned first.');
+              err.name='ArgumentError';throw err;
+            }
+            getFte3D().setBlendModeShaderActive(target,true);
+            return true;
+          }
+          getFte3D()?.setBlendModeShaderActive(target,false);
+        }
         if(typeof player.as2_render_command!=='function')throw new Error('Display compositing requires the shared Rust render state.');
         const key=referenceOf(target).key;
         let next;
@@ -1180,7 +1240,7 @@
         catch(error){const err=new RangeError(String(error));err.name='ArgumentError';throw err;}
         return true;
       }
-      if(name==='loaderInfo'||(['content','contentLoaderInfo'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
+      if(name==='loaderInfo'||(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(name==='mask'){
         descriptor(target);if(value!==null)descriptor(value);
@@ -1482,7 +1542,7 @@
       Object.defineProperty(Iface,Symbol.hasInstance,{value:check});
       return Iface;
     }
-    const IGraphicsFill=makeGraphicsInterface('IGraphicsFill',v=>GraphicsSolidFill.__nfIs(v)||GraphicsGradientFill.__nfIs(v)||GraphicsBitmapFill.__nfIs(v)||GraphicsEndFill.__nfIs(v));
+    const IGraphicsFill=makeGraphicsInterface('IGraphicsFill',v=>GraphicsSolidFill.__nfIs(v)||GraphicsGradientFill.__nfIs(v)||GraphicsBitmapFill.__nfIs(v)||GraphicsEndFill.__nfIs(v)||Boolean(getFte3D()?.GraphicsShaderFill?.__nfIs(v)));
     const IGraphicsPath=makeGraphicsInterface('IGraphicsPath',v=>GraphicsPath.__nfIs(v)||GraphicsTrianglePath.__nfIs(v));
     const IGraphicsStroke=makeGraphicsInterface('IGraphicsStroke',v=>GraphicsStroke.__nfIs(v));
     const IGraphicsData=makeGraphicsInterface('IGraphicsData',v=>IGraphicsFill.__nfIs(v)||IGraphicsPath.__nfIs(v)||IGraphicsStroke.__nfIs(v));

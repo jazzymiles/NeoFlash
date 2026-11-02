@@ -10,11 +10,14 @@
  */
 (function(global){
   'use strict';
-  const states=new WeakMap(),token=Symbol('filter'),MIB=1024*1024;
+  const states=new WeakMap(),token=Symbol('filter'),MIB=1024*1024,shaderCache=new Map();
   const identity=[1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0];
-  const names={blurX:'blur_x',blurY:'blur_y',hideObject:'hide_object',matrixX:'matrix_x',matrixY:'matrix_y',preserveAlpha:'preserve_alpha',highlightColor:'highlight_color',highlightAlpha:'highlight_alpha',shadowColor:'shadow_color',shadowAlpha:'shadow_alpha',type:'placement'};
+  const names={blurX:'blur_x',blurY:'blur_y',hideObject:'hide_object',matrixX:'matrix_x',matrixY:'matrix_y',preserveAlpha:'preserve_alpha',highlightColor:'highlight_color',highlightAlpha:'highlight_alpha',shadowColor:'shadow_color',shadowAlpha:'shadow_alpha',type:'placement',leftExtension:'left_extension',topExtension:'top_extension',rightExtension:'right_extension',bottomExtension:'bottom_extension'};
+  function getShaderInspector(){return global.NeoFlashFte3D?.inspectShaderForFilter||(typeof require==='function'?(()=>{try{return require('./as3-fte-3d.js').inspectShaderForFilter;}catch(_){return null;}})():null);}
   function number(value,name,min,max,integer=false){if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max||(integer&&!Number.isInteger(value)))throw new RangeError(`Filter.${name} requires ${integer?'an integer':'a finite number'} from ${min} through ${max}.`);return value;}
   function validate(name,value,kind){
+    if(name==='shader'){if(value===null)return null;const inspect=getShaderInspector();if(inspect)inspect(value);else if(typeof value!=='object')throw new TypeError('ShaderFilter.shader requires a Shader or null.');return value;}
+    if(['leftExtension','topExtension','rightExtension','bottomExtension'].includes(name))return number(value,name,-4096,4096,true);
     if(['matrix','colors','alphas','ratios'].includes(name)){
       const exact=name==='matrix'&&kind==='color_matrix'?20:null,max=name==='matrix'?225:16;
       if(!Array.isArray(value)||value.length>max||(exact!==null&&value.length!==exact)||Array.from({length:value.length},(_,i)=>!Object.hasOwn(value,i)).some(Boolean))throw new TypeError(`Filter.${name} requires a dense Array${exact===null?' of at most '+max:' of exactly '+exact} entries.`);
@@ -43,9 +46,10 @@
   class BevelFilter extends BitmapFilter {constructor(distance=4,angle=45,highlightColor=0xffffff,highlightAlpha=1,shadowColor=0,shadowAlpha=1,blurX=4,blurY=4,strength=1,quality=1,type='inner',knockout=false){super(token,'bevel');Object.assign(this,{distance,angle,highlightColor,highlightAlpha,shadowColor,shadowAlpha,blurX,blurY,strength,quality,type,knockout});Object.seal(this);}}
   class GradientGlowFilter extends BitmapFilter {constructor(distance=4,angle=45,colors=null,alphas=null,ratios=null,blurX=4,blurY=4,strength=1,quality=1,type='inner',knockout=false){super(token,'gradient_glow');Object.assign(this,{distance,angle,colors:colors===null?[]:colors,alphas:alphas===null?[]:alphas,ratios:ratios===null?[]:ratios,blurX,blurY,strength,quality,type,knockout});Object.seal(this);}}
   class GradientBevelFilter extends BitmapFilter {constructor(distance=4,angle=45,colors=null,alphas=null,ratios=null,blurX=4,blurY=4,strength=1,quality=1,type='inner',knockout=false){super(token,'gradient_bevel');Object.assign(this,{distance,angle,colors:colors===null?[]:colors,alphas:alphas===null?[]:alphas,ratios:ratios===null?[]:ratios,blurX,blurY,strength,quality,type,knockout});Object.seal(this);}}
-  const classes={blur:BlurFilter,glow:GlowFilter,drop_shadow:DropShadowFilter,color_matrix:ColorMatrixFilter,convolution:ConvolutionFilter,bevel:BevelFilter,gradient_glow:GradientGlowFilter,gradient_bevel:GradientBevelFilter};
+  class ShaderFilter extends BitmapFilter {constructor(shader=null){super(token,'shader');Object.assign(this,{shader,leftExtension:0,topExtension:0,rightExtension:0,bottomExtension:0});Object.seal(this);}}
+  const classes={blur:BlurFilter,glow:GlowFilter,drop_shadow:DropShadowFilter,color_matrix:ColorMatrixFilter,convolution:ConvolutionFilter,bevel:BevelFilter,gradient_glow:GradientGlowFilter,gradient_bevel:GradientBevelFilter,shader:ShaderFilter};
   const gradientProperties=['distance','angle','colors','alphas','ratios','blurX','blurY','strength','quality','type','knockout'];
-  for(const[Constructor,properties]of [[BlurFilter,['blurX','blurY','quality']],[GlowFilter,['color','alpha','blurX','blurY','strength','quality','inner','knockout']],[DropShadowFilter,['distance','angle','color','alpha','blurX','blurY','strength','quality','inner','knockout','hideObject']],[ColorMatrixFilter,['matrix']],[ConvolutionFilter,['matrixX','matrixY','matrix','divisor','bias','preserveAlpha','clamp','color','alpha']],[BevelFilter,['distance','angle','highlightColor','highlightAlpha','shadowColor','shadowAlpha','blurX','blurY','strength','quality','type','knockout']],[GradientGlowFilter,gradientProperties],[GradientBevelFilter,gradientProperties]]){
+  for(const[Constructor,properties]of [[BlurFilter,['blurX','blurY','quality']],[GlowFilter,['color','alpha','blurX','blurY','strength','quality','inner','knockout']],[DropShadowFilter,['distance','angle','color','alpha','blurX','blurY','strength','quality','inner','knockout','hideObject']],[ColorMatrixFilter,['matrix']],[ConvolutionFilter,['matrixX','matrixY','matrix','divisor','bias','preserveAlpha','clamp','color','alpha']],[BevelFilter,['distance','angle','highlightColor','highlightAlpha','shadowColor','shadowAlpha','blurX','blurY','strength','quality','type','knockout']],[GradientGlowFilter,gradientProperties],[GradientBevelFilter,gradientProperties],[ShaderFilter,['shader','leftExtension','topExtension','rightExtension','bottomExtension']]]){
     for(const name of properties)Object.defineProperty(Constructor.prototype,name,{enumerable:true,get(){const record=states.get(this);if(!record)throw new TypeError('Expected a supported BitmapFilter.');const value=record[names[name]||name];return Array.isArray(value)?value.slice():value;},set(value){const record=states.get(this);if(!record)throw new TypeError('Expected a supported BitmapFilter.');record[names[name]||name]=validate(name,value,record.type);}});
   }
   for(const Constructor of [BitmapFilter,...Object.values(classes)])Object.defineProperties(Constructor,{__nfIs:{value:value=>states.has(value)&&(Constructor===BitmapFilter||classes[states.get(value).type]===Constructor)},__nfInitialize:{value:()=>{throw new TypeError('Native filter subclassing is not supported.');}},[Symbol.hasInstance]:{value:value=>states.has(value)&&(Constructor===BitmapFilter||classes[states.get(value).type]===Constructor)}});
@@ -55,8 +59,26 @@
   Object.assign(BitmapFilterType,{INNER:'inner',OUTER:'outer',FULL:'full'});Object.freeze(BitmapFilterType);
   class DisplacementMapFilterMode {constructor(){throw new TypeError('DisplacementMapFilterMode supplies CLAMP, COLOR, IGNORE and WRAP constants.');}}
   Object.assign(DisplacementMapFilterMode,{CLAMP:'clamp',COLOR:'color',IGNORE:'ignore',WRAP:'wrap'});Object.freeze(DisplacementMapFilterMode);
-  function spec(value){const record=states.get(value);if(record?.type==='as2_displacement')throw new TypeError('DisplacementMapFilter currently supports BitmapData.applyFilter; DisplayObject.filters map snapshots are not implemented.');if(!record)throw new TypeError('DisplayObject.filters accepts supported BitmapFilter instances.');return Object.fromEntries(Object.entries(record).map(([key,item])=>[key,Array.isArray(item)?item.slice():item]));}
-  function fromSpec(value){const Constructor=classes[value?.type];if(!Constructor)throw new TypeError('Unsupported runtime filter specification.');const result=new Constructor();for(const[key,itemValue]of Object.entries(value)){if(key==='type')continue;const name=Object.keys(names).find(name=>names[name]===key)||key;result[name]=itemValue;}return result;}
+  function spec(value){
+    const record=states.get(value);
+    if(record?.type==='as2_displacement')throw new TypeError('DisplacementMapFilter currently supports BitmapData.applyFilter; DisplayObject.filters map snapshots are not implemented.');
+    if(!record)throw new TypeError('DisplayObject.filters accepts supported BitmapFilter instances.');
+    if(record.type==='shader'){
+      const inspect=getShaderInspector();
+      const info=record.shader&&inspect?inspect(record.shader):{bytecode_base64:'',precision_hint:'full',params_json:'{}'};
+      if(record.shader&&info.bytecode_base64)shaderCache.set(info.bytecode_base64,record.shader);
+      return {type:'shader',left_extension:record.left_extension||0,top_extension:record.top_extension||0,right_extension:record.right_extension||0,bottom_extension:record.bottom_extension||0,bytecode_base64:info.bytecode_base64||'',precision_hint:info.precision_hint||'full',params_json:info.params_json||'{}'};
+    }
+    return Object.fromEntries(Object.entries(record).map(([key,item])=>[key,Array.isArray(item)?item.slice():item]));
+  }
+  function fromSpec(value){
+    if(value?.type==='shader'){
+      const result=new ShaderFilter(value.bytecode_base64&&shaderCache.has(value.bytecode_base64)?shaderCache.get(value.bytecode_base64):null);
+      result.leftExtension=value.left_extension||0;result.topExtension=value.top_extension||0;result.rightExtension=value.right_extension||0;result.bottomExtension=value.bottom_extension||0;
+      return result;
+    }
+    const Constructor=classes[value?.type];if(!Constructor)throw new TypeError('Unsupported runtime filter specification.');const result=new Constructor();for(const[key,itemValue]of Object.entries(value)){if(key==='type')continue;const name=Object.keys(names).find(name=>names[name]===key)||key;result[name]=itemValue;}return result;
+  }
   function fromSpecs(values){if(!Array.isArray(values))throw new TypeError('Invalid runtime filter array.');return values.map(fromSpec);}
   function toSpecs(values){if(values===null)return [];if(!Array.isArray(values)||values.length>8||Array.from({length:values.length},(_,i)=>!Object.hasOwn(values,i)).some(Boolean))throw new TypeError('DisplayObject.filters requires null or a dense Array of at most eight filters.');return values.map(spec);}
   const union=(a,b)=>!a?b:!b?a:{left:Math.min(a.left,b.left),top:Math.min(a.top,b.top),right:Math.max(a.right,b.right),bottom:Math.max(a.bottom,b.bottom)};
@@ -168,7 +190,7 @@
     };
     return {DisplacementMapFilter,as2Displacement};
   }
-  function create(options={}){return Object.freeze({...legacyDisplacement(options),BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs,renderer:new Renderer(options)});}
-  const api=Object.freeze({create,Renderer,BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs});
+  function create(options={}){return Object.freeze({...legacyDisplacement(options),BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,ShaderFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs,renderer:new Renderer(options)});}
+  const api=Object.freeze({create,Renderer,BitmapFilter,BlurFilter,GlowFilter,DropShadowFilter,ColorMatrixFilter,ConvolutionFilter,BevelFilter,GradientGlowFilter,GradientBevelFilter,ShaderFilter,BitmapFilterType,BitmapFilterQuality,DisplacementMapFilterMode,toSpecs,fromSpecs});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashFilters=api;
 })(globalThis);
