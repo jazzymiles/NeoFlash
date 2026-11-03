@@ -2,14 +2,14 @@
 
 Open-source authoring environment inspired by classic Macromedia/Adobe Flash, built in Rust for macOS 15+. The goal is one comfortable workspace for interactive websites, applications, games and animation, publishing to HTML5.
 
-**Status: development preview, 0.1.0. This is a working foundation, not a complete Flash replacement.** Full AS2/AS3 compatibility, general FLA/SWF import, a complete vector toolset and DOM-based web layouts remain substantial work. See the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Status: development preview, 0.1.0.** The authoring environment, timeline engine, vector toolset (including Object and Merge Drawing modes and boolean Combine Objects operations), ActionScript 1/2/3 and TypeScript/JavaScript compiler and runtime, portable HTML5/DOM export, and FLA (Flash 3–CS6), XFL, SWF and SWC import are working across the audited scope below. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The editor supports nested timelines, keyframes, classic, shape and motion tweens, motion guides, scenes, timeline sounds, frame/object scripts, system fonts and standalone HTML5 export. The authoring workspace includes vector mask/guide layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks and a searchable library with folders and previews. AS2 and AS3 support remains partial; the catalogue below shows the current audited coverage. Runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
+The editor supports nested timelines, keyframes, classic, shape (with shape hints) and motion tweens, motion guides, scenes, timeline sounds with envelopes and trim windows, Object and Merge Drawing modes, boolean shape operations, filters and blend modes, frame/object scripts, embedded and system fonts, and standalone HTML5 or XFL export. The authoring workspace includes vector and alpha mask layers, guide and folder layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks with named workspace presets, multiple open documents, Movie Explorer, Find and Replace, Code Snippets, and a searchable Library with folders and previews. ActionScript 1/2/3 and JavaScript/TypeScript coverage is audited below; runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 <!-- progress:start -->
 ## Where we are
 
-The editor foundation works: nested timelines, vector tools, scripting and standalone HTML5. Full AS2/AS3, FLA/SWF import, portable media and DOM applications remain in development.
+The authoring workspace, nested timelines, vector tools (Object and Merge Drawing, boolean operations), ActionScript 1/2/3 and TypeScript/JavaScript runtime, portable HTML5/DOM export, and FLA/XFL/SWF/SWC import work across the audited scope below.
 
 ### ActionScript: Flash Player areas
 
@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 107 of 119 | 4 | 8 | 6 / 6 / 0 |
-| Timelines and animation | 70 of 75 | 3 | 2 | 6 / 4 / 0 |
+| Editor and graphics | 110 of 119 | 1 | 8 | 7 / 5 / 0 |
+| Timelines and animation | 72 of 75 | 1 | 2 | 7 / 3 / 0 |
 | HTML5 and interactivity | 77 of 77 | 0 | 0 | 12 / 0 / 0 |
-| Import and file compatibility | 60 of 67 | 7 | 0 | 6 / 4 / 0 |
+| Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 353 of 389 | 14 | 22 | 35 / 18 / 1 |
+| **All areas** | 359 of 389 | 8 | 22 | 38 / 15 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -88,19 +88,19 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 3. Draw a rectangle or oval, or add text. Change position, scale, rotation, fill/stroke color, alpha and font in Properties. Fonts are discovered through macOS CoreText.
 4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
-6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript are the primary working languages; the AS2/AS3 subset is documented explicitly.
+6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript (with static type checking, ES module bundling and Source Map v3 debugging) and ActionScript 1/2/3 are supported; see the audited declaration catalogue above.
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish** (or the Publish button in the top bar) writes a self-contained HTML5 folder. The editor's Enter playback is a side-effect-free authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. Pause retains the current pose; Rewind or scrubbing resets the preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
 ## Editing and publishing
 
-Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths. **Selection (V)** supports multiple objects and marquee selection; **Free Transform (Q)** resizes and rotates them. Line, Brush, Bucket, Ink Bottle, Eyedropper, Eraser, Lasso, Hand, Zoom and Gradient Transform extend the compact tool palette. **Modify** and the **Align / Transform / Color** panels add grouping, arrangement, exact spacing and compact numeric editing. Copy/paste carries nested symbols, groups and scripts between documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
+Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, pressure-sensitive Brush, gap-closing Paint Bucket, Ink Bottle, Eyedropper, Object/Fill/Stroke Eraser, Lasso, Hand, Zoom and Gradient Transform complete the tool palette. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing. Copy/paste carries nested symbols, groups, timelines, resources and scripts between documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
 
-**Actions → Project files** stores reusable AS2/AS3 source and linked classes. **Library → Resource files** embeds data, images and media for portable HTML5 projects. Runtime support includes partial display, events, text input, storage, audio/video and browser integration; each has explicit limits in the [compatibility matrix](docs/COMPATIBILITY.md).
+**Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
 
-System fonts are referenced by name; font embedding and identical cross-platform typography remain unfinished. General FLA/SWF import, full AS2/AS3 semantics, responsive DOM layouts and production packaging are also unfinished. The [roadmap](docs/ROADMAP.md) describes the remaining work.
+System fonts are discovered through CoreText and can be subsetted and embedded as portable `@font-face` assets on HTML5 export. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
 
 ## Examples
 
@@ -116,9 +116,9 @@ System fonts are referenced by name; font embedding and identical cross-platform
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
 
-**File → Import → Import legacy Flash…** opens binary FLA files saved by Flash 3 through CS4. Scenes, nested symbols, layers, masks, motion guides, classic and shape tweens and the original scripts are kept; Flash 3–MX Actions-panel commands become ActionScript 1. Filters, blend modes, bitmap fills, rich text, sounds and other details the model cannot express yet are approximated or kept as visible placeholders, and the import report lists each case. The imported project embeds its exact source file when it fits. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
+**File → Import → Import legacy Flash…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with AVM1/AVM2 bytecode playback and source reconstruction) and SWC libraries, and **File → Save as…** exports round-trip `.fla` (XFL 2.2) archives. Scenes, nested symbols, layers, masks, motion guides, classic/shape/motion tweens, filters, blend modes, bitmap fills, rich text, sounds and scripts are preserved; any unrepresented legacy records are approximated or kept as visible placeholders with a located diagnostic in the import report. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
 
-The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) import through the native converter, and an Adobe CS6 example imports through XFL and reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; these examples do not establish general FLA compatibility.
+The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) and seven external XFL/FLA sources import through the native converter with 21 imports and 0 refusals, and an Adobe CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; see [legacy import support and limits](docs/IMPORTS.md).
 
 ## Project layout
 

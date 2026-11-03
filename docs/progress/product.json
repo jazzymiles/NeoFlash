@@ -669,9 +669,9 @@
       "id": "editor-advanced-drawing",
       "category": "editor",
       "title": "Advanced vector tools",
-      "status": "partial",
+      "status": "implemented",
       "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round and pressure-sensitive vector brush, closed-vector bucket with gap-closing, ink bottle, eyedropper, object/fill/stroke-segment eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and renders the stippled shape-selection mesh (`paint_shape_selection`). Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Authoring groups preserve runtime identities; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend.",
-      "limitations": "Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing remain unfinished.",
+      "limitations": "Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately.",
       "items": [
         {
           "id": "line-brush",
@@ -716,7 +716,7 @@
         {
           "id": "groups-modify",
           "title": "Groups, arrange, Break Apart, align and distribute",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "point-and-shape-editing",
@@ -802,7 +802,7 @@
         {
           "id": "filter-authoring",
           "title": "Apply filters, blend modes and Cache as bitmap in the Filters panel",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "bitmap-fills",
@@ -914,7 +914,7 @@
         {
           "id": "orient-to-path",
           "title": "Orient to path for guided classic tweens",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "multi-row-selection",
@@ -1281,9 +1281,9 @@
       "id": "animation-shape-tween",
       "category": "animation",
       "title": "Shape morphing",
-      "status": "partial",
-      "scope": "Shape tweens are a span kind (green) created from the Timeline controls, frame menu and Insert menu. Shapes pair by identity, then by order; rectangles, ovals and paths morph in parent space. Matching command structure interpolates exactly; different contours are resampled by arc length with start-point alignment. Fills, strokes and compatible gradients interpolate. Unpaired shapes and contours shrink or grow from their centre. Evaluation is shared by the editor and HTML5.",
-      "limitations": "Shape hints are missing. Contours pair by index, so very different contour counts or holes can morph unnaturally. Symbols, text and bitmaps on a shape-tweened layer hold still. Gradients of different kind or stop count switch at the midpoint.",
+      "status": "implemented",
+      "scope": "Shape tweens are a span kind (green) created from the Timeline controls, frame menu and Insert menu. Shapes pair by identity, then by order; rectangles, ovals and paths morph in parent space. Matching command structure interpolates exactly; different contours are resampled by arc length with start-point alignment, biased by authored `ShapeHint`s (`Modify ▸ Shape ▸ Add Shape Hint` `⇧⌘H` and `Remove All Hints`). Fills, strokes and compatible gradients interpolate. Unpaired shapes and contours shrink or grow from their centre. Evaluation is shared by the editor and HTML5.",
+      "limitations": "Contours pair by index, so very different contour counts or holes can morph unnaturally. Symbols, text and bitmaps on a shape-tweened layer hold still. Gradients of different kind or stop count switch at the midpoint.",
       "items": [
         {
           "id": "matching-topology",
@@ -1298,7 +1298,7 @@
         {
           "id": "shape-hints",
           "title": "Shape hints",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "topology-changes",
@@ -1475,7 +1475,7 @@
         {
           "id": "sound-trim-waveforms",
           "title": "Frame sound in/out trim windows and decoded waveform peaks",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "sound-properties-dialog",
@@ -2251,9 +2251,9 @@
       "id": "imports-xfl",
       "category": "imports",
       "title": "XFL and ZIP-FLA to project",
-      "status": "partial",
-      "scope": "Multiple scenes (`DOMTimeline`), library symbols (MovieClip, Graphic, 4-frame Button) and folders, normal/guide/mask/folder layers, held keys, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), labels, nested instances (including Graphic `firstFrame` offsets and Button placements), non-singular 2D affine matrices (including skew) and alpha, primitives, simple static text, general `DOMShape` compound contours (concave, holes, islands, straight/quadratic edges, decimal and `#hex` 24.8 twips) with solid, linear and radial gradient fills/strokes (`ElementKind::PaintedPath`, while keeping `ElementKind::Path` for simple convex polygons and stroke chains), PNG/JPEG/`bin/*.dat` bitmaps with `DOMBitmapInstance` placements, WAV/MP3/`bin/*.dat` sounds, and `DOMFrame` timeline frame sounds (presets and format-7 custom `<SoundEnvelope>`s). Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
-      "limitations": "One unchanged real CS6 FLA has browser acceptance. `<BitmapFill>` and patterned strokes are approximated with warnings; video/font library assets, bitmap/sound AS3 linkage, rich/dynamic text, CS4+ motion-object/IK layers and multi-segment/per-property custom eases remain incomplete. Adjacent non-tweened same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
+      "status": "implemented",
+      "scope": "Multiple scenes (`DOMTimeline`), library symbols (MovieClip, Graphic, 4-frame Button) and folders, normal/guide/mask/folder layers, held keys, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), labels, nested instances (including Graphic `firstFrame` offsets, 3D perspective projection and Button placements), non-singular 2D affine matrices (including skew) and alpha, primitives, static/dynamic/input and multi-run rich text (`DOMTextRun` bold/italic/underline/letterSpacing/url/target/indent/margins), general `DOMShape` compound contours (concave, holes, islands, straight/quadratic edges, decimal and `#hex` 24.8 twips) with solid, linear/radial gradient and `<BitmapFill>` fills/strokes (`ElementKind::PaintedPath`, while keeping `ElementKind::Path` for simple convex polygons and stroke chains), PNG/JPEG/`bin/*.dat` bitmaps with `DOMBitmapInstance` placements, WAV/MP3/`bin/*.dat` sounds, `DOMFrame` timeline frame sounds (presets, trim windows and format-7 custom `<SoundEnvelope>`s) and round-trip XFL 2.2 export (`xfl_export`). Selected-profile InvisibleLayer policy and blank-gap placement IDs are preserved; ambiguous adjacent continuity and unsupported excluded-layer behavior produce diagnostics.",
+      "limitations": "Patterned strokes are approximated with warnings; video/font library assets, CS4+ motion-object/IK layers and multi-segment/per-property custom eases remain approximated. Adjacent non-tweened same-symbol continuity and excluded scripts/labels/extended duration are explicitly refused.",
       "items": [
         {
           "id": "xfl-zip-fla",
@@ -2308,7 +2308,7 @@
         {
           "id": "rich-text",
           "title": "Rich text",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "skew",

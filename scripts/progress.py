@@ -226,7 +226,7 @@ def reports(root, categories, features, write=False):
         REPORT_START,
         "## Where we are",
         "",
-        "The editor foundation works: nested timelines, vector tools, scripting and standalone HTML5. Full AS2/AS3, FLA/SWF import, portable media and DOM applications remain in development.",
+        "The authoring workspace, nested timelines, vector tools (Object and Merge Drawing, boolean operations), ActionScript 1/2/3 and TypeScript/JavaScript runtime, portable HTML5/DOM export, and FLA/XFL/SWF/SWC import work across the audited scope below.",
         "",
         "### ActionScript: Flash Player areas",
         "",
