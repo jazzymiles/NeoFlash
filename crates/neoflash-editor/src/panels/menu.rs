@@ -917,7 +917,7 @@ impl Editor {
         let toggle = |editor: &mut Self, ui: &mut egui::Ui, index: usize| {
             let (name, _, panel) = WINDOW_PANELS[index];
             let shortcut = editor.sc(C::for_panel(panel));
-            let mut visible = editor.workspace.is_panel_visible(panel);
+            let mut visible = !editor.panels_hidden && editor.workspace.is_panel_active(panel);
             if menu_toggle(ui, &mut visible, name, &shortcut).changed() {
                 editor.set_panel_visible(panel, visible);
                 ui.close();

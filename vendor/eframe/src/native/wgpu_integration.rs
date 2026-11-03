@@ -860,7 +860,7 @@ impl WgpuWinitRunning<'_> {
                 }
             }
 
-            winit::event::WindowEvent::CloseRequested => {
+            winit::event::WindowEvent::CloseRequested | winit::event::WindowEvent::Destroyed => {
                 if viewport_id == Some(ViewportId::ROOT) && integration.should_close() {
                     log::debug!(
                         "Received WindowEvent::CloseRequested for main viewport - shutting down."

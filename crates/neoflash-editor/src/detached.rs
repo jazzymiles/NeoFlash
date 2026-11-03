@@ -572,18 +572,7 @@ impl Editor {
                         .remember_floating_geometry(window_id, geometry);
                 }
                 if ctx.input(|i| i.viewport().close_requested()) {
-                    for panel in &panels {
-                        self.set_panel_visible(*panel, false);
-                    }
-                    if self.detached.drag.is_some_and(|drag| drag.source == id) {
-                        self.detached.drag = None;
-                    }
-                    self.detached
-                        .dock_viewports
-                        .retain(|v| v.surface != DockSurface::Floating(window_id));
-                    self.detached
-                        .dock_groups
-                        .retain(|g| g.surface != DockSurface::Floating(window_id));
+                    self.close_floating_window(window_id);
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
                     return;
                 }
@@ -624,6 +613,93 @@ impl Editor {
         self.finalize_panel_drag(ctx);
         if !self.detached.active.is_empty() {
             ctx.request_repaint_after(Duration::from_secs(1));
+        }
+    }
+
+    pub(crate) fn close_floating_window(&mut self, window_id: PanelId) {
+        let panels = self
+            .workspace
+            .floating
+            .iter()
+            .find(|w| w.id == window_id)
+            .map(|w| w.panels())
+            .unwrap_or_default();
+        for panel in panels {
+            self.set_panel_visible(panel, false);
+        }
+        let id = viewport(window_id);
+        self.detached.active.remove(&window_id);
+        if self.detached.drag.is_some_and(|drag| drag.source == id) {
+            self.detached.drag = None;
+        }
+        self.detached
+            .dock_viewports
+            .retain(|v| v.surface != DockSurface::Floating(window_id));
+        self.detached
+            .dock_groups
+            .retain(|g| g.surface != DockSurface::Floating(window_id));
+    }
+
+    pub(crate) fn close_floating_viewport(&mut self, viewport_id: egui::ViewportId) -> bool {
+        let Some(window_id) = self
+            .workspace
+            .floating
+            .iter()
+            .map(|w| w.id)
+            .find(|&id| viewport(id) == viewport_id)
+        else {
+            return false;
+        };
+        self.close_floating_window(window_id);
+        true
+    }
+
+    /// Apply pending native close events on detached panel windows before menus or viewports draw,
+    /// so the Window menu checkmark updates immediately and closing viewports are not re-submitted.
+    pub(crate) fn sync_closed_detached_panels(&mut self, ctx: &egui::Context) {
+        if self.panels_hidden {
+            return;
+        }
+        let zoom = ctx.zoom_factor();
+        let windows: Vec<PanelId> = self
+            .workspace
+            .floating
+            .iter()
+            .filter(|window| {
+                window
+                    .panels()
+                    .iter()
+                    .any(|panel| self.workspace.is_panel_visible(*panel))
+            })
+            .map(|window| window.id)
+            .collect();
+        for window_id in windows {
+            let id = viewport(window_id);
+            let close_geometry = ctx.input(|i| {
+                let v = i.raw.viewports.get(&id)?;
+                if !v.close_requested() {
+                    return None;
+                }
+                let geometry = if v.minimized == Some(true) {
+                    None
+                } else {
+                    v.outer_rect
+                        .zip(v.inner_rect)
+                        .map(|(outer, inner)| WindowGeometry {
+                            outer_position: [outer.min.x * zoom, outer.min.y * zoom],
+                            inner_size: [inner.width() * zoom, inner.height() * zoom],
+                        })
+                };
+                Some(geometry)
+            });
+            if let Some(geometry) = close_geometry {
+                if let Some(geometry) = geometry {
+                    self.workspace
+                        .remember_floating_geometry(window_id, geometry);
+                }
+                self.close_floating_window(window_id);
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
+            }
         }
     }
 

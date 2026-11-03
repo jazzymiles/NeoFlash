@@ -1673,7 +1673,13 @@ impl Editor {
 
         // File.
         if self.take_command_shortcut(ctx, C::FileClose) {
-            self.request(Pending::CloseDocument, ctx);
+            if ctx.viewport_id() != egui::ViewportId::ROOT
+                && self.close_floating_viewport(ctx.viewport_id())
+            {
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
+            } else {
+                self.request(Pending::CloseDocument, ctx);
+            }
         }
         if self.take_command_shortcut(ctx, C::FileRevert) && self.can_revert() {
             self.request_revert();
@@ -1809,7 +1815,7 @@ impl Editor {
                 continue;
             }
             if self.take_command_shortcut(ctx, C::for_panel(panel)) {
-                let visible = self.workspace.is_panel_visible(panel);
+                let visible = !self.panels_hidden && self.workspace.is_panel_active(panel);
                 self.set_panel_visible(panel, !visible);
             }
         }
@@ -2284,6 +2290,7 @@ impl eframe::App for Editor {
         }
         self.pump_timeline_audio();
         self.normalize_selection();
+        self.sync_closed_detached_panels(ctx);
         self.menu(ctx);
         self.status_bar(ctx);
         self.bitmap_textures.begin_frame(&self.project);

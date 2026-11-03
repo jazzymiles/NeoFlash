@@ -646,6 +646,14 @@ impl FloatingNode {
             }
         }
     }
+    pub fn normalize_active(&mut self, panels: PanelVisibility) -> bool {
+        match self {
+            Self::Group(group) => group.normalize_active(panels),
+            Self::Split { first, second, .. } => {
+                first.normalize_active(panels) | second.normalize_active(panels)
+            }
+        }
+    }
     fn sanitize(
         self,
         seen: &mut std::collections::HashSet<PanelId>,
@@ -780,6 +788,24 @@ pub struct DockGroup {
     pub active: PanelId,
     /// Relative size within its area, independent of viewport dimensions.
     pub weight: f32,
+}
+impl DockGroup {
+    pub fn active_visible(&self, panels: PanelVisibility) -> Option<PanelId> {
+        self.tabs
+            .iter()
+            .copied()
+            .find(|&p| p == self.active && panels.is_visible(p))
+            .or_else(|| self.tabs.iter().copied().find(|&p| panels.is_visible(p)))
+    }
+    pub fn normalize_active(&mut self, panels: PanelVisibility) -> bool {
+        if let Some(active) = self.active_visible(panels)
+            && self.active != active
+        {
+            self.active = active;
+            return true;
+        }
+        false
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DockArea {
@@ -2582,6 +2608,32 @@ impl WorkspacePrefs {
     pub fn is_panel_visible(&self, panel: PanelId) -> bool {
         self.panels.is_visible(panel)
     }
+    /// Whether `panel` is visible and is the active tab of its dock or floating group.
+    pub fn is_panel_active(&self, panel: PanelId) -> bool {
+        if !self.is_panel_visible(panel) {
+            return false;
+        }
+        if let Some(location) = self.dock.location(panel) {
+            return self
+                .dock
+                .area(location.edge)
+                .groups
+                .iter()
+                .find(|g| g.id == location.group)
+                .and_then(|g| g.active_visible(self.panels))
+                == Some(panel);
+        }
+        if let Some(window) = self.floating_window(panel)
+            && let Some(root) = &window.root
+            && let Some((group_id, _)) = root.location(panel)
+        {
+            return root
+                .group(group_id)
+                .and_then(|g| g.active_visible(self.panels))
+                == Some(panel);
+        }
+        true
+    }
     #[cfg(test)]
     pub fn bottom_visible(&self) -> bool {
         self.dock
@@ -2612,11 +2664,26 @@ impl WorkspacePrefs {
         if visible {
             return self.show_panel(panel);
         }
-        let changed = *self.panels.slot(panel);
+        let mut changed = *self.panels.slot(panel);
         *self.panels.slot(panel) = false;
+        changed |= self.normalize_active_groups();
         let before = self.active_bottom;
         self.normalize_active_bottom();
         changed || before != self.active_bottom
+    }
+    fn normalize_active_groups(&mut self) -> bool {
+        let mut changed = false;
+        for edge in DockEdge::ALL {
+            for group in &mut self.dock.area_mut(edge).groups {
+                changed |= group.normalize_active(self.panels);
+            }
+        }
+        for window in &mut self.floating {
+            if let Some(root) = &mut window.root {
+                changed |= root.normalize_active(self.panels);
+            }
+        }
+        changed
     }
 
     #[cfg(test)]

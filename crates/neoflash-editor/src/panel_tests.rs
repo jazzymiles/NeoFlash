@@ -1622,6 +1622,26 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     d.editor.restore_workspace(&d.ctx);
     d.settle();
 
+    // Inactive background tabs and Hide panels: Window menu must open in 1 click, not 2.
+    assert!(!d.editor.workspace.is_panel_active(PanelId::Actions));
+    d.click("Window");
+    d.click(window_row(PanelId::Actions));
+    assert!(
+        d.editor.workspace.is_panel_active(PanelId::Actions),
+        "inactive background tab opens on first click in Window menu"
+    );
+    d.editor.set_panels_hidden(true);
+    d.settle();
+    d.click("Window");
+    d.click(window_row(PanelId::Properties));
+    assert!(!d.editor.panels_hidden);
+    assert!(
+        d.editor.workspace.is_panel_active(PanelId::Properties),
+        "panel hidden by Hide panels opens on first click in Window menu"
+    );
+    d.editor.restore_workspace(&d.ctx);
+    d.settle();
+
     // Planned previews: each closes from its own chrome. Failures are collected in one pass.
     let mut stuck = Vec::new();
     for panel in PlannedPanel::ALL {

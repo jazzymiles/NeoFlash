@@ -1516,15 +1516,24 @@ impl Editor {
             ui.close();
         }
         if crate::ui_icons::menu_item(ui, "Close group", "").clicked() {
-            let group = self.workspace.dock.location(PanelId::Color).and_then(|at| {
-                self.workspace
-                    .dock
-                    .area(at.edge)
-                    .groups
-                    .iter()
-                    .find(|g| g.id == at.group)
-                    .map(|g| g.tabs.clone())
-            });
+            let group = self
+                .workspace
+                .dock
+                .location(PanelId::Color)
+                .and_then(|at| {
+                    self.workspace
+                        .dock
+                        .area(at.edge)
+                        .groups
+                        .iter()
+                        .find(|g| g.id == at.group)
+                        .map(|g| g.tabs.clone())
+                })
+                .or_else(|| {
+                    self.workspace
+                        .floating_window(PanelId::Color)
+                        .map(|w| w.panels())
+                });
             for panel in group.unwrap_or_else(|| vec![PanelId::Color]) {
                 self.set_panel_visible(panel, false);
             }
