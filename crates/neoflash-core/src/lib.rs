@@ -45,6 +45,7 @@ mod filters;
 mod geometry;
 mod history;
 mod library_folders;
+pub mod merge_drawing;
 pub mod model;
 mod pixels;
 mod resource_image;
@@ -84,6 +85,14 @@ pub use geometry::{
 };
 pub use history::History;
 pub use library_folders::valid_library_folder;
+pub use merge_drawing::{
+    BooleanOp, apply_merge_shape_to_keyframe, boolean_paths, boolean_rings,
+    combine_elements_boolean, decompose_element_to_merge_parts, element_world_commands,
+    flatten_closed_rings, flatten_stroke_polylines, is_merge_fill, is_merge_stroke,
+    merge_connected_stroke_ids, merge_fill_adjacent_stroke_ids, point_in_rings,
+    remerge_moved_elements_in_keyframe, slice_fill_rings_with_polylines, slice_fill_with_stroke,
+    split_polyline_with_segments, trim_polyline_inside_fill,
+};
 pub use model::*;
 pub use pixels::{
     As2BitmapCommand, BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION,

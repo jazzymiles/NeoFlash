@@ -770,6 +770,7 @@ pub enum CommandId {
     ToolEraser,
     ToolHand,
     ToolZoom,
+    ToolObjectDrawing,
 }
 
 struct CommandMeta {
@@ -880,6 +881,7 @@ const S_TOOL_I: &[Shortcut] = &[Shortcut::none(Key::I)];
 const S_TOOL_E: &[Shortcut] = &[Shortcut::none(Key::E)];
 const S_TOOL_H: &[Shortcut] = &[Shortcut::none(Key::H)];
 const S_TOOL_ZM: &[Shortcut] = &[Shortcut::none(Key::Z), Shortcut::none(Key::M)];
+const S_TOOL_J: &[Shortcut] = &[Shortcut::none(Key::J)];
 
 impl CommandId {
     pub const ALL: &'static [Self] = &[
@@ -1005,6 +1007,7 @@ impl CommandId {
         Self::ToolEraser,
         Self::ToolHand,
         Self::ToolZoom,
+        Self::ToolObjectDrawing,
     ];
 
     const fn meta(self) -> CommandMeta {
@@ -1984,6 +1987,14 @@ impl CommandId {
                 title: "Tools ▸ Zoom",
                 keywords: "",
                 defaults: S_TOOL_ZM,
+                allow_when_typing: false,
+            },
+            Self::ToolObjectDrawing => CommandMeta {
+                id: "tool.object_drawing",
+                category: C::Tools,
+                title: "Tools ▸ Object Drawing",
+                keywords: "merge drawing",
+                defaults: S_TOOL_J,
                 allow_when_typing: false,
             },
         }

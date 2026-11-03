@@ -843,7 +843,7 @@ unclear.
 | Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
 | View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (disabled); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
 | Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
-| Modify | Bitmap ▸, Symbol ▸, Shape ▸, Combine objects ▸ (disabled), Timeline ▸ Distribute to layers (disabled). Done: Document… ⌘J, Timeline ▸ Layer properties…, Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01; engine for shape ops |
+| Modify | Bitmap ▸, Symbol ▸, Shape ▸ (disabled). Done: Document… ⌘J, Combine objects ▸ (Union, Intersect, Punch, Crop), Timeline ▸ Distribute to layers ⇧⌘D, Layer properties…, Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01 |
 | Control | Enable simple buttons ⌥⌘B (disabled). Done: Test scene ⌥⌘↵, Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | editor button preview |
 | Window | Duplicate window, Hide panels F4 (disabled); Compiler errors, Debugger, Code snippets, Movie Explorer and other planned panels open previews. Done: Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Motion editor, Project | PP-*; workspace |
 

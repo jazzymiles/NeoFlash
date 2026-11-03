@@ -2980,11 +2980,11 @@ fn preferences_drawing_page_binds_controls_resets_and_saves() {
     };
 
     // Unwired engine/design-blocked controls stay disabled; wired controls are interactive.
-    assert!(is_disabled(&d, "Merge drawing"));
-    assert!(is_disabled(&d, "Object drawing"));
     assert!(is_disabled(&d, "Show solid points"));
     assert!(is_disabled(&d, "Snap align"));
     for enabled_label in [
+        "Merge drawing",
+        "Object drawing",
         "Show pen preview",
         "Precise cursors",
         "Snap tolerance",
@@ -2997,11 +2997,13 @@ fn preferences_drawing_page_binds_controls_resets_and_saves() {
     }
 
     // Toggle switches through the real dialog UI.
+    d.click("Merge drawing");
     d.click("Show pen preview");
     d.click("Precise cursors");
     d.click("Snap to pixels");
     {
         let draft = d.editor.preferences.as_ref().unwrap();
+        assert!(!draft.drawing.object_drawing);
         assert!(!draft.drawing.pen_preview);
         assert!(draft.drawing.precise_cursors);
         assert!(draft.pixels_snap);
@@ -3016,6 +3018,7 @@ fn preferences_drawing_page_binds_controls_resets_and_saves() {
     }
 
     // Edit controls again (switches + recognition tolerances + snap tolerance) and Save.
+    d.click("Merge drawing");
     d.click("Show pen preview");
     d.click("Precise cursors");
     d.click("Snap to pixels");
@@ -3032,6 +3035,7 @@ fn preferences_drawing_page_binds_controls_resets_and_saves() {
     d.click("Save");
 
     assert!(d.editor.preferences.is_none());
+    assert!(!d.editor.workspace.drawing.object_drawing);
     assert!(!d.editor.workspace.drawing.pen_preview);
     assert!(d.editor.workspace.drawing.precise_cursors);
     assert_eq!(

@@ -1609,6 +1609,23 @@ impl Editor {
         }
         if matches!(
             self.tool,
+            Tool::Rectangle
+                | Tool::Ellipse
+                | Tool::PolyStar
+                | Tool::Line
+                | Tool::Pen
+                | Tool::Pencil
+                | Tool::Brush
+        ) {
+            nf::Segmented::show(
+                ui,
+                &mut self.workspace.drawing.object_drawing,
+                &[(false, "Merge drawing"), (true, "Object drawing")],
+                true,
+            );
+        }
+        if matches!(
+            self.tool,
             Tool::Select
                 | Tool::Transform
                 | Tool::Rectangle

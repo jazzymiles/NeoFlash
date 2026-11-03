@@ -133,8 +133,8 @@ struct SelectionGeometry {
     world: Rect,
     world_pivot: geometry::Point,
     resizable: bool,
-    /// Stage bounds and NF2 selection-box kind of every selected placement.
-    boxes: Vec<(Rect, cv::SelectionKind)>,
+    /// Stage bounds, NF2 selection-box kind, and whether the placement is an ungrouped Merge shape.
+    boxes: Vec<(Rect, cv::SelectionKind, bool)>,
 }
 
 /// `NF2/Selection Box` kind for a placement: symbols show their registration and transformation
@@ -205,10 +205,95 @@ impl Editor {
             && gesture.began
         {
             if gesture.changed {
+                if !matches!(gesture.kind, GestureKind::Pivot { .. }) {
+                    self.remerge_selected_after_move(&gesture);
+                }
                 self.commit_history();
             } else {
                 self.history.cancel(&mut self.project);
             }
+        }
+    }
+
+    fn remerge_selected_after_move(&mut self, gesture: &SelectionGesture) {
+        let frame = self.frame;
+        let mut layer_order = Vec::new();
+        let mut moved_by_layer: HashMap<Id, Vec<Id>> = HashMap::new();
+        for (target, _) in &gesture.targets {
+            if !moved_by_layer.contains_key(&target.layer) {
+                layer_order.push(target.layer.clone());
+            }
+            moved_by_layer
+                .entry(target.layer.clone())
+                .or_default()
+                .push(target.element.clone());
+        }
+        let mut new_selection = Vec::new();
+        let mut any_remerged = false;
+        for layer_id in layer_order {
+            let Some(moved_ids) = moved_by_layer.get(&layer_id) else {
+                continue;
+            };
+            let Some(layer_idx) = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .position(|l| l.id == layer_id)
+            else {
+                continue;
+            };
+            let grouped: HashSet<Id> = self.symbol().timeline.layers[layer_idx]
+                .properties
+                .groups
+                .iter()
+                .filter(|g| g.members.len() >= 2)
+                .flat_map(|g| g.members.iter().cloned())
+                .collect();
+            let merge_moved: Vec<Id> = self.symbol().timeline.layers[layer_idx]
+                .key_at(frame)
+                .map(|k| {
+                    moved_ids
+                        .iter()
+                        .filter(|id| {
+                            !grouped.contains(*id)
+                                && k.elements.iter().any(|e| &e.id == *id && e.merge)
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            if merge_moved.is_empty() {
+                for id in moved_ids {
+                    new_selection.push(SelectionTarget {
+                        layer: layer_id.clone(),
+                        element: id.clone(),
+                    });
+                }
+                continue;
+            }
+            any_remerged = true;
+            if let Some(key) = self.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame) {
+                let remerged_ids =
+                    remerge_moved_elements_in_keyframe(&mut key.elements, &merge_moved);
+                for id in moved_ids {
+                    if !merge_moved.contains(id) {
+                        new_selection.push(SelectionTarget {
+                            layer: layer_id.clone(),
+                            element: id.clone(),
+                        });
+                    }
+                }
+                for id in remerged_ids {
+                    new_selection.push(SelectionTarget {
+                        layer: layer_id.clone(),
+                        element: id,
+                    });
+                }
+            }
+        }
+        if any_remerged {
+            self.set_selection(new_selection);
         }
     }
     /// Ensure a keyframe on `layer_id` at `self.frame` for a stage drag/transform (respecting
@@ -387,17 +472,32 @@ impl Editor {
         } else {
             self.selection.len() > 1 && world.width() > 1e-6 && world.height() > 1e-6
         };
+        let grouped_ids: HashSet<Id> = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.properties.groups)
+            .filter(|g| g.members.len() >= 2)
+            .flat_map(|g| g.members.iter().cloned())
+            .collect();
         let kinds: HashMap<_, _> = self
             .sampled_targets()
             .into_iter()
-            .map(|(target, element)| (target.element.clone(), selection_kind(&element)))
+            .map(|(target, element)| {
+                let is_merge = element.merge && !grouped_ids.contains(&target.element);
+                (target.element.clone(), (selection_kind(&element), is_merge))
+            })
             .collect();
         let boxes = per_target
             .into_iter()
             .filter(|(_, rect)| rect.is_finite())
             .map(|(id, rect)| {
-                let kind = kinds.get(id).copied().unwrap_or(cv::SelectionKind::Group);
-                (rect, kind)
+                let (kind, is_merge) = kinds
+                    .get(id)
+                    .copied()
+                    .unwrap_or((cv::SelectionKind::Group, false));
+                (rect, kind, is_merge)
             })
             .collect();
         let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
@@ -1098,10 +1198,14 @@ impl Editor {
                     zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
                 }
             } else {
-                // `NF2/Selection Box` around every selected placement.
-                for (rect, kind) in &g.boxes {
+                // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
+                for (rect, kind, is_merge) in &g.boxes {
                     let rect = Rect::from_min_max(screen(rect.min), screen(rect.max));
-                    cv::paint_selection_box(p, p.ctx(), rect, *kind);
+                    if *is_merge {
+                        cv::paint_shape_selection(p, p.ctx(), rect);
+                    } else {
+                        cv::paint_selection_box(p, p.ctx(), rect, *kind);
+                    }
                 }
             }
         }
@@ -1328,12 +1432,50 @@ impl Editor {
         if self.tool == Tool::Select
             && response.double_clicked()
             && !self.stage_view.guide_pointer
-            && let Some(Element {
+        {
+            if let Some(Element {
                 kind: ElementKind::Instance { symbol_id, .. },
                 ..
             }) = self.selected_element().cloned()
-        {
-            self.enter_symbol(symbol_id);
+            {
+                self.enter_symbol(symbol_id);
+            } else if let Some(target) = self.selection.single().cloned() {
+                self.expand_merge_double_click_selection(&target);
+            }
+        }
+    }
+
+    /// Double-clicking a Merge-mode fill selects the fill and its adjacent Merge strokes;
+    /// double-clicking a Merge-mode stroke selects all connected Merge stroke segments.
+    pub(crate) fn expand_merge_double_click_selection(&mut self, target: &SelectionTarget) {
+        let Some(layer_idx) = self.target_layer_index(target) else {
+            return;
+        };
+        let Some(key) = self.symbol().timeline.layers[layer_idx].key_at(self.frame) else {
+            return;
+        };
+        let Some(el) = key.elements.iter().find(|e| e.id == target.element) else {
+            return;
+        };
+        if !el.merge {
+            return;
+        }
+        let ids = if is_merge_fill(el) {
+            merge_fill_adjacent_stroke_ids(&key.elements, &target.element)
+        } else if is_merge_stroke(el) {
+            merge_connected_stroke_ids(&key.elements, &target.element)
+        } else {
+            Vec::new()
+        };
+        if ids.len() > 1 {
+            let targets = ids
+                .into_iter()
+                .map(|element| SelectionTarget {
+                    layer: target.layer.clone(),
+                    element,
+                })
+                .collect();
+            self.set_selection(targets);
         }
     }
 

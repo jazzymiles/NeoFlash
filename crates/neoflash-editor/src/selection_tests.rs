@@ -1638,3 +1638,182 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
     editor.undo();
     assert_eq!(editor.project, before_pt);
 }
+
+#[test]
+fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
+    let (mut editor, _ctx, _page) = fixture(0);
+    editor.layer = 1; // clean empty layer `top`
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .clear();
+
+    // 1. Default mode is Object Drawing (`object_drawing == true`): drawn shape stays 1 element.
+    assert!(editor.workspace.drawing.object_drawing);
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 60.0,
+            fill: [40, 120, 220, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        10.0,
+        10.0,
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    assert!(!editor.symbol().timeline.layers[1].keyframes[0].elements[0].merge);
+    editor.undo();
+
+    // 2. Switch to Merge Drawing mode (`object_drawing = false`):
+    // Drawing a stroked rectangle separates fill and stroke into 2 independent merge elements,
+    // and double-clicking the fill selects both the fill and its adjacent stroke.
+    editor.workspace.drawing.object_drawing = false;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 100.0,
+            fill: [40, 120, 220, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        0.0,
+        0.0,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.project.format_version, 7);
+    {
+        let elements = &editor.symbol().timeline.layers[1].keyframes[0].elements;
+        assert_eq!(elements.len(), 2);
+        assert!(is_merge_fill(&elements[0]));
+        assert!(is_merge_stroke(&elements[1]));
+        let fill_id = elements[0].id.clone();
+        editor.select_single_id(fill_id);
+    }
+    let single_fill_target = editor.selection.single().unwrap().clone();
+    editor.expand_merge_double_click_selection(&single_fill_target);
+    assert_eq!(
+        editor.selection.len(),
+        2,
+        "double-clicking a Merge fill must select its adjacent stroke too"
+    );
+
+    // 3. Overlapping different-color fill in Merge mode subtracts from the underlying fill.
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 20.0,
+            height: 140.0,
+            fill: [220, 50, 50, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        40.0,
+        -20.0,
+    );
+    editor.project.validate().unwrap();
+    {
+        let elements = &editor.symbol().timeline.layers[1].keyframes[0].elements;
+        let fills: Vec<&Element> = elements.iter().filter(|e| is_merge_fill(e)).collect();
+        // Original blue fill split into left and right halves + new red fill = 3 fills.
+        assert_eq!(fills.len(), 3);
+    }
+
+    // 4. Drawing a line across a Merge fill slices the fill into 2 independent fills.
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .clear();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 100.0,
+            fill: [50, 180, 90, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        0.0,
+        0.0,
+    );
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: -10.0, y: 50.0 },
+                PathCommand::LineTo { x: 110.0, y: 50.0 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        },
+        0.0,
+        0.0,
+    );
+    editor.project.validate().unwrap();
+    {
+        let elements = &editor.symbol().timeline.layers[1].keyframes[0].elements;
+        let fills: Vec<&Element> = elements.iter().filter(|e| is_merge_fill(e)).collect();
+        let strokes: Vec<&Element> = elements.iter().filter(|e| is_merge_stroke(e)).collect();
+        assert_eq!(fills.len(), 2, "line across fill must slice it into 2 fills");
+        assert_eq!(strokes.len(), 3, "line must split at the 2 fill boundary crossings");
+    }
+
+    // 5. Modify ▸ Combine objects (Union & Punch) on Object Drawing shapes.
+    editor.workspace.drawing.object_drawing = true;
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .clear();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 80.0,
+            fill: [100, 100, 240, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        0.0,
+        0.0,
+    );
+    let id_a = editor.symbol().timeline.layers[1].keyframes[0].elements[0]
+        .id
+        .clone();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 80.0,
+            fill: [240, 100, 100, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        40.0,
+        0.0,
+    );
+    let id_b = editor.symbol().timeline.layers[1].keyframes[0].elements[1]
+        .id
+        .clone();
+    let layer_id = editor.symbol().timeline.layers[1].id.clone();
+    editor.set_selection(vec![
+        crate::selection::SelectionTarget {
+            layer: layer_id.clone(),
+            element: id_a,
+        },
+        crate::selection::SelectionTarget {
+            layer: layer_id,
+            element: id_b,
+        },
+    ]);
+    assert!(editor.can_combine_objects());
+    let before_combine = editor.project.clone();
+    editor.combine_objects_selection(BooleanOp::Union, false);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_combine);
+}

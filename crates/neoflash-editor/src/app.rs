@@ -773,12 +773,37 @@ impl Editor {
             }
             let layer = s.layer;
             let frame = s.frame;
-            s.symbol_mut().timeline.layers[layer]
-                .key_at_mut(frame)
-                .unwrap()
-                .elements
-                .push(element);
-            s.select_single_id(id);
+            let merge_mode = !s.workspace.drawing.object_drawing
+                && matches!(
+                    element.kind,
+                    ElementKind::Rectangle { .. }
+                        | ElementKind::Ellipse { .. }
+                        | ElementKind::Path { .. }
+                        | ElementKind::PaintedPath { .. }
+                );
+            if merge_mode {
+                let elements = &mut s.symbol_mut().timeline.layers[layer]
+                    .key_at_mut(frame)
+                    .unwrap()
+                    .elements;
+                let created_ids = apply_merge_shape_to_keyframe(elements, element);
+                let layer_id = s.symbol().timeline.layers[layer].id.clone();
+                let targets = created_ids
+                    .into_iter()
+                    .map(|element| crate::selection::SelectionTarget {
+                        layer: layer_id.clone(),
+                        element,
+                    })
+                    .collect();
+                s.set_selection(targets);
+            } else {
+                s.symbol_mut().timeline.layers[layer]
+                    .key_at_mut(frame)
+                    .unwrap()
+                    .elements
+                    .push(element);
+                s.select_single_id(id);
+            }
         });
         self.tool = Tool::Select;
     }
@@ -1570,6 +1595,9 @@ impl Editor {
                 if self.take_command_shortcut(ctx, C::for_tool(tool)) {
                     self.set_tool(tool);
                 }
+            }
+            if self.take_command_shortcut(ctx, C::ToolObjectDrawing) {
+                self.workspace.drawing.object_drawing = !self.workspace.drawing.object_drawing;
             }
             if !self.timeline_edit.focused
                 && !self.selection.is_empty()

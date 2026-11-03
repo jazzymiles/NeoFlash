@@ -930,6 +930,7 @@ impl Editor {
                             cache_as_bitmap: instance.cache_as_bitmap,
                             blend_mode: instance.blend_mode,
                             filters: instance.filters.clone(),
+                            ..Element::default()
                         });
                     }
                     replacements.push((target, children));
@@ -1002,13 +1003,30 @@ impl Editor {
                                 cache_as_bitmap: instance.cache_as_bitmap,
                                 blend_mode: instance.blend_mode,
                                 filters: instance.filters.clone(),
+                                ..Element::default()
                             });
                         }
                     }
                     replacements.push((target, children));
                 }
+                ElementKind::Path { .. } | ElementKind::PaintedPath { .. } if !instance.merge => {
+                    if let Some((fill_opt, strokes)) = decompose_element_to_merge_parts(&instance) {
+                        let mut parts = Vec::new();
+                        if let Some(f) = fill_opt {
+                            parts.push(f);
+                        }
+                        parts.extend(strokes);
+                        if !parts.is_empty() {
+                            replacements.push((target, parts));
+                            continue;
+                        }
+                    }
+                    let mut broken = instance.clone();
+                    broken.merge = true;
+                    replacements.push((target, vec![broken]));
+                }
                 _ => {
-                    self.message("Break Apart currently supports groups, multi-character text, static symbol instances, and Rectangle/Oval shapes.");
+                    self.message("Break Apart currently supports groups, multi-character text, static symbol instances, and Object Drawing shapes.");
                     return;
                 }
             }
@@ -1060,6 +1078,72 @@ impl Editor {
                 editor.project.format_version = editor.project.format_version.max(5);
             }
             editor.set_selection(selection);
+        });
+    }
+
+    pub(crate) fn can_combine_objects(&self) -> bool {
+        let sampled = self.sampled_targets();
+        sampled.len() >= 2
+            && sampled.iter().all(|(target, el)| {
+                self.target_editable(target)
+                    && matches!(
+                        el.kind,
+                        ElementKind::Rectangle { .. }
+                            | ElementKind::Ellipse { .. }
+                            | ElementKind::Path { .. }
+                            | ElementKind::PaintedPath { .. }
+                    )
+            })
+    }
+
+    pub(crate) fn combine_objects_selection(&mut self, op: BooleanOp, crop_by_top: bool) {
+        self.finish_edits();
+        if !self.can_combine_objects() {
+            return;
+        }
+        let sampled = self.sampled_targets();
+        let target_layer = sampled[0].0.layer.clone();
+        if sampled.iter().any(|(t, _)| t.layer != target_layer) {
+            self.message("Select shapes on the same layer to combine them.");
+            return;
+        }
+        let Some(layer_idx) = self.target_layer_index(&sampled[0].0) else {
+            return;
+        };
+        let selected_ids: HashSet<Id> = sampled.into_iter().map(|(t, _)| t.element).collect();
+        let ordered_elements: Vec<Element> =
+            sample_layer(&self.symbol().timeline.layers[layer_idx], self.frame)
+                .into_iter()
+                .filter(|e| selected_ids.contains(&e.id))
+                .collect();
+        let Some(combined) = combine_elements_boolean(&ordered_elements, op, crop_by_top) else {
+            self.message("Combine objects requires at least two closed vector shapes.");
+            return;
+        };
+        self.playing = false;
+        self.transact_named("Combine objects", |editor| {
+            editor.ensure_key_for(&target_layer, false);
+            let frame = editor.frame;
+            let elements = &mut editor.symbol_mut().timeline.layers[layer_idx]
+                .key_at_mut(frame)
+                .unwrap()
+                .elements;
+            let insert_pos = elements
+                .iter()
+                .position(|e| selected_ids.contains(&e.id))
+                .unwrap_or(elements.len());
+            elements.retain(|e| !selected_ids.contains(&e.id));
+            let pos = insert_pos.min(elements.len());
+            let new_targets: Vec<SelectionTarget> = combined
+                .iter()
+                .map(|e| SelectionTarget {
+                    layer: target_layer.clone(),
+                    element: e.id.clone(),
+                })
+                .collect();
+            elements.splice(pos..pos, combined);
+            editor.prune_authoring_groups();
+            editor.set_selection(new_targets);
         });
     }
 
@@ -1329,9 +1413,28 @@ impl Editor {
                 ui.close();
             }
             neoflash_ui::components::menu_separator(ui);
-            for label in ["Bitmap", "Symbol", "Shape", "Combine objects"] {
+            for label in ["Bitmap", "Symbol", "Shape"] {
                 Self::unavailable_submenu(ui, label);
             }
+            let can_combine = self.can_combine_objects();
+            menu_popup(ui, "Combine objects", "Intersect", "", |ui| {
+                if menu_item_enabled(ui, can_combine, "Union", "").clicked() {
+                    self.combine_objects_selection(BooleanOp::Union, false);
+                    ui.close();
+                }
+                if menu_item_enabled(ui, can_combine, "Intersect", "").clicked() {
+                    self.combine_objects_selection(BooleanOp::Intersection, false);
+                    ui.close();
+                }
+                if menu_item_enabled(ui, can_combine, "Punch", "").clicked() {
+                    self.combine_objects_selection(BooleanOp::Difference, false);
+                    ui.close();
+                }
+                if menu_item_enabled(ui, can_combine, "Crop", "").clicked() {
+                    self.combine_objects_selection(BooleanOp::Intersection, true);
+                    ui.close();
+                }
+            });
             neoflash_ui::components::menu_separator(ui);
             menu_popup(
                 ui,

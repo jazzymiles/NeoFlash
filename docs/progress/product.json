@@ -245,6 +245,7 @@
         "crates/neoflash-core/src/geometry.rs",
         "crates/neoflash-core/tests/paths.rs",
         "crates/neoflash-editor/src/stage_primitives.rs",
+        "crates/neoflash-core/src/merge_drawing.rs",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/panels/properties.rs",
         "crates/neoflash-editor/src/tests.rs",
@@ -669,8 +670,8 @@
       "category": "editor",
       "title": "Advanced vector tools",
       "status": "partial",
-      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush, closed-vector bucket, ink bottle, eyedropper, object/fill/stroke eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Authoring groups preserve runtime identities; Modify provides arrange, safe static Break Apart (for authoring groups, parametric primitives and multi-character Text / TextBox elements split into per-character text elements at exact glyph positions), transforms and group-aware alignment/distribution with exact gaps. Stage rulers (units, Auto/fixed labels, movable zero point), per-timeline ruler guides (drag out, move, select, lock, hide, delete, clear; saved in document format 6, stripped from HTML5) and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects (bounds corners, centres and registration points; Tools Snap toggle), grid and pixels (Preferences ▸ Drawing ▸ Snap to pixels) with a snap ring, configurable accuracy and ⌘-suspend.",
-      "limitations": "Pressure, geometric eraser cuts, gap closing, gradient focal handles, general shape splitting/merging, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing remain unfinished.",
+      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round and pressure-sensitive vector brush, closed-vector bucket with gap-closing, ink bottle, eyedropper, object/fill/stroke-segment eraser, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and renders the stippled shape-selection mesh (`paint_shape_selection`). Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Authoring groups preserve runtime identities; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend.",
+      "limitations": "Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing remain unfinished.",
       "items": [
         {
           "id": "line-brush",
@@ -720,7 +721,7 @@
         {
           "id": "point-and-shape-editing",
           "title": "Point insertion/deletion and shape splitting/merging",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "snapping",
@@ -736,6 +737,7 @@
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
+        "crates/neoflash-core/src/merge_drawing.rs",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/authoring_modify.rs",
         "crates/neoflash-editor/src/vector.rs",
@@ -840,6 +842,7 @@
         "crates/neoflash-core/src/authored_layers.rs",
         "crates/neoflash-editor/src/stage_clipping.rs",
         "examples/authoring-workspace.nflash",
+        "crates/neoflash-core/src/merge_drawing.rs",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/authoring_modify.rs",
         "crates/neoflash-editor/src/panels/swatches.rs",

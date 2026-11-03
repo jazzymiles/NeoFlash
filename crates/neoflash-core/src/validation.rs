@@ -79,7 +79,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_7() && project.format_version < 7 {
         add(
             "format_version".into(),
-            "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, custom sound envelopes or trim points, and authored display filters/blending/visibility require document version 7"
+            "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, custom sound envelopes or trim points, merge-drawing shapes, and authored display filters/blending/visibility require document version 7"
                 .into(),
         );
     }

@@ -901,11 +901,14 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
 }
 
 fn prefs_drawing(ui: &mut Ui, draft: &mut PreferencesDraft) {
-    disabled(ui, |ui| {
-        section(ui, "Default mode");
-        row(ui, "New shapes", |ui| {
-            segmented(ui, &["Merge drawing", "Object drawing"], 1)
-        });
+    section(ui, "Default mode");
+    row(ui, "New shapes", |ui| {
+        c::Segmented::show(
+            ui,
+            &mut draft.drawing.object_drawing,
+            &[(false, "Merge drawing"), (true, "Object drawing")],
+            false,
+        );
     });
     section(ui, "Pen tool");
     ui.horizontal(|ui| {

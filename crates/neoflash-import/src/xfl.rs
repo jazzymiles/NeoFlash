@@ -3981,6 +3981,7 @@ impl Parser<'_> {
             cache_as_bitmap,
             blend_mode,
             filters,
+            ..Element::default()
         }]
     }
 

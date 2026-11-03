@@ -1236,9 +1236,14 @@ impl Editor {
                     last.point = e.world_point;
                 }
             }
-            let world_cmds = draft.commands(false);
-            joined =
-                self.build_joined_open_path(&world_cmds, start_match.as_ref(), end_match.as_ref());
+            if drawing.object_drawing {
+                let world_cmds = draft.commands(false);
+                joined = self.build_joined_open_path(
+                    &world_cmds,
+                    start_match.as_ref(),
+                    end_match.as_ref(),
+                );
+            }
         }
 
         let final_closed = if let Some((target_id, merged_commands, closed_loop)) = joined {

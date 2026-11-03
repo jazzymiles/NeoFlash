@@ -346,6 +346,7 @@ impl Project {
                             || e.cache_as_bitmap
                             || !e.blend_mode.is_normal()
                             || !e.filters.is_empty()
+                            || e.merge
                     })
             })
     }
@@ -784,6 +785,10 @@ pub struct Element {
     pub blend_mode: BlendMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<crate::FilterSpec>,
+    /// True when this element is a raw Merge Drawing shape rather than a self-contained
+    /// Object Drawing shape (document version 7).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub merge: bool,
 }
 
 impl Default for Element {
@@ -805,6 +810,7 @@ impl Default for Element {
             cache_as_bitmap: false,
             blend_mode: BlendMode::Normal,
             filters: Vec::new(),
+            merge: false,
         }
     }
 }
