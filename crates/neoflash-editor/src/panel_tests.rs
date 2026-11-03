@@ -4381,6 +4381,71 @@ fn movie_explorer_builds_tree_filters_searches_and_navigates() {
         Some(text_id.as_str())
     );
     assert_eq!(editor.project, snapshot);
+
+    // UI regression: "Customise items to show" popup is closed by default, opens on click,
+    // closes on "Show all items", and closes on outside click.
+    ctx.enable_accesskit();
+    editor.show_panel(PanelId::MovieExplorer);
+    let size = Vec2::new(1440., 900.);
+    let out = frame(&mut editor, &ctx, size, 0.0, vec![]);
+    assert!(!egui::Popup::is_any_open(&ctx));
+    assert!(named_bounds(&out, "Show symbol definitions").is_none());
+
+    let gear = named_bounds(&out, "Customise items to show").expect("customise button");
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.1,
+        vec![primary_button(gear.center(), true)],
+    );
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.2,
+        vec![primary_button(gear.center(), false)],
+    );
+    let out = frame(&mut editor, &ctx, size, 0.3, vec![]);
+    assert!(egui::Popup::is_any_open(&ctx));
+    let sym_defs_item =
+        named_bounds(&out, "Show symbol definitions").expect("popup menu item visible");
+
+    // Clicking an item toggles it; clicking outside closes the popup.
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.4,
+        vec![primary_button(sym_defs_item.center(), true)],
+    );
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.5,
+        vec![primary_button(sym_defs_item.center(), false)],
+    );
+    assert!(!editor.movie_explorer.show_symbol_definitions);
+
+    let outside = Pos2::new(200., 200.);
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.6,
+        vec![primary_button(outside, true)],
+    );
+    let _ = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.7,
+        vec![primary_button(outside, false)],
+    );
+    let out = frame(&mut editor, &ctx, size, 0.8, vec![]);
+    assert!(!egui::Popup::is_any_open(&ctx));
+    assert!(named_bounds(&out, "Show symbol definitions").is_none());
 }
 
 #[test]

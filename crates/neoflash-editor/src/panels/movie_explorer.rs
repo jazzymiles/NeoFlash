@@ -880,15 +880,14 @@ impl Editor {
             .response;
 
         let popup_id = ui.id().with("movie-explorer-customise-popup");
-        if open_customise_popup {
-            egui::Popup::toggle_id(ui.ctx(), popup_id);
-        }
+        let open_cmd = open_customise_popup.then_some(egui::SetOpenCommand::Toggle);
         egui::Popup::new(
             popup_id,
             ui.ctx().clone(),
             egui::PopupAnchor::ParentRect(bar_resp.rect),
             ui.layer_id(),
         )
+        .open_memory(open_cmd)
         .frame(c::popover_frame(ui.ctx()))
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
