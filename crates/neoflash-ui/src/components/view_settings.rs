@@ -1,4 +1,4 @@
-//! `NF2/View Settings` — rulers, guides & grid popover (320 × 542), opened from ⚙ in the canvas
+//! `NF2/View Settings` — rulers, guides & grid popover (320 × 582), opened from ⚙ in the canvas
 //! `NF2/Zoom Control` and from View ▸ Rulers, guides & grid….
 use super::{Button, Checkbox, ColorField, Field, IconButton, Segmented, Select};
 use crate::icons::{self, Icon, i16};
@@ -7,7 +7,7 @@ use crate::tokens::{Palette, TextStyle, space};
 use eframe::egui::{self, Color32, Ui};
 
 /// Values shown by the popover. Defaults follow the reference (guide colour = `color/guide`,
-/// grid colour = `color/stage-grid`, 20 px linked grid, labels Auto).
+/// Dynamic grid, stored manual colour = Light `color/stage-grid`, 20 px linked grid, labels Auto).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewSettingsState {
     pub show_rulers: bool,
@@ -22,6 +22,7 @@ pub struct ViewSettingsState {
     pub grid_show: bool,
     pub grid_snap: bool,
     pub grid_over_objects: bool,
+    pub grid_mode: &'static str,
     pub grid_w: f64,
     pub grid_h: f64,
     pub grid_linked: bool,
@@ -45,6 +46,8 @@ pub const SNAP_ACCURACY: [&str; 3] = [
     "Snap: Can be distant",
 ];
 
+pub const GRID_MODES: [&str; 2] = ["Dynamic", "Static"];
+
 /// Default grid colour: `color/stage-grid` at 14 % (reference "FFFFFF · 14 %" in Dark).
 pub fn default_grid_color(p: &Palette) -> Color32 {
     let [r, g, b, _] = p.stage_grid.to_srgba_unmultiplied();
@@ -56,8 +59,8 @@ pub fn default_grid_color(p: &Palette) -> Color32 {
 pub const POPOVER_OFFSET: egui::Vec2 = egui::vec2(25.0, 38.0);
 /// Content width inside the popover (outline rows are 288 wide).
 const CONTENT_W: f32 = 288.0;
-/// Popover size (`NF2/View Settings` 320 × 542).
-pub const POPOVER_SIZE: egui::Vec2 = egui::vec2(320.0, 542.0);
+/// Popover size (`NF2/View Settings` 320 × 582).
+pub const POPOVER_SIZE: egui::Vec2 = egui::vec2(320.0, 542.0 + CONTROL + space::S2);
 
 impl ViewSettingsState {
     pub fn defaults(p: &Palette) -> Self {
@@ -74,10 +77,11 @@ impl ViewSettingsState {
             grid_show: true,
             grid_snap: false,
             grid_over_objects: false,
+            grid_mode: "Dynamic",
             grid_w: 20.0,
             grid_h: 20.0,
             grid_linked: true,
-            grid_color: default_grid_color(p),
+            grid_color: default_grid_color(&crate::tokens::LIGHT),
             grid_snap_accuracy: "Snap: Normal",
         }
     }
@@ -272,6 +276,18 @@ impl ViewSettings<'_> {
                 ui.add(Checkbox::new(&mut s.grid_snap, "Snap"));
                 ui.add(Checkbox::new(&mut s.grid_over_objects, "Over objects"));
             });
+            Select::new("nf2-view-grid-mode", s.grid_mode)
+                .width(w)
+                .show(ui, |ui| {
+                    for mode in GRID_MODES {
+                        if ui
+                            .add(super::MenuItem::new(mode).checked(s.grid_mode == mode))
+                            .clicked()
+                        {
+                            s.grid_mode = mode;
+                        }
+                    }
+                });
             ui.horizontal(|ui| {
                 let fw = (w - CONTROL - 2.0 * space::S2) / 2.0;
                 let before = s.grid_w;
@@ -304,9 +320,11 @@ impl ViewSettings<'_> {
                 }
             });
             ui.horizontal(|ui| {
-                ColorField::new(&mut s.grid_color, "Grid colour")
-                    .width(COLOR_W)
-                    .show(ui);
+                ui.add_enabled_ui(s.grid_mode == "Static", |ui| {
+                    ColorField::new(&mut s.grid_color, "Grid colour")
+                        .width(COLOR_W)
+                        .show(ui);
+                });
                 accuracy(
                     ui,
                     "nf2-view-grid-snap",

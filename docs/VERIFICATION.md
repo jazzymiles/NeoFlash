@@ -35,16 +35,18 @@ Deliveries that change ActionScript or product status also run `python3 scripts/
 
 ### Stage grid and main-menu controls
 
-`stage_view_tests` covers independent Show/Snap state, immediate idle-frame grid repaint, drawing and moving
-with snapping on/off and one Undo. `snapping::tests` checks target priority across all moving-selection anchors.
-`panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight main menus and checks
-View/Control/Window toggles in both directions, real panel visibility, theme changes and document preservation.
+`stage_view_tests` covers independent Show/Snap state, immediate repaint, drawing/moving with one Undo,
+Dynamic/Static selection through real popover input, disabled manual colour in Dynamic, lossless saved RGBA and
+legacy preference loading. The shared grid family checks 8–2000% zoom, unequal axis spacing, pan and symbol
+registration origins, while preserving the document, history and configured snapping step. The UI canvas family
+checks both major and minor dynamic-line contrast across sampled RGB page colours. `snapping::tests` checks
+priority across moving-selection anchors. `panel_tests::menu_bar_toggles_live_state_without_changing_the_document`
+opens all eight main menus and checks View/Control/Window toggles, panel visibility and document preservation.
 
-Native macOS checks on 4 November 2026 opened all eight menus and exercised grid Show/Snap/Over objects,
-rulers, Control toggles, Hide panels/F4 and the real Find dialog on a disposable demo session. The default Light
-grid was barely visible on the dark page; setting a contrasting grid colour made Show on/off visibly effective.
-No delayed repaint was reproduced. Default contrast and dense-spacing suppression remain open under R-037;
-this is not end-to-end acceptance of every menu command, audible sound or every display/zoom configuration.
+Native macOS checks cover Light theme on the dark demo, Dark theme on a white page, a grey page, the mode
+selector/manual-colour enabled state and Dynamic at 10% zoom. Automatic contrast is page-based; matching
+foreground artwork with Over objects, intentional transparent Static colours and sub-point Static axes are
+explicit limits. Menu checks are not end-to-end acceptance of every command, audible sound or display setup.
 
 <a id="timeline-scenes-sound"></a>
 ### Timeline, scenes and sound

@@ -62,7 +62,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
 | ST-01 | Stage rulers + ruler corner | Stage chrome | working | UI-only | P1 |
 | ST-02 | Guides | Stage chrome | working | yes (small) | P1 |
-| ST-03 | Stage grid | Stage chrome | partial (contrast/density R-037) | UI-only | P1 |
+| ST-03 | Stage grid | Stage chrome | done | UI-only | P1 |
 | ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | done (View ▸ Snapping R-003) | editor | P1 |
 | ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
@@ -130,7 +130,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
 | MN-02 | Frame / layer / stage context menu items absent | Menus | partial | mixed | P1–P2 |
-| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | partial (grid visibility R-037; Snapping ▸ disabled) | UI-only | P1 |
+| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | partial (Snapping ▸ disabled) | UI-only | P1 |
 
 Counts: 93 entries — 14 timeline, 8 tools, 11 stage/window chrome, 11 properties, 3 colour, 2 library, 8 actions,
 2 output, 14 planned panels (3 alias other entries), 17 dialogs/panels (DL-01 covers 9 preference pages), 3 menu
@@ -365,7 +365,7 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Depends on: engine (small: serialized authoring-only data, never exported).
 - Acceptance: guides survive save/open; never appear in HTML5; locked guides cannot be dragged.
 
-**ST-03 · Stage grid** — partial: controls work, but default contrast and dense-spacing visibility await R-037. See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
+**ST-03 · Stage grid** — done: Dynamic (default) adapts page contrast and display density; Static keeps manual colour and spacing. Snapping retains the configured step. See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: `NF2/Stage Grid` overlay (20 px, every 5th line stronger), below content unless "Show over objects".
 - Behaviour: View ▸ Grid ▸ Show grid (⌘'), Snap to grid (⇧⌘'), Show over objects, Edit grid… (⌥⌘G → View settings).
 - Data: view settings (spacing W/H linked, colour, snap accuracy). Depends on: UI-only + component **request**.
@@ -846,9 +846,8 @@ re-encoding at publish lands. P3.
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 
 **MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — toggles, settings and snapping
-are connected. Grid visibility remains **partial**: the default theme colour can disappear against the document
-background, and very dense spacing suppresses all grid lines (R-037). Show and Snap are independent; hiding the
-grid does not disable snapping. The Snapping ▸ submenu awaits R-003.
+are connected. Grid settings offer Dynamic (default) and Static modes: page-aware contrast and adaptive display
+density, or fixed manual colour/spacing. Show and Snap are independent; hiding the grid does not disable snapping. The Snapping ▸ submenu awaits R-003.
 
 **MN-01 · Main-menu coverage.** Disabled selection/history commands become available when their context exists;
 that is distinct from an unimplemented command. Labelled previews do not execute their planned operation.
@@ -857,7 +856,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | --- | --- | --- |
 | File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports and HTML5 Publish | Print disabled; Import video, Export image/video/audio and Publish settings open planned previews |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences and Keyboard shortcuts | Editing commands require the appropriate selection/history; multiple documents are not implemented |
-| View | Zoom/magnification, Rulers, Show/Snap grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Grid contrast/dense-spacing limits R-037; Preview mode and Snapping submenus disabled; Pasteboard always shown |
+| View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
 | Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup | Bitmap and Symbol submenus disabled; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |

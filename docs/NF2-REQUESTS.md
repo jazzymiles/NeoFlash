@@ -443,13 +443,16 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 
 ### R-037 · Stage-grid contrast and dense-spacing visibility
-- **Status:** open
-- **Requested by / for:** implementation track · ST-03 / MN-03; user-reported invisible grid on the demo scene.
-- **Where:** `neoflash-ui/src/components/canvas.rs::paint_stage_grid`, `view_settings.rs::default_grid_color` and their design tokens.
-- **Need:** approved default grid contrast over arbitrary authored backgrounds and a defined dense-spacing state for each axis.
-- **Why:** Light's dark 14% grid nearly vanishes on the dark demo; Dark's white grid vanishes on white pages. Show toggles correctly repaint, but the result looks unchanged. Either axis below 3 screen points suppresses both axes, including a still-readable axis. Native Light demo became clearly visible using the existing custom colour field; no theme token or painter was changed.
-- **Checked:** `docs-rulers-guides-grid.txt`, `panels-view-settings.txt`, ST-03, `NF2-RULERS-GUIDES-GRID.md`, current grid painter and `color/stage-grid`.
-- **Proposal (optional):** design-owned background-independent contrast treatment and per-axis major-line fallback at dense zoom; retain custom colour/opacity and separate Show/Snap settings. The design track chooses the approved rendering.
+- **Status:** resolved — Dynamic / Static modes, Dynamic by default (owner decision, 5 November 2026).
+- **Where:** Stage grid and the existing Rulers, guides & grid popover.
+- **Behaviour:** Dynamic chooses thin light/dark lines and sufficient opacity against the displayed page background;
+  each axis independently coarsens at small zoom. Static retains the chosen RGBA and fixed spacing, hiding only
+  an axis whose spacing is below one screen point. Both keep the authored snapping step and timeline origin.
+- **Control:** existing NF2 Select (`Dynamic` / `Static`) in the Grid section, with the manual colour field enabled
+  only in Static. Save as default persists the mode and manual colour; missing mode loads as Dynamic.
+- **Boundary:** no outline/halo or Difference blend. Automatic contrast is relative to the page, not each artwork
+  pixel when Over objects is enabled. Existing colour editing, Show/Snap and Below/Over behaviour are retained.
+- **References:** `docs-rulers-guides-grid.txt`, `panels-view-settings.txt`, ST-03 and `NF2-RULERS-GUIDES-GRID.md`.
 
 ### R-038 · NF2 v2.2 panel bodies and shared component APIs
 - **Status:** open

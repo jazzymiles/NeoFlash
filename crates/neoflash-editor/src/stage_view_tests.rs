@@ -2,7 +2,7 @@
 //! (docs/NF2-RULERS-GUIDES-GRID.md "Tests").
 use crate::{
     app::{Editor, Tool},
-    stage_view::{SnapAccuracy, ViewPrefs},
+    stage_view::{GridMode, SnapAccuracy, ViewPrefs},
     tests::{primary_button, rectangle_stage, stage_input_frame},
 };
 use eframe::egui::{self, Event, Pos2, Rect, Vec2};
@@ -28,6 +28,45 @@ fn select_stage() -> (Editor, egui::Context, Rect) {
     editor.tool = Tool::Select;
     stage_input_frame(&mut editor, &ctx, 0.01, vec![]);
     (editor, ctx, page)
+}
+
+/// Identify actual grid paint by its page extent, independently of the chosen colour. Rulers,
+/// page borders and the short symbol-registration cross must not count as a visible grid.
+fn stage_grid_lines(editor: &Editor, out: &egui::FullOutput) -> Vec<[Pos2; 2]> {
+    let size = Vec2::new(editor.project.width as f32, editor.project.height as f32) * editor.zoom;
+    let origin = editor.stage_view.origin;
+    let page = if editor.editing.len() > 1 {
+        Rect::from_center_size(origin, size)
+    } else {
+        Rect::from_min_size(origin, size)
+    };
+    let visible = page.intersect(editor.stage_view.canvas);
+    out.shapes
+        .iter()
+        .filter_map(|shape| {
+            let egui::Shape::LineSegment { points, stroke } = &shape.shape else {
+                return None;
+            };
+            if stroke.color.a() == 0
+                || shape.clip_rect.min.distance(visible.min) > 0.01
+                || shape.clip_rect.max.distance(visible.max) > 0.01
+            {
+                return None;
+            }
+            let [a, b] = *points;
+            let vertical = (a.x - b.x).abs() < 0.01
+                && a.x > visible.left() + 2.
+                && a.x < visible.right() - 2.
+                && (a.y - visible.top()).abs() < 1.
+                && (b.y - visible.bottom()).abs() < 1.;
+            let horizontal = (a.y - b.y).abs() < 0.01
+                && a.y > visible.top() + 2.
+                && a.y < visible.bottom() - 2.
+                && (a.x - visible.left()).abs() < 1.
+                && (b.x - visible.right()).abs() < 1.;
+            (vertical || horizontal).then_some(*points)
+        })
+        .collect()
 }
 
 #[test]
@@ -241,10 +280,12 @@ fn view_settings_clear_guides_is_one_undo_and_save_as_default_persists() {
     editor.undo();
     assert_eq!(editor.project, with_guides);
 
-    // Popover state round trip: theme-default colours stay `None`, edits come back.
+    // Popover state round trip: Dynamic is the default; unrelated edits do not set a manual colour.
     let p = neoflash_ui::palette(&_ctx);
     let mut prefs = ViewPrefs::default();
     let mut state = prefs.to_state(p);
+    assert_eq!(prefs.grid_mode, GridMode::Dynamic);
+    assert_eq!(state.grid_mode, "Dynamic");
     assert_eq!(state.grid_w, 20.);
     assert_eq!(state.units, "Units: Pixels");
     state.grid_snap = true;
@@ -260,6 +301,41 @@ fn view_settings_clear_guides_is_one_undo_and_save_as_default_persists() {
     assert_eq!(prefs.guide_color, Some([255, 0, 0, 255]));
     assert_eq!(prefs.grid_color, None);
 
+    // An actual Static colour edit stores RGBA, including opacity.
+    state.grid_mode = "Static";
+    state.grid_color = egui::Color32::from_rgba_unmultiplied(32, 96, 192, 128);
+    prefs.apply_state(&state, p);
+    assert_eq!(prefs.grid_mode, GridMode::Static);
+    assert_eq!(
+        prefs.grid_color,
+        Some(state.grid_color.to_srgba_unmultiplied())
+    );
+
+    // Legacy saved colours need not round-trip losslessly through premultiplied Color32. Merely
+    // opening the popover, changing theme or mode must preserve the exact saved bytes.
+    let saved_rgba = [31, 97, 193, 128];
+    prefs.grid_color = Some(saved_rgba);
+    for theme in [
+        crate::theme::ThemeMode::Light,
+        crate::theme::ThemeMode::Dark,
+    ] {
+        theme.apply(&_ctx);
+        let p = neoflash_ui::palette(&_ctx);
+        for (label, mode) in [("Dynamic", GridMode::Dynamic), ("Static", GridMode::Static)] {
+            let mut state = prefs.to_state(p);
+            state.grid_mode = label;
+            prefs.apply_state(&state, p);
+            assert_eq!(prefs.grid_mode, mode);
+            assert_eq!(prefs.grid_color, Some(saved_rgba));
+            prefs.apply_state(&prefs.to_state(p), p);
+            assert_eq!(
+                prefs.grid_color,
+                Some(saved_rgba),
+                "idle popover is lossless"
+            );
+        }
+    }
+
     // Save as default → workspace preferences JSON → next session.
     editor.workspace.view_defaults = Some(prefs.clone());
     let json = serde_json::to_string(&editor.workspace).unwrap();
@@ -268,6 +344,15 @@ fn view_settings_clear_guides_is_one_undo_and_save_as_default_persists() {
     // Older preferences without the key load the NF2 defaults.
     let old = crate::workspace::WorkspacePrefs::from_json("{\"version\":1}");
     assert_eq!(old.view_defaults, None);
+    let legacy: ViewPrefs =
+        serde_json::from_str(r#"{"grid_color":[31,97,193,128],"grid_spacing":[8,24]}"#).unwrap();
+    assert_eq!(
+        legacy.grid_mode,
+        GridMode::Dynamic,
+        "missing mode defaults to Dynamic"
+    );
+    assert_eq!(legacy.grid_color, Some(saved_rgba));
+    assert_eq!(legacy.grid_spacing, [8., 24.]);
 }
 
 #[test]
@@ -355,6 +440,9 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
+    let project_before = editor.project.clone();
+    let saved_rgba = [31, 97, 193, 128];
+    editor.stage_view.prefs.grid_color = Some(saved_rgba);
     let size = egui::vec2(1920., 1080.);
     let frame = |editor: &mut Editor, t: f64, events: Vec<Event>| {
         ctx.run(
@@ -402,18 +490,6 @@ fn view_menu_and_zoom_control_share_the_toggles() {
         );
         frame(editor, t + 0.02, vec![])
     };
-    let grid_lines = |out: &egui::FullOutput| {
-        let strong = neoflash_ui::palette(&ctx).stage_grid.gamma_multiply(0.14);
-        let minor = strong.gamma_multiply(0.42);
-        out.shapes
-            .iter()
-            .filter(|shape| {
-                matches!(&shape.shape, egui::Shape::LineSegment { points, stroke }
-                    if (stroke.color == strong || stroke.color == minor)
-                        && points[0].distance(points[1]) > 100.)
-            })
-            .count()
-    };
     let mut out = frame(&mut editor, 0.0, vec![]);
     for i in 1..4 {
         out = frame(&mut editor, i as f64 * 0.02, vec![]);
@@ -433,13 +509,16 @@ fn view_menu_and_zoom_control_share_the_toggles() {
         let toggled = click(&mut editor, 1.0, button.center());
         assert_ne!(check(&editor.stage_view.prefs), before, "{label}");
         if label == "Grid" {
-            assert_eq!(grid_lines(&toggled), 0, "hidden grid emits no paint");
+            assert!(
+                stage_grid_lines(&editor, &toggled).is_empty(),
+                "hidden grid emits no paint"
+            );
         }
         out = click(&mut editor, 1.5, button.center());
         assert_eq!(check(&editor.stage_view.prefs), before, "{label}");
         if label == "Grid" {
             assert!(
-                grid_lines(&out) > 0,
+                !stage_grid_lines(&editor, &out).is_empty(),
                 "show takes effect without another input"
             );
         }
@@ -470,12 +549,51 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     );
     out = click(&mut editor, 2.1, at);
     assert!(!editor.stage_view.prefs.grid_show);
-    assert_eq!(grid_lines(&out), 0);
+    assert!(stage_grid_lines(&editor, &out).is_empty());
     out = click(&mut editor, 2.2, at);
     assert!(editor.stage_view.prefs.grid_show);
-    assert!(grid_lines(&out) > 0);
+    assert!(!stage_grid_lines(&editor, &out).is_empty());
+
+    // Use the real Select, then Save as default: the colour control follows the mode and the
+    // latent Static RGBA survives Dynamic, persistence and an idle frame without editing content.
+    let color_disabled = |out: &egui::FullOutput| {
+        out.platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Grid colour"))
+            .expect("grid colour control")
+            .1
+            .is_disabled()
+    };
+    assert!(color_disabled(&out));
+    for (i, (from, to, mode)) in [
+        ("Dynamic", "Static", GridMode::Static),
+        ("Static", "Dynamic", GridMode::Dynamic),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let at = bounds(&out, from).expect("current grid mode").center();
+        out = click(&mut editor, 2.3 + i as f64 * 0.2, at);
+        let option = bounds(&out, to).expect("grid mode option");
+        out = click(&mut editor, 2.4 + i as f64 * 0.2, option.center());
+        assert_eq!(editor.stage_view.prefs.grid_mode, mode);
+        assert_eq!(color_disabled(&out), mode == GridMode::Dynamic);
+        assert_eq!(editor.stage_view.prefs.grid_color, Some(saved_rgba));
+        assert!(!stage_grid_lines(&editor, &out).is_empty());
+    }
+    let save = bounds(&out, "Save as default").expect("save default button");
+    out = click(&mut editor, 2.7, save.center());
+    let loaded = crate::workspace::WorkspacePrefs::from_json(
+        &serde_json::to_string(&editor.workspace).unwrap(),
+    );
+    assert_eq!(loaded.view_defaults, Some(editor.stage_view.prefs.clone()));
+    assert_eq!(loaded.view_defaults.unwrap().grid_color, Some(saved_rgba));
     let close = bounds(&out, "Close").expect("popover close button");
-    click(&mut editor, 2.5, close.center());
+    click(&mut editor, 2.8, close.center());
     assert!(!editor.stage_view.settings_open);
 
     // View ▸ Rulers toggles the same setting the zoom control shows.
@@ -485,6 +603,99 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     let rulers = bounds(&out, "Rulers").expect("View ▸ Rulers is enabled");
     click(&mut editor, 3.2, rulers.center());
     assert!(!editor.stage_view.prefs.rulers);
+    assert_eq!(editor.project, project_before);
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn grid_modes_preserve_axes_origin_and_snap_spacing_across_zoom_and_pan() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let mut symbol = project.symbols[0].clone();
+    symbol.id = "grid-origin-symbol".into();
+    symbol.name = "Grid origin".into();
+    for layer in &mut symbol.timeline.layers {
+        layer.id = new_id("grid-layer");
+    }
+    project.symbols.push(symbol);
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.stage_view.prefs.guides_show = false;
+    editor.stage_view.prefs.guides_snap = false;
+    editor.stage_view.prefs.objects_snap = false;
+    editor.stage_view.prefs.pixels_snap = false;
+    editor.stage_view.prefs.grid_snap = true;
+    let mut time = 0.;
+    for (theme, background) in [
+        (crate::theme::ThemeMode::Light, [19, 24, 36, 255]),
+        (crate::theme::ThemeMode::Dark, [255; 4]),
+    ] {
+        editor.set_theme(&ctx, theme);
+        editor.project.background = background;
+        let before = editor.project.clone();
+        for nested in [false, true] {
+            if nested {
+                editor.enter_symbol("grid-origin-symbol".into());
+            } else {
+                editor.leave_to_level(0);
+            }
+            editor.stage_view.prefs.grid_mode = GridMode::Dynamic;
+            for zoom in [0.08, 0.15, 1., 20.] {
+                editor.zoom = zoom;
+                for spacing in [[20., 20.], [1., 20.], [20., 1.]] {
+                    editor.stage_view.prefs.grid_spacing = spacing;
+                    for pan in [Vec2::ZERO, Vec2::new(37.25, -19.5)] {
+                        editor.pan = pan;
+                        time += 0.1;
+                        let out = stage_input_frame(&mut editor, &ctx, time, vec![]);
+                        let lines = stage_grid_lines(&editor, &out);
+                        for axis in 0..2 {
+                            assert!(
+                                lines.iter().any(|[a, b]| a[axis] == b[axis]),
+                                "grid axis {axis} survives zoom={zoom}, spacing={spacing:?}, nested={nested}, pan={pan:?}"
+                            );
+                            if nested {
+                                assert!(
+                                    lines.iter().any(|[a, b]| a[axis] == b[axis]
+                                        && (a[axis] - editor.stage_view.origin[axis]).abs() < 1.1),
+                                    "grid zero stays at symbol registration"
+                                );
+                            }
+                        }
+                        // Coarse displayed cells never change the configured snap intersections.
+                        let snapper = editor.snapper().expect("grid snap stays enabled");
+                        assert_eq!(snapper.grid.unwrap().0, spacing);
+                        let target = [spacing[0] * 3., spacing[1] * 7.];
+                        assert_eq!(
+                            snapper.point([target[0] + 0.1, target[1] + 0.1]).point,
+                            target
+                        );
+                    }
+                }
+            }
+            // Static does not coarsen; a subpixel axis hides without suppressing the other axis.
+            editor.stage_view.prefs.grid_mode = GridMode::Static;
+            editor.zoom = 0.08;
+            for spacing in [[1., 20.], [20., 1.]] {
+                editor.stage_view.prefs.grid_spacing = spacing;
+                time += 0.1;
+                let out = stage_input_frame(&mut editor, &ctx, time, vec![]);
+                let lines = stage_grid_lines(&editor, &out);
+                for axis in 0..2 {
+                    assert_eq!(
+                        lines.iter().any(|[a, b]| a[axis] == b[axis]),
+                        spacing[axis] == 20.
+                    );
+                }
+                assert_eq!(editor.snapper().unwrap().grid.unwrap().0, spacing);
+            }
+        }
+        assert_eq!(
+            editor.project, before,
+            "view changes never edit the document"
+        );
+    }
+    assert!(!editor.history.can_undo());
+    editor.project.validate().unwrap();
 }
 
 #[test]

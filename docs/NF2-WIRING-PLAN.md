@@ -146,8 +146,8 @@ span under the playhead as a draft (egui temp memory) and applies it with one Un
 accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic presets and per-property curves are also done
 (W2.2, §7.4 rows 1–2).
 
-**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — wiring done; grid
-visibility **partial** pending contrast/dense-spacing design R-037. Show/Snap toggles and immediate repaint are verified; see
+**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — done, including Dynamic
+(default) / Static grid modes, page-aware contrast and independent per-axis coarsening. Show/Snap stay independent; see
 [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). View settings live in `stage_view.rs` (`ViewPrefs`), defaults in
 `WorkspacePrefs::view_defaults`; the popover is `panels/view_settings.rs`. Original plan:
 - UI: `shell.rs › stage_chrome` (pass `Some(..)` to `ZoomControl`, handle `ZoomAction::{Rulers, Grid, ViewSettings}`),

@@ -10,9 +10,9 @@ design shows them (`editor-main.png`, `editor-view-settings-open.png`, `panels/*
 | --- | --- |
 | **Rulers** (`NF2/Stage Ruler` 20 pt, `NF2/Ruler Corner`) | Top and left edges of the canvas, over the stage. Units: Pixels, Points (= px), Inches (72 px), Centimetres, Millimetres. Labels **Auto** pick the smallest step of 10 / 50 / 100 / 500 (×10ⁿ; 1 / 5 × 10ⁿ for other units) at least 50 pt apart, so labels never overlap; **Every N px** fixes the step. Zero is the scene's top-left corner or the edited symbol's registration point. Dragging the corner moves the zero point; double-clicking it resets. Vertical labels are rotated like the Figma ruler. |
 | **Guides** (`NF2/Guide`) | Drag out of the top ruler (horizontal guide) or the left ruler (vertical guide). With Selection, Free Transform or Subselection: click a guide to select it (handle), drag to move, drop on a ruler or outside the canvas to delete, **Delete** removes the selected guide, **Esc** deselects / cancels a drag. Locked guides are dashed and do not react. Hidden guides do not react or snap. Positions are whole pixels (grid lines when snapping to grid). |
-| **Grid** (`NF2/Stage Grid`) | Over the stage page, aligned to the timeline origin; every 5th line uses the grid colour (default `color/stage-grid` 14 %), lines between use 42 % of it. Below artwork, or above it with **Over objects**. Spacing ↔ / ↕ (1–1000 px, linkable). |
+| **Grid** (`NF2/Stage Grid`) | **Dynamic** (default) chooses a thin light or dark line against the displayed page background, increasing opacity only enough to keep major/minor lines distinguishable. At small zoom each axis independently retains coarser multiples of the configured spacing. **Static** keeps the chosen RGBA colour and fixed spacing; an axis below one screen point is hidden rather than rescaled. Every fifth displayed line is stronger. Both modes stay aligned to the timeline origin and leave snapping spacing unchanged. Below artwork, or above it with **Over objects**. Spacing ↔ / ↕ (1–1000 px, linkable). |
 | **Snapping** (`NF2/Snap Ring`) | Moving objects snaps the selection's left / centre / right and top / centre / bottom; scale handles snap the dragged handle; rectangle and oval corners, line ends, pen anchors and Subselection point drags snap the point. Guides > objects > grid > pixels across all selection anchors; each axis snaps on its own; accuracy **Must be close / Normal / Can be distant** = 3 / 8 / 16 screen points at any zoom. The snap ring follows the snapping point while dragging and is larger when snapped. Rotation and freehand pencil/brush strokes do not snap. |
-| **View settings** (`NF2/View Settings`, 320 × 542) | Popover from ⚙ in the zoom control (toggle), View ▸ Rulers, guides & grid…, View ▸ Grid ▸ Edit grid… (⌥⌘G) and View ▸ Guides ▸ Edit guides…. Every control applies immediately. **Clear guides** removes the current timeline's guides (one Undo). **Save as default** stores the settings in the editor preferences. Esc, ✕ or a click outside closes it. |
+| **View settings** (`NF2/View Settings`, 320 × 582) | Popover from ⚙ in the zoom control (toggle), View ▸ Rulers, guides & grid…, View ▸ Grid ▸ Edit grid… (⌥⌘G) and View ▸ Guides ▸ Edit guides…. Every control applies immediately. **Clear guides** removes the current timeline's guides (one Undo). **Save as default** stores the settings in the editor preferences. Esc, ✕ or a click outside closes it. |
 
 Entry points and shortcuts (all change the same state):
 
@@ -44,8 +44,9 @@ Shortcuts also match the physical key, because Option and Shift change the typed
   show / snap / lock / colour / accuracy, grid show / snap / over objects / spacing / link / colour / accuracy).
   The session starts from `WorkspacePrefs::view_defaults` (written by **Save as default**, persisted with the
   workspace preferences) or the NF2 defaults: rulers, guides and grid shown, snap to guides on, snap to grid off,
-  20 px linked grid, Auto labels, Normal accuracy. Colours are `None` while they equal the theme token, so default
-  guide and grid colours follow Light / Dark. The ruler zero point and the selected guide are session state.
+  Dynamic grid mode, 20 px linked grid, Auto labels, Normal accuracy. Default guide colour follows Light / Dark. `grid_mode` defaults to `dynamic`, including older preferences;
+  Static stores its RGBA colour independently and retains it across mode/theme changes. Manual colour editing is
+  disabled in Dynamic. A missing manual colour starts from the Light grid token. The ruler zero point and the selected guide are session state.
 - **Undo:** adding a guide, a whole guide move (from press to release), deleting a guide and Clear guides are one
   Undo step each. Toggles and popover edits are not document changes and are not undoable.
 
@@ -117,9 +118,8 @@ Visual check: `NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.p
 - The ruler pointer-position marker, a double-click **Move guide** field for exact positions, the View ▸ Snapping
   submenu contents, the colour picker behind the colour-field swatch and the ⌥⌘; label on View ▸ Guides ▸ Lock guides
   are not designed yet (`docs/NF2-REQUESTS.md` R-001…R-004). Object/pixel snapping already works through Drawing preferences and the Tools toggle.
-- Grid visibility is partial (R-037): the default colour follows the UI theme, so it can blend into an unrelated
-  document background (Light theme on the dark demo; Dark theme on white). Choose a contrasting grid colour in
-  View settings as a workaround. The painter suppresses the entire grid when either axis is below 3 screen points
-  (for the default 20 px spacing, below 15% zoom). Show and Snap remain independent; grid snapping can work while
-  lines are hidden. Show over objects controls occlusion by artwork, not colour contrast.
+- Dynamic contrast follows the page background (composited over the workspace for transparent pages), not each
+  artwork pixel. With **Over objects**, foreground artwork can still match a line. Static intentionally preserves
+  manual colour/opacity, including transparent colours; sub-point spacing hides only that unresolved axis. Show
+  and Snap remain independent. The saved snapping spacing never changes when Dynamic coarsens its display.
 - Guide lock and visibility are editor settings for all timelines, not stored per document as in Flash.

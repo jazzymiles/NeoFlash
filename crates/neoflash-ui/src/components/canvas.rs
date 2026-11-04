@@ -326,33 +326,119 @@ pub fn paint_stage_grid(
     spacing: egui::Vec2,
     color: Option<Color32>,
 ) {
-    let p = palette(ctx);
-    let strong = color.unwrap_or_else(|| p.stage_grid.gamma_multiply(0.14));
-    let base = strong.gamma_multiply(0.42);
-    let (sx, sy) = (spacing.x.max(1.0) * zoom, spacing.y.max(1.0) * zoom);
-    if sx < 3.0 || sy < 3.0 {
+    paint_stage_grid_with_options(
+        painter,
+        page,
+        StageGridOptions {
+            origin: page.min,
+            zoom,
+            spacing,
+            color: color.unwrap_or_else(|| palette(ctx).stage_grid.gamma_multiply(0.14)),
+            adaptive: false,
+        },
+    );
+}
+
+/// Editor-only display choices. Spacing stays in authored units; adaptive display never changes it.
+pub struct StageGridOptions {
+    pub origin: Pos2,
+    pub zoom: f32,
+    pub spacing: egui::Vec2,
+    pub color: Color32,
+    pub adaptive: bool,
+}
+
+/// Pick a single light/dark line against the displayed page, increasing opacity only as needed
+/// for the major and minor lines to remain distinguishable, including over saturated colours.
+/// This is ordinary alpha compositing, without an outline or an inversion blend mode.
+pub fn dynamic_grid_color(background: Color32) -> Color32 {
+    fn luminance(c: Color32) -> f32 {
+        let c = egui::Rgba::from(c);
+        0.2126 * c.r() + 0.7152 * c.g() + 0.0722 * c.b()
+    }
+    let bg = luminance(background);
+    let contrast = |line| {
+        let painted = luminance(background.blend(line));
+        (painted.max(bg) + 0.05) / (painted.min(bg) + 0.05)
+    };
+    for alpha in 36..=128 {
+        let light = Color32::from_white_alpha(alpha);
+        let dark = Color32::from_black_alpha(alpha);
+        let score =
+            |line: Color32| (contrast(line) / 1.4).min(contrast(line.gamma_multiply(0.42)) / 1.15);
+        let (light_score, dark_score) = (score(light), score(dark));
+        if light_score.max(dark_score) >= 1.0 {
+            return if light_score > dark_score {
+                light
+            } else {
+                dark
+            };
+        }
+    }
+    Color32::from_black_alpha(128)
+}
+
+/// Thin lines anchored at the actual timeline origin, including negative symbol coordinates.
+/// Dynamic axes independently retain coarser integer multiples as the view zooms out.
+pub fn paint_stage_grid_with_options(painter: &Painter, page: Rect, grid: StageGridOptions) {
+    let clip = page.intersect(painter.clip_rect());
+    if !clip.is_finite()
+        || !clip.is_positive()
+        || !grid.origin.is_finite()
+        || !grid.zoom.is_finite()
+        || grid.zoom <= 0.0
+        || grid.color.a() == 0
+    {
         return;
     }
-    let clip = page.intersect(painter.clip_rect());
-    let mut i = ((clip.left() - page.left()) / sx).floor().max(0.0) as i64;
-    loop {
-        let x = page.left() + i as f32 * sx;
-        if x > clip.right() {
-            break;
+    let painter = painter.with_clip_rect(clip);
+    for axis in [0, 1] {
+        let spacing = grid.spacing[axis];
+        if !spacing.is_finite() || spacing <= 0.0 {
+            continue;
         }
-        let c = if i % 5 == 0 { strong } else { base };
-        painter.vline(x.round() + 0.5, clip.y_range(), Stroke::new(1.0_f32, c));
-        i += 1;
-    }
-    let mut j = ((clip.top() - page.top()) / sy).floor().max(0.0) as i64;
-    loop {
-        let y = page.top() + j as f32 * sy;
-        if y > clip.bottom() {
-            break;
+        let mut step = f64::from(spacing) * f64::from(grid.zoom);
+        if grid.adaptive {
+            // Keep existing authored intersections: first the major lines, then every other line.
+            // Each axis is independent, including unlinked horizontal/vertical spacing.
+            if step < 8.0 {
+                step *= 5.0;
+                while step < 8.0 {
+                    step *= 2.0;
+                }
+            }
+        } else if step < 1.0 {
+            // Fixed sub-point lines cannot be resolved. Suppress only this axis instead of
+            // inventing a coarser static spacing or flooding the page with overlapping strokes.
+            continue;
         }
-        let c = if j % 5 == 0 { strong } else { base };
-        painter.hline(clip.x_range(), y.round() + 0.5, Stroke::new(1.0_f32, c));
-        j += 1;
+        let origin = f64::from(grid.origin[axis]);
+        let first = ((f64::from(clip.min[axis]) - origin) / step).ceil();
+        let last = ((f64::from(clip.max[axis]) - origin) / step).floor();
+        // Bounds protect external callers with extreme coordinates/viewports as well as NaNs.
+        if !first.is_finite()
+            || !last.is_finite()
+            || last < first
+            || first.abs() > 1.0e12
+            || last.abs() > 1.0e12
+            || last - first > 16_384.0
+        {
+            continue;
+        }
+        for index in first as i64..=last as i64 {
+            let at = (origin + index as f64 * step) as f32;
+            let color = if index % 5 == 0 {
+                grid.color
+            } else {
+                grid.color.gamma_multiply(0.42)
+            };
+            let stroke = Stroke::new(1.0_f32, color);
+            if axis == 0 {
+                painter.vline(at.round() + 0.5, clip.y_range(), stroke);
+            } else {
+                painter.hline(clip.x_range(), at.round() + 0.5, stroke);
+            }
+        }
     }
 }
 
@@ -810,6 +896,32 @@ pub fn motion_handle_hit(handle: Pos2, pointer: Pos2) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_grid_contrasts_with_page_colors_without_a_halo() {
+        let lum = |c: Color32| {
+            let c = egui::Rgba::from(c);
+            0.2126 * c.r() + 0.7152 * c.g() + 0.0722 * c.b()
+        };
+        for r in (0..=255).step_by(17) {
+            for g in (0..=255).step_by(17) {
+                for b in (0..=255).step_by(17) {
+                    let bg = Color32::from_rgb(r, g, b);
+                    let line = dynamic_grid_color(bg);
+                    assert!(
+                        line.to_opaque() == Color32::BLACK || line.to_opaque() == Color32::WHITE
+                    );
+                    assert!((36..=128).contains(&line.a()));
+                    for (stroke, minimum) in [(line, 1.4), (line.gamma_multiply(0.42), 1.15)] {
+                        let a = lum(bg);
+                        let b = lum(bg.blend(stroke));
+                        let contrast = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+                        assert!(contrast >= minimum, "{bg:?}: {contrast}");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn shape_hint_and_motion_handle_hits() {

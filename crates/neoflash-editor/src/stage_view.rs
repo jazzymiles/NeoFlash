@@ -92,8 +92,17 @@ impl SnapAccuracy {
     }
 }
 
-/// Rulers, guides and grid settings. Colours are `None` while they equal the theme token, so the
-/// default guide and grid colours follow Light/Dark.
+/// Dynamic changes display density and page contrast; Static retains the manual colour and step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridMode {
+    #[default]
+    Dynamic,
+    Static,
+}
+
+/// Rulers, guides and grid settings. Guide defaults follow the theme; static grid colour is saved
+/// independently of Dynamic's calculated colour.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewPrefs {
@@ -110,6 +119,7 @@ pub struct ViewPrefs {
     pub grid_show: bool,
     pub grid_snap: bool,
     pub grid_over_objects: bool,
+    pub grid_mode: GridMode,
     /// Grid spacing (horizontal, vertical) in stage pixels.
     pub grid_spacing: [f64; 2],
     pub grid_linked: bool,
@@ -140,6 +150,7 @@ impl Default for ViewPrefs {
             grid_show: true,
             grid_snap: false,
             grid_over_objects: false,
+            grid_mode: GridMode::Dynamic,
             grid_spacing: [20., 20.],
             grid_linked: true,
             grid_color: None,
@@ -177,9 +188,11 @@ impl ViewPrefs {
         self.guide_color.map_or(p.guide, color)
     }
 
-    pub fn grid_color(&self, p: &Palette) -> egui::Color32 {
-        self.grid_color
-            .map_or_else(|| vs::default_grid_color(p), color)
+    pub fn grid_color(&self, _p: &Palette) -> egui::Color32 {
+        self.grid_color.map_or_else(
+            || vs::default_grid_color(&neoflash_ui::tokens::LIGHT),
+            color,
+        )
     }
 
     /// The popover's state for these settings.
@@ -197,6 +210,10 @@ impl ViewPrefs {
             grid_show: self.grid_show,
             grid_snap: self.grid_snap,
             grid_over_objects: self.grid_over_objects,
+            grid_mode: match self.grid_mode {
+                GridMode::Dynamic => "Dynamic",
+                GridMode::Static => "Static",
+            },
             grid_w: self.grid_spacing[0],
             grid_h: self.grid_spacing[1],
             grid_linked: self.grid_linked,
@@ -205,7 +222,7 @@ impl ViewPrefs {
         }
     }
 
-    /// Take the popover's edits back. Colours equal to the theme default stay `None`.
+    /// Take edits back without replacing the saved manual grid colour with a dynamic preview.
     pub fn apply_state(&mut self, s: &ViewSettingsState, p: &Palette) {
         self.rulers = s.show_rulers;
         self.units = RulerUnits::from_label(s.units);
@@ -219,9 +236,18 @@ impl ViewPrefs {
         self.grid_show = s.grid_show;
         self.grid_snap = s.grid_snap;
         self.grid_over_objects = s.grid_over_objects;
+        self.grid_mode = if s.grid_mode == "Static" {
+            GridMode::Static
+        } else {
+            GridMode::Dynamic
+        };
         self.grid_spacing = [s.grid_w, s.grid_h];
         self.grid_linked = s.grid_linked;
-        self.grid_color = (s.grid_color != vs::default_grid_color(p)).then(|| rgba(s.grid_color));
+        if s.grid_color != self.grid_color(p)
+            || (self.grid_mode == GridMode::Static && self.grid_color.is_none())
+        {
+            self.grid_color = Some(rgba(s.grid_color));
+        }
         self.grid_accuracy = SnapAccuracy::from_label(s.grid_snap_accuracy);
         self.sanitize();
     }
@@ -800,27 +826,27 @@ impl Editor {
         if !v.grid_show {
             return;
         }
-        let zoom = self.zoom;
-        let step = Vec2::new(
-            v.grid_spacing[0] as f32 * zoom * 5.,
-            v.grid_spacing[1] as f32 * zoom * 5.,
-        );
-        if !(step.x > 0. && step.y > 0.) {
-            return;
-        }
-        let back = Vec2::new(
-            ((origin.x - page.left()) / step.x).ceil().max(0.) * step.x,
-            ((origin.y - page.top()) / step.y).ceil().max(0.) * step.y,
-        );
-        let grid_page = Rect::from_min_max(origin - back, page.max);
-        let painter = painter.with_clip_rect(page.intersect(painter.clip_rect()));
-        cv::paint_stage_grid(
-            &painter,
-            painter.ctx(),
-            grid_page,
-            zoom,
-            Vec2::new(v.grid_spacing[0] as f32, v.grid_spacing[1] as f32),
-            v.grid_color.map(color),
+        let dynamic = v.grid_mode == GridMode::Dynamic;
+        let grid_color = if dynamic {
+            let palette = crate::theme::UiPalette::current(painter.ctx());
+            let background = palette
+                .pasteboard
+                .blend(palette.stage_shadow)
+                .blend(color(self.project.background));
+            cv::dynamic_grid_color(background)
+        } else {
+            v.grid_color(neoflash_ui::palette(painter.ctx()))
+        };
+        cv::paint_stage_grid_with_options(
+            painter,
+            page,
+            cv::StageGridOptions {
+                origin,
+                zoom: self.zoom,
+                spacing: Vec2::new(v.grid_spacing[0] as f32, v.grid_spacing[1] as f32),
+                color: grid_color,
+                adaptive: dynamic,
+            },
         );
     }
 
