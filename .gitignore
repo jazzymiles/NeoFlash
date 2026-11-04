@@ -23,3 +23,6 @@ __pycache__/
 /interface/design-system/docs/pdf/
 /interface/design-system/docs/source/build/
 /interface/design-system/site/
+
+# Shared AI agent workspace (plans, logs, knowledge for Claude, Codex and Gemini). Local only; see AGENTS.md.
+/ai/

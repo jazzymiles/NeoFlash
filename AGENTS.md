@@ -1,7 +1,23 @@
 # NeoFlash — working agreement
 
+## Shared agent workspace — read first
+
+Every AI agent on this project (Claude Code, Codex, Gemini/Antigravity) works from **one** local, git-ignored folder:
+`ai/` in the main checkout (from a git worktree: `"$(git rev-parse --path-format=absolute --git-common-dir)/../ai"`).
+
+1. Before work, read `ai/README.md` (protocol), `ai/TASKS.md` (the only task board), the end of `ai/LOG.md` and the
+   `ai/knowledge/` files for your area. Claim your task on the board.
+2. After work, append to `ai/LOG.md`, update `ai/TASKS.md`, and `ai/HISTORY.md` / `ai/knowledge/` when relevant.
+3. Do not create your own plan, status, report or worklog files anywhere else (repo root, `docs/`, `target/`) and do
+   not keep project plans only in your tool's private memory. Priority: the user's latest instruction >
+   `ai/TASKS.md` > the reference plans in `docs/`.
+4. Several agents share this checkout: stage only your own paths, never `git add -A`, and leave other agents'
+   uncommitted changes untouched.
+
+## Rules
+
 - Work only within the latest human-authorized scope. Keep unrelated subsystems and existing monitor automations paused.
-- Public documentation should describe user-visible behavior, current coverage, setup, architecture and known limits. Keep agent coordination, timeboxes, command logs and internal delivery chronology under ignored `target/`. Preserve necessary licenses and provenance. Do not create additional statistics pages; maintain the existing generated registry and summary.
+- Public documentation should describe user-visible behavior, current coverage, setup, architecture and known limits. Keep agent coordination, plans, work logs and internal delivery chronology in the ignored `ai/` workspace; raw command output stays under ignored `target/`. Preserve necessary licenses and provenance. Do not create additional statistics pages; maintain the existing generated registry and summary.
 - Before adding public documentation, update the existing topic instead of appending another delivery report. Do not commit hour/batch/experiment diaries, agent productivity comparisons, duplicate verification narratives or copies of coverage tables. Preserve concise reproducible validation boundaries and pinned audit/provenance evidence; keep raw observations in ignored `target/`. README is the product entry point, roadmap is future work, and changelog records user-visible changes.
 - All authoring UI follows the NF2 design system. It is **locked**: see "Design system (NF2) — locked" below. Implementation work connects behaviour to the existing UI and never changes how it looks.
 - Validate several related changes as one delivery batch. Recheck only a concrete affected failure; do not add per-method or per-small-edit verification cycles.
