@@ -649,6 +649,7 @@ pub enum CommandId {
     FileRevert,
     FileImportGraphics,
     FileImportLegacyFlash,
+    FileExportLottie,
     FilePublishSettings,
     FilePublish,
     // Edit
@@ -787,6 +788,7 @@ const S_CMD_O: &[Shortcut] = &[Shortcut::cmd(Key::O)];
 const S_CMD_W: &[Shortcut] = &[Shortcut::cmd(Key::W)];
 const S_CMD_S: &[Shortcut] = &[Shortcut::cmd(Key::S)];
 const S_SHIFT_CMD_S: &[Shortcut] = &[Shortcut::shift_cmd(Key::S)];
+const S_ALT_SHIFT_CMD_L: &[Shortcut] = &[Shortcut::alt_shift_cmd(Key::L)];
 const S_SHIFT_F12: &[Shortcut] = &[Shortcut::shift(Key::F12)];
 const S_PUBLISH: &[Shortcut] = &[Shortcut::shift_alt(Key::F12)];
 
@@ -909,6 +911,7 @@ impl CommandId {
         Self::FileRevert,
         Self::FileImportGraphics,
         Self::FileImportLegacyFlash,
+        Self::FileExportLottie,
         Self::FilePublishSettings,
         Self::FilePublish,
         Self::EditUndo,
@@ -1091,6 +1094,14 @@ impl CommandId {
                 title: "File ▸ Import ▸ Import legacy Flash…",
                 keywords: "fla xfl swf",
                 defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportLottie => CommandMeta {
+                id: "file.export.lottie",
+                category: C::File,
+                title: "File ▸ Export ▸ Export Lottie…",
+                keywords: "bodymovin json animation vector",
+                defaults: S_ALT_SHIFT_CMD_L,
                 allow_when_typing: false,
             },
             Self::FilePublishSettings => CommandMeta {

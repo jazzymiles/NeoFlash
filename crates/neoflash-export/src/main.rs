@@ -1,5 +1,5 @@
 use neoflash_core::Project;
-use neoflash_export::{FontExportPolicy, PublishOptions, SizeLevel};
+use neoflash_export::{FontExportPolicy, LottieOptions, PublishOptions, SizeLevel};
 use std::{env, fs, path::PathBuf};
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,6 +12,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut level = "full".to_owned();
     let mut runtime_url = None;
     let mut shared_runtime = None;
+    let mut lottie_output = None;
+    let mut lottie_symbol = None;
+    let mut lottie_pretty = false;
     let mut output = PathBuf::from("dist/html5");
     let mut runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
     while let Some(arg) = args.next() {
@@ -19,6 +22,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--demo" => demo = true,
             "--size-report" => size_report = true,
             "--size-estimate" => size_estimate = true,
+            "--pretty" => lottie_pretty = true,
+            "--lottie" => {
+                lottie_output = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--lottie requires an output .json file")?,
+                ))
+            }
+            "--symbol" => {
+                lottie_symbol = Some(args.next().ok_or("--symbol requires a symbol ID or name")?)
+            }
             "--output" => {
                 has_output = true;
                 output = PathBuf::from(args.next().ok_or("--output requires a directory")?)
@@ -37,7 +50,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--lottie FILE.json] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
                 );
                 return Ok(());
             }
@@ -64,6 +77,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             source.ok_or("Supply a project or --demo")?,
         )?)?
     };
+    if let Some(lottie_path) = lottie_output {
+        let report = neoflash_export::export_project_lottie(
+            &project,
+            &lottie_path,
+            &LottieOptions {
+                symbol: lottie_symbol,
+                include_background: true,
+                include_hidden_layers: false,
+                pretty: lottie_pretty,
+            },
+        )?;
+        println!(
+            "Lottie export: {} ({} bytes, {} layers, {} frames)",
+            lottie_path.display(),
+            report.bytes,
+            report.layer_count,
+            report.frame_count
+        );
+        for warning in &report.warnings {
+            eprintln!("Note: {warning}");
+        }
+        return Ok(());
+    }
     if size_estimate {
         let url = runtime_url
             .as_deref()

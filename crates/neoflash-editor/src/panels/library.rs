@@ -124,6 +124,7 @@ enum Action {
     RenameSymbol(String),
     DuplicateSymbol(String),
     SwapSymbol(String),
+    ExportSymbolLottie(String),
     DeleteSymbol(String),
     EditFolder(String),
     NewFolder(String),
@@ -490,6 +491,12 @@ impl Editor {
                                 if ui.add(nf::MenuItem::new("Symbol properties…")).clicked() {
                                     action = Some(Action::RenameSymbol(symbol.id.clone()));
                                 }
+                                if ui
+                                    .add(nf::MenuItem::new("Export symbol as Lottie…"))
+                                    .clicked()
+                                {
+                                    action = Some(Action::ExportSymbolLottie(symbol.id.clone()));
+                                }
                                 nf::menu_separator(ui);
                                 if ui.add(nf::MenuItem::new("Delete symbol")).clicked() {
                                     action = Some(Action::DeleteSymbol(symbol.id.clone()));
@@ -536,6 +543,9 @@ impl Editor {
                 }
                 Action::SwapSymbol(id) => {
                     self.swap_layer_or_selected_symbol(self.layer, &id);
+                }
+                Action::ExportSymbolLottie(id) => {
+                    self.export_lottie_dialog(Some(&id));
                 }
                 Action::DeleteSymbol(id) => {
                     if matches!(
@@ -654,6 +664,13 @@ impl Editor {
             }
             if ui.add(nf::MenuItem::new("Symbol properties…")).clicked() {
                 self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
+            }
+            if ui
+                .add(nf::MenuItem::new("Export symbol as Lottie…"))
+                .clicked()
+            {
+                self.export_lottie_dialog(Some(&symbol.id));
+                ui.close();
             }
             if ui.add(nf::MenuItem::new("Delete symbol")).clicked() {
                 if matches!(

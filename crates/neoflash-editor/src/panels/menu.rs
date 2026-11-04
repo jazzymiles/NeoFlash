@@ -452,11 +452,22 @@ impl Editor {
                 ui.close();
             }
         });
-        menu_popup(ui, "Export", "Export image…", "", |ui| {
-            Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
-            Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
-            Self::planned_menu_item(ui, "File ▸ Export ▸ Export audio…", "");
-        });
+        menu_popup(
+            ui,
+            "Export",
+            "Export Lottie…",
+            &self.sc(C::FileExportLottie),
+            |ui| {
+                Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
+                Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
+                Self::planned_menu_item(ui, "File ▸ Export ▸ Export audio…", "");
+                nf::menu_separator(ui);
+                if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
+                    self.export_lottie_dialog(None);
+                    ui.close();
+                }
+            },
+        );
         nf::menu_separator(ui);
         Self::planned_menu_item(
             ui,

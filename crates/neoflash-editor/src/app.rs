@@ -1280,6 +1280,77 @@ impl Editor {
         };
         self.publish_html5_to(&output, &Self::runtime_dir());
     }
+    /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
+    pub fn export_lottie_to_path(
+        &mut self,
+        path: &std::path::Path,
+        symbol_id: Option<&str>,
+    ) -> Result<neoflash_export::LottieExportReport, String> {
+        self.finish_edits();
+        let options = neoflash_export::LottieOptions {
+            symbol: symbol_id.map(str::to_owned),
+            include_background: symbol_id.is_none(),
+            include_hidden_layers: false,
+            pretty: false,
+        };
+        match neoflash_export::export_project_lottie(&self.project, path, &options) {
+            Ok(report) => {
+                self.message(format!(
+                    "Lottie exported: {} ({} bytes, {} layers, {} frames)",
+                    path.display(),
+                    report.bytes,
+                    report.layer_count,
+                    report.frame_count
+                ));
+                for warning in &report.warnings {
+                    self.message(format!("Lottie note: {warning}"));
+                }
+                if !report.warnings.is_empty() {
+                    self.show_panel(PanelId::Output);
+                }
+                Ok(report)
+            }
+            Err(e) => {
+                let err = format!("Lottie export failed: {e}");
+                self.message(err.clone());
+                self.show_panel(PanelId::Output);
+                Err(err)
+            }
+        }
+    }
+    pub fn export_lottie_dialog(&mut self, symbol_id: Option<&str>) {
+        let base_name = symbol_id
+            .and_then(|id| self.project.symbol(id))
+            .map(|s| s.name.as_str())
+            .unwrap_or(self.project.name.as_str());
+        let stem: String = base_name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let file_name = format!(
+            "{}.lottie.json",
+            if stem.trim_matches('-').is_empty() {
+                "animation"
+            } else {
+                stem.trim_matches('-')
+            }
+        );
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Export Lottie JSON")
+            .add_filter("Lottie JSON", &["json"])
+            .set_file_name(&file_name)
+            .save_file()
+        else {
+            return;
+        };
+        let _ = self.export_lottie_to_path(&path, symbol_id);
+    }
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
         let mut cloned = self.project.clone();
@@ -1596,6 +1667,9 @@ impl Editor {
         }
         if self.take_command_shortcut(ctx, C::FileImportLegacyFlash) {
             self.request(Pending::Import, ctx);
+        }
+        if self.take_command_shortcut(ctx, C::FileExportLottie) {
+            self.export_lottie_dialog(None);
         }
         if self.take_command_shortcut(ctx, C::FilePublishSettings) {
             Self::open_planned(ctx, "File ▸ Publish settings…");

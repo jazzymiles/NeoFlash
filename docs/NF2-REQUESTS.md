@@ -578,3 +578,32 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `interface/design-system/docs/data/outline/panels-properties-panel-all-variants.txt`, `panels-dialog-layer-properties.txt`, `interface-timeline-states-legend.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-07.
 - **Proposal (optional):** Retain `First frame` (`1..=count`) in `Properties` for `Graphic` and `MovieClip`, keep `Sync layer to timeline` as a checked `MenuItem` in the layer context menu and Timeline `⋯` menu (plus a checkbox in `Layer properties`), and optionally show a small crop/sync tick on the leading keyframe of a synced layer span.
 - **Answer:**
+
+### R-043 · Lottie JSON export modal dialog, Publish settings target and warning summary
+- **Status:** answered
+- **Requested by / for:** implementation track (`gemini`) · DL-03 / MN-01 / T-043 (`File ▸ Export ▸ Export Lottie…`, `Library ▸ Export symbol as Lottie…`)
+- **Where:** `panels/menu.rs` (`File ▸ Export ▸`), `panels/library.rs` (symbol context menu & `Library options` `⋯`), `panels/publish_settings.rs` (`Publish settings` modal dialog), and a future `Export Lottie` modal dialog.
+- **Need:** Approved NF2 design for: (1) whether `File ▸ Export ▸ Export Lottie…` (`⌥⇧⌘L`) and `Library ▸ Export symbol as Lottie…` should open a dedicated NF2 `Export Lottie` options dialog before the macOS save sheet (controls: `Include stage background`, `Pretty-print JSON`, `Target`: `Full document (all scenes)` vs. `Selected symbol`, plus an inline compatibility/warning summary when scripts, audio, video, or unsupported Flash blend modes/filters are skipped), and (2) whether `File ▸ Publish settings…` should include an optional `Lottie (.json)` output checkbox alongside the HTML5 publish bundle.
+- **Why:** Full Bodymovin v5.7.14 Lottie JSON export (`crates/neoflash-export/src/lottie.rs`), CLI `--lottie <FILE.json> [--symbol <ID_OR_NAME>] [--pretty]`, and editor `File ▸ Export ▸ Export Lottie…` (`⌥⇧⌘L`) + `Library ▸ Export symbol as Lottie…` are implemented and write `.lottie.json` via the native save dialog with status-bar diagnostics (`LottieExportReport.warnings`), but `panels/publish_settings.rs` is a locked layout and any pre-export options modal or warning summary dialog requires an NF2 design specification.
+- **Checked:** `interface/design-system/docs/data/outline/panels-menus.txt`, `panels-publish-misc-dialogs.txt`, `panels-dialog-preferences-publish.txt`, `panels-panel-library.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` §10 (`DL-03`).
+- **Proposal (optional):** Keep `File ▸ Export ▸ Export Lottie…` (`⌥⇧⌘L`) and `Library ▸ Export symbol as Lottie…` in their current menu spots and add a compact 440 pt NF2 `Export Lottie` modal (matching `Export image` / `Publish settings` dialog chrome) with `Include stage background` + `Pretty-print JSON` checkboxes and an inline warning list from `LottieExportReport.warnings`.
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Lottie export
+  (R-043)” (Dark `134:19883`, Light `136:20439`); designed ahead with all planned options.
+  (1) Both menu items (and the same item in the Library `⋯` menu for a selected symbol) open a 760 pt `Export Lottie`
+  dialog in the Export image family before the save sheet: preview + caption (`<source> · scenes · frames · fps ·
+  W × H`) and a Compatibility card (counts of exported / approximated / not exported, Ghost `Show details`) on the
+  left; options on the right: Format segmented `JSON | dotLottie (.lottie)`; Source Select (`Main timeline · all
+  scenes`, current scene, any symbol; Library entry preselects the symbol and turns Background off); Range Select
+  `All frames | Frame range` + Frames field; W / H + link + scale Select; `Frame rate: Document (…)`; Layers checkboxes
+  `Background colour layer`, `Hidden layers`, `Frame labels as markers`; Content Selects `Movie clips: Nested |
+  First frame`, `Text: Shapes | Text layers`, `Images: Embed | Folder`, `Image format: Original | PNG | JPEG`; Output
+  `Minify` Switch (= !pretty), `Precision` field 0–4, `Player: lottie-web | Mobile | Skottie` (changes only the
+  notes), `Also write HTML preview page`. Footer: `~ size · layers · frames`, Cancel, Primary `Export Lottie` (icon),
+  which opens the save sheet. Options that `LottieOptions` lacks today are listed in the Figma mapping table as
+  “to add”; until a field exists its control is omitted, not disabled. Report dialog `Lottie export — N notes`:
+  groups Missing / Approximated / Not exported, each row icon + message + location + Ghost `Show`; footer `Copy
+  report`, `Close` — needs structured notes `{kind, location, message}`. After export: Success / Warning (`Show
+  notes`) / Error (`Choose folder…`) toast; lines still go to Output. States: determinate Progress in the footer
+  with Cancel for long exports; blocking errors as inline error lines with Export disabled; notes (still image,
+  player-specific) as warning lines. (2) Yes: Publish settings gains target `Lottie animation (JSON)` (motion-path
+  icon) with the same groups minus Source and Range; footer lists both outputs.

@@ -809,9 +809,12 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032).
   Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
   using the same parameters; stale project/options/runtime results are discarded. No size controls are exposed yet.
+  Bodymovin v5.7.14 Lottie JSON export (`neoflash_export::export_project_lottie`, `export_lottie_json`,
+  `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`, CLI `--lottie`) is also available;
+  its optional pre-export modal and Publish settings checkbox are tracked in `R-043`.
   **NEW** `PublishSettings`
-  stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target; others must
-  stay disabled.
+  stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target in `Publish settings`;
+  others must stay disabled until wired.
 - Acceptance: settings persist in the file; Loop off makes the exported movie stop at the end; trace stripped when
   "Include trace()" is off.
 
@@ -866,7 +869,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports and HTML5 Publish | Print disabled; Import video, Export image/video/audio and Publish settings open planned previews |
+| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video, Export image/video/audio and Publish settings open planned previews |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences and Keyboard shortcuts | Editing commands require the appropriate selection/history; multiple documents are not implemented |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |

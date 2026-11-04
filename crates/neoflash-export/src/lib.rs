@@ -1,8 +1,13 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
 pub mod fonts;
+pub mod lottie;
 pub mod publish;
 pub use fonts::*;
+pub use lottie::{
+    LOTTIE_VERSION, LottieExportReport, LottieOptions, export_lottie_json, export_lottie_value,
+    export_project_lottie,
+};
 pub use publish::{
     PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };

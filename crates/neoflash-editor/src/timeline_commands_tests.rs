@@ -1395,4 +1395,25 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
     }
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before_swap);
+
+    // Exporting the document or a Library symbol to Lottie JSON writes valid Bodymovin v5.7.14 JSON
+    // without mutating the document or Undo history.
+    let before_lottie = editor.project.clone();
+    let dir = std::env::temp_dir().join(format!("neoflash-lottie-test-{}", std::process::id()));
+    let movie_lottie = dir.join("scene.lottie.json");
+    let sym_lottie = dir.join("sym-b.lottie.json");
+    let movie_report = editor.export_lottie_to_path(&movie_lottie, None).unwrap();
+    assert!(movie_report.bytes > 0);
+    assert!(movie_report.layer_count >= 1);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&movie_lottie).unwrap()).unwrap();
+    assert_eq!(parsed["v"], neoflash_export::LOTTIE_VERSION);
+    let sym_report = editor
+        .export_lottie_to_path(&sym_lottie, Some("sym-b"))
+        .unwrap();
+    assert_eq!(sym_report.name, "HeroB");
+    assert_eq!(sym_report.frame_count, 8);
+    assert_eq!(editor.project, before_lottie);
+    assert!(!editor.history.can_undo());
+    let _ = std::fs::remove_dir_all(&dir);
 }
