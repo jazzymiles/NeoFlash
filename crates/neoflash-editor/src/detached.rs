@@ -339,8 +339,9 @@ impl Editor {
         surface: DockSurface,
         group: &crate::workspace::DockGroup,
         rect: egui::Rect,
-        first_shape: usize,
+        capture: (usize, Option<egui::Vec2>),
     ) {
+        let (first_shape, grab_offset) = capture;
         let Some(panel) = self.dragged_panel_in_group(surface, group) else {
             return;
         };
@@ -376,11 +377,63 @@ impl Editor {
         self.detached.drag_preview = Some(PanelDragPreview {
             panel,
             source: drag.source,
-            grab_offset: drag.started - (inner.min + rect.min.to_vec2()) * zoom,
+            grab_offset: grab_offset
+                .unwrap_or_else(|| drag.started - (inner.min + rect.min.to_vec2()) * zoom),
             zoom,
             size: rect.size() * zoom,
             shapes,
         });
+    }
+
+    /// Horizontal docks stretch to the workspace width. A torn-off panel uses
+    /// its floating layout immediately, including old preferences that may
+    /// have accidentally remembered the entire dock width.
+    pub(crate) fn compact_panel_drag_layout(
+        &self,
+        surface: DockSurface,
+        edge: DockEdge,
+        group: &crate::workspace::DockGroup,
+        source_rect: egui::Rect,
+        zoom: f32,
+    ) -> Option<(crate::workspace::DockGroup, egui::Vec2, egui::Vec2)> {
+        let panel = self.dragged_panel_in_group(surface, group)?;
+        let drag = self.detached.drag?;
+        if !drag.moved
+            || surface != DockSurface::Main
+            || !matches!(edge, DockEdge::Top | DockEdge::Bottom)
+        {
+            return None;
+        }
+        let default = crate::workspace::default_window_size(panel);
+        let minimum = crate::workspace::minimum_window_size(panel);
+        let saved = self
+            .workspace
+            .detached_geometry(panel)
+            .map_or(default, |geometry| geometry.inner_size);
+        let size = egui::vec2(
+            saved[0].min(default[0]).max(minimum[0]),
+            saved[1].min(default[1]).max(minimum[1]),
+        );
+        let mut floating_group = group.clone();
+        floating_group.active = panel;
+        let mut grab_offset = drag.grab_offset;
+        if drag.group.is_none() {
+            floating_group.tabs = vec![panel];
+        } else {
+            // Keep the relative grip position when a whole tab group shrinks.
+            let source = self
+                .detached
+                .dock_groups
+                .iter()
+                .find(|target| target.surface == surface && target.group == group.id)?;
+            grab_offset = drag.started - source.rect.min;
+            grab_offset.x *= size.x / (source_rect.width() * zoom);
+        }
+        grab_offset.x = grab_offset.x.clamp(0., size.x);
+        grab_offset.y = grab_offset
+            .y
+            .clamp(0., neoflash_ui::metrics::PANEL_HEADER * zoom);
+        Some((floating_group, size / zoom, grab_offset))
     }
 
     #[cfg(test)]

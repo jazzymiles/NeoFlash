@@ -514,6 +514,18 @@ impl Editor {
         group: &DockGroup,
         rect: egui::Rect,
     ) {
+        self.paint_dock_group_contents(parent, surface, group, (edge, rect), None);
+    }
+
+    fn paint_dock_group_contents(
+        &mut self,
+        parent: &mut egui::Ui,
+        surface: DockSurface,
+        group: &DockGroup,
+        layout: (DockEdge, egui::Rect),
+        preview_grab: Option<egui::Vec2>,
+    ) {
+        let (edge, rect) = layout;
         let first_shape = parent.ctx().graphics(|graphics| {
             graphics
                 .get(parent.layer_id())
@@ -526,6 +538,13 @@ impl Editor {
             group.active = panel;
         }
         let group = &group;
+        let header_id = |name: &str| {
+            if preview_grab.is_some() {
+                (format!("{name}-drag-preview"), surface, group.id)
+            } else {
+                (name.to_owned(), surface, group.id)
+            }
+        };
         // NF2: horizontal docks use `Dock Tab` (40, icon + label); side columns use `Panel Tab` (36).
         // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
         // `Panel Tab`s (36). The docked tools rail only gets a slim drag strip, like the Figma rail.
@@ -573,7 +592,7 @@ impl Editor {
         );
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
-                .id(("dock-tabs", surface, group.id))
+                .id(header_id("dock-tabs"))
                 .max_rect(tabs_rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
@@ -589,7 +608,7 @@ impl Editor {
             egui::Stroke::new(1.0_f32, nf.border_subtle),
         );
         egui::ScrollArea::horizontal()
-            .id_salt(("dock-tab-scroll", surface, group.id))
+            .id_salt(header_id("dock-tab-scroll"))
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .themed()
@@ -751,7 +770,7 @@ impl Editor {
             egui::Rect::from_min_max(header.min, egui::pos2(header.left() + 13., header.bottom()));
         let mut grip_ui = parent.new_child(
             egui::UiBuilder::new()
-                .id(("dock-group-grip", surface, group.id))
+                .id(header_id("dock-group-grip"))
                 .max_rect(grip),
         );
         grip_ui.set_clip_rect(parent.clip_rect().intersect(grip));
@@ -789,7 +808,7 @@ impl Editor {
         );
         let mut menu_ui = parent.new_child(
             egui::UiBuilder::new()
-                .id(("dock-group-menu", surface, group.id))
+                .id(header_id("dock-group-menu"))
                 .max_rect(menu_rect),
         );
         menu_ui.set_clip_rect(parent.clip_rect().intersect(menu_rect));
@@ -830,7 +849,37 @@ impl Editor {
                 egui::Stroke::new(1.0_f32, nf.border_subtle),
             );
         }
-        self.detached.dock_groups.push(target);
+        if preview_grab.is_none() {
+            self.detached.dock_groups.push(target);
+            if let Some((floating_group, size, grab_offset)) =
+                self.compact_panel_drag_layout(surface, edge, group, rect, zoom)
+            {
+                // Lay out the body once at its floating size, outside the
+                // viewport, then replay its paint output at the pointer. The
+                // original header remains the drop target; no widgets run twice.
+                let preview_rect = egui::Rect::from_min_size(ctx.viewport_rect().max, size);
+                let layer = egui::LayerId::new(
+                    egui::Order::Middle,
+                    egui::Id::new(("panel-drag-layout", surface, group.id)),
+                );
+                let mut preview_ui = egui::Ui::new(
+                    ctx.clone(),
+                    layer.id,
+                    egui::UiBuilder::new()
+                        .layer_id(layer)
+                        .max_rect(preview_rect),
+                );
+                self.paint_dock_group_contents(
+                    &mut preview_ui,
+                    surface,
+                    &floating_group,
+                    (DockEdge::Left, preview_rect),
+                    Some(grab_offset),
+                );
+                ctx.graphics_mut(|graphics| *graphics.entry(layer) = Default::default());
+                return;
+            }
+        }
         // A tab drag may have moved this group during the header callback.
         // Its new owner renders it on the next frame, never a second copy here.
         let active = self.dragged_panel_in_group(surface, group).or_else(|| {
@@ -860,7 +909,7 @@ impl Editor {
             content.set_min_size(body.size());
             self.dock_panel_contents(&mut content, panel);
         }
-        self.remember_panel_drag_preview(parent, surface, group, rect, first_shape);
+        self.remember_panel_drag_preview(parent, surface, group, rect, (first_shape, preview_grab));
     }
 
     pub(crate) fn register_dock_viewport(

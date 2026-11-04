@@ -10,19 +10,42 @@ use std::{cell::RefCell, rc::Rc};
 
 #[test]
 fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_cleanly() {
-    for (panel, body_label) in [
-        (PanelId::Properties, "HTML5 · Rust / WebAssembly"),
-        (PanelId::Accessibility, "No object selected"),
+    // Bottom docks are deliberately much wider than any floating panel. Include
+    // the huge geometry remembered by the old implementation and a valid user
+    // size, plus a whole-group drag and an unchanged side-panel drag.
+    for (panel, saved_size, group_drag) in [
+        (PanelId::Properties, None, false),
+        (PanelId::Timeline, None, false),
+        (PanelId::Actions, None, false),
+        (PanelId::Output, Some([3000., 800.]), false),
+        (PanelId::Accessibility, None, false),
+        (PanelId::Accessibility, Some([480., 300.]), false),
+        (PanelId::Timeline, None, true),
     ] {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.output.clear();
+        if let Some(inner_size) = saved_size {
+            editor.workspace.remember_geometry(
+                panel,
+                crate::workspace::WindowGeometry {
+                    outer_position: [120., 100.],
+                    inner_size,
+                },
+            );
+        }
+        let body_label = match panel {
+            PanelId::Properties => "HTML5 · Rust / WebAssembly".to_owned(),
+            PanelId::Timeline => editor.symbol().timeline.layers[0].name.clone(),
+            PanelId::Actions => format!("{} · Frame 1", editor.symbol().name),
+            PanelId::Output => "No output yet".to_owned(),
+            _ => "No object selected".to_owned(),
+        };
         let origin = egui::pos2(100., 80.);
+        let screen_size = egui::vec2(1920., 1080.);
         let render = |editor: &mut Editor, events| {
             let mut input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1440., 960.),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size)),
                 events,
                 ..Default::default()
             };
@@ -30,68 +53,150 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
                 .viewports
                 .get_mut(&egui::ViewportId::ROOT)
                 .unwrap()
-                .inner_rect = Some(egui::Rect::from_min_size(origin, egui::vec2(1440., 960.)));
+                .inner_rect = Some(egui::Rect::from_min_size(origin, screen_size));
             ctx.run(input, |ctx| {
                 editor.dock_grid(ctx);
                 editor.detached_panels(ctx);
             })
         };
-        let text_positions = |output: &egui::FullOutput| {
+        let text_shapes = |output: &egui::FullOutput, label: &str, area: egui::Rect| {
             output
                 .shapes
                 .iter()
                 .filter_map(|shape| match &shape.shape {
                     egui::Shape::Text(text)
-                        if text.galley.job.text == body_label
-                            && shape.clip_rect.contains(text.pos) =>
+                        if text.galley.job.text == label
+                            && shape.clip_rect.contains(text.pos)
+                            && area.contains(text.pos) =>
                     {
-                        Some(text.pos)
+                        Some(text.clone())
                     }
                     _ => None,
                 })
                 .collect::<Vec<_>>()
         };
         render(&mut editor, vec![]);
-        let source_group = editor
+        let source = editor
             .detached
             .dock_groups
             .iter()
             .find(|group| group.tabs.iter().any(|(id, _)| *id == panel))
             .unwrap()
-            .rect;
-        let tab = editor
-            .detached
-            .dock_groups
+            .clone();
+        let source_group = source.rect.translate(-origin.to_vec2());
+        let tab_rect = source
+            .tabs
             .iter()
-            .flat_map(|group| &group.tabs)
             .find(|(id, _)| *id == panel)
             .unwrap()
             .1
-            .center()
-            - origin.to_vec2();
+            .translate(-origin.to_vec2());
+        let start = if group_drag {
+            // Empty internal header, away from the tab strip and menu button.
+            egui::pos2(source_group.right() - 80., tab_rect.center().y)
+        } else {
+            tab_rect.center()
+        };
+        let compact = panel != PanelId::Properties;
+        let floating = crate::workspace::default_window_size(panel);
+        let preview_size = if compact {
+            let saved = saved_size.unwrap_or(floating);
+            egui::vec2(saved[0].min(floating[0]), saved[1].min(floating[1]))
+        } else {
+            source_group.size()
+        };
+        let grab_offset = if group_drag {
+            let offset = start - source_group.min;
+            egui::vec2(offset.x * preview_size.x / source_group.width(), offset.y)
+        } else if compact {
+            start - tab_rect.min
+        } else {
+            start - source_group.min
+        };
         let before = editor.workspace.clone();
+        let project_before = serde_json::to_value(&editor.project).unwrap();
         let press = render(
             &mut editor,
             vec![
-                egui::Event::PointerMoved(tab),
-                crate::tests::primary_button(tab, true),
+                egui::Event::PointerMoved(start),
+                crate::tests::primary_button(start, true),
             ],
         );
-        let source_body = text_positions(&press)[0];
-        let stage = egui::pos2(600., 300.);
+        let source_body = text_shapes(&press, &body_label, source_group)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("{panel:?}: body must be visible before movement"));
+        let stage = egui::pos2(if group_drag { 1200. } else { 650. }, 240.);
+        let expected_rect = egui::Rect::from_min_size(stage - grab_offset, preview_size);
+        let assert_preview = |output: &egui::FullOutput| {
+            assert!(
+                output.shapes.iter().any(|shape| matches!(&shape.shape,
+                    egui::Shape::Rect(rect)
+                        if rect.rect.min.distance(expected_rect.min) < 0.1
+                            && rect.rect.max.distance(expected_rect.max) < 0.1
+                            && shape.clip_rect.contains_rect(expected_rect)
+                )),
+                "{panel:?}: actual preview background must use {expected_rect:?}"
+            );
+            let bodies = text_shapes(output, &body_label, expected_rect);
+            assert_eq!(
+                bodies.len(),
+                1,
+                "{panel:?}: preview must contain its body once"
+            );
+            let body = &bodies[0];
+            assert!(expected_rect.contains_rect(body.galley.rect.translate(body.pos.to_vec2())));
+            assert!(
+                (body.galley.size().y - source_body.galley.size().y).abs() < 0.1,
+                "{panel:?}: narrowing must relayout the body, not shrink its text"
+            );
+            assert_eq!(
+                body.galley
+                    .job
+                    .sections
+                    .iter()
+                    .map(|section| &section.format.font_id)
+                    .collect::<Vec<_>>(),
+                source_body
+                    .galley
+                    .job
+                    .sections
+                    .iter()
+                    .map(|section| &section.format.font_id)
+                    .collect::<Vec<_>>()
+            );
+            let preview_header = egui::Rect::from_min_size(
+                expected_rect.min,
+                egui::vec2(expected_rect.width(), neoflash_ui::metrics::PANEL_HEADER),
+            );
+            assert_eq!(text_shapes(output, panel.title(), preview_header).len(), 1);
+            if compact {
+                assert!(expected_rect.width() <= floating[0]);
+                assert!(expected_rect.width() < source_group.width());
+                for (other, _) in &source.tabs {
+                    if *other != panel {
+                        assert_eq!(
+                            text_shapes(output, other.title(), preview_header).len(),
+                            usize::from(group_drag),
+                            "{panel:?}: a single-tab preview must not copy the other dock tabs"
+                        );
+                    }
+                }
+            } else {
+                assert!(body.pos.distance(source_body.pos + (stage - start)) < 0.1);
+            }
+        };
         let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
         assert!(editor.dock_hit(origin + stage.to_vec2(), 1.).is_none());
-        let expected = source_body + (stage - tab);
-        assert!(
-            text_positions(&output)
-                .iter()
-                .any(|pos| pos.distance(expected) < 0.1),
-            "{panel:?} must preview its actual body at the drag position, not a title badge"
-        );
+        assert_preview(&output);
         assert!(editor.panel_drag_preview_visible());
         assert_eq!(
             editor.workspace, before,
-            "preview must not reparent or activate the source tab"
+            "preview must preserve saved tab/dock state"
+        );
+        assert_eq!(
+            serde_json::to_value(&editor.project).unwrap(),
+            project_before
         );
         assert!(!editor.dirty());
         assert!(!editor.history.can_undo());
@@ -104,14 +209,10 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
                 .shapes
                 .iter()
                 .any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
-            if text.galley.job.text == format!("{} · Dock Left", panel.title())))
+                if text.galley.job.text == format!("{} · Dock Left", panel.title())))
         );
         let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
-        assert!(
-            text_positions(&output)
-                .iter()
-                .any(|pos| pos.distance(expected) < 0.1)
-        );
+        assert_preview(&output);
         let output = render(
             &mut editor,
             vec![egui::Event::Key {
@@ -123,17 +224,17 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
             }],
         );
         assert!(!editor.panel_drag_preview_visible());
-        assert!(
-            !text_positions(&output)
-                .iter()
-                .any(|pos| pos.distance(expected) < 0.1)
-        );
+        assert!(text_shapes(&output, &body_label, expected_rect).is_empty());
         assert_eq!(editor.workspace, before);
+        assert_eq!(
+            serde_json::to_value(&editor.project).unwrap(),
+            project_before
+        );
         assert!(!editor.dirty());
         assert!(!editor.history.can_undo());
 
-        // Detaching a later tab must not jump back to tab-relative coordinates
-        // or resize to a different window footprint when the button is released.
+        // A later tab stays under the pointer and keeps its compact footprint
+        // when release creates the native window.
         render(
             &mut editor,
             vec![crate::tests::primary_button(stage, false)],
@@ -141,25 +242,23 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
         render(
             &mut editor,
             vec![
-                egui::Event::PointerMoved(tab),
-                crate::tests::primary_button(tab, true),
+                egui::Event::PointerMoved(start),
+                crate::tests::primary_button(start, true),
             ],
         );
-        render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+        let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+        assert_preview(&output);
         render(
             &mut editor,
             vec![crate::tests::primary_button(stage, false)],
         );
         let geometry = editor.workspace.detached_geometry(panel).unwrap();
-        let expected_position = source_group.min + (stage - tab) - egui::vec2(0., 28.);
+        let expected_position = origin + expected_rect.min.to_vec2() - egui::vec2(0., 28.);
         assert_eq!(
             geometry.outer_position,
             [expected_position.x, expected_position.y]
         );
-        assert_eq!(
-            geometry.inner_size,
-            [source_group.width(), source_group.height()]
-        );
+        assert_eq!(geometry.inner_size, [preview_size.x, preview_size.y]);
         assert!(!editor.panel_drag_preview_visible());
         assert!(!editor.dirty());
         assert!(!editor.history.can_undo());
