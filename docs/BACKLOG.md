@@ -1,215 +1,65 @@
-# Backlog
-
-Independent 01f2261 acceptance (`POINTER-HTML5-20261027T1113Z`) confirms the observed AS3 donor-margin and AS2 −4-degree-parent drags, child/disabled targeting, bounded geometry/rectangle refusals, outside release and fresh Restart. AS3 is unrotated and both parents use unit scale; cursor effects and the first unresolved nested linked-target miss remain outside the accepted scope. See [the independent record](VERIFICATION.md#independent-pointer-verification-of-01f2261). ExternalInterface/page integration is already active and retains separate verification.
-
-Independent f42ad94 acceptance (`VIDEO-HTML5-20261027T1042Z`) confirms real embedded AS3/AS2 MP4 playback, pre-completion pause/seek/resume, natural completion, post-completion Close retention, one-view clear and active HTTP Restart. The silent short file does not establish audible output, precise synchronization, broad codecs/transport or active-close races. See [the independent record](VERIFICATION.md#independent-video-verification-of-f42ad94). The later 01f2261 pointer family has its own bounded independent record.
-
-Independent 6687ced acceptance (`CLASSES-HTML5-20261027T1007Z`) confirms separate private owner state, protected/package collaboration, bounded dynamic metadata/JSON and sealed refusals, positive imports/final declarations, distinct AS2 inherited-private behavior and Restart. Final rejection, wildcard ambiguity and full reflection/initialization are not inferred. See [the independent record](VERIFICATION.md#independent-classpackage-verification-of-6687ced). The later f42ad94 Video family has its own bounded independent record.
-
-Independent 6f4f66a acceptance (`IMAGE-PIPELINE-HTML5-20261027T0943Z`) confirms the initial full source/tint oracle, captured/roundtrip/loaded PNG equality, bulk cursor/word checks and partial setPixels EOF behavior. Later UI phases and Restart are retained as screenshot/AX evidence; missing later logs do not establish repeated full-pixel or whole-run zero-error results. See [the independent record](VERIFICATION.md#independent-image-pipeline-verification-of-6f4f66a). The later 6687ced class/package family has its own bounded independent record.
-
-Independent 11a59df acceptance (`FUNCTIONS-HTML5-20261027T0914Z`) confirms the corrected command workflow: optional/rest/supplied arguments, tested bound and ordinary receivers, arity refusals and Restart. An initial added arguments.length trace changed the probe's allow-extra contract; that altered result is preserved, with only the family re-exported after removing the trace. See [the independent record](VERIFICATION.md#independent-function-verification-of-11a59df). The later 6f4f66a image pipeline has its own bounded record; it does not inherit the function pass.
-
-Independent 5395375 acceptance (`FILTERS-HTML5-20261027T0844Z`) confirms representative Blur/Glow/DropShadow/ColorMatrix effects over whole vector/text/bitmap cards, copied settings, unchanged shared pixels, bounded source/halo input and clear/restore/Restart. Filtered native editing, mask/scroll composition, HiDPI/cache limits and exact Flash kernels remain unverified. See [the independent record](VERIFICATION.md#independent-filter-verification-of-5395375). The later 11a59df Function family has its own independent record; it does not inherit the filter pass.
-
-Independent eddcc30 acceptance (`STORAGE-AMF-HTML5-20261027T0728Z`) confirms bounded AS2/AS3 saved graphs through reload/Restart/path isolation/clear and AMF packet values in a separate catch(*) positive control. The original batch remains four ready/one runtime error: P1 AMF-TYPED-CATCH-001 records malformed readObject throwing a raw string past catch(Error). Full error/codec/storage semantics are not inferred. See [the independent record](VERIFICATION.md#independent-storage-and-amf-verification-of-eddcc30). The later c10e19e Forms workflow has a separate bounded verification record.
-
-Independent 039afe6 acceptance (`LOADER-HTML5-20261027T0709Z`) confirms embedded PNG/HTTP JPEG, snapshotted loadBytes, canonical metadata and observed event order, retained pixels through replacement/unload/re-adoption, real Loader/AS2 input and pending responses suppressed after close→Restart and Restart. Pending HTTP close alone remains needs_review; progress events, full transition/reentry/GC semantics and native UI are not inferred. See [the independent record](VERIFICATION.md#independent-image-loader-verification-of-039afe6). The later eddcc30 persistence/AMF family has a separate independent record.
-
-Independent 05d5d43 acceptance (`CLIPPING-HTML5-20261027T0652Z`) confirms bounded vector masks/even-odd holes, copied integral scroll rectangles, actual positive/excluded hits, retained linked-card state and Restart. Self-mask and fractional-scroll refusals accompany a working scene. Parent right-edge intersection, source reuse/retirement, budgets and full accessibility are not inferred; native authoring remains pending. See [the independent record](VERIFICATION.md#independent-clipping-verification-of-05d5d43). The later 039afe6 image-loader family has a separate independent record.
-
-Independent 08f1d9c acceptance (`GRAPHICS-HTML5-20261027T0619Z`) confirms representative gradient fill/stroke, copied-paint independence, Vector/cubic paths, real input/lifetime behavior and Restart. Reflect and incomplete-path diagnostics preserve the observed positive scene; bounds alone are not a full atomicity proof. Exact rasterization, alpha hits, all coercions and native authoring are not inferred. See [the independent record](VERIFICATION.md#independent-graphics-verification-of-08f1d9c). The later 05d5d43 clipping family has a separate independent record.
-
-Independent 5be13d9 acceptance (`E4X-HTML5-20261027T0608Z`) confirms bounded selectors, XML/XMLList literals, interpolation order, targeted creation, namespace/QName selection and content-preserving ambiguous-write refusal. Twenty-four complete structures match independent parsing. Corrected handler access establishes a narrow typed XML bridge on this snapshot; previous inconclusive evidence is unchanged. Pretty setters, direct methods and full E4X remain unverified. See [the independent record](VERIFICATION.md#independent-e4x-verification-of-5be13d9). The later 08f1d9c Graphics family has a separate independent record.
-
-Independent f4fcb71 acceptance (`XML-HTML5-20261027T0545Z`) confirms exact embedded XML bytes and bounded AS2/AS3 tree copy/mutation/serialization, visible catalog updates and Restart. Fifteen complete logical trees match an independent parser, including Unicode text and expanded namespaces. Failure-only AS2 parseXML and delegated XML.setChildren remain needs_review; an unqualified handler probe is inconclusive. See [the independent record](VERIFICATION.md#independent-xml-verification-of-f4fcb71). The later E4X source layer has a separate main-delivery record; it inherits no independent XML declaration pass.
-
-Independent 6396fd0 acceptance (`TYPED-COLLECTIONS-HTML5-20261027T0525Z`) confirms a class-specialized Vector/Dictionary inventory→scene→JSON workflow, real recycled-card identity/listeners, bounded fixed/bounds/type refusals, strong object/primitive key controls, AS2 plain-record enumeration and Restart. Weak GC, arbitrary mutation/order/reentry and native enumeration are not inferred. See [the independent record](VERIFICATION.md#independent-typed-collection-verification-of-6396fd0). The later f4fcb71 XML family has a separate independent record; it inherits no per-declaration evidence from typed collections.
-
-Independent 852c8b7 acceptance (`TRANSFORMS-HTML5-20261027T0502Z`) confirms bounded affine/skew and world-pose preservation, independent tint views, parent-alpha pixels/hits, copy ownership and Restart. Canonical AS2 ColorTransform.rgb remains missing: a reproduced silent custom-field write leaves tint unchanged while the adjacent `.color` control works (P1 TRANSFORM-AS2-RGB-001). Exact rendering/accessibility and native editing are not inferred. See [the independent record](VERIFICATION.md#independent-transform-verification-of-852c8b7). The later 6396fd0 typed collection family has a separate independent record.
-
-Independent 7ed1605 acceptance (`DATA-HTML5-20261027T0452Z`) confirms a resource-driven AS3 JSON/RegExp/String report, public getter serialization, adjacent safe diagnostics, AS2/AS3 numeric UTC dates across selected boundaries and Restart. Nine AS3 timestamps match a Python UTC oracle. Exact declarations remain partial; locale/DST/parsing, full PCRE and general JSON class/coercion semantics are not inferred. See [the independent record](VERIFICATION.md#independent-data-processing-verification-of-7ed1605). Transform/ColorTransform now has a separate [main-delivery record](VERIFICATION.md#runtime-transform-and-colortransform-batch); independent declaration acceptance remains separate.
-
-Independent d8f580a acceptance (`AUDIO-HTML5-20261027T0429Z`) confirms embedded AS3 and HTTP AS2 MP3 loading, native silent channel completion with different repeat counts, transform-copy/refusal behavior, Stop and active-playback Restart. Exact declarations remain partial; audible quality, WAV native decode, full mixer/timeline audio and pending-decode races are not inferred. See [the independent record](VERIFICATION.md#independent-audio-verification-of-d8f580a). Date/JSON/RegExp/String now has a separate [main-delivery record](VERIFICATION.md#date-regexp-and-json-data-processing-batch); independent declaration acceptance remains separate.
-
-Independent fba17ae acceptance (`TEXT-LAYOUT-HTML5-20261027T0409Z`) confirms dynamic AS2/AS3 fields, actual width-driven wrapping/alignment, independent current/default uniform formats, content-preserving mixed/range refusal and Restart. Exact members remain partial; rich text/input/IME/font embedding are unsupported and native editing remains unverified. See [the independent record](VERIFICATION.md#independent-text-layout-verification-of-fba17ae). The later d8f580a Sound family has a separate independent record.
-
-Independent `BITMAP-HTML5-20261027T0345Z` acceptance on `1bd0e3c` confirms bounded PNG/shared pixel edits, independent clone/copy/scroll, AS2 attachment, disposal and Restart. Only 24 positively observed declarations receive partial evidence; diagnostic-only AS3 BitmapData construction remains needs_review. JPEG, rasterization options and native image authoring are not inferred. See [the independent record](VERIFICATION.md#independent-bitmap-verification-of-1bd0e3c). The later fba17ae text family has a separate independent record.
-
-Independent c39a29e acceptance (`RESOURCES-HTML5-20261027T0323Z`) confirms preserved embedded resources, visible AS2/AS3 data loading, same-origin GET/POST and suppression of two held responses after close/Restart. Exact members remain partial. Cross-origin CORS, direct-file opening and native resource import/Undo are not inferred. See [the independent record](VERIFICATION.md#independent-resource-and-loading-verification-of-c39a29e). Bitmap was subsequently checked in the separate 1bd0e3c record.
-
-Independent 798e28b acceptance (`LINKED-INTERFACES-HTML5-20261027T0243Z`) confirms bounded linked MovieClip/valid AS2 attachMovie and AS3 interface/accessor workflows, real input and Restart. The deliberate missing-link AS2 probe reproduces the documented host-error catch boundary and stops its frame; this remains a partial-contract follow-up. Only 25 exact declarations receive this evidence. See [the independent record](VERIFICATION.md#independent-linked-movieclip-and-interface-verification-of-798e28b). Current resource/loader work inherits no pass.
-
-Independent 2b5deff verification accepts the bounded dynamic display/Graphics and ByteArray workflows, adjacent diagnostics and Restart. Exact members retain partial scope; linked timelines and external binary interoperability remain follow-up work. See [the separate record](VERIFICATION.md#independent-dynamic-display-and-binary-verification-of-2b5deff).
-
-Independent ed3c39b verification accepts the bounded geometry/timer workflow and pending-callback cleanup on publication Restart; other members keep their individual status. See [the separate verification](VERIFICATION.md#independent-geometrytimer-verification-of-ed3c39b).
-
-Independent a05a08d collections/plain-text acceptance is recorded separately in [VERIFICATION.md](VERIFICATION.md#independent-collectionstext-verification-of-a05a08d). Its Stage pointer failure belongs to that frozen build. Independent a3fedc3 verification now closes FAMILY-INPUT-001 for the observed mouse route and accepts bounded AS2 class/input behavior; see [the separate record](VERIFICATION.md#independent-as2input-verification-of-a3fedc3).
-
-Priority is based on the stated product goal, with explicit evidence required for completion.
-
-Current execution policy (user update, 27 October): breadth first, useful partial support across whole subsystems. Work and test in coherent batches, not one method at a time. P0 labels below identify risks, not a mandate to finish every edge case before the next subsystem. Prefer one representative integration/browser acceptance and a shared regression pass per delivery; defer non-blocking cases explicitly.
-
-## Shared pointer correction delivered; aggregate observer follow-up open
-
-On frozen `01f1381`, `FAMILY-INPUT-001` drops trusted mouse `click` events with `isPrimary=false` before EventDispatcher delivery. Reproduced in the original linked-class and Stage examples; Enter, keyboard and authored Click remain positive controls. The shared route is now corrected, and actual coordinate clicks/Restart passed in the original AS3 class and Stage examples alongside the AS2 input batch. Other engine results are not inferred. FAMILY-HARNESS-001 still records one unlocated aggregate MutationObserver exception; continue family implementation while its source is investigated. See [VERIFICATION.md](VERIFICATION.md#independent-family-verification-of-01f1381).
-
-## Delivered family batch; native acceptance pending
-
-- Project program: source files, AS3 packages/imports/classes, reusable fields/methods, document and symbol linkage, Sources editing, save/reopen and clipboard preservation.
-- MovieClip / DisplayObject: timeline controls, bounds/dimensions, coordinate conversion, child traversal, identity, callbacks and class construction.
-- Stage / EventDispatcher: stage geometry and input, listener management, propagation, event objects, keyboard/pointer/resize delivery.
-- Integration: one shared regression run and a combined ordinary export/WASM scenario passed. The aggregate in-app browser batch loaded all eight exports; representative class, geometry, input and restart interactions passed. A shared Restart/static-state defect was fixed and rechecked in the existing scenario. Native Sources editing and detached Actions feedback remain pending; further edge cases do not hold up the next family.
-
-Array/String constructors, mutation, searches, Flash sorting and data-processing callbacks now share a bounded profile across handlers and project classes. Plain authored TextField mutation/color/line queries and Canvas measurements are also implemented; the combined data-to-text example passed browser observation and Restart. Reused scenarios keep verification cost controlled. AS2 project classes and legacy Key/Mouse/Stage input now pass the combined host scenario and representative browser interactions. Point/Rectangle/Matrix and Timer/TimerEvent/getTimer now pass one combined exported workflow and Restart. The dynamic Sprite/Shape/empty MovieClip graph, solid Graphics and bounded ByteArray now pass the combined exported workflow. Explicit linked MovieClips/AS2 attachMovie and project AS3 accessors/interfaces now have shared compiler/core/export scenarios; representative browser interactions/Restart passed and native observations remain pending in VERIFICATION.md. Follow-up batches cover richer TextField/fonts and bitmap/resource documents, media, authoring operations and responsive DOM components; runtime identity remains independent of parentage. Catalogue entries only change status when their bounded behavior exists; a family module alone does not mark all of its declarations implemented.
-
-## Portable resources delivered; next text and visual families
-
-Portable project resources, AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars now share one binary-to-text workflow, including actual HTTP POST, cancellation, errors and Restart. Resource storage, export packaging and clipboard preservation are implemented; browser/native observations are separately recorded. The integrated bitmap family builds on this storage and the shared scene graph: PNG/JPEG placement, shared BitmapData pixel edits, independent clones/copies/scrolling and AS2 attachBitmap. Its own evidence is recorded separately; broader Loader formats/security/timing, bitmap fills, filters and draw/encode remain follow-ups; PNG/JPEG loading now has a separate bounded record. Dynamic TextField/TextFormat and authored TextBox now provide explicit layout boxes, shared Rust wrapping/alignment, uniform format and independent defaults, with their own verification record. Rich character runs, HTML/input/IME, auto-size/scrolling, fuller text metrics and font embedding remain explicit follow-ups.
-
-## Audio family and next media work
-
-Complete-file AS3 Sound/SoundChannel/SoundTransform and AS2 Sound now share resource/HTTP loading, browser decoding, gesture-enabled playback, stop/repeats, volume/pan and completion callbacks. Timeline (frame) sounds now play with Flash sync in HTML5 and editor playback (decision 0037). Streaming, linkage, precise historical mixing, custom envelopes, decoded waveforms, re-synchronising streams after dropped frames and video timeline synchronization remain open. Keep their verification grouped by workflow and separate from this first playback profile.
-
-## Data-processing family
-
-Date in both dialects and AS3 JSON/RegExp with String matching now support the integrated resource-to-report workflow, cross-handler value identity, readable class getter serialization and Restart. Shared regression and one combined browser workflow passed. Regex literals, broader PCRE parity, historical Date parsing/DST/locale behavior and remaining native JSON encodings stay explicit follow-ups. Keep validation in existing family/compiler scenarios.
-
-## Runtime display transforms delivered
-
-The delivered partial family adds exact 2D matrix and RGBA color transforms to stable runtime objects, including linked instances and separately tinted views of shared BitmapData. Coordinate conversion, paint alpha, hit regions and accessibility share the runtime graph; one combined export/WASM/browser Cycle/Restart workflow passed. Native script execution, authoring skew controls and 3D remain separate work. Keep one combined skew/color/lifecycle workflow and extend existing cases rather than creating per-method suites; see [the decision](decisions/0018-runtime-display-transforms.md).
-
-## Typed containers and enumeration
-
-Vector, Dictionary, original-key indexed operations and for-in/for-each now form one bounded language family. The typed-collections workflow brings dense model storage, display-object identity keys and a JSON report together while reusing linked cards. Delivery verification is recorded separately in VERIFICATION.md. XML/XMLList, E4X literals/name resolution, native display enumeration and complete historical mutation/coercion behavior remain separate follow-ups. See [the decision](decisions/0019-typed-collections-and-enumeration.md).
-
-## Runtime gradient Graphics batch
-
-The existing dynamic-display workflow now covers linear/radial gradient fills and strokes, cubic paths, rounded rectangles, Vector drawPath and independent Graphics.copyFrom state. Its shared delivery and browser acceptance passed. Rust retains the drawing intent; Canvas paints it and picks the same shared curves. The first profile uses pad/rgb and explicit limits. Native gradient/mask/filter authoring, bitmap fills, repeat/reflect and linearRGB remain follow-ups; runtime clipping and filter profiles have separate records. Keep one combined ordinary export and browser workflow rather than per-method acceptance. See [the decision](decisions/0022-runtime-gradient-graphics.md).
-
-## Runtime masks and scroll rectangles
-
-The delivered batch combines live vector mask sources, transparent filled geometry, compound unions, nested target clipping and copied integral scroll rectangles. One linked-scene/AS2 workflow and the single shared regression pass succeeded; actual browser clicks, scroll phases, removal/restoration and Restart passed. Native mask authoring, animated authored mask sources, bitmap/text/alpha masks, fractional/deferred scroll behavior and complete frame-reconciliation conformance remain follow-ups. The unmasked legacy strip overlaps part of its adjacent explanatory label in phase two; this example-layout issue does not block the family. See [the decision](decisions/0023-runtime-masks-and-scroll-rectangles.md).
-
-## P0 — HTML5 correctness
-
-- Known built-in properties must implement their contract or diagnose unsupported behavior: visibility must agree across pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments must not become silent custom fields. Preserve genuine user fields and callbacks.
-- Preserve XFL Include Hidden Layers policy for root/nested timelines and distinguish placement lifetime from XML slot order. Check reordering, replacement, blank gaps, load events, clocks and overrides; reject ambiguous transfers.
-- Separate AS2/AS3 value profiles: parseInt radix behavior, Number.toFixed limits, typed slot writes/defaults through every access path, rotation normalization and public void return values.
-- For each feature batch, retain representative source projects, ordinary HTML5 publish and aggregate browser results with build/runtime hashes. Mark documented expectations separately from original Flash measurements; record tested browser engines explicitly. Do not repeat a separate full acceptance cycle for every method.
-
-Delivered bounded portions, with actual Chrome/in-app browser checks in VERIFICATION.md:
-
-- [x] Boolean MovieClip visibility, inherited hiding, hidden clocks/Load, semantic target removal/restoration and fresh subtree state on same-path symbol replacement.
-- [x] Explicit XFL hidden-layer publish policy, fresh IDs after blank gaps and diagnostic rejection of ambiguous adjacent continuity. Unsupported excluded-layer scripts/labels/duration are refused, not discarded.
-- [x] Separate documented AS2/AS3 parseInt profiles and AS3 primitive toFixed precision 0–20/range behavior. Full primitive conversion and historical formatting are still open.
-
-Still open: broader owner-aware unsupported API diagnostics (including TextField mutation and callbacks outside the supported subset), typed handler slots/defaults across aliases, complete visibility conversion, construction/lifecycle conformance and rotated dimension setters. The delivered family includes linked AS3 typed fields, rotation normalization, public void timeline results and unrotated dimension setters; these are bounded partial support.
-
-## Completed foundation
-
-- [x] Complete recorded desktop and browser smoke checks; fix discovered defects.
-- [x] Publish the tested initial source tree to the authorized public GitHub repository.
-- [x] Inspect the user's local legacy corpus and record aggregate format/compatibility results.
-
-## P1 — essential authoring quality
-
-- [x] D-003–D-007 implementation: bounded tween arrows, original vector icons, Light/Dark palette, visibility/F9/reset, native Tools/Timeline/Actions windows, synchronized timeline rows and compact-panel scrolling. Automated layout/state/input tests pass; native acceptance is recorded separately in VERIFICATION.md.
-- Drag-to-dock/tab/split layouts, named workspace presets and broader VoiceOver/IME/multi-monitor acceptance.
-- After HTML5 P0: contextual Document/Tool/Shape/Instance/Frame/Tween Properties, frame-state distinctions beyond color, restored breadcrumb context, library type/preview and explicit pivots. These are workflow refinements from the classic Flash reference review, not claimed completed features.
-- D-008: display Check Script success/error directly inside docked and detached Actions, with source position and accessible text; clear stale results on target/source changes. Independent native QA reproduced missing feedback in detached AS3 frame editing; verify both themes and frame/object targets after fixing.
-
-- [x] Cross-layer multi-selection, Shift/marquee/Select All, whole-selection duplicate/delete and V/Q object editing, with automated native-input regression coverage. Live native visual checks of this increment remain pending.
-- Custom registration points/pivots, skew, nonuniform multi-object transforms and groups.
-- [x] Object Copy/Cut/Paste and Paste in Place across frames/documents, including shared symbol closure, instance identity, scripts, text-focus routing and one-step Undo. Core/egui tests and observed macOS copy/cut/paste, cross-document transfer, text focus, save/reopen and Test Movie checks pass.
-- [x] Preserve paste shortcut modifiers at key press in a pinned egui-winit adapter, with release-order, repeated-batch and text-recipient regressions. Physical macOS keyboard/menu delivery was observed after unlocking; an initial foreign-content event could not be reproduced after fresh copies.
-- [x] Timeline clipboard for selected frame ranges, drag/copy/reverse of frame spans, keyframe movement and layer folders/reordering. Creating destination layers on paste remains open.
-- Edit multiple frames beyond moving: selecting objects that exist only on other keyframes, scale/rotate across frames.
-- [x] Bezier paths, pen/pencil, direct point editing, compound fills and HTML5 geometry.
-- Brush/pressure, spline fitting, point insertion/deletion, tangent constraints, shape splitting/merging, gradient authoring, object/pixel snapping and shape hints.
-- [x] Tessellate native rectangle/ellipse fills and strokes before applying their full affine transforms, matching the Canvas geometry convention. Tests cover scaled, reflected and nested transforms; live native visual comparison remains pending.
-- Autosave/recovery, file-change detection, unsaved project protection and multiple documents.
-- [x] Display and edit custom easing curves visually, including overshoot (Ease panel).
-- Bounce/Elastic presets and property-level motion curves; curved motion paths; Orient to path for motion tweens.
-- Timeline virtualization and resource-aware undo for large documents.
-- System fonts: weight/style/variable axes, shaping/fallback and refresh after font activation.
-- Font embedding/subsetting and outline export with explicit font policies.
-
-## P1 — universal HTML5 and scripting
-
-- DOM layer with semantic text, inputs, keyboard focus and responsive layout.
-- [x] D-001 HTML5 criteria: authored Button/Image metadata, independent semantic targets, Tab focus and Enter/Space activation exactly once, verified in Chrome and independently in the in-app browser. Live native-panel authoring and VoiceOver remain pending; this does not close general web accessibility.
-- [x] D-002 preview criteria: Fit/100%/zoom/pan at 390×844, authored geometry preserved and playback controls reachable; verified with the keyboard example. Touch-device and Safari checks remain pending.
-- JS/TS module imports, type checking, code completion, diagnostics navigation and debugger.
-- Full AS2/AS3 parser/type/coercion conformance, classes/prototypes, E4X/namespaces and API mappings.
-- [x] Function declarations/expressions, lexical locals, recursion and closures in the documented ActionScript subset; executable coercion/evaluation-order regressions.
-- [x] Structured switch/do control flow, AS3 labels, explicit throws, selected typed catches and finally in the documented subset, with safe HTML5 failure reporting and a compiler/host/WASM recovery example. Full language/error conformance and AS2 ambiguous catch-scope forms remain pending.
-- Sound/video/image import; synchronization, browser input and lifecycle.
-- Runtime event conformance for nested clips, construction, re-entry, bubbling, scope and removed objects.
-
-## P1 — legacy
-
-- [x] Licensed public FLA corpus with pinned hashes/provenance, specific refusal expectations, exact original XFL/FLA imports and real-WASM example checks.
-
-- [x] One real, unchanged CS6 FLA imports and publishes with the original 17-line trace, stable stopped root and repeatable Restart in actual HTML5; bounded convex solid geometry, AS2 callback/label support and strict XML guards have regressions.
-- Extend XFL geometry, library assets, masks, tweens, color transforms and text formatting with fixtures.
-- [x] Binary FLA CFB validation, stream inventory, save-target detection and bounded MFC structure inspection against the private corpus.
-- [x] Preserve bounded binary shape/style/edge records with exact source bytes and aggregate-only inspection; verify the private corpus without publishing artwork.
-- [x] Preserve bounded Contents prefixes, scene/library/media descriptors, MFC identities and raw settings; resolve all 289 descriptors in the 19 accepted local containers while retaining unread suffix bytes.
-- [x] Preserve typed timeline identity/ownership/partial fields and shape associations from one container snapshot; read the supported Flash 3 Contents suffix to exact EOF. Synthetic fixtures and aggregate corpus verification establish the documented reader boundary.
-- [x] Pure, bounded Flash 3 solid contour adapter with original fixtures, exact endpoint assembly, affine path coordinates and explicit topology/paint diagnostics. This does not enable binary document import.
-- [x] Binary FLA document conversion for Flash 3–CS4 save targets with reported approximations, including scenes, motion guides, shape tweens and translated Actions-panel commands (decision 0036; 101 of 106 local documents import).
-- Remaining binary FLA work: map approximated filters, blend modes, bitmap fills, rich/dynamic text, frame sounds and media items, motion-tween XML and per-property easing; investigate the five local documents that still refuse. Lossless FLA round-trip also requires retained document provenance and metadata.
-- Evaluate Ruffle as optional SWF playback/compatibility module. Keep new HTML5 publication independent of mandatory SWF.
-- Reproducible private-corpus tests: per-file diagnostics, rendered frames, input scenarios, comparison provenance.
-
-## P2 — product finish
-
-- Native macOS menus/document integration, shortcuts, accessibility tree, IME, trackpad conventions.
-- Localization, advanced workspace layouts, performance profiling and extension API.
-- Signed/notarized releases, Intel build verification, browser support matrix and updater policy.
-
-## XML data family
-
-Shared bounded parsing, AS2 XML/XMLNode DOM and AS3 XML/XMLList traversal/mutation/serialization are one delivery. Reuse existing loader transport and one combined catalog workflow. Follow-ups include E4X literals/interpolation, attribute/descendant/filter/namespace syntax, QName/Namespace mutation, implicit list targets, XML equality/addition and complete historical parser/coercion behavior. See [the decision](decisions/0020-xml-tree-and-language-facades.md).
-
-## E4X source editing
-
-Target-bearing lists, qualified/attribute/descendant selectors and bounded XML/XMLList literals now extend the XML data family. The existing catalog remains the combined acceptance workflow. Follow-ups: filters, scoped default namespace, dynamic element/attribute names, namespace interpolation, complete XML/Namespace/QName equality and XML addition, wildcard/ambiguous target creation, class namespace declarations and exact historical mutation/coercion behavior. See [the decision](decisions/0021-e4x-references-and-literals.md).
-
-## Runtime image loader family
-
-The delivered batch connects resource and HTTP image loading to the display graph through AS3 Loader/LoaderInfo and AS2 MovieClipLoader. Actual-WASM resource/bytes/HTTP lifecycle and the in-app-browser gallery swap/unload/restore/input/Restart workflow passed. Keep verification in one gallery workflow, including retained content, legacy replacement, cancellation and Restart. SWF/GIF, application/security domains, native subclasses, general legacy target paths/levels and full garbage collection remain follow-ups. See [the decision](decisions/0024-runtime-image-loading.md).
-
-## SharedObject and AMF family
-
-The delivered batch connects local AS3/AS2 saved state, AMF0/AMF3 object graphs and ByteArray record cursors. The actual-WASM combined workflow and real browser Save/reload/Restart/clear/reload flow passed. Keep Save/reopen/Restart/clear and one storage-refusal path in a single workflow. Typed aliases, externalizable/XML/Vector/Dictionary values, .sol files, remote synchronization and cross-tab notifications remain follow-ups. See [ADR 0025](decisions/0025-shared-objects-and-amf.md).
-
-## Scripted forms and shared error boundaries
-
-The input family connects Rust text/selection to native browser fields, Stage focus, AS3 TextEvent/FocusEvent and AS2 Selection/callbacks. The combined text-form delivery has its own evidence. Follow-ups: mixed runs/HTML, native input authoring, embedded fonts, full IME/locale/grapheme behavior, initial keyboard traversal and foreground Canvas occlusion of active DOM editing. General AS2 string target resolution remains pending. AMF-TYPED-CATCH-001 has a targeted native-error boundary correction in this delivery; the historical independent failure remains recorded, with new recovery proof separately identified.
-
-## Runtime display-filter follow-ups
-
-Blur, Glow, DropShadow and ColorMatrix now share copied state, bounded Rust pixel kernels and nested whole-subtree rendering. Follow-ups: native authoring controls, remaining filter families and BitmapData.applyFilter, high-density raster quality, filtered DOM text-input composition, full cacheAsBitmap/bounds/coercion semantics and original-player differential. The filter gallery has separate evidence; prior gradients/clipping/bitmap checks do not certify new effects.
-
-## Source function family
-
-A combined function/command workflow covers optional/rest AS3 source parameters, supplied arguments, indirect calls and shared constructor/interface checks, with AS2 argument/receiver behavior kept separate. Complete AVM global-scope lookup, prototype/reflection, arguments.caller, runtime-built Function code and generalized compile-time defaults remain follow-ups. One shared regression and one representative publication are the delivery boundary; individual methods do not each get a browser cycle. See ADR 0028 and the source-function verification record.
-
-## BitmapData image pipeline
-
-Bulk pixels, color transforms, shared filter kernels, current subtree capture and PNG-to-Loader form one integrated family. Remaining work includes drawWithQuality/non-normal blends, external mask dependencies, alpha-mask copies, other encoders and native authoring. Keep arithmetic, controlled Canvas adapter and real browser evidence distinct; use the existing grouped tests and one pipeline example.
-
-## Source class and package follow-ups
-
-The coordinated source package adds lexical AS3 access, final/dynamic classes, package collaboration and wildcard imports, with separate AS2 private rules. Native overrides, user namespaces, generalized compile-time typing, VM reflection/prototype parity and full initialization-order conformance remain open. Keep acceptance grouped around the component workflow and its public serialization; do not multiply per-modifier browser cycles.
-
-## Video playback follow-ups
-
-The file-video family adds local connections/streams, AS3-created and AS2-authored views, embedded/native HTTP media transport, playback controls and shared display ownership. Native placeholder insertion is compile/model checked; live native UI, timeline synchronization, codec/seek/error fidelity, RTMP/camera/publishing and richer media authoring remain open. Group further acceptance by complete media workflows.
-
-
-## Pointer and drag follow-ups
-
-The coordinated input family adds shared flags/hitArea state, transformed drag controls, geometry queries and legacy release callbacks. Remaining work includes full legacy enabled/trackAsMenu behavior, transparent-fill/glyph/filter hit fidelity, reparenting during drag, multi-touch/3D and cross-engine/original-player comparison. Keep follow-up verification grouped by usable components rather than one method per browser cycle.
+# Known issues and open follow-ups
+
+This page lists concrete defects and the follow-ups that each delivered family left open. It does not repeat other
+records:
+
+- Planned and partial **product functions**: the progress registry ([summary](progress/DETAILS.md),
+  `docs/progress/product.json`).
+- **ActionScript** declaration status and per-declaration gaps: the [ActionScript audit](progress/ACTIONSCRIPT.md).
+- **Defects found during verification** and their status: [VERIFICATION.md › Open findings](VERIFICATION.md#open-findings-and-scoped-fixes).
+- Future direction: [ROADMAP.md](ROADMAP.md). Legacy FLA approximations: [IMPORTS.md](IMPORTS.md).
+
+## Standing HTML5 correctness requirements
+
+- Known built-in properties implement their contract or diagnose unsupported behaviour. Visibility agrees across
+  pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments never become silent
+  custom fields.
+- XFL Include Hidden Layers policy is preserved for root and nested timelines; placement lifetime stays distinct from
+  XML slot order; ambiguous transfers are rejected.
+- AS2 and AS3 keep separate value profiles (parseInt radix, Number.toFixed limits, typed slot writes and defaults,
+  rotation normalization, public void results).
+- Each feature batch keeps a representative source project, an ordinary HTML5 publish and an aggregate browser
+  result; documented expectations stay separate from original Flash measurements, and tested browser engines are named.
+
+Still open: broader owner-aware unsupported-API diagnostics (TextField mutation and callbacks outside the supported
+subset), typed handler slots and defaults across aliases, complete visibility conversion, construction and lifecycle
+conformance, rotated dimension setters.
+
+## Runtime family follow-ups
+
+Recorded when each family was delivered (October 2026). Later ActionScript conformance work may have closed some of
+them; check the ActionScript audit before starting one.
+
+- **Text and fonts:** rich character runs, HTML text, input/IME, auto-size and scrolling, fuller metrics, embedded
+  fonts; mixed runs in input forms, full IME/locale/grapheme behaviour, initial keyboard traversal, Canvas occlusion of
+  active DOM editing; general AS2 string target resolution.
+- **Bitmaps and loading:** broader Loader formats, security and timing; SWF/GIF loading, application/security domains,
+  native subclasses, legacy target paths/levels, full garbage collection; `drawWithQuality` and non-normal blends,
+  external mask dependencies, other encoders.
+- **Graphics, masks and filters:** bitmap fills, repeat/reflect spreads, linearRGB; animated authored mask sources,
+  bitmap/text/alpha masks, fractional or deferred scroll rectangles; remaining filter families, high-density raster
+  quality, filtered DOM text input, full cacheAsBitmap and bounds semantics, original-player differential. The masks
+  example overlaps an explanatory label in phase two.
+- **Audio and video:** streaming, linkage, historical mixing, re-synchronising streams after dropped frames; video
+  timeline synchronization, codec/seek/error fidelity, RTMP/camera/publishing, richer media authoring.
+- **Data and XML:** regex literals, broader PCRE parity, historical Date parsing/DST/locale, remaining native JSON
+  encodings; E4X filters, scoped default namespace, dynamic names, namespace interpolation, XML/Namespace/QName
+  equality and addition, wildcard target creation, class namespace declarations.
+- **Storage:** typed AMF aliases, externalizable/XML/Vector/Dictionary values, `.sol` files, remote synchronization,
+  cross-tab notifications.
+- **Language:** complete AVM global-scope lookup, prototype and reflection parity, `arguments.caller`, runtime-built
+  Function code, generalized compile-time defaults and typing, native overrides, user namespaces, full
+  initialization-order conformance; native display enumeration and historical mutation/coercion behaviour.
+- **Pointer and drag:** full legacy enabled/trackAsMenu behaviour, transparent-fill/glyph/filter hit fidelity,
+  reparenting during drag, multi-touch/3D, cross-engine and original-player comparison.
+
+## Native and platform acceptance still pending
+
+- Live native Sources editing and detached Actions feedback (`D-008`), VoiceOver, IME, multi-monitor.
+- Touch devices and Safari for the HTML5 preview; audible output and balance for audio families.
+
+## Legacy import
+
+- The five local binary FLA documents that still refuse; per-file private-corpus tests with rendered frames and input
+  scenarios; lossless FLA round-trip.
+- Evaluate Ruffle as an optional SWF playback module; HTML5 publication stays independent of SWF.

@@ -75,8 +75,9 @@ task cards: [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | 26 | E-27 Deco / Spray, E-28 IK | TO-03…05 / W3.9 | M / XL |
 | 27 | E-29 9-slice, sharing, accessibility extras, bitmap fill, components | DL-15, DL-17, CO-02, PR-06 / W3.10 | M each |
 
-Status: done — E-03, E-04, E-11, E-16 (except Test scene), E-18 (except custom envelopes, Sound properties and decoded
-waveforms); partial — E-01, E-02, E-05, E-10, E-20; the rest is open.
+Status: done — E-02 (except multi-anchor custom curves), E-03 (except shape hints), E-04, E-11, E-16, E-18 (except
+decoded waveform peaks); partial — E-01, E-05, E-10, E-20. Other blocks may have landed since this plan was written:
+the [progress registry](progress/DETAILS.md) is authoritative for what works, and wiring plan §7.4 for the timeline.
 
 No engine block (editor only): rulers, grid, cursors, toasts, Info, Project panel, Output levels, colour-effect UI,
 comments/folding, Find & replace, Movie Explorer, edit multiple frames, preview thumbnails (see wiring Phase 0).
@@ -105,7 +106,7 @@ Rust-WASM) · **Script API** (AS2/AS3/JS) · **Editor** (existing UI element it 
 
 ### E-02 · Easing: overshoot, Flash presets, per-property curves
 
-**Status: partial.** Overshooting `CubicBezier` curves (Back) and `Flash { acceleration }` are authorable in the Ease panel and Properties; evaluation still bisects Bézier x. Open: Bounce/Elastic presets, per-property curves (`Keyframe.property_eases`, wiring plan §7.4 rows 1–2), multi-anchor custom curves.
+**Status: done** except multi-anchor custom curves. Overshooting `CubicBezier` curves (Back), `Flash { acceleration }`, format-7 `Easing::{Bounce, Elastic}` and per-property `Keyframe.property_eases` are authorable in the Ease panel, Motion editor and Properties (wiring plan §7.4 rows 1–2); evaluation still bisects Bézier x.
 
 - Model: `Easing` already has `CubicBezier { x1, y1, x2, y2 }` (validation: x ∈ [0,1], |y| ≤ 100) and
   `Flash { acceleration }`. Add `Easing::Preset { family: EaseFamily, mode: EaseMode, params: [f64; 2] }` (NEW) for
@@ -176,7 +177,7 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-05 · Snapping (grid, guides, objects, pixels)
 
-**Status: partial.** Grid and guide snapping with the snap ring work (`neoflash-editor/src/snapping.rs`, [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md)). Open: object and pixel snapping, View ▸ Snapping (R-003), ⌘-suspend.
+**Status: partial.** Grid and guide snapping with the snap ring work (`neoflash-editor/src/snapping.rs`, [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md)). Object and pixel snapping, the Tools `Snap to objects` toggle and ⌘-suspend also work. Open: View ▸ Snapping (R-003).
 
 - Model: none (settings in view prefs; snapping tolerance in Preferences ▸ Drawing).
 - Engine helper (optional, `neoflash-core::geometry`): `snap_candidates(&AuthoredScene, exclude: &[Id]) ->
@@ -256,7 +257,7 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-10 · Motion tweens (property tracks)
 
-**Status: partial, with a simpler model than proposed below.** There is no `MotionTween` struct: the span start key has `tween_kind = Motion`, and ◆ property keyframes are ordinary `Keyframe`s with `keyed_properties: Some(vec![TweenProperty…])` (X, Y, ScaleX, ScaleY, Rotation, Skew, Alpha, Color). `evaluate.rs::sample_motion` interpolates each property through the keys that key it, with the span ease remapping time; `Editor::commit_history` records changed properties as keys. Rotation turns are the difference between the start rotation and the last Rotation key; the path box is the bounds of the X/Y keys; `Keyframe.orient_to_path` is stored on the start key. Open: per-property eases, motion path curves (`Keyframe.motion_path`), Orient to path evaluation for motion tweens, Sync graphic symbols, Snap, moving keys in time, XFL motion-tween import (§7.4).
+**Status: partial, with a simpler model than proposed below.** There is no `MotionTween` struct: the span start key has `tween_kind = Motion`, and ◆ property keyframes are ordinary `Keyframe`s with `keyed_properties: Some(vec![TweenProperty…])` (X, Y, ScaleX, ScaleY, Rotation, Skew, Alpha, Color). `evaluate.rs::sample_motion` interpolates each property through the keys that key it, with the span ease remapping time; `Editor::commit_history` records changed properties as keys. Rotation turns are the difference between the start rotation and the last Rotation key; the path box is the bounds of the X/Y keys; `Keyframe.orient_to_path` is stored on the start key. Per-property eases, Orient to path for motion tweens, Sync graphic symbols, Snap to motion guide and moving keys in time are done (§7.4 rows 2–4, 7). Open: motion path curves (`Keyframe.motion_path`, §7.4 row 9).
 
 - Model: on a motion-tween span keyframe: `MotionTween { target: Id (element id), duration: u32, tracks:
   Vec<PropertyTrack { property: MotionProperty, keys: Vec<TrackKey { frame: u32, value: f64, ease:
@@ -349,7 +350,7 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-16 · Scenes
 
-**Status: done** except Control ▸ Test scene and the breadcrumb ▾ (ST-08). `Project.scenes: Vec<Id>` (scene MovieClip symbols; `scenes[0] == root`). Scenes are flattened only at the export / `WebPlayer::new` boundary (`scenes.rs::flatten_scenes_with_ranges`); `Player::set_scenes` keeps the ranges for `currentScene`, `scenes`, scene-aware `gotoAndPlay`/`gotoAndStop` (`resolve_goto`) and `nextScene`/`prevScene` (`scene_step`). The editor edits each scene symbol; Scene select, Insert ▸ Scene, the Scene panel and Play all scenes are in `timeline_commands.rs` and `panels/scene.rs`.
+**Status: done**, including Control ▸ Test scene and the breadcrumb ▾ (§7.4 rows 16–17). `Project.scenes: Vec<Id>` (scene MovieClip symbols; `scenes[0] == root`). Scenes are flattened only at the export / `WebPlayer::new` boundary (`scenes.rs::flatten_scenes_with_ranges`); `Player::set_scenes` keeps the ranges for `currentScene`, `scenes`, scene-aware `gotoAndPlay`/`gotoAndStop` (`resolve_goto`) and `nextScene`/`prevScene` (`scene_step`). The editor edits each scene symbol; Scene select, Insert ▸ Scene, the Scene panel and Play all scenes are in `timeline_commands.rs` and `panels/scene.rs`.
 
 - Model: `Project.scenes: Vec<Scene { id, name, timeline_symbol: Id }>`; migration: absent → one scene from
   `Project.root` (no file change until a second scene is added; then format bump). Scene timelines are MovieClip-like
@@ -384,7 +385,7 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-18 · Timeline sound
 
-**Status: done** except custom envelopes (DL-09), Sound properties (DL-08), decoded waveform peaks and legacy FLA frame sounds — see [decision 0037](decisions/0037-timeline-sound.md). `Keyframe.sound: Option<FrameSound { resource, sync, loops, loop_forever, effect }>` (no envelope field yet); `timeline_sound.rs` `SoundCommand`s drained from `Player`; `web/audio.js` schedules them; the editor previews them with rodio 0.21 + Symphonia (MP3/WAV; MPL-2.0 decoder crates, editor only, never in HTML5 exports). Streams are not re-synchronised when a host drops frames; scrubbing is silent.
+**Status: done** except decoded waveform peaks (§7.4 row 13); custom envelopes, Sound properties and legacy FLA frame sounds landed (§7.4 rows 11, 12, 14) — see [decision 0037](decisions/0037-timeline-sound.md). `Keyframe.sound: Option<FrameSound { resource, sync, loops, loop_forever, effect, envelope }>`; `timeline_sound.rs` `SoundCommand`s drained from `Player`; `web/audio.js` schedules them; the editor previews them with rodio 0.21 + Symphonia (MP3/WAV; MPL-2.0 decoder crates, editor only, never in HTML5 exports). Streams are not re-synchronised when a host drops frames; scrubbing is silent.
 
 - Model: `Keyframe.sound: Option<FrameSound { resource_id: Id, sync: Event|Start|Stop|Stream, effect: SoundEffect,
   envelope: Vec<EnvelopePoint { position_ms, left, right }>, loops: LoopSpec { Repeat(u32) | Loop } }>`; layer
