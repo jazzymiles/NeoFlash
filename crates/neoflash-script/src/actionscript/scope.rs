@@ -87,7 +87,7 @@ impl<'a> Analysis<'a> {
     }
     fn collect_catch_names(&mut self, body: &[Stmt]) {
         for stmt in body {
-            if let Stmt::Try(_, catches, _) = stmt {
+            if let Stmt::Try(_, catches, _) = stmt.unlocated() {
                 for catch in catches {
                     self.as2_catch_names
                         .insert(self.fold(&catch.name), catch.offset);
@@ -96,7 +96,7 @@ impl<'a> Analysis<'a> {
             for child in statements(stmt) {
                 self.collect_catch_names(std::slice::from_ref(child));
             }
-            if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt {
+            if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt.unlocated() {
                 self.collect_catch_names(&f.body);
             }
             for expr in expressions(stmt) {
@@ -154,7 +154,7 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn declarations(&mut self, scope: usize, stmt: &Stmt, direct: bool) -> Result<(), Diagnostic> {
-        match stmt {
+        match stmt.unlocated() {
             Stmt::Var(vars) => {
                 for (name, ty, _) in vars {
                     self.bind(scope, name, ty.clone(), BindingKind::Variable)?;
@@ -177,11 +177,11 @@ impl<'a> Analysis<'a> {
                 }
             }
             Stmt::If(_, _, _) => {
-                let mut cur = Some(stmt);
+                let mut cur = Some(stmt.unlocated());
                 while let Some(node) = cur {
-                    if let Stmt::If(_, yes, no) = node {
+                    if let Stmt::If(_, yes, no) = node.unlocated() {
                         self.declarations(scope, yes, false)?;
-                        cur = no.as_deref();
+                        cur = no.as_deref().map(Stmt::unlocated);
                     } else {
                         self.declarations(scope, node, false)?;
                         break;
@@ -338,7 +338,7 @@ impl<'a> Analysis<'a> {
         }
     }
     fn definitions(&mut self, scope: usize, stmt: &Stmt) {
-        if let Stmt::Try(body, catches, finally) = stmt {
+        if let Stmt::Try(body, catches, finally) = stmt.unlocated() {
             for child in body.iter().chain(finally.iter().flatten()) {
                 self.definitions(scope, child);
             }
@@ -372,7 +372,7 @@ impl<'a> Analysis<'a> {
             }
             return;
         }
-        if let Stmt::Var(vars) = stmt {
+        if let Stmt::Var(vars) = stmt.unlocated() {
             for (name, _, value) in vars {
                 if let Some(value) = value {
                     self.define(scope, &Expr::Name(name.clone()), value);
@@ -752,15 +752,15 @@ impl<'a> Analysis<'a> {
         Ok(())
     }
     fn statement(&mut self, scope: usize, stmt: &Stmt) -> Result<(), Diagnostic> {
-        if let Stmt::With(target, body, _) = stmt {
+        if let Stmt::With(target, body, _) = stmt.unlocated() {
             self.expression(scope, target)?;
             self.with_depth += 1;
             let res = self.statement(scope, body);
             self.with_depth -= 1;
             return res;
         }
-        if let Stmt::ForIn(binding, _, _, _) = stmt
-            && let Stmt::Expr(target) = binding.as_ref()
+        if let Stmt::ForIn(binding, _, _, _) = stmt.unlocated()
+            && let Stmt::Expr(target) = binding.unlocated()
         {
             self.expression(
                 scope,
@@ -771,7 +771,7 @@ impl<'a> Analysis<'a> {
                 ),
             )?;
         }
-        if let Stmt::Try(body, catches, finally) = stmt {
+        if let Stmt::Try(body, catches, finally) = stmt.unlocated() {
             for stmt in body {
                 self.statement(scope, stmt)?;
             }
@@ -792,16 +792,16 @@ impl<'a> Analysis<'a> {
             }
             return Ok(());
         }
-        if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt {
+        if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt.unlocated() {
             return self.function(scope, f);
         }
-        if let Stmt::If(_, _, _) = stmt {
-            let mut cur = Some(stmt);
+        if let Stmt::If(_, _, _) = stmt.unlocated() {
+            let mut cur = Some(stmt.unlocated());
             while let Some(node) = cur {
-                if let Stmt::If(cond, yes, no) = node {
+                if let Stmt::If(cond, yes, no) = node.unlocated() {
                     self.expression(scope, cond)?;
                     self.statement(scope, yes)?;
-                    cur = no.as_deref();
+                    cur = no.as_deref().map(Stmt::unlocated);
                 } else {
                     self.statement(scope, node)?;
                     break;
@@ -809,7 +809,7 @@ impl<'a> Analysis<'a> {
             }
             return Ok(());
         }
-        if let Stmt::Return(value, offset) = stmt {
+        if let Stmt::Return(value, offset) = stmt.unlocated() {
             let ty = self.scopes[&scope].returns.as_deref();
             if value.is_some() && matches!(ty, Some("void" | "Void")) {
                 return Err(self.error(*offset, "A void/Void function cannot return a value."));
@@ -864,15 +864,15 @@ impl<'a> Analysis<'a> {
     }
 }
 fn expressions(stmt: &Stmt) -> Vec<&Expr> {
-    match stmt {
+    match stmt.unlocated() {
         Stmt::Expr(e) | Stmt::DefaultXmlNamespace(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
         Stmt::If(_, _, _) => {
             let mut out = Vec::new();
-            let mut cur = Some(stmt);
+            let mut cur = Some(stmt.unlocated());
             while let Some(Stmt::If(e, _, no)) = cur {
                 out.push(e);
-                cur = no.as_deref();
+                cur = no.as_deref().map(Stmt::unlocated);
             }
             out
         }
@@ -891,13 +891,13 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     }
 }
 fn statements(stmt: &Stmt) -> Vec<&Stmt> {
-    match stmt {
+    match stmt.unlocated() {
         Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
         Stmt::If(_, _, _) => {
             let mut out = Vec::new();
-            let mut cur = Some(stmt);
+            let mut cur = Some(stmt.unlocated());
             while let Some(node) = cur {
-                if let Stmt::If(_, y, n) = node {
+                if let Stmt::If(_, y, n) = node.unlocated() {
                     out.push(y.as_ref());
                     cur = n.as_deref();
                 } else {
@@ -972,8 +972,10 @@ pub(super) fn with_body_supported(stmt: &Stmt) -> bool {
             && !matches!(expr,Expr::Name(name) if name == "eval" || name == "set")
             && children(expr).into_iter().all(supported)
     }
-    !matches!(stmt, Stmt::Function(_) | Stmt::LegacyEvent(_, _))
-        && expressions(stmt).into_iter().all(supported)
+    !matches!(
+        stmt.unlocated(),
+        Stmt::Function(_) | Stmt::LegacyEvent(_, _)
+    ) && expressions(stmt).into_iter().all(supported)
         && statements(stmt).into_iter().all(with_body_supported)
 }
 
@@ -981,7 +983,9 @@ pub(super) fn tell_target_body_supported(stmt: &Stmt) -> bool {
     fn supported(expr: &Expr) -> bool {
         !matches!(expr, Expr::Function(_)) && children(expr).into_iter().all(supported)
     }
-    !matches!(stmt, Stmt::Function(_) | Stmt::LegacyEvent(_, _))
-        && expressions(stmt).into_iter().all(supported)
+    !matches!(
+        stmt.unlocated(),
+        Stmt::Function(_) | Stmt::LegacyEvent(_, _)
+    ) && expressions(stmt).into_iter().all(supported)
         && statements(stmt).into_iter().all(tell_target_body_supported)
 }

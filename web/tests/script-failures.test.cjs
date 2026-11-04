@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resolve } = require('node:path');
 const { readFileSync } = require('node:fs');
-const { describeThrown, unwrapScriptThrow } = require('../runtime.js');
+const { describeThrown, unwrapScriptThrow, sourceLocationText, emitScriptMessage } = require('../runtime.js');
 
 test('actual script dispatch preserves arbitrary thrown values without secondary failures', async () => {
   const { verifyHostFailureFormatting } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
@@ -32,9 +32,9 @@ test('actual failure panel keeps the original error when stack/message/conversio
   assert.ok(start >= 0 && end > start);
   const elements = { error: { style: {}, textContent: '' }, loading: { style: {} } };
   const errors = [];
-  const { fail, failed } = new Function('document', 'console', 'describeThrown',
+  const { fail, failed } = new Function('document', 'console', 'describeThrown', 'sourceLocationText', 'emitScriptMessage',
     runtime.slice(start, end) + '\nreturn { fail, failed: () => failed };'
-  )({ getElementById: id => elements[id] }, { error: value => errors.push(value) }, describeThrown);
+  )({ getElementById: id => elements[id] }, { error: value => errors.push(value) }, describeThrown, sourceLocationText, emitScriptMessage);
   const hostile = new Proxy({}, { get() { throw new Error('secondary failure'); } });
   fail(hostile);
   assert.equal(failed(), true);

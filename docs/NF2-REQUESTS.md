@@ -27,6 +27,20 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 ## Open requests
 
+### R-033 · Actions diagnostic peek, fix selection and debugger connection states
+- **Status:** open
+- **Requested by / for:** implementation track · AC-03/AC-08 (Actions tooling)
+- **Where:** `sources.rs::script_workspace`, Actions Debug options, planned Debugger panels
+- **Need:** NF2 components/states for the error peek and source-range underline; selection among several quick fixes;
+  debugger disconnected/unsupported states and binding of breakpoint/call-stack/locals views to a live session.
+- **Why:** structured severity/code/range/fixes and exact handler source maps are available. Existing controls can
+  display warnings and apply a unique safe ⌘. fix, but cannot present choices or claim a connected debugger.
+- **Checked:** `panels-panel-actions-floating.txt` Error peek / "Quick fix ⌘." / overview ruler; `docs-code-editor.txt`;
+  `neoflash-ui/src/components/code.rs`; `docs/NF2-ACTIONS-EDITOR.md`.
+- **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify the peek/range and
+  debugger connection states before implementation. Debug protocol remains engine work, independent of this request.
+
+
 ### R-001 · Ruler pointer-position marker
 - **Status:** open
 - **Requested by / for:** implementation track · W0.4 rulers (ST-01 "pointer position marker")

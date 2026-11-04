@@ -9,6 +9,7 @@ use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::workspace::CodeEditorPrefs;
 use eframe::egui;
 use neoflash_core::{Script, ScriptLanguage, SourceUnit, SymbolKind, new_id};
+use neoflash_script::{Diagnostic, DiagnosticSeverity};
 use neoflash_ui::components::{self as nf, code::Severity};
 use neoflash_ui::tokens::{radius, space};
 use std::hash::{Hash, Hasher};
@@ -18,8 +19,15 @@ pub(crate) struct CodeFeedback {
     fingerprint: u64,
     text: String,
     success: bool,
-    /// (line, column, message) of each diagnostic, 1-based as reported by the compiler.
-    diagnostics: Vec<(usize, usize, String)>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn diagnostic_severity(severity: DiagnosticSeverity) -> Severity {
+    match severity {
+        DiagnosticSeverity::Error => Severity::Error,
+        DiagnosticSeverity::Warning => Severity::Warning,
+        DiagnosticSeverity::Info => Severity::Info,
+    }
 }
 
 /// Languages offered for frame and object actions (Actions toolbar).
@@ -60,32 +68,18 @@ impl Editor {
     }
 
     /// `announce` also writes the result to Output (explicit Check); live checks stay silent.
-    fn record_code_check(
-        &mut self,
-        script: &Script,
-        result: Result<(), Vec<neoflash_script::Diagnostic>>,
-        announce: bool,
-    ) {
-        let success = result.is_ok();
-        let diagnostics: Vec<_> = match &result {
-            Ok(()) => Vec::new(),
-            Err(errors) => errors
+    fn record_code_check(&mut self, script: &Script, diagnostics: Vec<Diagnostic>, announce: bool) {
+        let success = !diagnostics
+            .iter()
+            .any(|d| d.severity == DiagnosticSeverity::Error);
+        let text = if diagnostics.is_empty() {
+            "Code accepted for current language support.".to_owned()
+        } else {
+            diagnostics
                 .iter()
-                .map(|error| (error.line, error.column, error.message.clone()))
-                .collect(),
-        };
-        let text = match result {
-            Ok(()) => "Code accepted for current language support.".to_owned(),
-            Err(errors) => errors
-                .into_iter()
-                .map(|error| {
-                    format!(
-                        "Line {}, column {}: {}",
-                        error.line, error.column, error.message
-                    )
-                })
+                .map(|d| format!("{}: {}", diagnostic_severity(d.severity).label(), d))
                 .collect::<Vec<_>>()
-                .join("\n"),
+                .join("\n")
         };
         if announce {
             self.message(text.clone());
@@ -100,15 +94,34 @@ impl Editor {
     }
 
     pub(crate) fn check_action_source(&mut self, script: &Script, announce: bool) {
-        let result = neoflash_script::compile_project(&self.project)
+        let mut diagnostics = neoflash_script::compile_project(&self.project)
             .and_then(|program| neoflash_script::compile_with_program(script, &program))
-            .map(|_| ());
-        self.record_code_check(script, result, announce);
+            .err()
+            .unwrap_or_default();
+        diagnostics.extend(
+            neoflash_script::check_warnings(script)
+                .iter()
+                .map(|warning| warning.to_diagnostic_with_source(&script.source)),
+        );
+        self.record_code_check(script, diagnostics, announce);
     }
 
     /// "Check project": compile every project source; feedback attaches to the selected file.
     pub(crate) fn check_project_sources(&mut self, announce: bool) {
-        let result = neoflash_script::compile_project(&self.project).map(|_| ());
+        let mut diagnostics = neoflash_script::compile_project(&self.project)
+            .err()
+            .unwrap_or_default();
+        for unit in &self.project.sources {
+            let script = Script {
+                language: unit.language,
+                source: unit.source.clone(),
+            };
+            diagnostics.extend(
+                neoflash_script::check_warnings_with_path(&script, Some(&unit.path))
+                    .iter()
+                    .map(|warning| warning.to_diagnostic_with_source(&script.source)),
+            );
+        }
         if let Some(unit) = self
             .project
             .sources
@@ -121,7 +134,7 @@ impl Editor {
                     language: unit.language,
                     source: unit.source,
                 },
-                result,
+                diagnostics,
                 announce,
             );
         }
@@ -133,6 +146,102 @@ impl Editor {
             feedback.target == self.actions_editor_id()
                 && feedback.fingerprint == self.code_fingerprint(script)
         })
+    }
+
+    fn diagnostic_is_current(&self, diagnostic: &Diagnostic) -> bool {
+        match diagnostic.path.as_deref() {
+            None => self.script_target != ScriptTarget::Source,
+            Some(path) => {
+                self.script_target == ScriptTarget::Source
+                    && self.project.sources.iter().any(|unit| {
+                        Some(&unit.id) == self.selected_source.as_ref() && unit.path == path
+                    })
+            }
+        }
+    }
+
+    fn jump_to_diagnostic(&mut self, ctx: &egui::Context, source: &str, diagnostic: &Diagnostic) {
+        if let Some(path) = diagnostic.path.as_deref() {
+            if let Some(unit) = self
+                .project
+                .sources
+                .iter()
+                .find(|unit| unit.path == path)
+                .cloned()
+            {
+                self.selected_source = Some(unit.id);
+                self.script_target = ScriptTarget::Source;
+                jump_to(
+                    ctx,
+                    self.actions_editor_id(),
+                    &unit.source,
+                    diagnostic.line,
+                    diagnostic.column,
+                );
+            }
+        } else if self.diagnostic_is_current(diagnostic) {
+            jump_to(
+                ctx,
+                self.actions_editor_id(),
+                source,
+                diagnostic.line,
+                diagnostic.column,
+            );
+        }
+    }
+
+    /// The approved shortcut applies a single unambiguous fix at the caret. A selector/peek needs
+    /// an NF2 component; never silently choose the first of several possible transformations.
+    fn quick_fix_at_caret(&mut self, ctx: &egui::Context, source: &str, language: ScriptLanguage) {
+        let id = self.actions_editor_id();
+        if !ctx.memory(|memory| memory.has_focus(id))
+            || !ctx
+                .input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Period))
+        {
+            return;
+        }
+        let script = Script {
+            language,
+            source: source.to_owned(),
+        };
+        if self.current_feedback(&script).is_none() {
+            if self.script_target == ScriptTarget::Source {
+                self.check_project_sources(false);
+            } else {
+                self.check_action_source(&script, false);
+            }
+        }
+        let caret = egui::text_edit::TextEditState::load(ctx, id)
+            .and_then(|state| state.cursor.char_range())
+            .map_or(0, |range| range.primary.index);
+        let (line, _) = nf::code::line_col(source, caret);
+        let mut fixes = Vec::new();
+        if let Some(feedback) = self.current_feedback(&script) {
+            for diagnostic in &feedback.diagnostics {
+                if self.diagnostic_is_current(diagnostic)
+                    && diagnostic.line <= line
+                    && line <= diagnostic.end_line
+                {
+                    for fix in &diagnostic.fixes {
+                        if !fixes.contains(fix) {
+                            fixes.push(fix.clone());
+                        }
+                    }
+                }
+            }
+        }
+        match fixes.as_slice() {
+            [fix] => self.actions_ui.pending = Some(CodeCommand::ApplyQuickFix(fix.clone())),
+            [] => self.message("No quick fix at the caret."),
+            _ => self.message(format!(
+                "Multiple quick fixes at the caret: {}",
+                fixes
+                    .iter()
+                    .map(|fix| fix.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )),
+        }
     }
 
     /// NF2 script workspace: code editor (gutter, syntax colours, current line), compiler messages
@@ -150,6 +259,8 @@ impl Editor {
         self.fonts
             .ensure_loaded(ui.ctx(), &self.workspace.code_editor.font);
         let code_prefs = self.workspace.code_editor.clone();
+        self.quick_fix_at_caret(ui.ctx(), source, language);
+        let before_command = source.clone();
         let show_hints = self.apply_code_command(ui.ctx(), editor_id, source);
         let feedback = self
             .current_feedback(&Script {
@@ -159,7 +270,12 @@ impl Editor {
             .map(|f| (f.success, f.text.clone(), f.diagnostics.clone()));
         let markers: Vec<(usize, Severity)> = feedback
             .iter()
-            .flat_map(|(_, _, diagnostics)| diagnostics.iter().map(|d| (d.0, Severity::Error)))
+            .flat_map(|(_, _, diagnostics)| {
+                diagnostics
+                    .iter()
+                    .filter(|d| self.diagnostic_is_current(d))
+                    .map(|d| (d.line, diagnostic_severity(d.severity)))
+            })
             .collect();
         let message_count = feedback.as_ref().map_or(0, |(_, _, d)| d.len().max(1));
         let bar_h = neoflash_ui::metrics::SCRIPT_TAB + 2.;
@@ -183,7 +299,7 @@ impl Editor {
             egui::pos2(full.right(), (diag.top() - gap).max(full.top() + 60.)),
         );
         let hint_context = || self.hint_context(language);
-        let (response, caret) = ui
+        let (mut response, caret) = ui
             .scope_builder(egui::UiBuilder::new().max_rect(code), |ui| {
                 code_editor(
                     ui,
@@ -197,6 +313,9 @@ impl Editor {
                 )
             })
             .inner;
+        if *source != before_command {
+            response.mark_changed();
+        }
         self.live_check(ui.ctx(), editor_id, &response, source, language);
         if let Some((success, text, diagnostics)) = &feedback {
             ui.scope_builder(egui::UiBuilder::new().max_rect(diag), |ui| {
@@ -206,7 +325,7 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = space::S1;
-                        if *success || diagnostics.is_empty() {
+                        if diagnostics.is_empty() {
                             let severity = if *success {
                                 Severity::Success
                             } else {
@@ -218,15 +337,26 @@ impl Editor {
                                 text,
                             });
                         }
-                        for (line, column, message) in diagnostics {
-                            let location = format!("Line {line}, column {column}");
+                        for diagnostic in diagnostics {
+                            let path = diagnostic
+                                .path
+                                .as_ref()
+                                .map_or(String::new(), |path| format!("{path} · "));
+                            let location = format!(
+                                "{path}Line {}, column {}",
+                                diagnostic.line, diagnostic.column
+                            );
+                            let message = diagnostic.code.as_ref().map_or_else(
+                                || diagnostic.message.clone(),
+                                |code| format!("[{code}] {}", diagnostic.message),
+                            );
                             let row = ui.add(nf::CompilerMessage {
-                                severity: Severity::Error,
-                                message,
+                                severity: diagnostic_severity(diagnostic.severity),
+                                message: &message,
                                 location: &location,
                             });
                             if row.clicked() {
-                                jump_to(ui.ctx(), editor_id, source, *line, *column);
+                                self.jump_to_diagnostic(ui.ctx(), source, diagnostic);
                             }
                         }
                     });
@@ -256,7 +386,16 @@ impl Editor {
                 .layout(egui::Layout::right_to_left(egui::Align::Center)),
             |ui| {
                 let lines = source.chars().filter(|c| *c == '\n').count() + 1;
-                let problems = feedback.as_ref().map(|(_, _, d)| (d.len(), 0));
+                let problems = feedback.as_ref().map(|(_, _, d)| {
+                    (
+                        d.iter()
+                            .filter(|d| d.severity == DiagnosticSeverity::Error)
+                            .count(),
+                        d.iter()
+                            .filter(|d| d.severity == DiagnosticSeverity::Warning)
+                            .count(),
+                    )
+                });
                 nf::code::script_status(ui, caret.0, caret.1, lines, problems);
             },
         );
@@ -1290,4 +1429,238 @@ pub(crate) fn jump_to(ctx: &egui::Context, id: egui::Id, source: &str, line: usi
         )));
     state.store(ctx, id);
     ctx.memory_mut(|memory| memory.request_focus(id));
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use neoflash_core::{Element, FrameScript, ObjectEvent, ObjectScript, Project};
+
+    fn render(editor: &mut Editor, ctx: &egui::Context, quick_fix: bool) -> egui::FullOutput {
+        let modifiers = egui::Modifiers::COMMAND;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 540.),
+                )),
+                modifiers: if quick_fix {
+                    modifiers
+                } else {
+                    egui::Modifiers::NONE
+                },
+                events: if quick_fix {
+                    vec![egui::Event::Key {
+                        key: egui::Key::Period,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers,
+                    }]
+                } else {
+                    Vec::new()
+                },
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    }
+
+    fn source(editor: &Editor, target: ScriptTarget) -> String {
+        match target {
+            ScriptTarget::Frame => editor.symbol().timeline.scripts[0].script.source.clone(),
+            ScriptTarget::Object => editor.selected_element().unwrap().scripts[0]
+                .script
+                .source
+                .clone(),
+            ScriptTarget::Source => editor.project.sources[0].source.clone(),
+        }
+    }
+
+    #[test]
+    fn actions_diagnostic_quick_fix_family_uses_current_source_and_one_undo() {
+        for target in [
+            ScriptTarget::Frame,
+            ScriptTarget::Object,
+            ScriptTarget::Source,
+        ] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut project = Project::blank();
+            let text = if target == ScriptTarget::Source {
+                "class Helper {\n public function run():Boolean { return not false; }\n}"
+            } else {
+                "// é: character positions\ntrace(not false);"
+            };
+            let script = Script {
+                language: ScriptLanguage::ActionScript2,
+                source: text.into(),
+            };
+            let mut element = Element {
+                id: "tooling-object".into(),
+                ..Element::default()
+            };
+            element.scripts.push(ObjectScript {
+                event: ObjectEvent::EnterFrame,
+                script: script.clone(),
+            });
+            let element_id = element.id.clone();
+            project.symbols[0].timeline.layers[0].keyframes[0]
+                .elements
+                .push(element);
+            project.symbols[0].timeline.scripts.push(FrameScript {
+                frame: 0,
+                script: script.clone(),
+            });
+            project.sources.push(SourceUnit {
+                id: "helper-source".into(),
+                path: "Helper.as".into(),
+                language: ScriptLanguage::ActionScript2,
+                source: if target == ScriptTarget::Source {
+                    text.into()
+                } else {
+                    "class Helper {}".into()
+                },
+            });
+            project.enable_program();
+            let mut editor = Editor::from_project(&ctx, project);
+            editor.script_target = target;
+            editor.script_event = ObjectEvent::EnterFrame;
+            editor.selected_source = Some("helper-source".into());
+            editor.select_single_id(element_id);
+            let original = editor.project.clone();
+            let _ = render(&mut editor, &ctx, false);
+            if target == ScriptTarget::Source {
+                editor.check_project_sources(false);
+            } else {
+                editor.check_action_source(&script, false);
+            }
+            let feedback = editor.current_feedback(&script).unwrap();
+            assert!(feedback.success, "{:?}", feedback.diagnostics);
+            assert!(
+                feedback
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.severity == DiagnosticSeverity::Warning
+                        && d.code.as_deref() == Some("deprecated-construct")
+                        && d.line == 2)
+            );
+            let output = render(&mut editor, &ctx, false);
+            let labels: Vec<_> = output
+                .platform_output
+                .accesskit_update
+                .unwrap()
+                .nodes
+                .into_iter()
+                .filter_map(|(_, node)| node.label().map(str::to_owned))
+                .collect();
+            assert!(
+                labels.iter().any(|label| label.starts_with("Warning:")),
+                "{labels:?}"
+            );
+            jump_to(&ctx, editor.actions_editor_id(), text, 2, 1);
+            let _ = render(&mut editor, &ctx, true);
+            assert_eq!(
+                source(&editor, target),
+                text.replace("not false", "! false")
+            );
+            assert!(
+                editor.actions_ui.edited.is_some(),
+                "command edits schedule live diagnostics"
+            );
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, original);
+            assert!(!editor.history.can_undo());
+            // An in-bounds edit from the old snapshot must not be applied to new text.
+            let changed = text.replace("not false", "true");
+            editor.transact(|editor| match target {
+                ScriptTarget::Frame => {
+                    editor.symbol_mut().timeline.scripts[0].script.source = changed.clone()
+                }
+                ScriptTarget::Object => {
+                    editor.selected_element_mut().unwrap().scripts[0]
+                        .script
+                        .source = changed.clone()
+                }
+                ScriptTarget::Source => editor.project.sources[0].source = changed.clone(),
+            });
+            jump_to(&ctx, editor.actions_editor_id(), &changed, 2, 1);
+            let _ = render(&mut editor, &ctx, true);
+            assert_eq!(source(&editor, target), changed);
+            assert!(editor.output.last().unwrap().contains("No quick fix"));
+            editor.undo();
+            assert_eq!(editor.project, original);
+            assert!(!editor.history.can_undo());
+            if target == ScriptTarget::Frame {
+                let ambiguous = "// two suggestions on the same line\ntrace(not false and true);";
+                editor.transact(|editor| {
+                    editor.symbol_mut().timeline.scripts[0].script.source = ambiguous.into()
+                });
+                jump_to(&ctx, editor.actions_editor_id(), ambiguous, 2, 1);
+                let _ = render(&mut editor, &ctx, true);
+                assert_eq!(source(&editor, target), ambiguous);
+                assert!(
+                    editor
+                        .output
+                        .last()
+                        .unwrap()
+                        .contains("Multiple quick fixes")
+                );
+                editor.undo();
+                assert_eq!(editor.project, original);
+                assert!(!editor.history.can_undo());
+            }
+        }
+    }
+
+    #[test]
+    fn project_diagnostics_navigate_to_their_source_without_foreign_markers() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.sources = vec![
+            SourceUnit {
+                id: "good".into(),
+                path: "good.ts".into(),
+                language: ScriptLanguage::TypeScript,
+                source: "export const count: number = 1;".into(),
+            },
+            SourceUnit {
+                id: "bad".into(),
+                path: "bad.ts".into(),
+                language: ScriptLanguage::TypeScript,
+                source: "// é\nexport const count: number = \"bad\";".into(),
+            },
+        ];
+        project.enable_program();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.script_target = ScriptTarget::Source;
+        editor.selected_source = Some("good".into());
+        editor.check_project_sources(false);
+        let diagnostic = editor
+            .code_feedback
+            .as_ref()
+            .unwrap()
+            .diagnostics
+            .iter()
+            .find(|d| {
+                d.severity == DiagnosticSeverity::Error && d.path.as_deref() == Some("bad.ts")
+            })
+            .expect("project errors carry their source path")
+            .clone();
+        assert!(!editor.diagnostic_is_current(&diagnostic));
+        editor.jump_to_diagnostic(&ctx, "not the error's source", &diagnostic);
+        assert_eq!(editor.selected_source.as_deref(), Some("bad"));
+        assert!(editor.diagnostic_is_current(&diagnostic));
+        let state = egui::text_edit::TextEditState::load(&ctx, editor.actions_editor_id()).unwrap();
+        let caret = state.cursor.char_range().unwrap().primary.index;
+        assert_eq!(
+            nf::code::line_col(&editor.project.sources[1].source, caret),
+            (diagnostic.line, diagnostic.column)
+        );
+        assert!(!editor.history.can_undo());
+        editor.project.validate().unwrap();
+    }
 }

@@ -74,7 +74,17 @@ Adapted algorithms keep their pinned sources and licences in the `*-PROVENANCE.m
 | AS2 project source | Qualified classes at matching source paths, exact/wildcard imports, inheritance, compile-time private access and shared prototype methods; see the distinct AS2 profile below. JS/TS modules remain unsupported. |
 | Full AVM1/AVM2 behavior | Not implemented. Browser execution uses JavaScript semantics with selected AS3 primitive coercions and the bounded AS2 timeline behavior below. |
 
-The standalone handler API remains `neoflash_script::compile(&Script) -> Result<String, Vec<Diagnostic>>`. Publication first calls `compile_project(&Project)`, then `compile_with_program(&Script, &ProjectProgram)` for handlers. Diagnostics include the source language, one-based line/column and a message; project-source diagnostics also identify the logical source path. A failed script or unresolved linked class blocks publishing. A single script/source unit is limited to 1 MiB; the AS frontend also bounds token count, parsing nesting (48 levels) and expression-tree depth to avoid runaway parsing.
+The standalone handler API remains `neoflash_script::compile(&Script) -> Result<String, Vec<Diagnostic>>`. Publication first calls `compile_project(&Project)`, then `compile_with_program(&Script, &ProjectProgram)` for handlers. Diagnostics retain source language, one-based Unicode start/end positions, byte span, severity, optional code,
+source path and safe quick fixes. Actions and Compiler errors preserve file attribution and warning severity.
+ActionScript syntax recovery collects independent top-level statement errors; it never publishes recovered code.
+The shared language service uses compiler tokens and declaration scopes for hints, multiline members and read-only
+symbol/hover/definition data; complete semantic type-flow analysis remains outside this tooling profile.
+
+Test Movie consumes emitted source maps for handlers, class methods and JS/TS modules. ActionScript positions are
+statement starts, including multiline expressions; JS/TS positions come from source tokens/AST. Include origins and
+Unicode columns are retained; generated helpers remain unmapped. Identical handler text shares a source identity
+with all authored locations recorded, so an exact frame/object occurrence is not inferred. The browser emits mapped
+trace/error events, but native editor pause/continue/step and a return channel remain unavailable.
 
 ## Project source and class profile
 

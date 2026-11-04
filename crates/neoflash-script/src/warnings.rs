@@ -14,9 +14,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Severity of a compiler diagnostic or warning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticSeverity {
+    #[default]
     Error,
     Warning,
     Info,
@@ -38,15 +39,22 @@ pub struct QuickFix {
 }
 
 impl QuickFix {
-    /// Apply this quick fix to `source`, returning the updated source text.
-    pub fn apply(&self, source: &str) -> String {
-        let start = self.span.0.min(source.len());
-        let end = self.span.1.min(source.len()).max(start);
+    /// Reject out-of-bounds and non-character-boundary edits without modifying text.
+    pub fn try_apply(&self, source: &str) -> Option<String> {
+        let (start, end) = self.span;
+        if start > end || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
+            return None;
+        }
         let mut out = String::with_capacity(source.len() + self.replacement.len());
         out.push_str(&source[..start]);
         out.push_str(&self.replacement);
         out.push_str(&source[end..]);
-        out
+        Some(out)
+    }
+
+    /// Apply this quick fix to `source`, returning the updated source text.
+    pub fn apply(&self, source: &str) -> String {
+        self.try_apply(source).unwrap_or_else(|| source.to_owned())
     }
 }
 
@@ -72,17 +80,21 @@ pub struct CompilerWarning {
 impl CompilerWarning {
     /// Convert this warning into a standard `Diagnostic`.
     pub fn to_diagnostic(&self) -> Diagnostic {
-        let prefix = self
-            .path
-            .as_ref()
-            .map(|p| format!("{p}: "))
-            .unwrap_or_default();
-        Diagnostic {
-            language: self.language,
-            line: self.line,
-            column: self.column,
-            message: format!("{prefix}[{}] {}", self.code, self.message),
-        }
+        let mut diagnostic =
+            Diagnostic::new(self.language, self.line, self.column, self.message.clone());
+        diagnostic.severity = self.severity;
+        diagnostic.code = Some(self.code.clone());
+        diagnostic.path = self.path.clone();
+        diagnostic.span = self.span;
+        diagnostic.fixes = self.quick_fixes.clone();
+        diagnostic
+    }
+
+    /// Preserve Unicode/multiline range information when the authored source is available.
+    pub fn to_diagnostic_with_source(&self, source: &str) -> Diagnostic {
+        let mut diagnostic = self.to_diagnostic();
+        (diagnostic.end_line, diagnostic.end_column) = byte_offset_to_line_col(source, self.span.1);
+        diagnostic
     }
 }
 
@@ -186,6 +198,40 @@ pub fn quick_fixes_for_diagnostic(diag: &Diagnostic, source: &str) -> Vec<QuickF
     let mut fixes = Vec::new();
     let offset = line_col_to_byte_offset(source, diag.line, diag.column);
 
+    // Resolve AS type imports from the shared generated support index. Do not guess between
+    // equally named classes or edit a user-written class name to a different type.
+    if matches!(
+        diag.language,
+        ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3
+    ) && diag.message.starts_with("Type '")
+        && diag
+            .message
+            .contains("is not supported in this ActionScript annotation")
+        && let Some(name) = extract_first_single_quoted(&diag.message)
+        && let Some(api) = crate::language_service::api(diag.language)
+    {
+        let candidates: Vec<_> = api
+            .classes
+            .keys()
+            .filter(|qualified| {
+                qualified.contains('.') && crate::language_service::short_name(qualified) == name
+            })
+            .collect();
+        if let [qualified] = candidates.as_slice()
+            && crate::language_service::missing_import(source, qualified).is_some()
+        {
+            let start = crate::actionscript::diagnostics::import_insertion(source, diag.language);
+            let (line, column) = byte_offset_to_line_col(source, start);
+            fixes.push(QuickFix {
+                title: format!("Import {qualified}"),
+                replacement: format!("\nimport {qualified};\n"),
+                span: (start, start),
+                line,
+                column,
+            });
+        }
+    }
+
     // 1. Check if the diagnostic mentions "Did you mean '<suggestion>'?"
     if let Some(did_you_mean_idx) = diag.message.find("Did you mean '") {
         let rest = &diag.message[did_you_mean_idx + "Did you mean '".len()..];
@@ -225,7 +271,7 @@ pub fn quick_fixes_for_diagnostic(diag: &Diagnostic, source: &str) -> Vec<QuickF
         {
             let (id_start, id_end, found) =
                 find_identifier_near_line(source, diag.line, diag.column, &bad_name);
-            if id_end > id_start {
+            if id_end > id_start && found == bad_name {
                 fixes.push(QuickFix {
                     title: format!("Replace '{found}' with '{suggestion}'"),
                     replacement: suggestion.to_string(),
@@ -237,14 +283,42 @@ pub fn quick_fixes_for_diagnostic(diag: &Diagnostic, source: &str) -> Vec<QuickF
         }
     }
 
+    // A missing standalone assignment target can be declared without guessing its type.
+    // Expressions, member writes and calls do not qualify.
+    if matches!(
+        diag.language,
+        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
+    ) && diag.message.contains("Cannot find name '")
+    {
+        let (start, end, name) = identifier_at_offset(source, offset);
+        let prefix = source[..start].trim_end();
+        let suffix = source[end..].trim_start();
+        if !name.is_empty()
+            && (prefix.is_empty() || prefix.ends_with([';', '{', '}']))
+            && suffix.starts_with('=')
+            && !suffix.starts_with("==")
+            && !suffix.starts_with("=>")
+        {
+            fixes.push(QuickFix {
+                title: format!("Declare variable '{name}'"),
+                replacement: format!("let {name}"),
+                span: (start, end),
+                line: diag.line,
+                column: diag.column,
+            });
+        }
+    }
+
     // 3. Type mismatch on variable initialization (`Type 'X' is not assignable to type 'Y'`)
     if diag.message.contains("is not assignable to type '")
         && let Some((actual_ty, declared_ty)) = extract_assignable_types(&diag.message)
     {
         let line_bounds = line_byte_bounds(source, diag.line);
-        let line_text = &source[line_bounds.0..line_bounds.1];
+        let line_text = &source[line_bounds.0..offset.max(line_bounds.0).min(line_bounds.1)];
         let needle = format!(": {declared_ty}");
-        if let Some(rel_idx) = line_text.find(&needle) {
+        if let Some(rel_idx) = line_text.rfind(&needle)
+            && !line_text[rel_idx..].contains(';')
+        {
             let abs_start = line_bounds.0 + rel_idx + 2;
             let abs_end = abs_start + declared_ty.len();
             let (l, c) = byte_offset_to_line_col(source, abs_start);
@@ -327,6 +401,7 @@ fn check_js_ts_warnings(script: &Script, path: Option<&str>) -> Vec<CompilerWarn
         language: script.language,
         path: path.map(str::to_string),
         declared_vars: Vec::new(),
+        function_depth: 0,
         referenced_idents: BTreeSet::new(),
         known_names: COMMON_BUILTINS.iter().map(|s| (*s).to_string()).collect(),
         unresolved_refs: Vec::new(),
@@ -339,14 +414,15 @@ fn check_js_ts_warnings(script: &Script, path: Option<&str>) -> Vec<CompilerWarn
 
 struct DeclaredVar {
     name: String,
+    local: bool,
     ident_span: (usize, usize),
-    decl_span: (usize, usize),
     is_exported: bool,
     has_type_annotation: bool,
     inferred_type: Option<&'static str>,
 }
 
 struct JsTsWarningCollector<'a> {
+    function_depth: usize,
     source: &'a str,
     language: ScriptLanguage,
     path: Option<String>,
@@ -459,13 +535,7 @@ impl<'a> JsTsWarningCollector<'a> {
                     column,
                     span: (start, end),
                     message: format!("Unreachable code after '{term_kw}' statement."),
-                    quick_fixes: vec![QuickFix {
-                        title: "Remove unreachable code".to_string(),
-                        replacement: String::new(),
-                        span: (start, end),
-                        line,
-                        column,
-                    }],
+                    quick_fixes: Vec::new(),
                 });
             }
 
@@ -649,14 +719,15 @@ impl<'a> JsTsWarningCollector<'a> {
     }
 
     fn visit_function_body(&mut self, body: &FunctionBody<'a>) {
+        self.function_depth += 1;
         for stmt in &body.statements {
             self.precollect_stmt_names(stmt);
         }
         self.check_statement_list(&body.statements);
+        self.function_depth -= 1;
     }
 
     fn visit_var_decl(&mut self, var_decl: &VariableDeclaration<'a>, is_exported: bool) {
-        let multi = var_decl.declarations.len() > 1;
         for decl in &var_decl.declarations {
             if let Some(init) = &decl.init {
                 self.visit_expression(init);
@@ -665,16 +736,11 @@ impl<'a> JsTsWarningCollector<'a> {
                 let name = ident.name.as_str().to_string();
                 self.known_names.insert(name.clone());
                 let ident_span = (ident.span.start as usize, ident.span.end as usize);
-                let decl_span = if multi {
-                    (decl.span.start as usize, decl.span.end as usize)
-                } else {
-                    (var_decl.span.start as usize, var_decl.span.end as usize)
-                };
                 let inferred_type = decl.init.as_ref().and_then(infer_simple_literal_type);
                 self.declared_vars.push(DeclaredVar {
+                    local: self.function_depth > 0,
                     name,
                     ident_span,
-                    decl_span,
                     is_exported,
                     has_type_annotation: decl.id.type_annotation.is_some(),
                     inferred_type,
@@ -864,22 +930,19 @@ impl<'a> JsTsWarningCollector<'a> {
                     column,
                     span: var.ident_span,
                     message: format!("Variable '{}' is declared but never used.", var.name),
-                    quick_fixes: vec![
-                        QuickFix {
+                    quick_fixes: if var.local
+                        && !self.known_names.contains(&format!("_{}", var.name))
+                    {
+                        vec![QuickFix {
                             title: format!("Prefix unused variable '{}' with '_'", var.name),
                             replacement: format!("_{}", var.name),
                             span: var.ident_span,
                             line,
                             column,
-                        },
-                        QuickFix {
-                            title: format!("Remove unused variable '{}'", var.name),
-                            replacement: String::new(),
-                            span: var.decl_span,
-                            line,
-                            column,
-                        },
-                    ],
+                        }]
+                    } else {
+                        Vec::new()
+                    },
                 });
             }
 
@@ -956,37 +1019,115 @@ fn check_actionscript_warnings(script: &Script, path: Option<&str>) -> Vec<Compi
     let mut warnings = Vec::new();
     let src = &script.source;
     let path_str = path.map(str::to_string);
+    let tokens = crate::actionscript::diagnostics::word_tokens(script);
 
     // 1. Deprecated AS1/AS2 constructs (`tellTarget`, `ifFrameLoaded`, `eq`, `ne`, `and`, `or`, `not`, `add`)
     if matches!(
         script.language,
-        ScriptLanguage::ActionScript1
-            | ScriptLanguage::ActionScript2
-            | ScriptLanguage::ActionScript3
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
     ) {
-        find_deprecated_as_constructs(src, script.language, &path_str, &mut warnings);
+        find_deprecated_as_constructs(src, script.language, &path_str, &tokens, &mut warnings);
     }
 
     // 2. Unused local variables and missing type annotations (`var x = ...`)
-    find_actionscript_var_warnings(src, script.language, &path_str, &mut warnings);
+    find_actionscript_var_warnings(
+        src,
+        script.language,
+        &path_str,
+        &tokens,
+        &crate::actionscript::diagnostics::local_variable_names(script),
+        &mut warnings,
+    );
 
     // 3. Unreachable statements after `return`/`throw`/`break`/`continue` in line-oriented blocks
-    find_actionscript_unreachable(src, script.language, &path_str, &mut warnings);
+    warnings.extend(crate::actionscript::diagnostics::unreachable_warnings(
+        script, path,
+    ));
 
     // 4. Misspelled identifiers against declared variables & built-in Flash globals
-    find_actionscript_misspellings(src, script.language, &path_str, &mut warnings);
+    find_actionscript_misspellings(src, script.language, &path_str, &tokens, &mut warnings);
+
+    find_unused_imports(script, path, &tokens, &mut warnings);
+    warnings.extend(
+        crate::language_service::partial_api_uses(script)
+            .into_iter()
+            .map(|usage| CompilerWarning {
+                code: "partial-api".into(),
+                severity: DiagnosticSeverity::Warning,
+                language: script.language,
+                path: path.map(str::to_owned),
+                line: usage.line,
+                column: usage.column,
+                span: usage.span,
+                message: format!("{}.{}: {}", usage.owner, usage.member, usage.limitation),
+                quick_fixes: Vec::new(),
+            }),
+    );
 
     warnings
+}
+
+fn find_unused_imports(
+    script: &Script,
+    path: Option<&str>,
+    tokens: &[(String, usize, usize)],
+    warnings: &mut Vec<CompilerWarning>,
+) {
+    for (index, (word, start, _)) in tokens.iter().enumerate() {
+        if word != "import" {
+            continue;
+        }
+        let Some(mut last) = tokens.get(index + 1) else {
+            continue;
+        };
+        for next in tokens.iter().skip(index + 2) {
+            if script.source[last.2..next.1].trim() != "." {
+                break;
+            }
+            last = next;
+        }
+        let suffix = &script.source[last.2..];
+        if !suffix.trim_start().starts_with(';')
+            || tokens.iter().filter(|(name, _, _)| name == &last.0).count() != 1
+        {
+            continue;
+        }
+        let end = last.2 + suffix.find(';').unwrap() + 1;
+        let (line, column) = byte_offset_to_line_col(&script.source, *start);
+        warnings.push(CompilerWarning {
+            code: "unused-import".into(),
+            severity: DiagnosticSeverity::Warning,
+            language: script.language,
+            path: path.map(str::to_owned),
+            line,
+            column,
+            span: (*start, end),
+            message: format!("Import '{}' is not used in this source unit.", last.0),
+            quick_fixes: vec![QuickFix {
+                title: format!("Remove unused import '{}'", last.0),
+                replacement: String::new(),
+                span: (*start, end),
+                line,
+                column,
+            }],
+        });
+    }
 }
 
 fn find_deprecated_as_constructs(
     src: &str,
     language: ScriptLanguage,
     path: &Option<String>,
+    tokens: &[(String, usize, usize)],
     warnings: &mut Vec<CompilerWarning>,
 ) {
-    let tokens = scan_word_tokens(src);
     for (idx, (word, start, end)) in tokens.iter().enumerate() {
+        // Member names and declaration names are not legacy operators.
+        if src[..*start].trim_end().ends_with('.')
+            || idx > 0 && matches!(tokens[idx - 1].0.as_str(), "var" | "function" | "const")
+        {
+            continue;
+        }
         let (line, column) = byte_offset_to_line_col(src, *start);
         match word.as_str() {
             "tellTarget" => {
@@ -999,13 +1140,7 @@ fn find_deprecated_as_constructs(
                     column,
                     span: (*start, *end),
                     message: "'tellTarget' is deprecated since Flash 5; use 'with' or direct dot syntax instead.".to_string(),
-                    quick_fixes: vec![QuickFix {
-                        title: "Replace 'tellTarget' with 'with'".to_string(),
-                        replacement: "with".to_string(),
-                        span: (*start, *end),
-                        line,
-                        column,
-                    }],
+                    quick_fixes: vec![],
                 });
             }
             "ifFrameLoaded" => {
@@ -1018,13 +1153,7 @@ fn find_deprecated_as_constructs(
                     column,
                     span: (*start, *end),
                     message: "'ifFrameLoaded' is deprecated; check '_framesloaded >= _totalframes' instead.".to_string(),
-                    quick_fixes: vec![QuickFix {
-                        title: "Replace 'ifFrameLoaded' with 'if (_framesloaded >='".to_string(),
-                        replacement: "if (_framesloaded >=".to_string(),
-                        span: (*start, *end),
-                        line,
-                        column,
-                    }],
+                    quick_fixes: vec![],
                 });
             }
             "eq" | "ne" | "and" | "or" | "add" if idx > 0 && idx + 1 < tokens.len() => {
@@ -1045,13 +1174,17 @@ fn find_deprecated_as_constructs(
                     column,
                     span: (*start, *end),
                     message: format!("Deprecated Flash 4 {desc}; use '{modern}' instead."),
-                    quick_fixes: vec![QuickFix {
-                        title: format!("Replace deprecated '{word}' with '{modern}'"),
-                        replacement: modern.to_string(),
-                        span: (*start, *end),
-                        line,
-                        column,
-                    }],
+                    quick_fixes: if matches!(word.as_str(), "eq" | "ne" | "add") {
+                        vec![]
+                    } else {
+                        vec![QuickFix {
+                            title: format!("Replace deprecated '{word}' with '{modern}'"),
+                            replacement: modern.to_string(),
+                            span: (*start, *end),
+                            line,
+                            column,
+                        }]
+                    },
                 });
             }
             "not" if idx + 1 < tokens.len() => {
@@ -1083,15 +1216,23 @@ fn find_actionscript_var_warnings(
     src: &str,
     language: ScriptLanguage,
     path: &Option<String>,
+    tokens: &[(String, usize, usize)],
+    local_names: &BTreeSet<String>,
     warnings: &mut Vec<CompilerWarning>,
 ) {
-    let tokens = scan_word_tokens(src);
+    let fold = |name: &str| {
+        if language == ScriptLanguage::ActionScript1 {
+            name.to_ascii_lowercase()
+        } else {
+            name.to_owned()
+        }
+    };
     let mut var_counts: BTreeMap<String, usize> = BTreeMap::new();
-    for (word, _, _) in &tokens {
-        *var_counts.entry(word.clone()).or_insert(0) += 1;
+    for (word, _, _) in tokens {
+        *var_counts.entry(fold(word)).or_insert(0) += 1;
     }
 
-    for (idx, (word, var_start, _)) in tokens.iter().enumerate() {
+    for (idx, (word, _, _)) in tokens.iter().enumerate() {
         if word != "var" {
             continue;
         }
@@ -1115,12 +1256,9 @@ fn find_actionscript_var_warnings(
         let has_type = trimmed_after.starts_with(':');
 
         // Unused variable check (appears only once at its declaration)
-        if !var_name.starts_with('_') && var_counts.get(var_name).copied().unwrap_or(0) == 1 {
+        if !var_name.starts_with('_') && var_counts.get(&fold(var_name)).copied().unwrap_or(0) == 1
+        {
             let (line, column) = byte_offset_to_line_col(src, *name_start);
-            let stmt_end = src[*var_start..]
-                .find(';')
-                .map(|rel| *var_start + rel + 1)
-                .unwrap_or(*name_end);
             warnings.push(CompilerWarning {
                 code: "unused-variable".to_string(),
                 severity: DiagnosticSeverity::Warning,
@@ -1129,23 +1267,20 @@ fn find_actionscript_var_warnings(
                 line,
                 column,
                 span: (*name_start, *name_end),
-                message: format!("Variable '{var_name}' is declared but never used."),
-                quick_fixes: vec![
-                    QuickFix {
+                message: format!("Variable '{var_name}' is not read in this source unit."),
+                quick_fixes: if local_names.contains(var_name)
+                    && !var_counts.contains_key(&fold(&format!("_{var_name}")))
+                {
+                    vec![QuickFix {
                         title: format!("Prefix unused variable '{var_name}' with '_'"),
                         replacement: format!("_{var_name}"),
                         span: (*name_start, *name_end),
                         line,
                         column,
-                    },
-                    QuickFix {
-                        title: format!("Remove unused variable '{var_name}'"),
-                        replacement: String::new(),
-                        span: (*var_start, stmt_end),
-                        line,
-                        column,
-                    },
-                ],
+                    }]
+                } else {
+                    Vec::new()
+                },
             });
         }
 
@@ -1202,91 +1337,9 @@ fn find_actionscript_var_warnings(
                     message: format!(
                         "Variable '{var_name}' is missing an explicit type annotation (inferred '{ty}')."
                     ),
-                    quick_fixes: vec![QuickFix {
-                        title: format!("Add type annotation ':{ty}' to '{var_name}'"),
-                        replacement: format!("{var_name}:{ty}"),
-                        span: (*name_start, *name_end),
-                        line,
-                        column,
-                    }],
+                    quick_fixes: Vec::new(),
                 });
             }
-        }
-    }
-}
-
-fn find_actionscript_unreachable(
-    src: &str,
-    language: ScriptLanguage,
-    path: &Option<String>,
-    warnings: &mut Vec<CompilerWarning>,
-) {
-    let mut offset = 0usize;
-    let mut after_terminator: Option<&'static str> = None;
-
-    for line_str in src.split_inclusive('\n') {
-        let line_start = offset;
-        let line_end = offset + line_str.len();
-        offset = line_end;
-
-        let trimmed = line_str.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
-            continue;
-        }
-        if trimmed.starts_with('}')
-            || trimmed.starts_with("case ")
-            || trimmed.starts_with("default:")
-            || trimmed.starts_with("else")
-            || trimmed.starts_with("catch")
-            || trimmed.starts_with("finally")
-        {
-            after_terminator = None;
-            continue;
-        }
-
-        if let Some(term_kw) = after_terminator {
-            let first_non_ws = line_str.find(|c: char| !c.is_whitespace()).unwrap_or(0);
-            let span_start = line_start + first_non_ws;
-            let span_end = line_end - if line_str.ends_with('\n') { 1 } else { 0 };
-            let (line, column) = byte_offset_to_line_col(src, span_start);
-            warnings.push(CompilerWarning {
-                code: "unreachable-code".to_string(),
-                severity: DiagnosticSeverity::Warning,
-                language,
-                path: path.clone(),
-                line,
-                column,
-                span: (span_start, span_end),
-                message: format!("Unreachable code after '{term_kw}' statement."),
-                quick_fixes: vec![QuickFix {
-                    title: "Remove unreachable code".to_string(),
-                    replacement: String::new(),
-                    span: (span_start, span_end),
-                    line,
-                    column,
-                }],
-            });
-            after_terminator = None;
-            continue;
-        }
-
-        if (trimmed == "return;"
-            || trimmed.starts_with("return ")
-            || trimmed.starts_with("throw ")
-            || trimmed == "break;"
-            || trimmed == "continue;")
-            && !trimmed.contains('{')
-            && !trimmed.contains('}')
-        {
-            after_terminator = if trimmed.starts_with("return") {
-                Some("return")
-            } else if trimmed.starts_with("throw") {
-                Some("throw")
-            } else if trimmed.starts_with("break") {
-                Some("break")
-            } else {
-                Some("continue")
-            };
         }
     }
 }
@@ -1295,9 +1348,9 @@ fn find_actionscript_misspellings(
     src: &str,
     language: ScriptLanguage,
     path: &Option<String>,
+    tokens: &[(String, usize, usize)],
     warnings: &mut Vec<CompilerWarning>,
 ) {
-    let tokens = scan_word_tokens(src);
     let mut declared: BTreeSet<String> = COMMON_BUILTINS.iter().map(|s| (*s).to_string()).collect();
 
     for (idx, (word, _, _)) in tokens.iter().enumerate() {
@@ -1479,26 +1532,27 @@ fn collect_source_identifiers(source: &str) -> BTreeSet<String> {
 }
 
 fn identifier_at_offset(source: &str, offset: usize) -> (usize, usize, String) {
-    let bytes = source.as_bytes();
-    if offset >= bytes.len() {
-        return (offset, offset, String::new());
+    if offset >= source.len() || !source.is_char_boundary(offset) {
+        return (
+            offset.min(source.len()),
+            offset.min(source.len()),
+            String::new(),
+        );
     }
-    let mut start = offset;
-    while start > 0
-        && (bytes[start - 1].is_ascii_alphanumeric()
-            || bytes[start - 1] == b'_'
-            || bytes[start - 1] == b'$')
-    {
-        start -= 1;
-    }
-    let mut end = offset;
-    while end < bytes.len()
-        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'$')
-    {
-        end += 1;
-    }
-    let text = source.get(start..end).unwrap_or("").to_string();
-    (start, end, text)
+    let is_ident = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '$';
+    let start = source[..offset]
+        .char_indices()
+        .rev()
+        .take_while(|(_, ch)| is_ident(*ch))
+        .last()
+        .map_or(offset, |(index, _)| index);
+    let length = source[offset..]
+        .chars()
+        .take_while(|ch| is_ident(*ch))
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let end = offset + length;
+    (start, end, source[start..end].to_owned())
 }
 
 fn find_identifier_near_line(
@@ -1507,15 +1561,13 @@ fn find_identifier_near_line(
     column: usize,
     target_ident: &str,
 ) -> (usize, usize, String) {
-    let (line_start, line_end) = line_byte_bounds(source, line);
-    let line_text = &source[line_start..line_end];
-    if let Some(rel_idx) = line_text.find(target_ident) {
-        let abs_start = line_start + rel_idx;
-        let abs_end = abs_start + target_ident.len();
-        return (abs_start, abs_end, target_ident.to_string());
-    }
     let offset = line_col_to_byte_offset(source, line, column);
-    identifier_at_offset(source, offset)
+    let found = identifier_at_offset(source, offset);
+    if found.2 == target_ident {
+        found
+    } else {
+        (offset, offset, String::new())
+    }
 }
 
 fn line_byte_bounds(source: &str, line: usize) -> (usize, usize) {

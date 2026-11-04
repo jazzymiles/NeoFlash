@@ -148,6 +148,17 @@ pub struct MappedStackFrame {
     pub column: usize,
 }
 
+/// Decoded compiler mapping for hosts. Generated positions use JavaScript UTF-16 columns;
+/// authored columns are Unicode characters, matching editor diagnostics. All positions are 1-based.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeSourceLocation {
+    pub generated_line: usize,
+    pub generated_column: usize,
+    pub source: String,
+    pub line: usize,
+    pub column: usize,
+}
+
 /// Standard Source Map v3 JSON structure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceMap {
@@ -302,24 +313,12 @@ impl SourceMap {
         let target_line = generated_line.saturating_sub(1);
         let target_col = generated_column.saturating_sub(1);
         let segments = self.decode_segments();
-        let line_segments: Vec<&SourceMappingSegment> = segments
+        // Source Map v3 mappings never carry across generated lines. Compiler helpers
+        // and wrapper code intentionally have no authored origin.
+        let chosen = segments
             .iter()
-            .filter(|s| s.generated_line == target_line)
-            .collect();
-        let chosen = if !line_segments.is_empty() {
-            line_segments
-                .iter()
-                .rev()
-                .find(|s| s.generated_column <= target_col)
-                .or_else(|| line_segments.first())
-                .copied()
-        } else {
-            segments
-                .iter()
-                .rev()
-                .find(|s| s.generated_line <= target_line)
-                .or_else(|| segments.first())
-        }?;
+            .rev()
+            .find(|s| s.generated_line == target_line && s.generated_column <= target_col)?;
         let source = self
             .sources
             .get(chosen.source_index)
@@ -334,6 +333,37 @@ impl SourceMap {
             column: chosen.original_column + 1,
             name,
         })
+    }
+
+    pub fn runtime_locations(&self) -> Vec<RuntimeSourceLocation> {
+        self.decode_segments()
+            .into_iter()
+            .filter_map(|segment| {
+                let source = self.sources.get(segment.source_index)?.clone();
+                let text = self
+                    .sources_content
+                    .get(segment.source_index)
+                    .and_then(|text| text.lines().nth(segment.original_line))
+                    .unwrap_or("");
+                let mut units = 0;
+                let column = text
+                    .chars()
+                    .take_while(|c| {
+                        let keep = units < segment.original_column;
+                        units += c.len_utf16();
+                        keep
+                    })
+                    .count()
+                    + 1;
+                Some(RuntimeSourceLocation {
+                    generated_line: segment.generated_line + 1,
+                    generated_column: segment.generated_column + 1,
+                    source,
+                    line: segment.original_line + 1,
+                    column,
+                })
+            })
+            .collect()
     }
 
     /// Map a runtime JavaScript stack trace string back to authored source positions.
@@ -652,6 +682,207 @@ pub fn build_source_map(
         vec![source_name.to_owned()],
         vec![original_source.to_owned()],
         names,
+        segments,
+    )
+}
+
+/// A collision-free compiler comment prefix. Authored comments/strings cannot be mistaken
+/// for emitted statement origins, including source that deliberately contains the base spelling.
+pub(crate) fn marker_prefix(source: &str) -> String {
+    let mut index = 0;
+    loop {
+        let marker = format!("/*__nf_origin_{index}:");
+        if !source.contains(&marker) {
+            return marker;
+        }
+        index += 1;
+    }
+}
+
+/// Map only positions supplied by the parser/emitter, never identifier similarity.
+/// Offsets in marker comments are byte offsets in the original source; v3 columns are UTF-16.
+pub(crate) fn map_marked_source(name: &str, source: &str, code: &str, prefix: &str) -> SourceMap {
+    let mut segments = Vec::new();
+    for (line, text) in code.lines().enumerate() {
+        for (start, _) in text.match_indices(prefix) {
+            let rest = &text[start + prefix.len()..];
+            let Some((offset, _)) = rest.split_once("*/") else {
+                continue;
+            };
+            let Ok(offset) = offset.parse::<usize>() else {
+                continue;
+            };
+            let Some(before) = source.get(..offset) else {
+                continue;
+            };
+            let original_line = before.bytes().filter(|c| *c == b'\n').count();
+            let original_column = before
+                .rsplit('\n')
+                .next()
+                .unwrap_or("")
+                .encode_utf16()
+                .count();
+            let end = start + prefix.len() + rest.find("*/").unwrap() + 2;
+            segments.push(SourceMappingSegment {
+                generated_line: line,
+                generated_column: text[..end].encode_utf16().count(),
+                source_index: 0,
+                original_line,
+                original_column,
+                name_index: None,
+            });
+        }
+    }
+    SourceMap::from_segments(
+        None,
+        vec![name.into()],
+        vec![source.into()],
+        vec![],
+        segments,
+    )
+}
+
+pub(crate) fn identity_source_map(name: &str, source: &str) -> SourceMap {
+    let mut offsets: Vec<usize> = crate::warnings::scan_word_tokens(source)
+        .into_iter()
+        .map(|(_, start, _)| start)
+        .collect();
+    let mut start = 0;
+    for text in source.split_inclusive('\n') {
+        if let Some(first) = text.find(|c: char| !c.is_whitespace()) {
+            offsets.push(start + first);
+        }
+        start += text.len();
+    }
+    offsets.sort_unstable();
+    offsets.dedup();
+    let segments = offsets
+        .into_iter()
+        .map(|offset| {
+            let before = &source[..offset];
+            let line = before.bytes().filter(|c| *c == b'\n').count();
+            let column = before
+                .rsplit('\n')
+                .next()
+                .unwrap_or("")
+                .encode_utf16()
+                .count();
+            SourceMappingSegment {
+                generated_line: line,
+                generated_column: column,
+                source_index: 0,
+                original_line: line,
+                original_column: column,
+                name_index: None,
+            }
+        })
+        .collect();
+    SourceMap::from_segments(
+        None,
+        vec![name.into()],
+        vec![source.into()],
+        vec![],
+        segments,
+    )
+}
+
+/// Rebase an exact map when its code is embedded in a generated wrapper.
+pub(crate) fn shift_map(map: &SourceMap, line: usize, column: usize) -> SourceMap {
+    let mut segments = map.decode_segments();
+    for s in &mut segments {
+        if s.generated_line == 0 {
+            s.generated_column += column;
+        }
+        s.generated_line += line;
+    }
+    SourceMap::from_segments(
+        map.file.clone(),
+        map.sources.clone(),
+        map.sources_content.clone(),
+        map.names.clone(),
+        segments,
+    )
+}
+
+pub(crate) fn combine_maps(maps: &[SourceMap]) -> SourceMap {
+    let mut sources = Vec::new();
+    let mut contents = Vec::new();
+    let mut names = Vec::new();
+    let mut segments = Vec::new();
+    for map in maps {
+        let indices: Vec<_> = map
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                sources.iter().position(|s| s == name).unwrap_or_else(|| {
+                    sources.push(name.clone());
+                    contents.push(map.sources_content.get(i).cloned().unwrap_or_default());
+                    sources.len() - 1
+                })
+            })
+            .collect();
+        let name_start = names.len();
+        names.extend(map.names.iter().cloned());
+        segments.extend(map.decode_segments().into_iter().map(|mut s| {
+            s.source_index = indices[s.source_index];
+            s.name_index = s.name_index.map(|i| i + name_start);
+            s
+        }));
+    }
+    SourceMap::from_segments(None, sources, contents, names, segments)
+}
+
+/// Relocate Oxc mappings through explicit copied byte ranges produced by the module rewriter.
+/// Removed imports and generated export shims have no source span; retained declarations do.
+pub(crate) fn relocate_map(
+    map: &SourceMap,
+    before: &str,
+    after: &str,
+    ranges: &[(usize, usize, usize)],
+) -> SourceMap {
+    let mut segments = Vec::new();
+    for mut segment in map.decode_segments() {
+        let mut line_start = 0;
+        let mut offset = None;
+        for (line, text) in before.split_inclusive('\n').enumerate() {
+            if line == segment.generated_line {
+                let mut units = 0;
+                for (byte, ch) in text.char_indices() {
+                    if units == segment.generated_column {
+                        offset = Some(line_start + byte);
+                        break;
+                    }
+                    units += ch.len_utf16();
+                }
+                break;
+            }
+            line_start += text.len();
+        }
+        let Some(offset) = offset else {
+            continue;
+        };
+        let Some((start, _, dest)) = ranges
+            .iter()
+            .find(|(start, end, _)| *start <= offset && offset < *end)
+        else {
+            continue;
+        };
+        let prefix = &after[..dest + offset - start];
+        segment.generated_line = prefix.bytes().filter(|c| *c == b'\n').count();
+        segment.generated_column = prefix
+            .rsplit('\n')
+            .next()
+            .unwrap_or("")
+            .encode_utf16()
+            .count();
+        segments.push(segment);
+    }
+    SourceMap::from_segments(
+        map.file.clone(),
+        map.sources.clone(),
+        map.sources_content.clone(),
+        map.names.clone(),
         segments,
     )
 }

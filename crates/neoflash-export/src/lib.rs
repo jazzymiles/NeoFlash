@@ -98,6 +98,10 @@ struct CompiledScript {
     source: String,
     code: String,
     location: String,
+    locations: Vec<String>,
+    source_url: String,
+    source_map: neoflash_script::SourceMap,
+    source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -321,6 +325,9 @@ struct PublishInfo {
 struct ProgramBundle<'a> {
     code: &'a str,
     class_names: &'a [String],
+    source_url: &'static str,
+    source_map: Option<&'a neoflash_script::SourceMap>,
+    source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
 /// Reports current publish limitations before the user exports their work.
@@ -870,24 +877,35 @@ fn compile_scripts(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
 ) -> Result<Vec<CompiledScript>, ExportError> {
-    let mut scripts = Vec::new();
+    let mut scripts: Vec<CompiledScript> = Vec::new();
     let mut failures = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut seen = std::collections::BTreeMap::<String, usize>::new();
     let mut add = |script: &Script, location: String| {
         if script.source.trim().is_empty() {
             return;
         }
         let key = serde_json::to_string(script).expect("Script contains only serializable strings");
-        if !seen.insert(key) {
+        if let Some(&index) = seen.get(&key) {
+            if !scripts[index].locations.contains(&location) {
+                scripts[index].locations.push(location);
+            }
             return;
         }
-        match neoflash_script::compile_with_program(script, program) {
-            Ok(code) => scripts.push(CompiledScript {
-                language: script.language,
-                source: script.source.clone(),
-                code,
-                location,
-            }),
+        let source_url = format!("neoflash-script-{}.js", scripts.len());
+        match neoflash_script::compile_with_program_source_map(script, program, &location) {
+            Ok(compiled) => {
+                seen.insert(key, scripts.len());
+                scripts.push(CompiledScript {
+                    language: script.language,
+                    source: script.source.clone(),
+                    code: compiled.code,
+                    locations: vec![location.clone()],
+                    location,
+                    source_url,
+                    source_locations: compiled.source_map.runtime_locations(),
+                    source_map: compiled.source_map,
+                });
+            }
             Err(errors) => {
                 for error in errors {
                     failures.push(format!(
@@ -923,6 +941,24 @@ fn compile_scripts(
                     }
                 }
             }
+        }
+    }
+    // Runtime dispatch currently identifies script text, not its authored placement.
+    // Give deduplicated text an honest shared identity instead of claiming the first frame.
+    for (index, script) in scripts.iter_mut().enumerate() {
+        if script.locations.len() > 1 {
+            let name = format!("Shared script {}", index + 1);
+            for source in &mut script.source_map.sources {
+                if *source == script.location {
+                    *source = name.clone();
+                }
+            }
+            for location in &mut script.source_locations {
+                if location.source == script.location {
+                    location.source = name.clone();
+                }
+            }
+            script.location = name;
         }
     }
     if failures.is_empty() {
@@ -1190,6 +1226,14 @@ fn assemble(
     let program = ships_program.then(|| ProgramBundle {
         code: &prepared.program.code,
         class_names: &prepared.program.class_names,
+        source_url: "neoflash-project.js",
+        source_map: prepared.program.bundle_source_map.as_ref(),
+        source_locations: prepared
+            .program
+            .bundle_source_map
+            .as_ref()
+            .map(|map| map.runtime_locations())
+            .unwrap_or_default(),
     });
     let bundle = Bundle {
         project: &prepared.published,
@@ -1916,6 +1960,46 @@ mod tests {
         assert!(!out.exists());
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn publication_maps_handlers_and_groups_identical_authored_origins() {
+        let mut project = Project::blank();
+        project.symbols[0].timeline.frame_count = 2;
+        let source = "// ё\ntrace('mapped');\nthrow new Error('boom');";
+        project.symbols[0].timeline.scripts = (0..2)
+            .map(|frame| neoflash_core::FrameScript {
+                frame,
+                script: Script {
+                    language: ScriptLanguage::ActionScript3,
+                    source: source.into(),
+                },
+            })
+            .collect();
+        let program = neoflash_script::compile_project(&project).unwrap();
+        let scripts = compile_scripts(&project, &program).unwrap();
+        assert_eq!(scripts.len(), 1);
+        let script = &scripts[0];
+        assert_eq!(script.source_url, "neoflash-script-0.js");
+        assert_eq!(script.location, "Shared script 1");
+        assert_eq!(script.locations.len(), 2);
+        assert!(script.locations[0].ends_with("frame 1"));
+        assert!(script.locations[1].ends_with("frame 2"));
+        assert_eq!(script.source_map.sources, ["Shared script 1"]);
+        assert!(
+            script
+                .source_locations
+                .iter()
+                .any(|location| location.line == 3 && location.source == "Shared script 1")
+        );
+        // A duplicate invalid script must report errors, never index an absent compiled entry.
+        for frame in &mut project.symbols[0].timeline.scripts {
+            frame.script.source = "var = ;".into();
+        }
+        assert!(matches!(
+            compile_scripts(&project, &program),
+            Err(ExportError::Scripts(_))
+        ));
+    }
+
     #[test]
     fn unsupported_script_blocks_export_before_writing() {
         let dir = temp();

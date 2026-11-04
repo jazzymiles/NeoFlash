@@ -490,13 +490,12 @@ run();
     let fixed_typo = apply_quick_fix(ts_src, &typo_w.quick_fixes[0]);
     assert!(fixed_typo.contains("trace(\"starting\");"));
 
-    // Apply quick fix for unreachable code
+    // Unreachable declarations may be hoisted: no destructive automatic fix.
     let unreach_w = warnings
         .iter()
         .find(|w| w.code == "unreachable-code")
         .unwrap();
-    let fixed_unreach = apply_quick_fix(ts_src, &unreach_w.quick_fixes[0]);
-    assert!(!fixed_unreach.contains("const dead = 99;"));
+    assert!(unreach_w.quick_fixes.is_empty());
 
     // 2. ActionScript 2.0: deprecated constructs (`tellTarget`, `eq`, `and`), unused var, missing type
     let as2_src = r#"var unusedTemp = 10;
@@ -516,8 +515,16 @@ tellTarget("hero") {
         .iter()
         .find(|w| w.message.contains("'tellTarget'"))
         .unwrap();
-    let modernized = apply_quick_fix(as2_src, &tell_target_w.quick_fixes[0]);
-    assert!(modernized.contains("with(\"hero\")"));
+    assert!(
+        tell_target_w.quick_fixes.is_empty(),
+        "with does not resolve timeline target paths"
+    );
+    let and_warning = as2_warnings
+        .iter()
+        .find(|w| w.message.contains("operator 'and'"))
+        .unwrap();
+    let modernized = apply_quick_fix(as2_src, &and_warning.quick_fixes[0]);
+    assert!(modernized.contains("name eq \"neo\" && ready"));
 
     // Project-wide warnings check
     let mut proj = Project::blank();
@@ -634,4 +641,144 @@ console.log(JSON.stringify({{ total: ctx.total, pausedAt, lastLocals: globalThis
     assert_eq!(debug_json["pausedAt"][0]["line"], 3);
     assert_eq!(debug_json["lastLocals"]["base"], 10);
     assert_eq!(debug_json["lastLocals"]["doubled"], 20);
+}
+
+#[test]
+fn structured_diagnostics_recover_independent_errors_and_apply_safe_source_fixes() {
+    use neoflash_script::{DiagnosticSeverity, QuickFix, check_warnings_with_path};
+    let broken = script(
+        ScriptLanguage::ActionScript2,
+        "var first = ;\nvar second = ;\ntrace(1);",
+    );
+    let errors = compile(&broken).unwrap_err();
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert_eq!(errors.iter().map(|d| d.line).collect::<Vec<_>>(), [1, 2]);
+    for error in &errors {
+        assert_eq!(error.severity, DiagnosticSeverity::Error);
+        assert_eq!(error.code.as_deref(), Some("syntax"));
+        assert_eq!(&broken.source[error.span.0..error.span.1], ";");
+        assert_eq!(error.end_column, error.column + 1);
+    }
+
+    let mut project = Project::blank();
+    project.sources.push(source_unit(
+        "unicode.ts",
+        ScriptLanguage::TypeScript,
+        "export const café: number = 'wrong';\nexport const next: number = false;",
+    ));
+    let errors = compile_project(&project).unwrap_err();
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors
+            .iter()
+            .all(|d| d.path.as_deref() == Some("unicode.ts"))
+    );
+    assert!(
+        errors
+            .iter()
+            .all(|d| d.end_line >= d.line && d.span.1 > d.span.0)
+    );
+    let encoded = serde_json::to_string(&errors[0]).unwrap();
+    assert_eq!(
+        serde_json::from_str::<neoflash_script::Diagnostic>(&encoded).unwrap(),
+        errors[0]
+    );
+
+    let mut project = Project::blank();
+    project.sources.push(source_unit(
+        "Probe.as",
+        ScriptLanguage::ActionScript3,
+        "package { public class Probe { public var point:Point; } }",
+    ));
+    let errors = compile_project(&project).unwrap_err();
+    assert_eq!(errors[0].code.as_deref(), Some("1046"));
+    assert_eq!(
+        &project.sources[0].source[errors[0].span.0..errors[0].span.1],
+        "Point"
+    );
+    let fix = errors[0]
+        .fixes
+        .iter()
+        .find(|f| f.title == "Import flash.geom.Point")
+        .unwrap();
+    project.sources[0].source = fix.try_apply(&project.sources[0].source).unwrap();
+    compile_project(&project).unwrap();
+
+    let unit = script(
+        ScriptLanguage::ActionScript3,
+        "import flash.geom.Point;\nfunction f():void { if (true) return; trace('live'); }\nfunction g():void { return; trace('dead'); }",
+    );
+    let warnings = check_warnings_with_path(&unit, Some("actions.as"));
+    let unused_import = warnings.iter().find(|w| w.code == "unused-import").unwrap();
+    let diagnostic = unused_import.to_diagnostic_with_source(&unit.source);
+    assert_eq!(diagnostic.path.as_deref(), Some("actions.as"));
+    assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
+    assert_eq!(
+        diagnostic.end_column,
+        "import flash.geom.Point;".chars().count() + 1
+    );
+    assert!(
+        !unused_import.quick_fixes[0]
+            .apply(&unit.source)
+            .contains("import ")
+    );
+    // Frame handler parser does not accept imports; test completion on the remaining handler.
+    let no_import = script(
+        unit.language,
+        &unused_import.quick_fixes[0].apply(&unit.source),
+    );
+    let unreachable = check_warnings(&no_import)
+        .into_iter()
+        .filter(|w| w.code == "unreachable-code")
+        .collect::<Vec<_>>();
+    assert_eq!(unreachable.len(), 1, "{unreachable:?}");
+    assert_eq!(unreachable[0].line, 3);
+    assert!(unreachable[0].quick_fixes.is_empty());
+
+    let unsafe_legacy = script(
+        ScriptLanguage::ActionScript2,
+        "var score = sideEffect();\nfunction f():Void { var value = sideEffect(); var _value = 0; }\ntrace(1 eq true); trace(1 add 2); ifFrameLoaded(2) { play(); }",
+    );
+    for warning in check_warnings(&unsafe_legacy) {
+        if warning.code == "unused-variable"
+            || warning.code == "missing-type-annotation"
+            || warning.message.contains("operator 'eq'")
+            || warning.message.contains("operator 'add'")
+            || warning.message.contains("'ifFrameLoaded'")
+        {
+            assert!(warning.quick_fixes.is_empty(), "unsafe fix: {warning:?}");
+        }
+    }
+    let local = script(
+        ScriptLanguage::ActionScript2,
+        "function f():Void { var count = sideEffect(); }",
+    );
+    let warning = check_warnings(&local)
+        .into_iter()
+        .find(|w| w.code == "unused-variable")
+        .unwrap();
+    let fixed = warning.quick_fixes[0].apply(&local.source);
+    assert!(fixed.contains("var _count = sideEffect()"));
+
+    for payload in [
+        "var pattern:RegExp = /import flash.geom.Point;/; trace(pattern);",
+        "var xml:XML = <text>import flash.geom.Point;</text>; trace(xml);",
+    ] {
+        assert!(
+            check_warnings(&script(ScriptLanguage::ActionScript3, payload))
+                .iter()
+                .all(|warning| warning.code != "unused-import"),
+            "literal payload is not source code"
+        );
+    }
+
+    let invalid = QuickFix {
+        title: "invalid UTF-8 boundary".into(),
+        replacement: "x".into(),
+        span: (1, 2),
+        line: 1,
+        column: 1,
+    };
+    assert!(invalid.try_apply("éclair").is_none());
+    assert_eq!(invalid.apply("éclair"), "éclair");
 }

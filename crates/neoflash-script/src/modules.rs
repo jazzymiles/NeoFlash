@@ -1,7 +1,7 @@
 //! JavaScript & TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`) module resolution,
 //! topological dependency bundling, cross-module static type checking, and JSX runtime support.
 
-use crate::sourcemap::{SourceMap, build_source_map};
+use crate::sourcemap::SourceMap;
 use crate::ts_check::{ModuleTypeExports, TsType, check_typescript_program, suggest_identifier};
 use crate::{Diagnostic, byte_offset_to_line_col};
 use neoflash_core::{Script, ScriptLanguage, SourceUnit};
@@ -60,6 +60,7 @@ pub struct CompiledModuleGraph {
     pub path_lookup: BTreeMap<String, String>,
     /// Bundled JavaScript registration and runtime helper code.
     pub bundled_code: String,
+    pub bundle_source_map: Option<SourceMap>,
     /// Exported class names across all JS/TS modules.
     pub exported_classes: Vec<String>,
 }
@@ -293,12 +294,9 @@ fn extract_module_header(
                     .map(|label| label.offset())
                     .unwrap_or(0);
                 let (line, column) = byte_offset_to_line_col(source, offset);
-                Diagnostic {
-                    language,
-                    line,
-                    column,
-                    message: format!("{path}: {error}"),
-                }
+                Diagnostic::new(language, line, column, format!("{path}: {error}"))
+                    .with_source(source)
+                    .with_path(path)
             })
             .collect());
     }
@@ -506,21 +504,29 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
     for unit in units {
         let canonical = normalize_module_path(&unit.path);
         if canonical.is_empty() {
-            errors.push(Diagnostic {
-                language: unit.language,
-                line: 1,
-                column: 1,
-                message: "Source unit path must not be empty.".to_string(),
-            });
+            errors.push(
+                Diagnostic::new(
+                    unit.language,
+                    1,
+                    1,
+                    "Source unit path must not be empty.".to_string(),
+                )
+                .with_source(&unit.source)
+                .with_path(&unit.path),
+            );
             continue;
         }
         if unit.source.len() > 1_048_576 {
-            errors.push(Diagnostic {
-                language: unit.language,
-                line: 1,
-                column: 1,
-                message: format!("{}: A source unit is limited to 1 MiB.", unit.path),
-            });
+            errors.push(
+                Diagnostic::new(
+                    unit.language,
+                    1,
+                    1,
+                    format!("{}: A source unit is limited to 1 MiB.", unit.path),
+                )
+                .with_source(&unit.source)
+                .with_path(&unit.path),
+            );
             continue;
         }
         match extract_module_header(&unit.source, unit.language, &canonical, &lookup) {
@@ -530,12 +536,16 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
                 {
                     e.insert((unit, header));
                 } else {
-                    errors.push(Diagnostic {
-                        language: unit.language,
-                        line: 1,
-                        column: 1,
-                        message: format!("Duplicate JS/TS module path '{canonical}'."),
-                    });
+                    errors.push(
+                        Diagnostic::new(
+                            unit.language,
+                            1,
+                            1,
+                            format!("Duplicate JS/TS module path '{canonical}'."),
+                        )
+                        .with_source(&unit.source)
+                        .with_path(&unit.path),
+                    );
                 }
             }
             Err(diags) => errors.extend(diags),
@@ -546,15 +556,19 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
     for (id, (unit, header)) in &headers {
         for imp in &header.imports {
             if imp.resolved_path.is_none() {
-                errors.push(Diagnostic {
-                    language: unit.language,
-                    line: imp.line,
-                    column: imp.column,
-                    message: format!(
-                        "{id}: Cannot find module '{}' imported from '{id}'.",
-                        imp.specifier
-                    ),
-                });
+                errors.push(
+                    Diagnostic::new(
+                        unit.language,
+                        imp.line,
+                        imp.column,
+                        format!(
+                            "{id}: Cannot find module '{}' imported from '{id}'.",
+                            imp.specifier
+                        ),
+                    )
+                    .with_source(&unit.source)
+                    .with_path(&unit.path),
+                );
             }
         }
     }
@@ -599,15 +613,19 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
                         let cycle_start = stack.iter().position(|m| m == dep).unwrap_or(0);
                         let mut chain: Vec<String> = stack[cycle_start..].to_vec();
                         chain.push(dep.clone());
-                        errors.push(Diagnostic {
-                            language: unit.language,
-                            line: imp.line,
-                            column: imp.column,
-                            message: format!(
-                                "{current}: Circular module dependency detected: {}",
-                                chain.join(" -> ")
-                            ),
-                        });
+                        errors.push(
+                            Diagnostic::new(
+                                unit.language,
+                                imp.line,
+                                imp.column,
+                                format!(
+                                    "{current}: Circular module dependency detected: {}",
+                                    chain.join(" -> ")
+                                ),
+                            )
+                            .with_source(&unit.source)
+                            .with_path(&unit.path),
+                        );
                     }
                     Some(VisitState::Visited) => {}
                 }
@@ -680,14 +698,9 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
                 && !target_mod.has_default_export
                 && !target_mod.exported_values.contains("default")
             {
-                errors.push(Diagnostic {
-                    language: unit.language,
-                    line: *dl,
-                    column: *dc,
-                    message: format!(
+                errors.push(Diagnostic::new(unit.language, *dl, *dc, format!(
                         "{id}: Module '{target_id}' has no default export (imported as '{local}')."
-                    ),
-                });
+                    )).with_source(&unit.source).with_path(&unit.path));
             }
             for (imported_name, _, is_type, sl, sc) in &imp.named_imports {
                 let exists_val = target_mod.exported_values.contains(imported_name);
@@ -703,14 +716,9 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
                         let hint = suggest_identifier(imported_name, candidates)
                             .map(|(s, _)| format!(" Did you mean '{s}'?"))
                             .unwrap_or_default();
-                        errors.push(Diagnostic {
-                            language: unit.language,
-                            line: *sl,
-                            column: *sc,
-                            message: format!(
+                        errors.push(Diagnostic::new(unit.language, *sl, *sc, format!(
                                 "{id}: Module '{target_id}' has no exported type '{imported_name}'.{hint}"
-                            ),
-                        });
+                            )).with_source(&unit.source).with_path(&unit.path));
                     }
                 } else if !exists_val && !exists_ty && !target_mod.has_star_reexport {
                     let candidates: Vec<&str> = target_mod
@@ -722,14 +730,9 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
                     let hint = suggest_identifier(imported_name, candidates)
                         .map(|(s, _)| format!(" Did you mean '{s}'?"))
                         .unwrap_or_default();
-                    errors.push(Diagnostic {
-                        language: unit.language,
-                        line: *sl,
-                        column: *sc,
-                        message: format!(
+                    errors.push(Diagnostic::new(unit.language, *sl, *sc, format!(
                             "{id}: Module '{target_id}' has no exported member '{imported_name}'.{hint}"
-                        ),
-                    });
+                        )).with_source(&unit.source).with_path(&unit.path));
                 }
             }
         }
@@ -765,16 +768,23 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
         };
 
         // Transform TypeScript & JSX, then rewrite ES module imports/exports
-        let compiled_body =
+        let (compiled_body, source_map) =
             match transform_and_rewrite_module(&unit.source, unit.language, id, &lookup) {
-                Ok(code) => code,
+                Ok(output) => output,
                 Err(diags) => {
                     errors.extend(diags);
-                    String::new()
+                    (
+                        String::new(),
+                        SourceMap::from_segments(
+                            None,
+                            vec![id.clone()],
+                            vec![unit.source.clone()],
+                            vec![],
+                            vec![],
+                        ),
+                    )
                 }
             };
-
-        let source_map = build_source_map(id, &unit.source, &compiled_body);
 
         for cls in &exported_classes {
             if !all_exported_classes.contains(cls) {
@@ -807,13 +817,14 @@ pub fn compile_web_modules(units: &[&SourceUnit]) -> Result<CompiledModuleGraph,
         return Err(errors);
     }
 
-    let bundled_code = emit_bundled_module_runtime(&order, &compiled_modules);
+    let (bundled_code, bundle_source_map) = emit_bundled_module_runtime(&order, &compiled_modules);
 
     Ok(CompiledModuleGraph {
         order,
         modules: compiled_modules,
         path_lookup: lookup,
         bundled_code,
+        bundle_source_map: Some(bundle_source_map),
         exported_classes: all_exported_classes,
     })
 }
@@ -842,12 +853,9 @@ fn analyze_and_typecheck_module(
                     .map(|label| label.offset())
                     .unwrap_or(0);
                 let (line, column) = byte_offset_to_line_col(source, offset);
-                Diagnostic {
-                    language,
-                    line,
-                    column,
-                    message: format!("{path}: {error}"),
-                }
+                Diagnostic::new(language, line, column, format!("{path}: {error}"))
+                    .with_source(source)
+                    .with_path(path)
             })
             .collect());
     }
@@ -910,6 +918,14 @@ pub fn transform_ts_and_jsx(
     path_hint: Option<&str>,
     is_module: bool,
 ) -> Result<String, Vec<Diagnostic>> {
+    transform_ts_and_jsx_mapped(source, language, path_hint, is_module).map(|(code, _)| code)
+}
+fn transform_ts_and_jsx_mapped(
+    source: &str,
+    language: ScriptLanguage,
+    path_hint: Option<&str>,
+    is_module: bool,
+) -> Result<(String, SourceMap), Vec<Diagnostic>> {
     let allocator = Allocator::default();
     let source_type = source_type_for(language, path_hint, is_module);
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -926,12 +942,9 @@ pub fn transform_ts_and_jsx(
                     .unwrap_or(0);
                 let (line, column) = byte_offset_to_line_col(source, offset);
                 let prefix = path_hint.map(|p| format!("{p}: ")).unwrap_or_default();
-                Diagnostic {
-                    language,
-                    line,
-                    column,
-                    message: format!("{prefix}{error}"),
-                }
+                Diagnostic::new(language, line, column, format!("{prefix}{error}"))
+                    .with_source(source)
+                    .with_path(path_hint.unwrap_or(""))
             })
             .collect());
     }
@@ -953,12 +966,9 @@ pub fn transform_ts_and_jsx(
                     .unwrap_or(0);
                 let (line, column) = byte_offset_to_line_col(source, offset);
                 let prefix = path_hint.map(|p| format!("{p}: ")).unwrap_or_default();
-                Diagnostic {
-                    language,
-                    line,
-                    column,
-                    message: format!("{prefix}{error}"),
-                }
+                Diagnostic::new(language, line, column, format!("{prefix}{error}"))
+                    .with_source(source)
+                    .with_path(path_hint.unwrap_or(""))
             })
             .collect());
     }
@@ -993,20 +1003,22 @@ pub fn transform_ts_and_jsx(
                     .unwrap_or(0);
                 let (line, column) = byte_offset_to_line_col(source, offset);
                 let prefix = path_hint.map(|p| format!("{p}: ")).unwrap_or_default();
-                Diagnostic {
-                    language,
-                    line,
-                    column,
-                    message: format!("{prefix}{error}"),
-                }
+                Diagnostic::new(language, line, column, format!("{prefix}{error}"))
+                    .with_source(source)
+                    .with_path(path_hint.unwrap_or(""))
             })
             .collect());
     }
 
-    Ok(Codegen::new()
-        .with_options(CodegenOptions::default())
-        .build(&program)
-        .code)
+    let generated = Codegen::new()
+        .with_options(CodegenOptions {
+            source_map_path: Some(file_path.to_owned()),
+            ..CodegenOptions::default()
+        })
+        .build(&program);
+    let map = serde_json::from_str(&generated.map.expect("mapping requested").to_json_string())
+        .expect("Oxc source map v3");
+    Ok((generated.code, map))
 }
 
 /// Transform a JS/TS module and rewrite ES `import`/`export` statements into `__nfRequire` and `__nfExports`.
@@ -1015,27 +1027,33 @@ fn transform_and_rewrite_module(
     language: ScriptLanguage,
     module_id: &str,
     lookup: &BTreeMap<String, String>,
-) -> Result<String, Vec<Diagnostic>> {
-    let transformed_js = transform_ts_and_jsx(source, language, Some(module_id), true)?;
-    rewrite_esm_statements(&transformed_js, language, module_id, lookup, true)
+) -> Result<(String, SourceMap), Vec<Diagnostic>> {
+    let (transformed_js, map) =
+        transform_ts_and_jsx_mapped(source, language, Some(module_id), true)?;
+    let (code, ranges) =
+        rewrite_esm_with_ranges(&transformed_js, language, module_id, lookup, true)?;
+    let map = crate::sourcemap::relocate_map(&map, &transformed_js, &code, &ranges);
+    Ok((code, map))
 }
 
 /// Rewrite ES `import` and `export` statements in JavaScript code produced after TS/JSX transform.
-fn rewrite_esm_statements(
+#[allow(clippy::type_complexity)]
+fn rewrite_esm_with_ranges(
     js_code: &str,
     language: ScriptLanguage,
     importer_path: &str,
     lookup: &BTreeMap<String, String>,
     allow_exports: bool,
-) -> Result<String, Vec<Diagnostic>> {
+) -> Result<(String, Vec<(usize, usize, usize)>), Vec<Diagnostic>> {
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, js_code, SourceType::mjs()).parse();
     if !parsed.errors.is_empty() {
-        return Ok(js_code.to_string());
+        return Ok((js_code.to_string(), vec![(0, js_code.len(), 0)]));
     }
 
     let mut replacements: Vec<(usize, usize, String)> = Vec::new();
     let mut temp_counter = 0usize;
+    let mut retained = BTreeMap::<usize, (usize, usize, usize)>::new();
 
     for stmt in &parsed.program.body {
         match stmt {
@@ -1117,6 +1135,7 @@ fn rewrite_esm_statements(
                 } else if let Some(decl) = &exp.declaration {
                     let decl_span = decl.span();
                     let decl_code = &js_code[decl_span.start as usize..decl_span.end as usize];
+                    retained.insert(start, (decl_span.start as usize, decl_span.end as usize, 0));
                     let mut bound_names = BTreeSet::new();
                     match decl {
                         Declaration::VariableDeclaration(var_decl) => {
@@ -1142,7 +1161,7 @@ fn rewrite_esm_statements(
                     }
                     for name in bound_names {
                         out.push_str(&format!(
-                            " Object.defineProperty(__nfExports, {name:?}, {{ enumerable: true, configurable: true, get: function() {{ return {name}; }}, set: function(__v) {{ {name} = __v; }} }});"
+                            "\nObject.defineProperty(__nfExports, {name:?}, {{ enumerable: true, configurable: true, get: function() {{ return {name}; }}, set: function(__v) {{ {name} = __v; }} }});"
                         ));
                     }
                     replacements.push((start, end, out));
@@ -1191,6 +1210,19 @@ fn rewrite_esm_statements(
                         format!("__nfExports.default = ({code});")
                     }
                 };
+                let span = exp.declaration.span();
+                if !matches!(
+                    exp.declaration,
+                    ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
+                ) {
+                    let original = &js_code[span.start as usize..span.end as usize];
+                    let at = if replacement.starts_with(original) {
+                        0
+                    } else {
+                        "__nfExports.default = (".len()
+                    };
+                    retained.insert(start, (span.start as usize, span.end as usize, at));
+                }
                 replacements.push((start, end, replacement));
             }
             Statement::ExportAllDeclaration(exp) if allow_exports => {
@@ -1219,20 +1251,26 @@ fn rewrite_esm_statements(
 
     let _ = language;
     if replacements.is_empty() {
-        return Ok(js_code.to_string());
+        return Ok((js_code.to_string(), vec![(0, js_code.len(), 0)]));
     }
 
     let mut out = String::with_capacity(js_code.len() + 256);
     let mut cursor = 0usize;
+    let mut ranges = Vec::new();
     for (start, end, rep) in replacements {
         if start >= cursor && end <= js_code.len() {
+            ranges.push((cursor, start, out.len()));
             out.push_str(&js_code[cursor..start]);
+            if let Some((from, to, at)) = retained.get(&start) {
+                ranges.push((*from, *to, out.len() + at));
+            }
             out.push_str(&rep);
             cursor = end;
         }
     }
+    ranges.push((cursor, js_code.len(), out.len()));
     out.push_str(&js_code[cursor..]);
-    Ok(out)
+    Ok((out, ranges))
 }
 
 /// Compile a JS or TS frame/object handler against a `CompiledModuleGraph`.
@@ -1240,6 +1278,13 @@ pub fn compile_handler_with_modules(
     script: &Script,
     graph: &CompiledModuleGraph,
 ) -> Result<String, Vec<Diagnostic>> {
+    compile_handler_with_modules_mapped(script, graph, "handler").map(|(code, _)| code)
+}
+pub(crate) fn compile_handler_with_modules_mapped(
+    script: &Script,
+    graph: &CompiledModuleGraph,
+    source_name: &str,
+) -> Result<(String, SourceMap), Vec<Diagnostic>> {
     // Check if the handler has top-level `import` or `export` statements or JSX
     let allocator = Allocator::default();
     let wrapped_for_check = format!("function __neoflash_handler__() {{\n{}\n}}", script.source);
@@ -1262,27 +1307,25 @@ pub fn compile_handler_with_modules(
             || !header.exported_types.is_empty()
             || header.has_star_reexport
         {
-            return Err(vec![Diagnostic {
-                language: script.language,
-                line: 1,
-                column: 1,
-                message: "Frame and object handlers cannot export declarations; move exports to a project source module.".to_string(),
-            }]);
+            return Err(vec![Diagnostic::new(script.language, 1, 1, "Frame and object handlers cannot export declarations; move exports to a project source module.".to_string()).with_source(&script.source)]);
         }
 
         let mut errors = Vec::new();
         for imp in &header.imports {
             match &imp.resolved_path {
                 None => {
-                    errors.push(Diagnostic {
-                        language: script.language,
-                        line: imp.line,
-                        column: imp.column,
-                        message: format!(
-                            "Cannot find module '{}' in project source units.",
-                            imp.specifier
-                        ),
-                    });
+                    errors.push(
+                        Diagnostic::new(
+                            script.language,
+                            imp.line,
+                            imp.column,
+                            format!(
+                                "Cannot find module '{}' in project source units.",
+                                imp.specifier
+                            ),
+                        )
+                        .with_source(&script.source),
+                    );
                 }
                 Some(target_id) => {
                     if let Some(target_mod) = graph.modules.get(target_id) {
@@ -1291,14 +1334,9 @@ pub fn compile_handler_with_modules(
                             && !target_mod.has_default_export
                             && !target_mod.exported_values.contains("default")
                         {
-                            errors.push(Diagnostic {
-                                language: script.language,
-                                line: *dl,
-                                column: *dc,
-                                message: format!(
+                            errors.push(Diagnostic::new(script.language, *dl, *dc, format!(
                                     "Module '{target_id}' has no default export (imported as '{local}')."
-                                ),
-                            });
+                                )).with_source(&script.source));
                         }
                         for (imported_name, _, is_type, sl, sc) in &imp.named_imports {
                             let exists_val = target_mod.exported_values.contains(imported_name);
@@ -1309,14 +1347,9 @@ pub fn compile_handler_with_modules(
                                 } else {
                                     "exported member"
                                 };
-                                errors.push(Diagnostic {
-                                    language: script.language,
-                                    line: *sl,
-                                    column: *sc,
-                                    message: format!(
+                                errors.push(Diagnostic::new(script.language, *sl, *sc, format!(
                                         "Module '{target_id}' has no {kind_label} '{imported_name}'."
-                                    ),
-                                });
+                                    )).with_source(&script.source));
                             }
                         }
                     }
@@ -1344,22 +1377,37 @@ pub fn compile_handler_with_modules(
             }
         }
 
-        let transformed = transform_ts_and_jsx(&script.source, script.language, None, true)?;
-        let rewritten =
-            rewrite_esm_statements(&transformed, script.language, "", &graph.path_lookup, false)?;
-        let needs_jsx = rewritten.contains("__nfJsx") || rewritten.contains("__nfFragment");
+        let (transformed, map) =
+            transform_ts_and_jsx_mapped(&script.source, script.language, Some(source_name), true)?;
+        let (rewritten, ranges) =
+            rewrite_esm_with_ranges(&transformed, script.language, "", &graph.path_lookup, false)?;
+        let map = crate::sourcemap::relocate_map(&map, &transformed, &rewritten, &ranges);
+        let trim_start = rewritten.len() - rewritten.trim_start().len();
+        let code = rewritten.trim().to_owned();
+        let map = crate::sourcemap::relocate_map(
+            &map,
+            &rewritten,
+            &code,
+            &[(trim_start, trim_start + code.len(), 0)],
+        );
+        let needs_jsx = code.contains("__nfJsx") || code.contains("__nfFragment");
         if needs_jsx {
-            return Ok(format!(
-                "{}\n{}",
-                jsx_inline_preamble_js(),
-                rewritten.trim()
-            ));
+            let preamble = format!("{}\n", jsx_inline_preamble_js());
+            let map = crate::sourcemap::shift_map(
+                &map,
+                preamble.bytes().filter(|c| *c == b'\n').count(),
+                0,
+            );
+            return Ok((format!("{preamble}{code}"), map));
         }
-        return Ok(rewritten.trim().to_string());
+        return Ok((code, map));
     }
 
-    // Standard handler without top-level `import`/`export`
-    crate::compile(script)
+    crate::compile_web_mapped(
+        script,
+        script.language == ScriptLanguage::TypeScript,
+        source_name,
+    )
 }
 
 /// Inline JSX helper preamble for standalone scripts/handlers that use JSX without a project bundle.
@@ -1494,7 +1542,7 @@ globalThis.__nfFragment = __nfFragment;"#
 fn emit_bundled_module_runtime(
     order: &[String],
     modules: &BTreeMap<String, CompiledModule>,
-) -> String {
+) -> (String, SourceMap) {
     let mut out = String::new();
     out.push_str(jsx_inline_preamble_js());
     out.push('\n');
@@ -1543,6 +1591,7 @@ globalThis.__nfRequire = __nfRequire;
 "#,
     );
 
+    let mut maps = Vec::new();
     for id in order {
         let Some(module) = modules.get(id) else {
             continue;
@@ -1561,10 +1610,14 @@ globalThis.__nfRequire = __nfRequire;
         aliases.sort();
         aliases.dedup();
         let aliases_json = serde_json::to_string(&aliases).unwrap_or_else(|_| "[]".to_string());
-        out.push_str(&format!(
-            "__nfRegisterModule({id:?}, {aliases_json}, function(__nfExports, __nfRequire, module, __nfJsx, __nfFragment) {{\n{}\n}});\n",
-            module.compiled_body
+        out.push_str(&format!("__nfRegisterModule({id:?}, {aliases_json}, function(__nfExports, __nfRequire, module, __nfJsx, __nfFragment) {{\n"));
+        maps.push(crate::sourcemap::shift_map(
+            &module.source_map,
+            out.bytes().filter(|c| *c == b'\n').count(),
+            0,
         ));
+        out.push_str(&module.compiled_body);
+        out.push_str("\n});\n");
     }
 
     // Eagerly evaluate all registered modules in topological order so top-level side effects and exports are ready
@@ -1583,5 +1636,5 @@ globalThis.__nfRequire = __nfRequire;
 "#,
     );
 
-    out
+    (out, crate::sourcemap::combine_maps(&maps))
 }

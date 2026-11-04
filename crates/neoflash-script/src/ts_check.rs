@@ -2502,6 +2502,7 @@ pub fn check_typescript_program(
         for diag in &mut diagnostics {
             if !diag.message.starts_with(prefix) {
                 diag.message = format!("{prefix}: {}", diag.message);
+                diag.path = Some(prefix.to_owned());
             }
         }
     }

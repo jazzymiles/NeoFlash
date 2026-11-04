@@ -100,6 +100,62 @@
   }
   function color(rgba) { return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`; }
   function sourceKey(script) { return script.language + '\u0000' + script.source; }
+
+  // Generated Function wrappers differ between JavaScript engines. Calibrate against a
+  // known body line instead of treating Chromium's two header lines as universal.
+  function functionBodyLineOffset() {
+    const stack = new Function('return new Error().stack;\n//# sourceURL=neoflash-offset.js')();
+    const match = String(stack || '').match(/neoflash-offset\.js:(\d+):\d+/);
+    return match ? Number(match[1]) - 1 : null;
+  }
+  function scriptFunction(script, bindings) {
+    const url = /^neoflash-script-\d+\.js$/.test(script.source_url || '') ? script.source_url : 'neoflash-user-script.js';
+    return new Function(...bindings, '"use strict";\nreturn (function () {\n' + script.code + '\n}).call(this);\n//# sourceURL=' + url);
+  }
+  function mapScriptStack(stack, sources, bodyOffset) {
+    if (bodyOffset === null) return [];
+    const frames = [];
+    for (const line of String(stack || '').split('\n')) {
+      if (!/^\s*at\s/.test(line) && !/^[^:@\n]*@/.test(line)) continue;
+      const match = line.match(/(neoflash-(?:script-\d+|project)\.js):(\d+):(\d+)/);
+      if (!match) continue;
+      const unit = sources.find(source => source.source_url === match[1]);
+      if (!unit) continue;
+      const generatedLine = Number(match[2]) - bodyOffset - (match[1] === 'neoflash-project.js' ? 0 : 2);
+      const generatedColumn = Number(match[3]);
+      // Rust already decoded the v3 map and converted authored columns for the editor.
+      let found = null;
+      for (const location of unit.source_locations || []) {
+        if (location.generated_line === generatedLine && location.generated_column <= generatedColumn &&
+            (!found || location.generated_column >= found.generated_column)) found = location;
+      }
+      if (found) frames.push({source: found.source, line: found.line, column: found.column, source_url: unit.source_url, locations: unit.locations || [found.source]});
+    }
+    return frames;
+  }
+  const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get || Object.getOwnPropertyDescriptor(Error.prototype, 'stack')?.get;
+  function mappedErrorFrames(error, sources, bodyOffset) {
+    const visited = new Set();
+    for (let depth = 0; error && depth < 16 && !visited.has(error); depth++) {
+      visited.add(error);
+      try {
+        const stackProperty = Object.getOwnPropertyDescriptor(Object(error), 'stack');
+        let stack = stackProperty?.value;
+        if (stackProperty?.get && stackProperty.get === nativeStackGetter) stack = nativeStackGetter.call(error);
+        if (typeof stack === 'string') {
+          const frames = mapScriptStack(stack, sources, bodyOffset);
+          if (frames.length) return frames;
+        }
+        // Do not invoke an authored getter while reporting the original exception.
+        error = Object.getOwnPropertyDescriptor(Object(error), 'cause')?.value;
+      } catch (_) { break; }
+    }
+    return [];
+  }
+  function sourceLocationText(location) {
+    return location ? `${location.source}:${location.line}:${location.column}` : '';
+  }
+
   const as2Thrown = Symbol.for('neoflash.as2.thrown.v1');
   function unwrapScriptThrow(value) {
     // Only compiler transport envelopes have these own data properties. Do not
@@ -233,13 +289,21 @@
     function clear(){gradients.clear();clippings.clear();}
     return {draw,paintItem,paintBounds,clear};
   }
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow };
+  function emitScriptMessage(kind, message, frames, host = global) {
+    try {
+      if (typeof host.CustomEvent === 'function') host.dispatchEvent(new host.CustomEvent('neoflash-script-message', {
+        detail: {kind, message, location: frames[0] || null, stack: frames},
+      }));
+    } catch (_) { /* Diagnostic observers must never change authored playback. */ }
+  }
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
   const errorElement = document.getElementById('error');
   let failed = false;
   let stopAsyncOnFailure = () => {};
+  let sourceFrames = () => [];
   function fail(error) {
     failed = true;
     try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
@@ -247,7 +311,10 @@
     errorElement.style.display = 'block';
     const omitted = global.NeoFlashBundle?.publish?.omitted_modules || [];
     const hint = omitted.length ? `\n\nThis package was published at the Compact size level without: ${omitted.join('; ')}. If a script needs one of them, publish at the Balanced level.` : '';
-    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + describeThrown(error, true) + hint;
+    const frames = sourceFrames(error);
+    const location = sourceLocationText(frames[0]);
+    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
+    emitScriptMessage('error', describeThrown(error), frames);
     console.error(error);
   }
 
@@ -286,16 +353,19 @@
     });
     const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => render());
     const functions = new Map();
+    const sourceUnits = bundle.scripts.concat(bundle.program ? [bundle.program] : []);
+    const bodyOffset = functionBodyLineOffset();
+    sourceFrames = error => mappedErrorFrames(error, sourceUnits, bodyOffset);
     const proxies = new Map();
     let scene = [];
     let lastTime = null;
     let accumulated = 0;
-    let lastTrace = '';
+    let lastTrace = '', lastTraceLocation = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
     for (const script of bundle.scripts) {
       try {
         functions.set(sourceKey(script), {
-          fn: new Function(...bindings, '"use strict";\nreturn (function () {\n' + script.code + '\n}).call(this);\n//# sourceURL=neoflash-user-script.js'),
+          fn: scriptFunction(script, bindings),
           location: script.location,
         });
       } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
@@ -964,7 +1034,7 @@
         }
         builtins.__nfMediaEventsVectorFactory=as3MediaEventsHost.setVectorFactory;
       }
-      program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code)(builtins) : {
+      program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code + '\n//# sourceURL=neoflash-project.js')(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
@@ -975,7 +1045,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';
+      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
       soundsPreloaded=false;
       player.reset();
       initializeProgram();
@@ -1412,8 +1482,13 @@
       return proxy;
     }
     function trace(...values) {
-      console.log('[NeoFlash]', ...values);
-      lastTrace = values.map(value => typeof value === 'string' ? value : String(value)).join(' ').slice(0, 160);
+      const frames = sourceFrames(new Error());
+      const location = sourceLocationText(frames[0]);
+      console.log('[NeoFlash]', ...values, ...(location ? [location] : []));
+      const message = values.map(value => typeof value === 'string' ? value : String(value)).join(' ');
+      lastTrace = message.slice(0, 160);
+      lastTraceLocation = location;
+      emitScriptMessage('trace', message, frames);
     }
     function dispatchScripts(clickTarget = null) {
       const wasInDispatch = inDispatch;
@@ -1510,7 +1585,8 @@
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
-      if (traceElement.textContent !== lastTrace) traceElement.textContent = lastTrace;
+      const traceText = lastTrace + (lastTraceLocation ? ` (${lastTraceLocation})` : '');
+      if (traceElement.textContent !== traceText) traceElement.textContent = traceText;
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event,details=false) {

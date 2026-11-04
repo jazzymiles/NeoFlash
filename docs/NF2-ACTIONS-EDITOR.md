@@ -15,9 +15,10 @@ are still waiting for the engine. Design rules: [DESIGN-SYSTEM.md](DESIGN-SYSTEM
 | Toolbar › Show code hint, ⌃Space, typing `.` | **working** | Code hint popover under the caret. ↑/↓ select, Return/Tab insert, Esc closes, click inserts. ActionScript only. |
 | Toolbar › Apply block comment / Apply line comment / Remove comment | **working** | `/* … */` around the selection (or the caret line); `// ` at the block's indentation; removal of either. |
 | Toolbar › Show toolbox sidebar | **working** | Toggles the sidebar. The sidebar also hides itself when the panel is narrower than 640 pt. |
-| Gutter markers, compiler messages, problem count | **working (existing)** | Now refreshed by a silent live check 0.6 s after typing stops. Explicit **Check** still writes to Output. |
+| Gutter markers, compiler messages, problem count | **working** | Errors and warnings retain severity, code, Unicode source range and source path. Silent live check runs 0.6 s after editing; explicit **Check** writes to Output. Project diagnostics navigate to their own file. |
 | Toolbar › Debug options, Collapse between braces, Expand all; Script assist | disabled, "Not available yet" | Need debugger/source maps, code folding, structured editing (plan §4). |
-| Error peek + "Quick fix ⌘.", overview ruler, warning markers, pinned script tabs | not shown | Need diagnostic severity/codes/fixes from the compiler and NF2 components (plan §2–3). |
+| Quick fix ⌘. | **partial** | Applies one unambiguous safe fix at the caret line through normal Undo; multiple choices are reported in Output until the NF2 selector is available. |
+| Error peek, range squiggles, overview ruler, pinned script tabs | not shown | Await NF2 components (R-033). |
 
 ## 2. Principle: offer only what runs
 
@@ -33,34 +34,35 @@ docs/progress/actionscript-catalog.json      statuses (versioned; rewritten by p
 docs/actionscript-reference/{as2,as3,…}.json  signatures, types, inheritance (local snapshot, not versioned)
             │
             ▼  python3 scripts/editor-api-index.py
-crates/neoflash-editor/assets/actionscript-api.json   (versioned, ~340 KB, embedded with include_str!)
+crates/neoflash-script/assets/actionscript-api.json   (versioned, ~340 KB, embedded with include_str!)
             │
-            ▼  crates/neoflash-editor/src/script_api.rs  (parsed once, OnceLock)
+            ▼  crates/neoflash-script/src/language_service.rs  (parsed once, OnceLock)
 toolbox tree · code hints · class support tooltips
             +
 Project::sources  ──scan_class() on every request──►  "Project classes" folder + hints (no build step)
 ```
 
-**Built-in API.** When a declaration's status changes in the catalogue, the editor picks it up on the next index
+**Built-in API.** Partial declarations carry their current audited limitation text; warnings only use it when
+a built-in receiver is unambiguously resolved. Both catalogue and audit hashes are checked. When a declaration's status changes in the catalogue, the editor picks it up on the next index
 build. Nothing in the editor code lists class or member names.
 
 - `python3 scripts/progress.py --write-reports` now also runs `scripts/editor-api-index.py` when the local reference
   snapshot exists. Codex already runs this command after every implementation change (AGENTS.md), so new support
   flows into the toolbox and hints with no extra step.
-- Without the reference snapshot, `progress.py` and `scripts/check.sh` run `editor-api-index.py --check`, which
-  compares the catalogue SHA-256 recorded in the asset with the current catalogue and fails with the command to run.
+- Without the reference snapshot, a catalogue-hash-verified existing index can refresh audit limitation metadata.
+  Changed declaration signatures/statuses still require the reference snapshot; `--check` verifies both hashes.
 - The generator fails loudly if a ready catalogue entry has no reference signature (currently 0 of 2,842).
 
-**Project classes.** `script_api::scan_class` reads `package`, `class`/`interface`, `extends`, and public/internal
+**Project classes.** `language_service::scan_class` uses the ActionScript compiler token stream to read `package`, `class`/`interface`, `extends`, and public/internal
 `function`, `get`/`set`, `var`, `const` declarations (comments stripped; `private` skipped). A class written in
 Project files appears immediately under "Project classes", resolves in `var h:Hero`, `Hero.` (statics) and inherits
 built-in members through `extends`.
 
-### Asset schema (`schemaVersion` 1)
+### Asset schema (`schemaVersion` 2)
 
 ```json
 {
-  "catalogSha256": "…", "generatedBy": "scripts/editor-api-index.py", "schemaVersion": 1,
+  "catalogSha256": "…", "auditSha256": "…", "generatedBy": "scripts/editor-api-index.py", "schemaVersion": 2,
   "statuses": ["implemented_subset", "partial"],
   "languages": {
     "AS3": {
@@ -88,8 +90,8 @@ built-in members through `extends`.
 | `scripts/editor-api-index.py` | Join catalogue statuses with reference signatures → asset. `--check` staleness test. |
 | `scripts/progress.py` (`main`) | Calls the generator after `--write-reports`, or `--check` otherwise. |
 | `scripts/check.sh` | Runs `editor-api-index.py --check` after the design lock. |
-| `crates/neoflash-editor/assets/actionscript-api.json` | Generated asset. Never edit by hand. |
-| `crates/neoflash-editor/src/script_api.rs` | Index loading; `HintContext` (receiver resolution, inheritance, hints); project-class scan; toolbox folders, own members, search; AS3 `missing_import`. Unit tests at the bottom. |
+| `crates/neoflash-script/assets/actionscript-api.json` | Generated asset. Never edit by hand. |
+| `crates/neoflash-script/src/language_service.rs` (re-exported by editor `script_api.rs`) | Index loading; `HintContext` (receiver resolution, inheritance, hints); project-class scan; toolbox folders, own members, search; AS3 `missing_import`. Unit tests at the bottom. |
 | `crates/neoflash-editor/src/code_tools.rs` | `CodeCommand` and pure text commands: `apply`, `line_comment`, `block_comment`, `uncomment`, `auto_format`. Unit tests at the bottom. |
 | `crates/neoflash-editor/src/panels/actions_sidebar.rs` | `ActionsUi` (non-document panel state), sidebar drawing, toolbox rows, Script navigator, `ScriptLocation` + `open_script_location`, `toolbox_insertion`. |
 | `crates/neoflash-editor/src/panels/actions.rs` | Toolbar: `CODE_TOOLS` table (command or `None` = planned), sidebar toggle; sidebar/main split in `actions_body`. |
@@ -124,7 +126,7 @@ one normal Undo step and works the same for frame scripts, object scripts and pr
 
 1. Skip inside comments and strings (`in_comment_or_string`, also unterminated ones).
 2. Take the identifier prefix before the caret. If it follows `.`, resolve the receiver chain (`a.b.c.`) left to
-   right: `this`, `super`, a `name:Type` declaration earlier in the script, a stage instance, a class name
+   right: `this`, `super`, a declaration visible in the containing function, a stage instance, a class name
    (→ static members), or a member of `this`; each further segment follows the member's documented type.
 3. Instance members walk the superclass chain (project `extends` first, then the reference chain); statics are not
    inherited. Constructors are hidden; AS3 `event` entries are hidden (they are strings for `addEventListener`).
@@ -145,13 +147,44 @@ another word, losing focus (unless the pointer is over the popover) or Esc close
 (`leave_to_level(0)`), enters the symbol when needed, pauses playback, sets the frame, selects the object and the
 Actions target/event. The current entry is highlighted by comparing `current_script_location()`.
 
-### 5.4 Live check
+### 5.4 Diagnostics and quick fixes
+
+Both Actions and Compiler errors consume structured diagnostics. Source-file errors keep their path instead of being
+attached to the selected file. Only diagnostics belonging to the open script create gutter markers. Warnings use
+the existing amber NF2 marker and count; codes remain visible in compiler messages.
+
+⌘. checks the current source fingerprint and applies a unique available fix on the caret line. The existing command
+path preserves Unicode positions, focus and one Undo for frame/object actions and project files. Unsupported or
+ambiguous fixes leave the text intact. Lints never offer deletion that can discard initializer side effects, or
+legacy operator replacement that changes coercion. Error peek and a multiple-fix selector await R-033.
+
+### 5.5 Live check
 
 `live_check` records the time of the last text change per editor id and, 0.6 s later, runs the same compile as Check
 (`check_action_source` / `check_project_sources`) with `announce = false`, so Output is not flooded. Results are
 cached by the existing fingerprint (`code_feedback`), which already includes all project sources and linkage.
 
+### 5.6 Source maps and Test Movie
+
+Published frame/object handlers and project class/module bundles carry Source Map v3 plus decoded runtime locations.
+Test Movie errors and trace output show authored source positions, with browser wrapper offsets calibrated per engine.
+AS maps identify the containing statement start (a multiline expression uses that first line); JS/TS maps use token/AST
+positions. Include files retain their own source identity. Generated helper lines remain unmapped.
+
+Identical handler text is compiled once as `Shared script N`, with every authored location stored in the bundle.
+The dispatch packet does not yet identify the exact occurrence. Browser `neoflash-script-message` events expose the
+mapped payload; there is no connection back to the native editor and no real pause/continue/step protocol. The older
+debug instrumentation API records notifications and does not make the disabled Debug options control functional.
+
 ## 6. Tests
+
+- `sources::integration_tests` — real Actions warning display, ⌘. for frame/object/project sources, one Undo,
+  document validation and cross-file diagnostic navigation.
+- Compiler `language_service` tests — scoped declarations, multiline project members, receiver hints and source refs.
+- `typescript_toolchain` — structured diagnostic ranges and safe fixes; source maps and tooling boundaries.
+- `source_mapping` plus exporter and `web/tests/runtime.test.cjs` families — repeated calls, nested functions,
+  Unicode/includes, classes/modules, helper exclusion, shared origins, wrapper calibration and hostile errors.
+
 
 - `script_api::tests` — index statuses; inherited `this` members; `var p:Point` and `MouseEvent.CL…` statics; AS2
   index and no hints in comments/strings; project classes (public members only, inheritance, statics, toolbox
@@ -177,10 +210,9 @@ adding Error peek / overview ruler / folding UI. Missing UI goes to `docs/NF2-RE
 
 ## 8. Known limits
 
-- Hints are lexical: no inference through function return values of user functions, array elements, casts or
-  `with`; `a[i].` and `f().` give no hints. A compiler language service removes these limits.
-- `scan_class` is line-based: multi-line member declarations and nested/inner classes are not scanned.
-- Code hints delay and the on/off switch from Preferences › Code editor are not implemented (no Preferences dialog);
-  hints open immediately.
+- Analysis uses the compiler lexer for declarations, function scopes, multiline members, typed parameters/returns and
+  bounded receiver inference. It does not provide full semantic/type-flow analysis, dynamic `with` lookup or complete
+  E4X/cast/generic inference. Hover and definition data are read-only compiler APIs; no new editor UI is implied.
+- The Preferences › Code editor switch and delay control automatic code hints; explicit hints remain available.
 - Auto-format does not wrap, align or reflow, and keeps lines inside multi-line comments, strings and XML literals.
 - Live check compiles the whole project; on very large projects it may need to move off the UI thread.

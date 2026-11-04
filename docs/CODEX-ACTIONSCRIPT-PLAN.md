@@ -4,7 +4,16 @@ Instructions for Codex. Part A lists engine work that the Actions editor is wait
 [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)). Part B replaces the current way of closing unsupported AS2/AS3
 declarations with a cheaper pipeline. AGENTS.md still applies; the NF2 design lock is unchanged.
 
-## Current state (2026-11-01)
+## Current tooling boundary
+
+The implementation status below the plan has advanced beyond its original baseline. Diagnostics now preserve
+severity/code/range/path/fixes; Actions consumes warnings and unique safe ⌘. fixes. The shared compiler API index
+and compiler-token declaration/function-scope service supply hints. Source positions are carried through compilation
+instead of inferred from matching identifiers. Full semantic type-flow analysis, the diagnostic peek/fix selector and
+a connected pause/step debugger remain incomplete. See [current Actions behavior](NF2-ACTIONS-EDITOR.md); do not
+reimplement the existing warning, module, inference or source-map APIs from the historical checklist.
+
+## Historical baseline (2026-11-01)
 
 - **Compiler** (`crates/neoflash-script`): own lexer, recursive-descent + Pratt parser, AST, scope analysis and JS
   emitter for AS1/AS2/AS3; AS2 and AS3 project-class profiles (packages, imports, inheritance, accessors,
@@ -64,8 +73,7 @@ impl Analysis {
 }
 ```
 
-- Built-in API knowledge must come from one place. Move `crates/neoflash-editor/assets/actionscript-api.json` and its
-  generator output path to `crates/neoflash-script/assets/` and load it there; the editor then calls `analyze` and
+- Built-in API knowledge must come from one place. The shared index now lives at `crates/neoflash-script/assets/actionscript-api.json`; the editor then calls `analyze` and
   deletes `HintContext` resolution (keep `toolbox`/`search`, they only need the index). Make the compiler's own
   `BUILTINS` / `is_host_method` tables consistent with the index, or generate them from it.
 - Editor hook: `sources.rs::hint_context` and `script_api::HintContext::hints` → `Analysis::completions`. Keep the

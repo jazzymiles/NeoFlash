@@ -6,6 +6,7 @@
 //! ActionScript uses a bounded, explicit frontend; see `docs/COMPATIBILITY.md`.
 
 mod actionscript;
+pub mod language_service;
 pub mod modules;
 pub mod sourcemap;
 pub mod ts_check;
@@ -17,8 +18,9 @@ pub use modules::{
 };
 pub use sourcemap::{
     CompiledDebugScript, CompiledWithSourceMap, DebuggerSession, MappedStackFrame,
-    OriginalLocation, SourceMap, SourceMappingSegment, build_bundle_source_map, build_source_map,
-    debug_runtime_js, decode_vlq, encode_vlq, instrument_script_for_debug,
+    OriginalLocation, RuntimeSourceLocation, SourceMap, SourceMappingSegment,
+    build_bundle_source_map, build_source_map, debug_runtime_js, decode_vlq, encode_vlq,
+    instrument_script_for_debug,
 };
 pub use ts_check::{
     ModuleTypeExports, TsCheckOutput, TsFunctionSig, TsPropertySig, TsType, TypeChecker,
@@ -51,10 +53,57 @@ pub struct Diagnostic {
     pub line: usize,
     pub column: usize,
     pub message: String,
+    /// Heap-backed metadata keeps recursive parser Result values small. Serialization stays flat.
+    #[serde(flatten)]
+    pub details: Box<DiagnosticDetails>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiagnosticDetails {
+    #[serde(default)]
+    pub end_line: usize,
+    #[serde(default)]
+    pub end_column: usize,
+    #[serde(default)]
+    pub severity: DiagnosticSeverity,
+    /// A stable lint identifier or a Flash-compatible diagnostic number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// UTF-8 byte offsets; `end` is exclusive. Positions above use Unicode characters.
+    #[serde(default)]
+    pub span: (usize, usize),
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<QuickFix>,
+}
+
+impl std::ops::Deref for Diagnostic {
+    type Target = DiagnosticDetails;
+    fn deref(&self) -> &Self::Target {
+        &self.details
+    }
+}
+
+impl std::ops::DerefMut for Diagnostic {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.details
+    }
 }
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(path) = &self.path
+            && !self.message.starts_with(&format!("{path}: "))
+            && !self.message.starts_with(&format!("#include {path}: "))
+        {
+            write!(f, "{path}: ")?;
+        }
+        if let Some(code) = &self.code
+            && !self.message.contains(&format!("[{code}]"))
+        {
+            write!(f, "[{code}] ")?;
+        }
         write!(
             f,
             "{:?} {}:{}: {}",
@@ -66,19 +115,97 @@ impl fmt::Display for Diagnostic {
 impl std::error::Error for Diagnostic {}
 
 impl Diagnostic {
-    pub(crate) fn at(script: &Script, offset: usize, message: impl Into<String>) -> Self {
-        let (line, column) = byte_offset_to_line_col(&script.source, offset);
+    pub(crate) fn new(
+        language: ScriptLanguage,
+        line: usize,
+        column: usize,
+        message: impl Into<String>,
+    ) -> Self {
+        let message = message.into();
+        let code = if message.starts_with("Expected ") {
+            Some("syntax".into())
+        } else if message.contains("Unresolved or inaccessible import '") {
+            Some("1172".into())
+        } else if message.contains("Unknown base class '") {
+            Some("1017".into())
+        } else if message.contains("Cannot find name '") {
+            Some("unresolved-name".into())
+        } else if message.contains("is not assignable to type '") {
+            Some("type-mismatch".into())
+        } else if message.contains("unsupported") || message.contains("not supported") {
+            Some("unsupported-feature".into())
+        } else {
+            None
+        };
         Self {
-            language: script.language,
+            language,
             line,
             column,
-            message: message.into(),
+            details: Box::new(DiagnosticDetails {
+                end_line: line,
+                end_column: column,
+                severity: DiagnosticSeverity::Error,
+                code,
+                path: None,
+                span: (0, 0),
+                fixes: Vec::new(),
+            }),
+            message,
         }
+    }
+
+    pub(crate) fn at(script: &Script, offset: usize, message: impl Into<String>) -> Self {
+        let (line, column) = byte_offset_to_line_col(&script.source, offset);
+        Self::new(script.language, line, column, message).with_source(&script.source)
+    }
+
+    pub(crate) fn at_span(
+        script: &Script,
+        span: (usize, usize),
+        message: impl Into<String>,
+    ) -> Self {
+        let mut result = Self::at(script, span.0, message);
+        let end = span.1.min(script.source.len()).max(result.span.0);
+        if script.source.is_char_boundary(end) {
+            result.span.1 = end;
+            (result.end_line, result.end_column) = byte_offset_to_line_col(&script.source, end);
+        }
+        result.fixes = warnings::quick_fixes_for_diagnostic(&result, &script.source);
+        result
+    }
+
+    pub(crate) fn with_source(mut self, source: &str) -> Self {
+        let start = line_col_to_byte_offset(source, self.line, self.column);
+        let mut end = start;
+        for ch in source[start..].chars() {
+            if end > start && !(ch.is_alphanumeric() || ch == '_' || ch == '$') {
+                break;
+            }
+            end += ch.len_utf8();
+            if !(ch.is_alphanumeric() || ch == '_' || ch == '$') {
+                break;
+            }
+        }
+        self.span = (start, end);
+        (self.end_line, self.end_column) = byte_offset_to_line_col(source, end);
+        self.fixes = warnings::quick_fixes_for_diagnostic(&self, source);
+        self
+    }
+
+    pub(crate) fn with_path(mut self, path: &str) -> Self {
+        if !path.is_empty() {
+            self.path = Some(path.to_owned());
+        }
+        self
     }
 
     /// Compute actionable quick-fix suggestions for this diagnostic against `source`.
     pub fn quick_fixes(&self, source: &str) -> Vec<QuickFix> {
-        warnings::quick_fixes_for_diagnostic(self, source)
+        if self.fixes.is_empty() {
+            warnings::quick_fixes_for_diagnostic(self, source)
+        } else {
+            self.fixes.clone()
+        }
     }
 }
 
@@ -199,12 +326,27 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     }
 
     let mut code = as_program.code.clone();
+    let mut bundle_maps: Vec<SourceMap> = as_program.source_maps.values().cloned().collect();
     if !web_graph.is_empty() {
         let insertion = format!("\n{}\nreturn __nfProgram;", web_graph.bundled_code);
         if let Some(idx) = code.rfind("return __nfProgram;") {
+            if let Some(map) = &web_graph.bundle_source_map {
+                bundle_maps.push(sourcemap::shift_map(
+                    map,
+                    code[..idx].bytes().filter(|c| *c == b'\n').count() + 1,
+                    0,
+                ));
+            }
             code.replace_range(idx..idx + "return __nfProgram;".len(), &insertion);
         } else {
             code.push('\n');
+            if let Some(map) = &web_graph.bundle_source_map {
+                bundle_maps.push(sourcemap::shift_map(
+                    map,
+                    code.bytes().filter(|c| *c == b'\n').count(),
+                    0,
+                ));
+            }
             code.push_str(&web_graph.bundled_code);
         }
     }
@@ -216,27 +358,14 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         }
     }
 
-    let mut source_maps = BTreeMap::new();
-    let mut bundle_chunks: Vec<(String, String, String)> = Vec::new();
+    let mut source_maps = as_program.source_maps.clone();
     for id in &web_graph.order {
-        if let Some(m) = web_graph.modules.get(id) {
-            source_maps.insert(id.clone(), m.source_map.clone());
-            bundle_chunks.push((
-                id.clone(),
-                m.original_source.clone(),
-                m.compiled_body.clone(),
-            ));
+        if let Some(module) = web_graph.modules.get(id) {
+            source_maps.insert(id.clone(), module.source_map.clone());
         }
     }
-    let bundle_source_map = if !bundle_chunks.is_empty() {
-        Some(sourcemap::build_bundle_source_map(
-            "bundle.js",
-            &bundle_chunks,
-            &code,
-        ))
-    } else {
-        None
-    };
+    let bundle_source_map =
+        (!bundle_maps.is_empty()).then(|| sourcemap::combine_maps(&bundle_maps));
 
     Ok(ProjectProgram {
         inner: as_program,
@@ -287,15 +416,21 @@ pub fn compile(script: &Script) -> Result<String, Vec<Diagnostic>> {
                 language: ScriptLanguage::ActionScript2,
                 source: script.source.clone(),
             };
-            actionscript::compile_legacy(&legacy).map_err(|mut error| {
-                error.language = ScriptLanguage::ActionScript1;
-                vec![error]
+            actionscript::compile_legacy(&legacy).map_err(|error| {
+                actionscript::diagnostics::collect_errors(&legacy, error)
+                    .into_iter()
+                    .map(|mut error| {
+                        error.language = ScriptLanguage::ActionScript1;
+                        error
+                    })
+                    .collect()
             })
         }
         ScriptLanguage::JavaScript => compile_web(script, false),
         ScriptLanguage::TypeScript => compile_web(script, true),
         ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
-            actionscript::compile(script).map_err(|e| vec![e])
+            actionscript::compile(script)
+                .map_err(|e| actionscript::diagnostics::collect_errors(script, e))
         }
     }
 }
@@ -305,12 +440,59 @@ pub fn compile_with_source_map(
     script: &Script,
     source_name: &str,
 ) -> Result<CompiledWithSourceMap, Vec<Diagnostic>> {
-    let raw_code = compile(script)?;
-    let source_map = sourcemap::build_source_map(source_name, &script.source, &raw_code);
-    let code = format!("{raw_code}\n{}", source_map.inline_comment());
+    if script.source.len() > 1_048_576 {
+        return Err(vec![Diagnostic::at(
+            script,
+            0,
+            "A single script is limited to 1 MiB.",
+        )]);
+    }
+    let (raw_code, source_map) = match script.language {
+        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => compile_web_mapped(
+            script,
+            script.language == ScriptLanguage::TypeScript,
+            source_name,
+        )?,
+        _ => {
+            let prefix = sourcemap::marker_prefix(&script.source);
+            let code = actionscript::compile_mapped(script, &prefix).map_err(|e| vec![e])?;
+            let map = sourcemap::map_marked_source(source_name, &script.source, &code, &prefix);
+            (code, map)
+        }
+    };
     Ok(CompiledWithSourceMap {
         language: script.language,
-        source_name: source_name.to_string(),
+        source_name: source_name.to_owned(),
+        code: format!("{raw_code}\n{}", source_map.inline_comment()),
+        source_map,
+    })
+}
+
+/// Compile a frame or object handler with the same project bindings as publication and exact
+/// compiler-origin mappings. Generated runtime helpers deliberately remain unmapped.
+pub fn compile_with_program_source_map(
+    script: &Script,
+    program: &ProjectProgram,
+    source_name: &str,
+) -> Result<CompiledWithSourceMap, Vec<Diagnostic>> {
+    if script.source.len() > 1_048_576 {
+        return Err(vec![Diagnostic::at(
+            script,
+            0,
+            "A single script is limited to 1 MiB.",
+        )]);
+    }
+    let (code, source_map) = match script.language {
+        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => {
+            modules::compile_handler_with_modules_mapped(script, &program.web_modules, source_name)?
+        }
+        _ => {
+            actionscript::project::compile_with_program_mapped(script, &program.inner, source_name)?
+        }
+    };
+    Ok(CompiledWithSourceMap {
+        language: script.language,
+        source_name: source_name.into(),
         code,
         source_map,
     })
@@ -323,14 +505,55 @@ pub fn compile_debug(
 ) -> Result<CompiledDebugScript, Vec<Diagnostic>> {
     let (instrumented_script, breakable_lines, locals_by_line) =
         sourcemap::instrument_script_for_debug(script, source_name);
-    let compiled_body = compile(&instrumented_script)?;
-    let source_map = sourcemap::build_source_map(source_name, &script.source, &compiled_body);
+    let compiled = compile_with_source_map(&instrumented_script, source_name)?;
+    let compiled_body = compiled
+        .code
+        .rsplit_once("\n//# sourceMappingURL=")
+        .map_or(compiled.code.as_str(), |(body, _)| body);
+    let mut source_map = compiled.source_map;
+    let segments = source_map
+        .decode_segments()
+        .into_iter()
+        .map(|mut segment| {
+            // Debug hooks add text on an authored line. Report the original statement start,
+            // never a column in the inserted instrumentation.
+            segment.original_column = script
+                .source
+                .lines()
+                .nth(segment.original_line)
+                .map(|line| {
+                    line.chars()
+                        .take_while(|c| c.is_whitespace())
+                        .map(char::len_utf16)
+                        .sum()
+                })
+                .unwrap_or(0);
+            segment
+        })
+        .collect();
+    source_map = SourceMap::from_segments(
+        None,
+        vec![source_name.into()],
+        vec![script.source.clone()],
+        source_map.names,
+        segments,
+    );
+    source_map = sourcemap::shift_map(
+        &source_map,
+        sourcemap::debug_runtime_js()
+            .bytes()
+            .filter(|c| *c == b'\n')
+            .count()
+            + 1,
+        0,
+    );
     let code = format!(
         "{}\n{}\n{}",
         sourcemap::debug_runtime_js(),
         compiled_body,
         source_map.inline_comment()
     );
+
     Ok(CompiledDebugScript {
         language: script.language,
         source_name: source_name.to_string(),
@@ -345,17 +568,41 @@ fn web_errors(script: &Script, prefix_len: usize, errors: Vec<OxcDiagnostic>) ->
     errors
         .into_iter()
         .map(|error| {
-            let offset = error
+            let span = error
                 .labels
                 .as_ref()
                 .and_then(|labels| labels.first())
-                .map_or(prefix_len, |label| label.offset());
-            Diagnostic::at(script, offset.saturating_sub(prefix_len), error.to_string())
+                .map_or((prefix_len, prefix_len), |label| {
+                    (label.offset(), label.offset() + label.len())
+                });
+            Diagnostic::at_span(
+                script,
+                (
+                    span.0.saturating_sub(prefix_len),
+                    span.1.saturating_sub(prefix_len),
+                ),
+                error.to_string(),
+            )
         })
         .collect()
 }
 
 fn compile_web(script: &Script, typescript: bool) -> Result<String, Vec<Diagnostic>> {
+    compile_web_output(script, typescript, None).map(|(code, _)| code)
+}
+fn compile_web_mapped(
+    script: &Script,
+    typescript: bool,
+    name: &str,
+) -> Result<(String, SourceMap), Vec<Diagnostic>> {
+    compile_web_output(script, typescript, Some(name))
+        .map(|(code, map)| (code, map.expect("mapping requested")))
+}
+fn compile_web_output(
+    script: &Script,
+    typescript: bool,
+    map_name: Option<&str>,
+) -> Result<(String, Option<SourceMap>), Vec<Diagnostic>> {
     // Match the runtime's actual function-body context: `return` is legal,
     // module imports/exports and top-level await are not in standalone handlers.
     const PREFIX: &str = "function __neoflash_handler__(){\"use strict\";\n";
@@ -388,7 +635,10 @@ fn compile_web(script: &Script, typescript: bool) -> Result<String, Vec<Diagnost
 
     let has_jsx = program_contains_jsx(&program);
     if !typescript && !has_jsx {
-        return Ok(script.source.clone());
+        return Ok((
+            script.source.clone(),
+            map_name.map(|name| sourcemap::identity_source_map(name, &script.source)),
+        ));
     }
 
     if typescript {
@@ -426,15 +676,46 @@ fn compile_web(script: &Script, typescript: bool) -> Result<String, Vec<Diagnost
             "This TypeScript construct requires runtime helpers not yet bundled by NeoFlash. Use equivalent plain JavaScript.",
         )]);
     }
-    let code = Codegen::new().build(&program).code;
-    if has_jsx || code.contains("__nfJsx") || code.contains("__nfFragment") {
-        Ok(format!(
-            "{}\n{code}\nreturn __neoflash_handler__.call(this);",
-            modules::jsx_inline_preamble_js()
-        ))
+    let generated = Codegen::new()
+        .with_options(oxc_codegen::CodegenOptions {
+            source_map_path: map_name.map(std::path::PathBuf::from),
+            ..oxc_codegen::CodegenOptions::default()
+        })
+        .build(&program);
+    let code = generated.code;
+    let preamble = if has_jsx || code.contains("__nfJsx") || code.contains("__nfFragment") {
+        format!("{}\n", modules::jsx_inline_preamble_js())
     } else {
-        Ok(format!("{code}\nreturn __neoflash_handler__.call(this);"))
-    }
+        String::new()
+    };
+    let map = generated.map.map(|map| {
+        let map: SourceMap =
+            serde_json::from_str(&map.to_json_string()).expect("Oxc source map v3");
+        let line_count = script.source.lines().count();
+        let segments = map
+            .decode_segments()
+            .into_iter()
+            .filter_map(|mut s| {
+                if s.original_line == 0 || s.original_line > line_count {
+                    return None;
+                }
+                s.original_line -= 1;
+                s.generated_line += preamble.bytes().filter(|c| *c == b'\n').count();
+                Some(s)
+            })
+            .collect();
+        SourceMap::from_segments(
+            None,
+            vec![map_name.unwrap().into()],
+            vec![script.source.clone()],
+            map.names,
+            segments,
+        )
+    });
+    Ok((
+        format!("{preamble}{code}\nreturn __neoflash_handler__.call(this);"),
+        map,
+    ))
 }
 
 fn program_contains_jsx(program: &oxc_ast::ast::Program<'_>) -> bool {

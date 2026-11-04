@@ -9,7 +9,7 @@ Inputs
   docs/actionscript-reference/*.json        signatures (local reference snapshot, not versioned)
 
 Output
-  crates/neoflash-editor/assets/actionscript-api.json   (versioned, embedded with include_str!)
+  crates/neoflash-script/assets/actionscript-api.json   (versioned, embedded with include_str!)
 
 Run after any change to declaration statuses:
   python3 scripts/editor-api-index.py          # rewrite the asset
@@ -25,9 +25,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "docs/progress/actionscript-catalog.json"
+AUDIT = ROOT / "docs/progress/actionscript-audit.json"
 REFERENCE = ROOT / "docs/actionscript-reference"
 REFERENCE_FILES = ["as2.json", "as2-components.json", "as2-components-supplement.json", "as3.json"]
-OUTPUT = ROOT / "crates/neoflash-editor/assets/actionscript-api.json"
+OUTPUT = ROOT / "crates/neoflash-script/assets/actionscript-api.json"
 GLOBAL_OWNER = "<global>"  # AS3 package-level functions in the reference
 READY = {"implemented_subset": "subset", "partial": "partial"}
 # Declarations shown under "Language elements" instead of a class or package.
@@ -85,6 +86,30 @@ def parameters(ref):
 
 def build():
     catalog = json.loads(CATALOG.read_text())["entries"]
+    limits = {
+        (rule["id"], entry["catalogId"]): entry.get("scopeNote", "")
+        for rule in json.loads(AUDIT.read_text())["rules"]
+        for entry in rule.get("reviewedEntries", [])
+    }
+    # A metadata-only refresh can use the versioned signatures if their catalogue hash is
+    # unchanged. Never generate new API declarations without the local reference snapshot.
+    if any(not (REFERENCE / name).exists() for name in REFERENCE_FILES) and OUTPUT.exists():
+        existing = json.loads(OUTPUT.read_text())
+        if existing.get("catalogSha256") == hashlib.sha256(CATALOG.read_bytes()).hexdigest():
+            entries = {}
+            for entry in catalog:
+                language, owner, name, kind = key(entry)
+                entries.setdefault((language, "" if owner == GLOBAL_OWNER else owner, name, kind), []).append(entry)
+            for language, api in existing["languages"].items():
+                for member in api["members"]:
+                    member.pop("limitation", None)
+                    matches = entries.get((language, member["owner"], member["name"], member["kind"]), [])
+                    notes = {limits.get((entry["rule_id"], entry["catalog_id"]), "") for entry in matches if entry["status"] == "partial"}
+                    if matches and all(entry["status"] == "partial" for entry in matches) and len(notes) == 1 and "" not in notes:
+                        member["limitation"] = notes.pop()
+            existing["schemaVersion"] = 2
+            existing["auditSha256"] = hashlib.sha256(AUDIT.read_bytes()).hexdigest()
+            return existing
     references = {}
     class_refs = {}  # qualified class name -> reference entry, whatever its audit status
     for name in REFERENCE_FILES:
@@ -120,6 +145,10 @@ def build():
             "type": value_type(ref, entry["name"]),
             "status": status,
         }
+        if status == "partial":
+            note = limits.get((entry["rule_id"], entry["catalog_id"]))
+            if note:
+                member["limitation"] = note
         if ref.get("static"):
             member["static"] = True
         params = parameters(ref)
@@ -146,9 +175,10 @@ def build():
     for language in languages.values():
         language["members"].sort(key=lambda m: (m["owner"], m["name"], m["kind"]))
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "generatedBy": "scripts/editor-api-index.py",
         "catalogSha256": hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
+        "auditSha256": hashlib.sha256(AUDIT.read_bytes()).hexdigest(),
         "statuses": sorted(READY),
         "languages": languages,
     }
@@ -159,8 +189,8 @@ def main():
         # Cheap staleness check without the local reference: the asset records the catalogue
         # hash it was built from. Any status change rewrites the catalogue and its hash.
         current = hashlib.sha256(CATALOG.read_bytes()).hexdigest()
-        built = json.loads(OUTPUT.read_text()).get("catalogSha256") if OUTPUT.exists() else None
-        if built != current:
+        built = json.loads(OUTPUT.read_text()) if OUTPUT.exists() else {}
+        if built.get("catalogSha256") != current or built.get("auditSha256") != hashlib.sha256(AUDIT.read_bytes()).hexdigest():
             sys.exit(f"{OUTPUT.relative_to(ROOT)} is stale: run python3 scripts/editor-api-index.py")
         return
     text = json.dumps(build(), ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"

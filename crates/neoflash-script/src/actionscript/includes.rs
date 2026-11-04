@@ -6,12 +6,25 @@ use std::collections::BTreeMap;
 const MAX_BYTES: usize = 1_048_576;
 pub(super) struct Expanded {
     pub script: Script,
-    origins: Vec<(String, usize)>,
+    pub(super) origins: Vec<(String, usize)>,
+    pub(super) sources: BTreeMap<String, String>,
 }
 impl Expanded {
     pub fn diagnostic(&self, mut error: Diagnostic) -> Diagnostic {
         if let Some((path, line)) = self.origins.get(error.line.saturating_sub(1)) {
+            let end = self.origins.get(error.end_line.saturating_sub(1));
             error.line = *line;
+            error.end_line = end
+                .filter(|(end_path, _)| end_path == path)
+                .map_or(*line, |(_, line)| *line);
+            error.path = (!path.is_empty()).then(|| path.clone());
+            if let Some(source) = self.sources.get(path) {
+                error.span = (
+                    crate::line_col_to_byte_offset(source, error.line, error.column),
+                    crate::line_col_to_byte_offset(source, error.end_line, error.end_column),
+                );
+                error.fixes = crate::warnings::quick_fixes_for_diagnostic(&error, source);
+            }
             if !path.is_empty() {
                 error.message = format!("#include {path}: {}", error.message);
             }
@@ -98,6 +111,7 @@ pub(super) fn expand_at(
     let mut expanded = Expanded {
         script: script.clone(),
         origins: vec![],
+        sources: BTreeMap::new(),
     };
     expanded.script.source.clear();
     append(script, base_path, resources, &mut vec![], &mut expanded)?;
@@ -126,6 +140,10 @@ fn append(
     stack: &mut Vec<String>,
     output: &mut Expanded,
 ) -> Result<(), Diagnostic> {
+    output
+        .sources
+        .entry(path.to_owned())
+        .or_insert_with(|| script.source.clone());
     let is_as3 = script.language == ScriptLanguage::ActionScript3;
     let mut block = false;
     let mut offset = 0;
@@ -146,6 +164,7 @@ fn append(
             let error = |message: String| {
                 let mut result = Diagnostic::at(script, offset, message);
                 if !path.is_empty() {
+                    result.path = Some(path.to_owned());
                     result.message = format!("#include {path}: {}", result.message);
                 }
                 result

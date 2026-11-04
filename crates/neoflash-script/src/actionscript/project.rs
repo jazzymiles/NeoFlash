@@ -1409,6 +1409,7 @@ pub(super) fn is_host_method(name: &str) -> bool {
 pub struct ProjectProgram {
     includes: BTreeMap<String, neoflash_core::ResourceUnit>,
     pub code: String,
+    pub source_maps: BTreeMap<String, crate::SourceMap>,
     pub class_names: Vec<String>,
     names: BTreeSet<String>,
     languages: BTreeMap<String, ScriptLanguage>,
@@ -1477,6 +1478,7 @@ struct Header {
     intrinsic: bool,
 }
 struct Field {
+    offset: usize,
     name: String,
     ty: Option<String>,
     value: Option<Expr>,
@@ -2525,6 +2527,7 @@ fn parse_class(
     let mut methods = vec![];
     let mut seen = BTreeSet::new();
     while !p.is("}") && p.token().kind != Kind::End {
+        let member_offset = p.token().offset;
         if p.eat(";") {
             continue;
         }
@@ -2680,6 +2683,7 @@ fn parse_class(
                 return Err(p.error(format!("Duplicate class member '{ns_name}'.")));
             }
             fields.push(Field {
+                offset: member_offset,
                 name: ns_name,
                 ty: Some("Namespace".into()),
                 value: Some(Expr::Call(
@@ -2740,6 +2744,7 @@ fn parse_class(
                     return Err(p.error("AS2 inline field initializers currently require scalar constants. Initialize arrays, objects and computed values in the constructor."));
                 }
                 fields.push(Field {
+                    offset: member_offset,
                     name,
                     ty,
                     value,
@@ -2861,6 +2866,9 @@ fn parse_class(
     })
 }
 fn prefix(mut e: Diagnostic, path: &str) -> Diagnostic {
+    if e.path.is_none() {
+        e.path = Some(path.to_owned());
+    }
     e.message = format!("{path}: {}", e.message);
     e
 }
@@ -3750,6 +3758,13 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         "Namespace",
         "QName",
     ]);
+    let mapping_prefix = crate::sourcemap::marker_prefix(
+        &classes
+            .values()
+            .map(|class| class.header.script.source.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
     let mut registrations = format!("__nfProgram.setNativeTypes({reflection_types:?});\n");
     for (ns_name, ns_uri) in &namespace_uris {
         registrations.push_str(&format!(
@@ -4116,6 +4131,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .collect();
         c.context.members = members;
         resolved.insert(name.clone(), member_history);
+        c.context.mapping_prefix = Some(format!("{mapping_prefix}class{}:", resolved.len()));
         match emit_class(c) {
             Ok(code) => registrations.push_str(&code),
             Err(e) => errors.push(prefix(e, &c.header.path)),
@@ -4130,12 +4146,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .get(linked)
             .is_some_and(|class| !class.header.is_interface)
         {
-            errors.push(Diagnostic {
-                language: ScriptLanguage::ActionScript3,
-                line: 1,
-                column: 1,
-                message: format!("Unknown linked project class '{linked}'."),
-            });
+            errors.push(Diagnostic::new(
+                ScriptLanguage::ActionScript3,
+                1,
+                1,
+                format!("Unknown linked project class '{linked}'."),
+            ));
         }
     }
     for symbol in project
@@ -4151,12 +4167,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         if let Some(class) = &symbol.class_name
             && native_bases.get(class).map(String::as_str) != Some(required_base)
         {
-            errors.push(Diagnostic {
-                language: classes.get(class).map_or(ScriptLanguage::ActionScript3, |class| class.header.script.language),
-                line: 1,
-                column: 1,
-                message: format!("Exported symbol '{}' requires class '{class}' to ultimately extend {required_base}.",symbol.name),
-            });
+            errors.push(Diagnostic::new(classes.get(class).map_or(ScriptLanguage::ActionScript3, |class| class.header.script.language), 1, 1, format!("Exported symbol '{}' requires class '{class}' to ultimately extend {required_base}.",symbol.name)));
         }
     }
     let mut init_clips = Vec::new();
@@ -4245,8 +4256,14 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             let mut replaced = source_script.clone();
             replaced.language = ScriptLanguage::ActionScript2;
             replaced.source = source_script.source[..end]
-                .chars()
-                .map(|ch| if ch == '\n' || ch == '\r' { ch } else { ' ' })
+                .bytes()
+                .map(|ch| {
+                    if ch == b'\n' || ch == b'\r' {
+                        ch as char
+                    } else {
+                        ' '
+                    }
+                })
                 .collect::<String>()
                 + &source_script.source[end..];
             let mut body_parser = frontend(&replaced, TokenCursor::default(), c.clone());
@@ -4265,7 +4282,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 }
             };
             for (stmt_idx, stmt) in statements.iter().enumerate() {
-                if let Stmt::InitClip(order_num, body, id) = stmt {
+                if let Stmt::InitClip(order_num, body, id) = stmt.unlocated() {
                     let key = format!("{:016x}:{id}", super::fnv1a64(&replaced.source));
                     let mut body_code = Emitter {
                         as3: false,
@@ -4312,8 +4329,35 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     let code = format!(
         "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy,__nfXML=__nfBuiltins.__nfXML;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
+    let mut source_maps = BTreeMap::new();
+    for c in classes.values() {
+        let Some(marker) = &c.context.mapping_prefix else {
+            continue;
+        };
+        let mut map = crate::sourcemap::map_marked_source(
+            &c.header.path,
+            &c.header.script.source,
+            &code,
+            marker,
+        );
+        if let Some(unit) = project
+            .sources
+            .iter()
+            .find(|unit| unit.path == c.header.path)
+        {
+            let raw = Script {
+                language: unit.language,
+                source: unit.source.clone(),
+            };
+            if let Ok(expanded) = super::includes::expand_at(&raw, &unit.path, &includes) {
+                map = remap_includes(map, &expanded, &unit.path, &raw.source);
+            }
+        }
+        source_maps.insert(c.header.path.clone(), map);
+    }
     Ok(ProjectProgram {
         includes,
+        source_maps,
         code,
         class_names: order
             .into_iter()
@@ -4333,6 +4377,21 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     })
 }
 
+fn has_include_directive(script: &Script) -> bool {
+    match script.language {
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+            script.source.contains("#include")
+        }
+        ScriptLanguage::ActionScript3 => {
+            script.source.contains("include ")
+                || script.source.contains("include\"")
+                || script.source.contains("include'")
+                || script.source.contains("#include")
+        }
+        _ => false,
+    }
+}
+
 pub fn compile_with_program(
     script: &Script,
     program: &ProjectProgram,
@@ -4344,26 +4403,80 @@ pub fn compile_with_program(
             "A single script is limited to 1 MiB.",
         )]);
     }
-    let has_include = match script.language {
-        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
-            script.source.contains("#include")
-        }
-        ScriptLanguage::ActionScript3 => {
-            script.source.contains("include ")
-                || script.source.contains("include\"")
-                || script.source.contains("include'")
-                || script.source.contains("#include")
-        }
-        _ => false,
-    };
-    if has_include {
+    if has_include_directive(script) {
         let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
-        compile_prepared(&expanded.script, program)
+        compile_prepared(&expanded.script, program, None)
             .map_err(|errors| errors.into_iter().map(|e| expanded.diagnostic(e)).collect())
     } else {
-        compile_prepared(script, program)
+        compile_prepared(script, program, None)
     }
 }
+pub(crate) fn compile_with_program_mapped(
+    script: &Script,
+    program: &ProjectProgram,
+    source_name: &str,
+) -> Result<(String, crate::SourceMap), Vec<Diagnostic>> {
+    // Mapping must not normalize untouched source: #initclip identity is shared with
+    // the program bootstrap and includes the authored source bytes.
+    if !has_include_directive(script) {
+        let prefix = crate::sourcemap::marker_prefix(&script.source);
+        let code = compile_prepared(script, program, Some(prefix.clone()))?;
+        let map = crate::sourcemap::map_marked_source(source_name, &script.source, &code, &prefix);
+        return Ok((code, map));
+    }
+
+    let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
+    let prefix = crate::sourcemap::marker_prefix(&expanded.script.source);
+    let code =
+        compile_prepared(&expanded.script, program, Some(prefix.clone())).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|e| expanded.diagnostic(e))
+                .collect::<Vec<_>>()
+        })?;
+    let map =
+        crate::sourcemap::map_marked_source(source_name, &expanded.script.source, &code, &prefix);
+    Ok((
+        code,
+        remap_includes(map, &expanded, source_name, &script.source),
+    ))
+}
+
+fn remap_includes(
+    mut map: crate::SourceMap,
+    expanded: &super::includes::Expanded,
+    source_name: &str,
+    source: &str,
+) -> crate::SourceMap {
+    let mut segments = map.decode_segments();
+    map.sources = vec![source_name.to_owned()];
+    map.sources_content = vec![source.to_owned()];
+    for segment in &mut segments {
+        if let Some((path, line)) = expanded.origins.get(segment.original_line) {
+            let name = if path.is_empty() { source_name } else { path };
+            let index = map
+                .sources
+                .iter()
+                .position(|s| s == name)
+                .unwrap_or_else(|| {
+                    map.sources.push(name.to_owned());
+                    map.sources_content
+                        .push(expanded.sources.get(path).cloned().unwrap_or_default());
+                    map.sources.len() - 1
+                });
+            segment.source_index = index;
+            segment.original_line = line.saturating_sub(1);
+        }
+    }
+    crate::SourceMap::from_segments(
+        map.file,
+        map.sources,
+        map.sources_content,
+        map.names,
+        segments,
+    )
+}
+
 fn apply_as3_timeline_auto_imports(
     c: &mut CompileContext,
     visible: &BTreeSet<String>,
@@ -4400,7 +4513,11 @@ fn apply_as3_timeline_auto_imports(
     }
 }
 
-fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String, Vec<Diagnostic>> {
+fn compile_prepared(
+    script: &Script,
+    program: &ProjectProgram,
+    mapping_prefix: Option<String>,
+) -> Result<String, Vec<Diagnostic>> {
     if !matches!(
         script.language,
         ScriptLanguage::ActionScript1
@@ -4442,21 +4559,33 @@ fn compile_prepared(script: &Script, program: &ProjectProgram) -> Result<String,
     if dialect == ScriptLanguage::ActionScript3 {
         apply_as3_timeline_auto_imports(&mut c, &visible, &program.languages);
     }
+    c.mapping_prefix = mapping_prefix;
     c.legacy_case = is_as1;
     c.as2_private = program.as2_private.clone();
     // Keep original byte positions/line numbers when removing import statements.
     let mut replaced = script.clone();
     replaced.language = dialect;
     replaced.source = script.source[..end]
-        .chars()
-        .map(|c| if c == '\n' || c == '\r' { c } else { ' ' })
+        .bytes()
+        .map(|c| {
+            if c == b'\n' || c == b'\r' {
+                c as char
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         + &script.source[end..];
-    super::compile_context(&replaced, c).map_err(|mut e| {
-        if is_as1 {
-            e.language = ScriptLanguage::ActionScript1;
-        }
-        vec![e]
+    super::compile_context(&replaced, c).map_err(|error| {
+        super::diagnostics::collect_errors(&replaced, error)
+            .into_iter()
+            .map(|mut error| {
+                if is_as1 {
+                    error.language = ScriptLanguage::ActionScript1;
+                }
+                error
+            })
+            .collect()
     })
 }
 
@@ -4534,7 +4663,12 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             .as_ref()
             .map(|v| {
                 format!(
-                    "function(){{const __nfFrame=this;return {};}}",
+                    "function(){{const __nfFrame=this;{}return {};}}",
+                    c.context
+                        .mapping_prefix
+                        .as_ref()
+                        .map(|prefix| format!("{prefix}{}*/", f.offset))
+                        .unwrap_or_default(),
                     emitter.expression(v)
                 )
             })
@@ -4563,7 +4697,7 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                     "A constructor cannot be static, override or have a return annotation.",
                 ));
             }
-            let explicit = matches!(f.body.first(),Some(Stmt::Expr(Expr::Call(callee,_,_))) if matches!(callee.as_ref(),Expr::Name(n) if n=="super"));
+            let explicit = matches!(f.body.first().map(Stmt::unlocated),Some(Stmt::Expr(Expr::Call(callee,_,_))) if matches!(callee.as_ref(),Expr::Name(n) if n=="super"));
             if !explicit {
                 f.body.insert(
                     0,

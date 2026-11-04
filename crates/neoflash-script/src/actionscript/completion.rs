@@ -56,6 +56,7 @@ fn switch_exits(cases: &[Case]) -> Exits {
 }
 fn statement(stmt: &Stmt) -> Exits {
     match stmt {
+        Stmt::Located(_, inner) => statement(inner),
         Stmt::Return(_, _) => [Exit::Return, Exit::Throw].into(),
         Stmt::Throw(_) => one(Exit::Throw),
         Stmt::Break(label) => one(Exit::Break(label.clone())),
@@ -65,7 +66,7 @@ fn statement(stmt: &Stmt) -> Exits {
             let mut exits = one(Exit::Throw);
             let mut cur = Some(stmt);
             while let Some(node) = cur {
-                if let Stmt::If(_, yes, no) = node {
+                if let Stmt::If(_, yes, no) = node.unlocated() {
                     exits.extend(statement(yes));
                     if let Some(next) = no.as_deref() {
                         cur = Some(next);

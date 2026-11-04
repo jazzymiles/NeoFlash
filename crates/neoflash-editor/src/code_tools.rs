@@ -534,21 +534,12 @@ pub(crate) fn auto_delete_pair(text: &str, caret: usize) -> Option<Edit> {
 }
 
 /// Apply a `neoflash_script::QuickFix` to `text`, returning the new text and updated caret position.
-#[allow(dead_code)]
 pub(crate) fn apply_quick_fix_edit(text: &str, fix: &neoflash_script::QuickFix) -> Option<Edit> {
-    let mut start = fix.span.0.min(text.len());
-    while !text.is_char_boundary(start) {
-        start -= 1;
-    }
-    let mut end = fix.span.1.min(text.len()).max(start);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    let out = format!("{}{}{}", &text[..start], fix.replacement, &text[end..]);
+    let out = fix.try_apply(text)?;
     if out == text {
         return None;
     }
-    let caret = text[..start].chars().count() + fix.replacement.chars().count();
+    let caret = text[..fix.span.0].chars().count() + fix.replacement.chars().count();
     Some((out, (caret, caret)))
 }
 
@@ -1662,12 +1653,12 @@ export function clamp(val: number, min: number, max: number): number { return va
         assert_eq!(fixed_ts, "let score: number = 10;\nscore = 20;");
 
         // 2. Unused variable & deprecated AS2 operator quick fixes
-        let as2_src = "var unusedCount:Number = 1;\nif (a eq b) {\n    trace(a);\n}";
+        let as2_src = "function example():Void { var unusedCount:Number = 1; }\nif (a and b) {\n    trace(a);\n}";
         let as2_fixes =
             diagnostics_and_quick_fixes(neoflash_core::ScriptLanguage::ActionScript2, as2_src);
         let (_, unused_f) = as2_fixes
             .iter()
-            .find(|(msg, _)| msg.contains("never used"))
+            .find(|(msg, _)| msg.contains("Variable 'unusedCount'"))
             .expect("unused variable warning");
         let (prefixed, _) = apply(
             &CodeCommand::ApplyQuickFix(unused_f[0].clone()),
@@ -1675,18 +1666,18 @@ export function clamp(val: number, min: number, max: number): number { return va
             (0, 0),
         )
         .unwrap();
-        assert!(prefixed.starts_with("var _unusedCount:Number = 1;"));
+        assert!(prefixed.contains("var _unusedCount:Number = 1;"));
 
-        let (_, eq_f) = as2_fixes
+        let (_, and_f) = as2_fixes
             .iter()
-            .find(|(msg, _)| msg.contains("'eq'"))
-            .expect("deprecated eq operator warning");
-        let (modern_eq, _) = apply(
-            &CodeCommand::ApplyQuickFix(eq_f[0].clone()),
+            .find(|(msg, _)| msg.contains("'and'"))
+            .expect("deprecated and operator warning");
+        let (modern_and, _) = apply(
+            &CodeCommand::ApplyQuickFix(and_f[0].clone()),
             as2_src,
             (0, 0),
         )
         .unwrap();
-        assert!(modern_eq.contains("if (a == b)"));
+        assert!(modern_and.contains("if (a && b)"));
     }
 }

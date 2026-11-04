@@ -29,6 +29,39 @@ test('compiled source lookup distinguishes dialect and exact source',()=>{
   assert.notEqual(sourceKey({language:'java_script',source:'play()'}),sourceKey({language:'action_script2',source:'play()'}));
 });
 
+test('runtime source maps calibrate wrappers, select authored calls and tolerate hostile exceptions', () => {
+  const {functionBodyLineOffset, scriptFunction, mapScriptStack, mappedErrorFrames} = require('../runtime.js');
+  const offset = functionBodyLineOffset();
+  assert.ok(Number.isInteger(offset));
+  const script = {
+    source_url: 'neoflash-script-2.js', code: 'trace();\nthrow new Error("authored");',
+    source_locations: [
+      {generated_line:1,generated_column:1,source:'Scene / frame 9',line:12,column:3},
+      {generated_line:2,generated_column:1,source:'Scene / frame 9',line:16,column:5},
+    ],
+  };
+  let traced;
+  try {
+    scriptFunction(script, ['trace'])(() => {traced=mapScriptStack(new Error().stack,[script],offset);});
+    assert.fail('expected authored error');
+  } catch (error) {
+    assert.equal(mappedErrorFrames(error,[script],offset)[0].line,16);
+    assert.equal(mappedErrorFrames(new Error('wrapper',{cause:error}),[script],offset)[0].column,5);
+  }
+  assert.equal(traced[0].line,12);
+  assert.deepEqual(mapScriptStack('at helper (unrelated.js:2:1)',[script],offset),[]);
+  assert.deepEqual(mapScriptStack('Error: neoflash-script-2.js:'+(offset+3)+':1',[script],offset),[], 'error message cannot impersonate a stack frame');
+  assert.deepEqual(mapScriptStack('at helper (neoflash-script-2.js:'+(offset+2+30)+':1)',[script],offset),[]);
+  let reads=0;
+  const hostile={get stack(){reads++;throw new Error('getter');},get cause(){reads++;throw new Error('getter');}};
+  assert.deepEqual(mappedErrorFrames(hostile,[script],offset),[]);
+  assert.equal(reads,0,'mapping never invokes authored stack/cause getters');
+  assert.deepEqual(mappedErrorFrames('primitive throw',[script],offset),[]);
+  const cycle={};cycle.cause=cycle;
+  assert.deepEqual(mappedErrorFrames(cycle,[script],offset),[]);
+  assert.deepEqual(mappedErrorFrames(new Proxy({}, {getOwnPropertyDescriptor(){throw new Error('proxy');}}),[script],offset),[]);
+});
+
 test('AS3 navigateToURL and URLRequest handle web links, window targets, POST variables and mailto:',()=>{
   const NeoFlashEvents = require('../events.js');
   const NeoFlashByteArray = require('../byte-array.js');

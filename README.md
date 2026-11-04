@@ -55,10 +55,10 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 108 of 122 | 2 | 12 | 6 / 6 / 0 |
 | Timelines and animation | 73 of 76 | 1 | 2 | 7 / 3 / 0 |
-| HTML5 and interactivity | 80 of 81 | 0 | 1 | 11 / 1 / 0 |
+| HTML5 and interactivity | 78 of 81 | 2 | 1 | 10 / 2 / 0 |
 | Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 361 of 397 | 9 | 27 | 36 / 17 / 1 |
+| **All areas** | 359 of 397 | 11 | 27 | 35 / 18 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

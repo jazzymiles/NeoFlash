@@ -1,4 +1,5 @@
 //! A tokenizing/recursive-descent + Pratt frontend, not a text substitution pass.
+pub(crate) mod analysis;
 mod includes;
 
 use crate::Diagnostic;
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 mod completion;
 #[cfg(test)]
 mod control_tests;
+pub(crate) mod diagnostics;
 pub(crate) mod project;
 mod scope;
 mod xml_literals;
@@ -15,6 +17,7 @@ mod xml_literals;
 #[derive(Clone, Default)]
 struct CompileContext {
     legacy_case: bool,
+    mapping_prefix: Option<String>,
     types: std::collections::BTreeMap<String, String>,
     intrinsic_types: std::collections::BTreeSet<String>,
     functions: std::collections::BTreeMap<String, String>,
@@ -111,7 +114,8 @@ enum Kind {
     String(String),
     Punct(&'static str),
     End,
-    Invalid(Diagnostic),
+    // Rich diagnostics must not enlarge every successful token on recursive parser frames.
+    Invalid(Box<Diagnostic>),
 }
 
 #[derive(Clone, Debug)]
@@ -330,7 +334,7 @@ impl TokenCursor {
             };
             self.produced.set(self.produced.get() + 1);
             let token = result.unwrap_or_else(|error| Token {
-                kind: Kind::Invalid(error),
+                kind: Kind::Invalid(Box::new(error)),
                 offset: lexer.offset,
                 end: lexer.offset,
             });
@@ -521,6 +525,7 @@ struct LegacyTrigger {
 
 #[derive(Clone, Debug)]
 enum Stmt {
+    Located(usize, Box<Stmt>),
     Empty,
     Expr(Expr),
     DefaultXmlNamespace(Expr),
@@ -544,6 +549,15 @@ enum Stmt {
     Try(Vec<Stmt>, Vec<CatchClause>, Option<Vec<Stmt>>),
     Function(Box<Function>),
     Return(Option<Expr>, usize),
+}
+
+impl Stmt {
+    fn unlocated(&self) -> &Self {
+        match self {
+            Self::Located(_, statement) => statement.unlocated(),
+            _ => self,
+        }
+    }
 }
 
 struct Frontend<'a> {
@@ -592,7 +606,7 @@ impl<'a> Frontend<'a> {
     fn error(&self, message: impl Into<String>) -> Diagnostic {
         let token = self.token();
         if let Kind::Invalid(error) = token.kind {
-            error
+            *error
         } else {
             Diagnostic::at(self.script, token.offset, message)
         }
@@ -639,9 +653,10 @@ impl<'a> Frontend<'a> {
     }
     fn statement(&mut self) -> Result<Stmt, Diagnostic> {
         self.enter()?;
+        let offset = self.token().offset;
         let statement = self.statement_inner()?;
         self.depth -= 1;
-        Ok(statement)
+        Ok(Stmt::Located(offset, Box::new(statement)))
     }
     #[inline(never)]
     fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
@@ -652,11 +667,12 @@ impl<'a> Frontend<'a> {
             if branches.len() >= 1024 {
                 return Err(self.error("ActionScript if/else-if chain exceeds 1024 branches."));
             }
+            let offset = self.peek(self.pos - 1).unwrap().offset;
             self.expect("(")?;
             let condition = self.sequence_expression()?;
             self.expect(")")?;
             let yes = Box::new(self.statement()?);
-            branches.push((condition, yes));
+            branches.push((offset, condition, yes));
             if self.eat("else") {
                 if self.eat("if") {
                     continue;
@@ -677,8 +693,11 @@ impl<'a> Frontend<'a> {
             self.expect("}")?;
         }
         let mut current = tail;
-        for (condition, yes) in branches.into_iter().rev() {
-            current = Some(Box::new(Stmt::If(condition, yes, current)));
+        for (offset, condition, yes) in branches.into_iter().rev() {
+            current = Some(Box::new(Stmt::Located(
+                offset,
+                Box::new(Stmt::If(condition, yes, current)),
+            )));
         }
         Ok(*current.unwrap())
     }
@@ -1386,9 +1405,21 @@ impl<'a> Frontend<'a> {
         if !self.eat(":") {
             return Ok(None);
         }
+        let start = self.token().offset;
         let name = self.type_name()?;
         if !self.supported_type(&name, returns) {
-            return Err(self.error(format!("Type '{name}' is not supported in this ActionScript annotation. Use a supported primitive, resolved project type or AS3 Vector.<T>; void/Void is return-only.")));
+            let end = self
+                .peek(self.pos.saturating_sub(1))
+                .map_or(start, |token| token.end);
+            let mut error = Diagnostic::at_span(
+                self.script,
+                (start, end),
+                format!(
+                    "Type '{name}' is not supported in this ActionScript annotation. Use a supported primitive, resolved project type or AS3 Vector.<T>; void/Void is return-only."
+                ),
+            );
+            error.code = Some("1046".into());
+            return Err(error);
         }
         Ok(Some(name))
     }
@@ -3025,6 +3056,13 @@ struct Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    fn marker(&self, statement: &Stmt) -> String {
+        match (&self.analysis.context.mapping_prefix, statement) {
+            (Some(prefix), Stmt::Located(offset, _)) => format!("{prefix}{offset}*/"),
+            _ => String::new(),
+        }
+    }
+
     fn legacy_case(&self) -> bool {
         self.analysis.context.legacy_case
     }
@@ -3689,7 +3727,8 @@ impl Emitter<'_> {
     fn body(&self, body: &[Stmt]) -> String {
         let mut output = String::new();
         for statement in body {
-            if let Stmt::Function(f) = statement {
+            if let Stmt::Function(f) = statement.unlocated() {
+                output.push_str(&self.marker(statement));
                 let code = self.function(f);
                 let fn_name = f.name.as_deref().unwrap();
                 if self.scope == 0 {
@@ -5019,6 +5058,13 @@ impl Emitter<'_> {
     }
     fn statement(&self, stmt: &Stmt) -> String {
         match stmt {
+            Stmt::Located(offset, inner) => {
+                let code = self.statement(inner);
+                if code.is_empty() { return code; }
+                self.analysis.context.mapping_prefix.as_ref().map_or(code.clone(), |prefix| {
+                    format!("{prefix}{offset}*/{code}")
+                })
+            }
             Stmt::Empty => ";".into(),
             Stmt::Expr(expr) => format!("{};", self.expression(expr)),
             Stmt::DefaultXmlNamespace(expr) => {
@@ -5156,9 +5202,10 @@ impl Emitter<'_> {
                 );
                 let mut cur = no.as_deref();
                 while let Some(node) = cur {
-                    if let Stmt::If(next_cond, next_yes, next_no) = node {
+                    if let Stmt::If(next_cond, next_yes, next_no) = node.unlocated() {
                         output.push_str(&format!(
-                            " else if ({}) {{\n{}\n}}",
+                            " {}else if ({}) {{\n{}\n}}",
+                            self.marker(node),
                             self.expression(next_cond),
                             self.statement(next_yes)
                         ));
@@ -5189,7 +5236,7 @@ impl Emitter<'_> {
                 self.statement(body)
             ),
             Stmt::ForIn(binding, collection, values, body) => {
-                let (target, initial) = match binding.as_ref() {
+                let (target, initial) = match binding.unlocated() {
                     Stmt::Var(vars) => {
                         (Expr::Name(vars[0].0.clone()), Some(self.statement(binding)))
                     }
@@ -5344,6 +5391,21 @@ impl Emitter<'_> {
 pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
     compile_context(script, CompileContext::default())
 }
+pub(crate) fn compile_mapped(script: &Script, prefix: &str) -> Result<String, Diagnostic> {
+    let mut script = script.clone();
+    let legacy = script.language == ScriptLanguage::ActionScript1;
+    if legacy {
+        script.language = ScriptLanguage::ActionScript2;
+    }
+    compile_context(
+        &script,
+        CompileContext {
+            legacy_case: legacy,
+            mapping_prefix: Some(prefix.to_owned()),
+            ..CompileContext::default()
+        },
+    )
+}
 pub(crate) fn compile_legacy(script: &Script) -> Result<String, Diagnostic> {
     compile_context(
         script,
@@ -5460,7 +5522,7 @@ function __nfMemberMethod(receiver, key, as3, caller, legacyCase) {
 }
 
 fn has_default_xml_ns(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| match s {
+    stmts.iter().any(|s| match s.unlocated() {
         Stmt::DefaultXmlNamespace(_) => true,
         Stmt::Block(body) => has_default_xml_ns(body),
         Stmt::If(_, yes, no) => {

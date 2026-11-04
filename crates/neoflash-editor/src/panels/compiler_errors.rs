@@ -84,40 +84,64 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
     hash.finish()
 }
 
+fn diagnostic_message(diagnostic: &neoflash_script::Diagnostic) -> String {
+    diagnostic.code.as_ref().map_or_else(
+        || diagnostic.message.clone(),
+        |code| format!("[{code}] {}", diagnostic.message),
+    )
+}
+
+fn script_diagnostics(
+    script: &neoflash_core::Script,
+    result: Result<String, Vec<neoflash_script::Diagnostic>>,
+) -> Vec<neoflash_script::Diagnostic> {
+    let mut diagnostics = result.err().unwrap_or_default();
+    diagnostics.extend(
+        neoflash_script::check_warnings(script)
+            .iter()
+            .map(|warning| warning.to_diagnostic_with_source(&script.source)),
+    );
+    diagnostics
+        .retain(|diagnostic| diagnostic.severity != neoflash_script::DiagnosticSeverity::Info);
+    diagnostics
+}
+
 pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDiagnosticItem> {
     let mut items = Vec::new();
     let program = neoflash_script::compile_project(project);
-    if let Err(errors) = &program {
-        for err in errors {
-            let matched = project.sources.iter().find_map(|unit| {
-                let prefix = format!("{}: ", unit.path);
-                err.message
-                    .strip_prefix(&prefix)
-                    .map(|msg| (unit, msg.to_owned()))
-            });
-            if let Some((unit, message)) = matched {
-                items.push(CompilerDiagnosticItem {
-                    is_error: true,
-                    message,
-                    location_label: format!("{} · Line {}", unit.path, err.line),
-                    script: Some(ScriptLocation::Source(unit.id.clone())),
-                    line: err.line,
-                    column: err.column,
-                });
-            } else {
-                items.push(CompilerDiagnosticItem {
-                    is_error: true,
-                    message: err.message.clone(),
-                    location_label: format!("Project · Line {}", err.line),
-                    script: project
-                        .sources
-                        .first()
-                        .map(|u| ScriptLocation::Source(u.id.clone())),
-                    line: err.line,
-                    column: err.column,
-                });
-            }
-        }
+    let mut source_diagnostics = program.as_ref().err().cloned().unwrap_or_default();
+    for unit in &project.sources {
+        let script = neoflash_core::Script {
+            language: unit.language,
+            source: unit.source.clone(),
+        };
+        source_diagnostics.extend(
+            neoflash_script::check_warnings_with_path(&script, Some(&unit.path))
+                .iter()
+                .map(|warning| warning.to_diagnostic_with_source(&unit.source)),
+        );
+    }
+    // Informational code hints remain in Actions; this panel has Error/Warning categories.
+    for diagnostic in source_diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity != neoflash_script::DiagnosticSeverity::Info)
+    {
+        let unit = diagnostic
+            .path
+            .as_deref()
+            .and_then(|path| project.sources.iter().find(|unit| unit.path == path));
+        items.push(CompilerDiagnosticItem {
+            is_error: diagnostic.severity == neoflash_script::DiagnosticSeverity::Error,
+            message: diagnostic_message(&diagnostic),
+            location_label: format!(
+                "{} · Line {}",
+                unit.map_or("Project", |unit| unit.path.as_str()),
+                diagnostic.line
+            ),
+            script: unit.map(|unit| ScriptLocation::Source(unit.id.clone())),
+            line: diagnostic.line,
+            column: diagnostic.column,
+        });
     }
 
     let fallback_program = program
@@ -142,8 +166,8 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                 Some(prog) => neoflash_script::compile_with_program(&fs.script, prog),
                 None => neoflash_script::compile(&fs.script),
             };
-            if let Err(errors) = result {
-                for err in errors {
+            {
+                for err in script_diagnostics(&fs.script, result) {
                     let location_label = match actions_layer {
                         Some(layer_name) => format!(
                             "{} · layer {:?} · frame {} · Line {}",
@@ -160,8 +184,8 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                         ),
                     };
                     items.push(CompilerDiagnosticItem {
-                        is_error: true,
-                        message: err.message,
+                        is_error: err.severity == neoflash_script::DiagnosticSeverity::Error,
+                        message: diagnostic_message(&err),
                         location_label,
                         script: Some(ScriptLocation::Frame {
                             symbol: symbol.id.clone(),
@@ -185,16 +209,17 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                             Some(prog) => neoflash_script::compile_with_program(&os.script, prog),
                             None => neoflash_script::compile(&os.script),
                         };
-                        if let Err(errors) = result {
+                        {
                             let target = if el.name.is_empty() {
                                 "object"
                             } else {
                                 el.name.as_str()
                             };
-                            for err in errors {
+                            for err in script_diagnostics(&os.script, result) {
                                 items.push(CompilerDiagnosticItem {
-                                    is_error: true,
-                                    message: err.message,
+                                    is_error: err.severity
+                                        == neoflash_script::DiagnosticSeverity::Error,
+                                    message: diagnostic_message(&err),
                                     location_label: format!(
                                         "{} · layer {:?} · frame {} · {:?} ({target}) · Line {}",
                                         symbol.name,
