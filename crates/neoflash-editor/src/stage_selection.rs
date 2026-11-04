@@ -1690,18 +1690,39 @@ impl Editor {
             let screen = |pt: Pos2| draft.scope.origin + pt.to_vec2() * draft.scope.zoom;
             let preview_rect =
                 Rect::from_min_max(screen(local_bounds.min), screen(local_bounds.max));
-            p.rect_stroke(
-                preview_rect,
-                0.,
-                Stroke::new(3.0_f32, UiPalette::current(p.ctx()).overlay_halo),
-                StrokeKind::Inside,
-            );
-            p.rect_stroke(
-                preview_rect,
-                0.,
-                Stroke::new(1.0_f32, UiPalette::current(p.ctx()).overlay),
-                StrokeKind::Inside,
-            );
+            let palette = UiPalette::current(p.ctx());
+            // Keep the gesture overlay, but follow the same oval contour as the
+            // committed primitive (including arcs and its inner radius).
+            let oval = (draft.tool == Tool::Ellipse).then(|| {
+                oval_path_commands(
+                    local_bounds.width() as f64,
+                    local_bounds.height() as f64,
+                    self.authoring_tools.oval_options,
+                )
+            });
+            for (width, color) in [(3.0_f32, palette.overlay_halo), (1.0_f32, palette.overlay)] {
+                if let Some(commands) = &oval {
+                    crate::vector::paint_path(
+                        p,
+                        commands,
+                        crate::vector::PathPaint {
+                            rule: FillRule::NonZero,
+                            fill: egui::Color32::TRANSPARENT,
+                            stroke: color,
+                            width: (width / draft.scope.zoom) as f64,
+                            tolerance: 0.25 / draft.scope.zoom,
+                        },
+                        |point| preview_rect.min + point.to_vec2() * draft.scope.zoom,
+                    );
+                } else {
+                    p.rect_stroke(
+                        preview_rect,
+                        0.,
+                        Stroke::new(width, color),
+                        StrokeKind::Inside,
+                    );
+                }
+            }
         }
     }
 }

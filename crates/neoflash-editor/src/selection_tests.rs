@@ -877,6 +877,152 @@ fn color_panel_creates_linear_and_radial_gradients_edits_stops_and_undoes() {
 }
 
 #[test]
+fn oval_drag_preview_follows_geometry_without_editing_the_document() {
+    for theme in [
+        crate::theme::ThemeMode::Dark,
+        crate::theme::ThemeMode::Light,
+    ] {
+        for case in 0..4 {
+            let (mut editor, ctx, _) = rectangle_stage();
+            theme.apply(&ctx);
+            editor.zoom = if case >= 2 { 1.5 } else { 1. };
+            editor.pan = egui::vec2(27., -19.);
+            editor.stage_view.prefs.grid_show = false;
+            editor.workspace.drawing.object_drawing = true;
+            editor.set_tool(Tool::Ellipse);
+            let options = if case == 3 {
+                OvalOptions {
+                    start_angle: 0.,
+                    end_angle: 180.,
+                    inner_radius: 40.,
+                    close_path: false,
+                }
+            } else {
+                OvalOptions::default()
+            };
+            editor.authoring_tools.oval_options = options;
+            let layout = stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+            let page = layout
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect) if rect.fill == egui::Color32::WHITE => Some(rect.rect),
+                    _ => None,
+                })
+                .unwrap();
+            let start = page.min + egui::vec2(400., 300.) * editor.zoom;
+            let delta = if case == 2 {
+                egui::vec2(-90., -60.)
+            } else {
+                egui::vec2(160., 100.)
+            };
+            let end = start + delta * editor.zoom;
+            let modifiers = Modifiers {
+                shift: case == 1 || case == 2,
+                alt: case == 2,
+                ..Modifiers::NONE
+            };
+            let expected = match case {
+                1 => Rect::from_min_size(start, egui::vec2(160., 160.) * editor.zoom),
+                2 => Rect::from_center_size(start, egui::vec2(180., 180.) * editor.zoom),
+                _ => Rect::from_two_pos(start, end),
+            };
+            let before = editor.project.clone();
+            input(
+                &mut editor,
+                &ctx,
+                0.2,
+                vec![Event::PointerMoved(start), button(start, true, modifiers)],
+                modifiers,
+            );
+            let preview = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280., 900.))),
+                    time: Some(0.3),
+                    events: vec![Event::PointerMoved(end)],
+                    modifiers,
+                    ..Default::default()
+                },
+                |ctx| editor.stage(ctx),
+            );
+            let overlay = crate::theme::UiPalette::current(&ctx).overlay;
+            let points: Vec<_> = preview
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Mesh(mesh) if mesh.vertices.iter().all(|v| v.color == overlay) => {
+                        Some(mesh)
+                    }
+                    _ => None,
+                })
+                .flat_map(|mesh| mesh.vertices.iter().map(|v| v.pos))
+                .collect();
+            assert!(
+                points.len() > 20,
+                "oval preview must paint curved geometry, case {case}"
+            );
+            let radii = expected.size() * 0.5;
+            for point in &points {
+                let normalized = (*point - expected.center()) / radii;
+                let radius = normalized.length();
+                assert!(
+                    (radius - 1.).abs() < 0.04 || (case == 3 && (radius - 0.4).abs() < 0.04),
+                    "preview must follow the oval, not its bounding rectangle: {point:?}, case {case}"
+                );
+                if case == 3 {
+                    assert!(
+                        normalized.y >= -0.04,
+                        "open arc must not draw the missing half"
+                    );
+                }
+            }
+            assert!(
+                points
+                    .iter()
+                    .any(|p| p.distance(expected.center_bottom()) < 2.),
+                "outer contour is visible"
+            );
+            if case == 3 {
+                let inner_bottom = expected.center() + egui::vec2(0., radii.y * 0.4);
+                assert!(
+                    points.iter().any(|p| p.distance(inner_bottom) < 2.),
+                    "inner contour is visible"
+                );
+            }
+            assert_eq!(editor.project, before, "preview is transient");
+            assert!(!editor.history.can_undo());
+            input(
+                &mut editor,
+                &ctx,
+                0.4,
+                vec![button(end, false, modifiers)],
+                modifiers,
+            );
+            let element = editor.selected_element().unwrap();
+            assert_eq!(element.oval_options(), options);
+            let ElementKind::Ellipse { width, height, .. } = element.kind else {
+                panic!("oval committed");
+            };
+            assert!((width - (expected.width() / editor.zoom) as f64).abs() < 0.001);
+            assert!((height - (expected.height() / editor.zoom) as f64).abs() < 0.001);
+            assert!(
+                (element.transform.x - ((expected.min.x - page.min.x) / editor.zoom) as f64).abs()
+                    < 0.001
+            );
+            assert!(
+                (element.transform.y - ((expected.min.y - page.min.y) / editor.zoom) as f64).abs()
+                    < 0.001
+            );
+            assert!(editor.shape_draft.is_none());
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, before);
+            assert!(!editor.history.can_undo());
+        }
+    }
+}
+
+#[test]
 fn parametric_primitives_render_inspector_break_apart_to_paths_and_undo() {
     let (mut editor, ctx, page) = rectangle_stage();
     editor.authoring_tools.rect_options = RectangleOptions {

@@ -321,7 +321,7 @@ impl Editor {
         for (edge, global) in edge_targets(view.content, view.zoom) {
             neoflash_ui::components::dock_target(&painter, ctx, local(global), edge.title(), false);
         }
-        if let Some(hit) = hit {
+        if let Some(hit) = &hit {
             neoflash_ui::components::dock_target(
                 &painter,
                 ctx,
@@ -329,12 +329,25 @@ impl Editor {
                 &hit.caption,
                 true,
             );
+        }
+        // A panel still follows the pointer over the Stage or empty window
+        // space, where releasing will detach it rather than hit a dock target.
+        // Paint only in the frontmost receiving viewport, using the same NF2
+        // ghost as a dock hit; the panel itself keeps its owner until release.
+        if self
+            .dock_surface_at(drag.pointer)
+            .is_some_and(|under_pointer| under_pointer.surface == surface)
+        {
             let pointer = (drag.pointer - view.inner.min).to_pos2() / view.zoom;
+            let label = hit.map_or_else(
+                || title(drag.panel).to_owned(),
+                |hit| format!("{} · {}", title(drag.panel), hit.caption),
+            );
             neoflash_ui::components::drag_ghost_at(
                 &painter,
                 ctx,
                 pointer + egui::vec2(12., 24.),
-                &format!("{} · {}", title(drag.panel), hit.caption),
+                &label,
             );
         }
     }

@@ -9,6 +9,87 @@ use neoflash_core::Project;
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
+fn panel_drag_ghost_follows_pointer_between_dock_targets_and_cancels_cleanly() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let origin = egui::pos2(100., 80.);
+    let render = |editor: &mut Editor, events| {
+        let mut input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440., 960.),
+            )),
+            events,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .inner_rect = Some(egui::Rect::from_min_size(origin, egui::vec2(1440., 960.)));
+        ctx.run(input, |ctx| {
+            editor.dock_grid(ctx);
+            editor.detached_panels(ctx);
+        })
+    };
+    let has_ghost = |output: &egui::FullOutput, pointer: egui::Pos2, label: &str| {
+        output.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == label => {
+                text.pos.x > pointer.x
+                    && text.pos.y > pointer.y
+                    && text.pos.y < pointer.y + 64.
+                    && shape.clip_rect.contains(text.pos)
+            }
+            _ => false,
+        })
+    };
+    render(&mut editor, vec![]);
+    let tab = editor
+        .detached
+        .dock_groups
+        .iter()
+        .flat_map(|group| &group.tabs)
+        .find(|(panel, _)| *panel == PanelId::Properties)
+        .unwrap()
+        .1
+        .center()
+        - origin.to_vec2();
+    let before = editor.workspace.clone();
+    render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(tab),
+            crate::tests::primary_button(tab, true),
+        ],
+    );
+    let stage = egui::pos2(600., 300.);
+    let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+    assert!(editor.dock_hit(origin + stage.to_vec2(), 1.).is_none());
+    assert!(has_ghost(&output, stage, "Properties"));
+    assert_eq!(editor.workspace, before, "preview must not move the panel");
+
+    let edge = egui::pos2(40., 400.);
+    let output = render(&mut editor, vec![egui::Event::PointerMoved(edge)]);
+    assert!(has_ghost(&output, edge, "Properties · Dock Left"));
+    let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+    assert!(has_ghost(&output, stage, "Properties"));
+    let output = render(
+        &mut editor,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!has_ghost(&output, stage, "Properties"));
+    assert_eq!(editor.workspace, before);
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
 fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents() {
     let ctx = egui::Context::default();
     ctx.set_embed_viewports(false);

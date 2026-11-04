@@ -285,7 +285,7 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
   Geometry builders in `neoflash_core::geometry` drive evaluation, shape morphs, hit testing, native painting and HTML5
   export. `Modify ▸ Break Apart` (`⌘B`) converts a parametric rectangle or oval into its `Path`.
 - Purpose: drawing objects that keep parametric corner radii / start-end angle / inner radius after drawing.
-- Behaviour: drag draws; ⇧ constrains; ⌥ from centre; Properties shows PR-02 options; Break Apart converts to paths.
+- Behaviour: drag draws; Oval previews its actual contour (including arcs and inner radius) before release; ⇧ constrains; ⌥ from centre; Properties shows PR-02 options; Break Apart converts to paths.
 - Data: format-7 `Transform.primitive: Option<PrimitiveOptions>` on `ElementKind::Rectangle/Ellipse`.
 - Depends on: engine (geometry generation in evaluation, export, runtime renderer).
 - Acceptance: radii/angles editable after drawing with Undo; HTML5 renders identically; Break Apart yields paths.
