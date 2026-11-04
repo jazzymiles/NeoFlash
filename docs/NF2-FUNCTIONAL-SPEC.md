@@ -277,6 +277,7 @@ Implemented tools: Selection, Subselection, Free Transform, Gradient Transform, 
 Oval, PolyStar, Pencil, Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, Hand, Zoom. The module comment says the
 others are "omitted rather than faked". Adding a tool button is allowed only because the NF2 Tools panel contains it;
 its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly (otherwise **request**).
+The existing narrow rail opens a group from its painted corner mark, secondary click, long-press or focused →; a body click selects its remembered tool. New v2.2 panel bodies/components remain pending R-038; Trace bitmap remains R-022.
 
 **TO-01 · Rectangle primitive / Oval primitive** — done (parametric options on `Rectangle` / `Oval` in Tool options and Properties PR-02)
 - Done: `Transform.primitive: Option<PrimitiveOptions>` stores Rectangle `corner_radii: [f64; 4]` (linked by default)
@@ -434,7 +435,9 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 
 **ST-11 · Canvas editing chrome variants** — partial
 - Done: Raw Merge selections clip the existing NF2 hatch to the actual fill/stroke silhouette and authored masks,
-  preserving holes and empty bounding-box areas. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
+  preserving holes and empty bounding-box areas. The two-tone hatch is theme-independent and remains visible with
+  Lasso active, in nested symbol editing and over onion-skin previews; ghosts themselves are not selected. Lasso
+  currently selects whole placements by contact/enclosure, without partial-fill cutting. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
   for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
   on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones and a draggable
   `NF2/Transformation Point` (`Transform.pivot` in format 7 for single placements + transient group pivot; rotation and

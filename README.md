@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 107 of 122 | 3 | 12 | 6 / 6 / 0 |
+| Editor and graphics | 108 of 124 | 3 | 13 | 6 / 6 / 0 |
 | Timelines and animation | 73 of 76 | 1 | 2 | 7 / 3 / 0 |
 | HTML5 and interactivity | 78 of 81 | 2 | 1 | 10 / 2 / 0 |
 | Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 358 of 397 | 12 | 27 | 35 / 18 / 1 |
+| **All areas** | 359 of 399 | 12 | 28 | 35 / 18 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -94,7 +94,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 
 ## Editing and publishing
 
-Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, round vector Brush, closed-shape Paint Bucket, Ink Bottle, Eyedropper, whole-object/fill/stroke Eraser, Lasso, Hand, Zoom and Gradient Transform complete the tool palette. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing. Copy/paste carries nested symbols, groups, timelines, resources and scripts between documents. Pressure-sensitive brush input, bucket gap closing, stroke-segment erasing, named workspace presets and multiple simultaneously open documents remain planned. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
+Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, round vector Brush, closed-shape Paint Bucket, Ink Bottle, Eyedropper, whole-object/fill/stroke Eraser, whole-object Lasso with visible selection hatching, Hand, Zoom and Gradient Transform complete the tool palette. Narrow Tools groups open from their corner mark, right-click, long-press or focused →. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing. Copy/paste carries nested symbols, groups, timelines, resources and scripts between documents. Pressure-sensitive brush input, bucket gap closing, stroke-segment erasing, named workspace presets and multiple simultaneously open documents remain planned. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
 
 **Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 

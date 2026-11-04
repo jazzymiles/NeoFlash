@@ -34,7 +34,7 @@
       "title": "Classic workspace",
       "status": "partial",
       "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (theme, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings.",
-      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions (R-013..R-031) or standalone subsystems stay disabled. Stage-grid default contrast can disappear against document backgrounds, and either axis below 3 screen points hides all grid lines; NF2 request R-037 tracks this visibility gap. Show/Snap state and repaint work; custom grid colour works around contrast.",
+      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace presets and multiple open documents remain unfinished. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions (R-013..R-031) or standalone subsystems stay disabled. Stage-grid default contrast can disappear against document backgrounds, and either axis below 3 screen points hides all grid lines; NF2 request R-037 tracks this visibility gap. Show/Snap state and repaint work; custom grid colour works around contrast. New v2.2 Commands, Brushes, Brush/Pencil properties and Customize tools bodies/components remain pending R-038; their exported references are not implemented panels.",
       "items": [
         {
           "id": "docked-panels",
@@ -113,7 +113,7 @@
         },
         {
           "id": "canvas-chrome",
-          "title": "NF2 selection boxes, shape-clipped selection hatch, transform box and path points",
+          "title": "NF2 selection boxes, two-tone shape-clipped hatch, transform box and path points",
           "status": "working"
         },
         {
@@ -149,6 +149,11 @@
         {
           "id": "preferences-full",
           "title": "Preferences: Code editor, Drawing and Shortcuts command registry",
+          "status": "working"
+        },
+        {
+          "id": "tool-group-flyouts",
+          "title": "Open narrow Tools groups by corner mark, right-click, hold or focused Arrow Right",
           "status": "working"
         }
       ],
@@ -671,7 +676,7 @@
       "title": "Advanced vector tools",
       "status": "partial",
       "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush with pressure-driven width from touch force and macOS tablet samples (drawing tools stay selected across consecutive gestures), closed-vector bucket and ink bottle with active solid/gradient paints, solid-color eyedropper that stays active after sampling, whole-object/fill/stroke eraser with swept geometry hit testing, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and clips the existing shape-selection hatch to visible fill/stroke geometry and authored masks. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Internal triangulation edges do not split artwork; coincident outlines remain connected and transformed gradients retain their appearance. Authoring groups preserve runtime identities and isolate their Merge members from raw drawing; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend. Moving selections preserve Guides > Objects > Grid > Pixels priority across all edges/centres, then choose the nearest target within that family on each axis. Grid visibility and snapping are independent.",
-      "limitations": "Physical tablet acceptance and pressure/tilt controls remain pending. Bucket gap closing and partial-stroke clipping have tested geometry paths but their authoring controls await NF2 request R-034; they remain planned as user workflows. Partial-stroke clipping approximates touched curves and refuses masked or combined fill/stroke effects. Group requires all selected members on the current keyframe; cross-frame-only members produce a diagnostic without changing content. Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately.",
+      "limitations": "Physical tablet acceptance and pressure/tilt controls remain pending. Bucket gap closing and partial-stroke clipping have tested geometry paths but their authoring controls await NF2 request R-034; they remain planned as user workflows. Partial-stroke clipping approximates touched curves and refuses masked or combined fill/stroke effects. Group requires all selected members on the current keyframe; cross-frame-only members produce a diagnostic without changing content. Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately. Lasso uses whole-placement bounds; it does not split a fill along the lasso contour.",
       "items": [
         {
           "id": "line-brush",
@@ -710,7 +715,7 @@
         },
         {
           "id": "lasso",
-          "title": "Lasso selection",
+          "title": "Select whole placements with Lasso and keep selection hatching visible",
           "status": "working"
         },
         {
@@ -742,6 +747,11 @@
           "id": "object-pixel-snapping",
           "title": "Snapping to objects and pixels",
           "status": "working"
+        },
+        {
+          "id": "lasso-partial-fills",
+          "title": "Select part of a fill with Lasso",
+          "status": "planned"
         }
       ],
       "evidence": [

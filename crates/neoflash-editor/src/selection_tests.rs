@@ -2038,9 +2038,17 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
 }
 
 #[test]
-fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
-    let ctx = egui::Context::default();
-    let meshes_from = |out: egui::FullOutput| -> Vec<egui::epaint::Mesh> {
+fn merge_selection_two_tone_hatch_covers_geometry_lasso_symbols_and_onion() {
+    for theme in [
+        crate::theme::ThemeMode::Dark,
+        crate::theme::ThemeMode::Light,
+    ] {
+        merge_selection_hatch_paths_in_theme(theme);
+    }
+}
+
+fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
+    fn meshes_from(ctx: &egui::Context, out: egui::FullOutput) -> Vec<egui::epaint::Mesh> {
         ctx.tessellate(out.shapes, out.pixels_per_point)
             .into_iter()
             .filter_map(|p| {
@@ -2051,7 +2059,47 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
                 }
             })
             .collect()
-    };
+    }
+    fn hatch_vertices(meshes: &[egui::epaint::Mesh]) -> Vec<&egui::epaint::Vertex> {
+        let tones = [
+            egui::Color32::from_white_alpha(230),
+            egui::Color32::from_black_alpha(191),
+        ];
+        let vertices: Vec<_> = meshes
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .filter(|vertex| tones.contains(&vertex.color))
+            .collect();
+        for tone in tones {
+            assert!(
+                vertices
+                    .iter()
+                    .filter(|vertex| vertex.color == tone)
+                    .count()
+                    >= 3,
+                "selection output must retain both NF2 hatch tones: missing {tone:?}"
+            );
+        }
+        vertices
+    }
+    fn hatch_signature(meshes: &[egui::epaint::Mesh]) -> Vec<(u32, u32, [u8; 4])> {
+        let mut result: Vec<_> = hatch_vertices(meshes)
+            .into_iter()
+            .map(|vertex| {
+                (
+                    vertex.pos.x.to_bits(),
+                    vertex.pos.y.to_bits(),
+                    vertex.color.to_array(),
+                )
+            })
+            .collect();
+        result.sort_unstable();
+        result.dedup();
+        result
+    }
+    let ctx = egui::Context::default();
+    let mut theme_editor = Editor::from_project(&ctx, Project::blank());
+    theme_editor.set_theme(&ctx, theme);
     let rect_commands = |min: f64, max: f64| {
         vec![
             PathCommand::MoveTo { x: min, y: min },
@@ -2132,7 +2180,8 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
                 .unwrap();
             },
         );
-        let meshes = meshes_from(out);
+        let meshes = meshes_from(&ctx, out);
+        hatch_vertices(&meshes);
         assert!(
             meshes.iter().any(|mesh| !mesh.indices.is_empty()),
             "selection must remain visible"
@@ -2220,7 +2269,8 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
                 .unwrap_or_else(|error| panic!("{count}-point stroke selection: {error}"));
             },
         );
-        let meshes = meshes_from(out);
+        let meshes = meshes_from(&ctx, out);
+        hatch_vertices(&meshes);
         assert!(meshes.iter().any(|mesh| !mesh.indices.is_empty()));
         let vertices: Vec<_> = meshes.iter().flat_map(|mesh| &mesh.vertices).collect();
         assert!(vertices.iter().any(|v| v.pos.x < origin.x + 8.));
@@ -2235,6 +2285,7 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
     // Exercise the real selection_stage lookup: its selected draw must carry the authored mask
     // IDs into hatch clipping. Calling only the geometry helper would miss that wiring.
     let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.set_theme(&ctx, theme);
     let mut selected = object("masked-selection", 20., 20.);
     selected.merge = true;
     selected.kind = ElementKind::Rectangle {
@@ -2288,7 +2339,8 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
                 });
         },
     );
-    let meshes = meshes_from(out);
+    let meshes = meshes_from(&ctx, out);
+    hatch_vertices(&meshes);
     assert!(
         meshes.iter().any(|mesh| !mesh.indices.is_empty()),
         "masked selection must stay visible"
@@ -2305,4 +2357,173 @@ fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
             vertex.pos
         );
     }
+
+    // Lasso contact with only half of a Merge fill selects the existing whole element.
+    // This is the implemented whole-object path, not partial-fill topology selection.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_theme(&ctx, theme);
+    let mut selected = object("lasso-raw-fill", 100., 100.);
+    selected.merge = true;
+    selected.kind = ElementKind::Rectangle {
+        width: 120.,
+        height: 100.,
+        fill: [40, 100, 180, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    editor.symbol_mut().timeline.layers = vec![layer("lasso-layer", vec![selected], false)];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.tool = Tool::Lasso;
+    editor.clear_selection();
+    editor.history.clear();
+    editor.project.validate().unwrap();
+    let before_lasso = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 1., vec![]);
+    let polygon = [
+        (80., 80.),
+        (160., 80.),
+        (160., 220.),
+        (80., 220.),
+        (80., 80.),
+    ]
+    .map(|(x, y)| page.min + egui::vec2(x, y));
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        2.,
+        vec![
+            Event::PointerMoved(polygon[0]),
+            primary_button(polygon[0], true),
+        ],
+    );
+    for (i, point) in polygon.into_iter().enumerate().skip(1) {
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            2. + i as f64 * 0.1,
+            vec![Event::PointerMoved(point)],
+        );
+    }
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        3.,
+        vec![primary_button(polygon[0], false)],
+    );
+    assert_eq!(ids(&editor), ["lasso-raw-fill"]);
+    assert_eq!(
+        editor.tool,
+        Tool::Lasso,
+        "Lasso remains active after selection"
+    );
+    let out = stage_input_frame(&mut editor, &ctx, 3.1, vec![]);
+    let meshes = meshes_from(&ctx, out);
+    let hatch = hatch_vertices(&meshes);
+    let whole = Rect::from_min_max(
+        page.min + egui::vec2(100., 100.),
+        page.min + egui::vec2(220., 200.),
+    );
+    assert!(
+        hatch
+            .iter()
+            .all(|vertex| whole.expand(0.01).contains(vertex.pos))
+    );
+    assert!(
+        hatch.iter().any(|vertex| vertex.pos.x > page.min.x + 190.),
+        "whole-object Lasso selection hatches the contacted fill beyond the contact polygon"
+    );
+    assert_eq!(
+        editor.project, before_lasso,
+        "Lasso selection does not cut or mutate artwork"
+    );
+    assert!(
+        !editor.history.can_undo(),
+        "selection alone creates no content Undo"
+    );
+
+    // Both sides of the current frame remain ghosts; only current-frame artwork gets the
+    // full-strength selection hatch, even when ghost outlines are requested.
+    editor.tool = Tool::Select;
+    editor.frame = 1;
+    editor.symbol_mut().timeline.frame_count = 3;
+    let current = editor.symbol().timeline.layers[0].keyframes[0].elements[0].clone();
+    editor.symbol_mut().timeline.layers[0].keyframes = (0..3)
+        .map(|frame| {
+            let mut element = current.clone();
+            element.transform.x += (frame as f64 - 1.) * 200.;
+            Keyframe {
+                frame,
+                elements: vec![element],
+                ..Default::default()
+            }
+        })
+        .collect();
+    // Keep both ghosts within the page and disjoint from the selected fill.
+    for key in &mut editor.symbol_mut().timeline.layers[0].keyframes {
+        key.elements[0].transform.x += 220.;
+    }
+    editor.onion_before = 1;
+    editor.onion_after = 1;
+    editor.onion = false;
+    editor.select_single_id("lasso-raw-fill".into());
+    let before_onion = editor.project.clone();
+    let out = stage_input_frame(&mut editor, &ctx, 4., vec![]);
+    let without_ghosts = out.shapes.len();
+    let signature = hatch_signature(&meshes_from(&ctx, out));
+    for (i, outlines) in [false, true].into_iter().enumerate() {
+        editor.onion = true;
+        editor.onion_outlines = outlines;
+        let out = stage_input_frame(&mut editor, &ctx, 5. + i as f64, vec![]);
+        assert!(
+            out.shapes.len() > without_ghosts,
+            "onion ghosts must actually be painted"
+        );
+        let meshes = meshes_from(&ctx, out);
+        assert_eq!(
+            hatch_signature(&meshes),
+            signature,
+            "onion skin must neither tint the selected hatch nor hatch neighbouring frames"
+        );
+        assert_eq!(editor.project, before_onion);
+    }
+    editor.project.validate().unwrap();
+
+    // Enter through the existing in-place navigation callback; the nested Stage uses the
+    // registration point as its origin, rather than the root page's top-left corner.
+    editor.onion = false;
+    let mut child = editor.symbol().clone();
+    child.id = "hatch-child".into();
+    child.name = "Hatch child".into();
+    child.timeline.frame_count = 1;
+    let mut nested = object("nested-raw-fill", -60., -30.);
+    nested.merge = true;
+    child.timeline.layers = vec![layer("nested-layer", vec![nested], false)];
+    let mut placement = object("hatch-instance", 200., 240.);
+    placement.kind = ElementKind::Instance {
+        symbol_id: child.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    editor.symbol_mut().timeline.layers = vec![layer("instance-layer", vec![placement], false)];
+    editor.project.symbols.push(child);
+    editor.project.validate().unwrap();
+    let before_nested = editor.project.clone();
+    editor.edit_symbol_from_popover(&ctx, "hatch-child", true);
+    assert_eq!(editor.editing.len(), 2);
+    assert_eq!(editor.symbol_id(), "hatch-child");
+    editor.select_single_id("nested-raw-fill".into());
+    let out = stage_input_frame(&mut editor, &ctx, 8., vec![]);
+    let meshes = meshes_from(&ctx, out);
+    let nested_bounds = Rect::from_min_max(
+        page.center() + egui::vec2(-60., -30.),
+        page.center() + egui::vec2(0., 10.),
+    )
+    .expand(0.01);
+    assert!(
+        hatch_vertices(&meshes)
+            .iter()
+            .all(|vertex| nested_bounds.contains(vertex.pos)),
+        "in-place symbol hatching must use the nested registration-point origin"
+    );
+    assert_eq!(editor.project, before_nested);
+    assert!(!editor.history.can_undo());
 }

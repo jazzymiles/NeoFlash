@@ -120,6 +120,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
 | W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help (disabled) and Close panel rows are in the frame-view ⋯ menu. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
+| v2.2 tool/command/brush panels | R-038: shared components and approved bodies are missing; existing narrow-rail flyout entry points work. Commands require an authoring runtime contract; Trace bitmap remains R-022. |
 | W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
 | W1.1 History | Visual state for "steps after current" (dimmed?) in the History list. |
 | W3.6 Preferences | Accent colour / language / custom syntax colours imply new token behaviour — confirm or keep disabled. |

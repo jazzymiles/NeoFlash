@@ -211,6 +211,94 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     let out = rail(&mut editor, &ctx, 1.0, vec![]);
     assert!(named_bounds(&out, "Subselection (A)").is_some());
     assert!(named_bounds(&out, "Selection (V)").is_none());
+
+    // v2.2's painted corner mark opens the remembered group without activating its rail tool.
+    editor.set_tool(crate::app::Tool::Brush);
+    let out = rail(&mut editor, &ctx, 1.1, vec![]);
+    let subselection = named_bounds(&out, "Subselection (A)").unwrap();
+    let mark = subselection.right_bottom() - Vec2::splat(5.);
+    rail(
+        &mut editor,
+        &ctx,
+        1.2,
+        vec![
+            Event::PointerMoved(mark),
+            primary_button(mark, true),
+            primary_button(mark, false),
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 1.3, vec![]);
+    assert!(named_bounds(&out, "Subselection").is_some());
+    assert!(editor.tool == crate::app::Tool::Brush);
+    rail(
+        &mut editor,
+        &ctx,
+        1.4,
+        vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    // The Escape frame still paints the popup before closing it. Let egui retire that
+    // foreground hit layer, then obtain the live rail bounds for the next interaction.
+    let out = rail(
+        &mut editor,
+        &ctx,
+        1.45,
+        vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(named_bounds(&out, "Subselection").is_none());
+    let subselection = named_bounds(&out, "Subselection (A)").unwrap();
+    // The main button body still selects the group's remembered tool, without a flyout.
+    rail(
+        &mut editor,
+        &ctx,
+        1.5,
+        vec![
+            Event::PointerMoved(subselection.center()),
+            primary_button(subselection.center(), true),
+        ],
+    );
+    rail(
+        &mut editor,
+        &ctx,
+        1.55,
+        vec![primary_button(subselection.center(), false)],
+    );
+    let out = rail(&mut editor, &ctx, 1.6, vec![]);
+    assert!(editor.tool == crate::app::Tool::Subselect);
+    assert!(named_bounds(&out, "Subselection").is_none());
+
+    // Holding the same body retains the existing long-press entry path.
+    rail(
+        &mut editor,
+        &ctx,
+        1.7,
+        vec![
+            Event::PointerMoved(subselection.center()),
+            primary_button(subselection.center(), true),
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 1.9, vec![]);
+    assert!(named_bounds(&out, "Subselection").is_none());
+    rail(&mut editor, &ctx, 2.2, vec![]);
+    let out = rail(&mut editor, &ctx, 2.3, vec![]);
+    assert!(named_bounds(&out, "Subselection").is_some());
+    rail(
+        &mut editor,
+        &ctx,
+        2.4,
+        vec![primary_button(subselection.center(), false)],
+    );
     assert_eq!(editor.project, before);
 }
 

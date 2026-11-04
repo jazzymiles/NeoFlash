@@ -5,7 +5,7 @@
 //! * **2 Columns** (base layout, docked default 80 pt and floating): every tool visible, sections
 //!   Tools · View · Colors · Options.
 //! * **1 Column** (panel narrower than two tool buttons): related tools share one `NF2/Tool Button`
-//!   with a flyout (right-click, long-press or → opens the group), groups separated by
+//!   with a flyout (corner-mark click, right-click, long-press or → opens the group), groups separated by
 //!   `NF2/Divider`s. As many groups as fit are shown; a trailing "…" button lists the rest. Paint
 //!   colours (`NF2/Fill Stroke Chip`, black-and-white, swap) and the tool-options popover stay
 //!   pinned to the bottom.
@@ -415,13 +415,22 @@ impl Editor {
         let shown = group[current.min(group.len() - 1)];
         let flyout = group.len() > 1;
         let response = self.tool_button(ui, shown, self.tool == shown.tool, flyout);
-        if response.clicked() {
+        // Match the existing NF2/Tool Button's triangular mark without changing its painter:
+        // the right-angle corner is 4 pt in from the button, and both legs are 4 pt long.
+        let mark_clicked = flyout
+            && response.clicked()
+            && response.interact_pointer_pos().is_some_and(|position| {
+                let offset = response.rect.right_bottom() - Vec2::splat(4.) - position;
+                offset.x >= 0. && offset.y >= 0. && offset.x + offset.y <= 4.
+            });
+        if response.clicked() && !mark_clicked {
             self.set_tool(shown.tool);
         }
         if !flyout {
             return;
         }
-        let open_now = response.secondary_clicked()
+        let open_now = mark_clicked
+            || response.secondary_clicked()
             || (response.has_focus() && ui.input(|i| i.key_pressed(Key::ArrowRight)))
             || long_press(ui, &response);
         if open_now {

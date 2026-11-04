@@ -698,6 +698,11 @@ impl Editor {
                 if !simple_button_consumed {
                     let extended_tool =
                         self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
+                    if self.tool == Tool::Lasso {
+                        // Lasso owns its input, but its completed selection still needs the
+                        // shared selection chrome. This path paints only for non-arrow tools.
+                        self.selection_stage(ui, &p, origin, rect, &scene, &response);
+                    }
                     if !extended_tool {
                         let zoom = self.zoom;
                         let to_local = |pos: Pos2| (pos - origin) / zoom;

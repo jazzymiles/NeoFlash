@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Lasso keeps the two-tone selection hatch visible after selecting artwork; selection still covers whole placements. The narrow Tools rail opens a group when its corner mark is clicked, without switching the active tool.
+
 - Moving selections now preserve guide/object/grid/pixel snapping priority across all edges and centres. The main-menu coverage table now distinguishes working, context-dependent and unavailable commands. Grid visibility remains partial: default colour can blend into artwork and dense spacing can suppress lines; a custom grid colour works around the contrast issue.
 
 - Actions preserves diagnostic severity, codes, Unicode ranges and project-file locations; warnings use existing NF2 markers and counts. ⌘. applies a unique safe fix with one Undo. Shared compiler-token analysis improves scoped hints and multiline members. Exported handlers, classes and modules carry source maps used by Test Movie errors and trace output. Error-peek/fix selection and a connected pause/step debugger remain pending.
