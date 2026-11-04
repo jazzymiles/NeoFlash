@@ -670,8 +670,8 @@
       "category": "editor",
       "title": "Advanced vector tools",
       "status": "partial",
-      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush (drawing tools stay selected across consecutive gestures), closed-vector bucket and ink bottle with active solid/gradient paints, solid-color eyedropper that stays active after sampling, whole-object/fill/stroke eraser with swept geometry hit testing, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and clips the existing shape-selection hatch to visible fill/stroke geometry and authored masks. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Internal triangulation edges do not split artwork; coincident outlines remain connected and transformed gradients retain their appearance. Authoring groups preserve runtime identities and isolate their Merge members from raw drawing; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend.",
-      "limitations": "Pressure-sensitive brush input, bucket gap closing and stroke-segment erasing remain planned. Group requires all selected members on the current keyframe; cross-frame-only members produce a diagnostic without changing content. Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately.",
+      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush with pressure-driven width from touch force and macOS tablet samples (drawing tools stay selected across consecutive gestures), closed-vector bucket and ink bottle with active solid/gradient paints, solid-color eyedropper that stays active after sampling, whole-object/fill/stroke eraser with swept geometry hit testing, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and clips the existing shape-selection hatch to visible fill/stroke geometry and authored masks. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Internal triangulation edges do not split artwork; coincident outlines remain connected and transformed gradients retain their appearance. Authoring groups preserve runtime identities and isolate their Merge members from raw drawing; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend.",
+      "limitations": "Physical tablet acceptance and pressure/tilt controls remain pending. Bucket gap closing and partial-stroke clipping have tested geometry paths but their authoring controls await NF2 request R-034; they remain planned as user workflows. Partial-stroke clipping approximates touched curves and refuses masked or combined fill/stroke effects. Group requires all selected members on the current keyframe; cross-frame-only members produce a diagnostic without changing content. Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately.",
       "items": [
         {
           "id": "line-brush",
@@ -686,7 +686,7 @@
         {
           "id": "brush-pressure",
           "title": "Pressure-sensitive brush",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "paint-bucket",
@@ -758,7 +758,9 @@
         "crates/neoflash-editor/src/stage_view.rs",
         "crates/neoflash-editor/src/snapping.rs",
         "crates/neoflash-editor/src/stage_view_tests.rs",
-        "docs/NF2-RULERS-GUIDES-GRID.md"
+        "docs/NF2-RULERS-GUIDES-GRID.md",
+        "crates/neoflash-core/src/authoring_geometry.rs",
+        "crates/neoflash-editor/src/tablet_input.rs"
       ]
     },
     {

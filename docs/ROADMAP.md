@@ -8,7 +8,7 @@ Timeline authoring includes compact controls, inline layer rename, drag reorderi
 
 The NF2 interface is complete visually; its remaining unfinished controls and planned panels are specified in [NF2-FUNCTIONAL-SPEC.md](NF2-FUNCTIONAL-SPEC.md) and ordered in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md).
 
-Next tool and workspace work includes connecting real pressure input to Brush, exposing tested Paint Bucket gap-closing controls, geometric segment/partial-fill erasing, contour-based partial selection, user-named workspace presets and multiple open document tabs. Existing helpers and data structures do not make these workflows available. Follow the locked NF2 design and resolve missing controls through its design requests. See [workspace behavior](WORKSPACE.md) for current controls and limits on merging layers with sounds and grouping across keyframes.
+Next tool and workspace work includes physical tablet acceptance and the designed pressure/tilt controls, exposing tested Paint Bucket gap closing and partial-stroke clipping (R-034), partial-fill erasing, contour-based partial selection, user-named workspace presets (R-036) and multiple open document tabs (R-035). Brush pressure input is connected; internal geometry helpers and session data structures do not make the other workflows available. Follow the locked NF2 design and resolve missing controls through its design requests. See [workspace behavior](WORKSPACE.md) for current controls and limits on merging layers with sounds and grouping across keyframes.
 
 ## Remaining product work
 

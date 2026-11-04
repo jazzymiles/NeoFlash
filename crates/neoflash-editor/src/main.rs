@@ -32,6 +32,7 @@ mod stage_selection;
 mod stage_view;
 mod svg_graphics;
 mod symbol_dialog;
+mod tablet_input;
 mod text_boxes;
 mod theme;
 mod timeline_commands;

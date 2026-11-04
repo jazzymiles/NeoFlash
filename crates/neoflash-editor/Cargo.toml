@@ -26,4 +26,5 @@ rodio = { version = "0.21.1", default-features = false, features = ["playback", 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen", "NSEvent", "NSApplication", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen", "NSEvent", "NSApplication", "NSWindow", "NSView", "block2"] }
+block2 = "0.6.2"

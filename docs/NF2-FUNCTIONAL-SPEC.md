@@ -331,7 +331,8 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Bucket and Ink Bottle apply the active solid or gradient paint; Eyedropper replaces the selected well with the
   sampled solid color. Properties RGB edits replace a gradient; alpha-only edits retain stops and update their alpha.
 - Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks.
-- Pending: pressure-sensitive brush input, bucket gap closing and stroke-segment erasing.
+- Brush input: pressure-bearing touch and macOS tablet-point samples drive 10–100% width, with one shared draft/saved vector outline, constant mouse width and cancellation without a commit. Physical tablet acceptance and the v2.2 pressure/tilt controls remain pending.
+- Engine-ready, UI pending (R-034): per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Partial-fill erasing is not implemented.
 - Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
   actual intersections, group isolation and Undo without changing the NF2 components.
 

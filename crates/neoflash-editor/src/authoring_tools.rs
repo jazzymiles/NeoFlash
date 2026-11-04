@@ -42,6 +42,7 @@ impl GapCloseMode {
 
 pub(crate) struct AuthoringToolsState {
     gesture: Option<Gesture>,
+    pressure_contact: Option<PressureContact>,
     pub brush_size: f32,
     pub eraser_size: f32,
     pub eraser_mode: EraserMode,
@@ -59,6 +60,7 @@ impl Default for AuthoringToolsState {
     fn default() -> Self {
         Self {
             gesture: None,
+            pressure_contact: None,
             brush_size: 12.,
             eraser_size: 16.,
             eraser_mode: EraserMode::Objects,
@@ -77,11 +79,25 @@ impl Default for AuthoringToolsState {
 impl AuthoringToolsState {
     pub fn cancel(&mut self) {
         self.gesture = None;
+        self.pressure_contact = None;
     }
     pub fn is_drawing(&self) -> bool {
         self.gesture.is_some()
     }
 }
+struct PressureContact {
+    device: egui::TouchDeviceId,
+    id: egui::TouchId,
+    force: f32,
+}
+
+fn brush_force(force: Option<f32>) -> f32 {
+    force
+        .filter(|force| force.is_finite())
+        .unwrap_or(1.)
+        .clamp(0.1, 1.)
+}
+
 struct Gesture {
     tool: Tool,
     symbol: Id,
@@ -93,6 +109,7 @@ struct Gesture {
     start: Pos2,
     latest: Pos2,
     points: Vec<Pos2>,
+    pressures: Vec<f32>,
     shift: bool,
     alt: bool,
     targets: Vec<SelectionTarget>,
@@ -337,10 +354,10 @@ impl Editor {
             true,
             self.show_layer_masking(p.ctx()),
         );
-        let max_gap =
-            (self.authoring_tools.gap_close.max_gap_px() / f64::from(self.zoom.max(0.05))).max(0.0);
         scene.iter().rev().find_map(|item| {
-            if item.instance_path.len() != 1 {
+            if item.instance_path.len() != 1
+                || !authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+            {
                 return None;
             }
             let target = eligible.get(item.instance_path.first()?)?;
@@ -355,26 +372,31 @@ impl Editor {
                     Some(width.max(5. / self.zoom as f64)),
                     local,
                 );
-            let gap_closed_cmds = if !closed && max_gap > 0.0 {
-                try_close_open_path(&commands, max_gap)
-            } else {
-                None
-            };
-            let inside = if closed {
-                authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
-                    && geometry_contains(&commands, rule, None, local)
-            } else if let Some(ref closed_cmds) = gap_closed_cmds {
-                geometry_contains(closed_cmds, rule, None, local)
-            } else {
-                false
-            };
-            let is_effectively_closed = closed || gap_closed_cmds.is_some();
-            if !closed
-                && gap_closed_cmds.is_none()
-                && !authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
-            {
-                return None;
+            let mut metric = item.transform;
+            for value in &mut metric {
+                *value *= f64::from(self.zoom);
             }
+            let (is_effectively_closed, gap_closed_cmds) = if self.tool == Tool::Bucket {
+                let closure = neoflash_core::close_path_gaps(
+                    &commands,
+                    metric,
+                    self.authoring_tools.gap_close.max_gap_px(),
+                )
+                .ok()?;
+                (
+                    closure.remaining_open_contours == 0,
+                    (closure.commands != commands).then_some(closure.commands),
+                )
+            } else {
+                (closed, None)
+            };
+            let inside = is_effectively_closed
+                && geometry_contains(
+                    gap_closed_cmds.as_deref().unwrap_or(&commands),
+                    rule,
+                    None,
+                    local,
+                );
             ((inside || outline) && (!closed_only || is_effectively_closed)).then(|| {
                 let mut kind = item.kind.clone();
                 if let Some(closed_cmds) = gap_closed_cmds {
@@ -488,14 +510,167 @@ impl Editor {
                     commands: dst_c, ..
                 },
             ) = (&hit.kind, &mut element.kind)
-            && matches!(hit_c.last(), Some(PathCommand::Close))
-            && !matches!(dst_c.last(), Some(PathCommand::Close))
+            && hit_c != dst_c
         {
             *dst_c = hit_c.clone();
         }
         self.apply_active_tool_paint(&mut element, tool == Tool::Ink);
         self.change_tool_elements(vec![(hit.target.clone(), Some(element.kind))]);
         self.set_selection(vec![hit.target]);
+    }
+
+    /// The fill keeps its original contour; only the stroke receives cut commands.
+    /// New stroke fragments share one element and preserve gradient/affine appearance.
+    fn erase_stroke_parts(&mut self, gesture: &Gesture, painter: &egui::Painter) {
+        let points: Vec<_> = gesture
+            .points
+            .iter()
+            .map(|p| [f64::from(p.x), f64::from(p.y)])
+            .collect();
+        let authored =
+            self.presented_interactive_authored_scene(self.show_layer_masking(painter.ctx()));
+        let mut changes = Vec::new();
+        for target in &gesture.targets {
+            if authored.draws.iter().any(|draw| {
+                draw.item.instance_path.first() == Some(&target.element)
+                    && !draw.clip_ids.is_empty()
+            }) {
+                self.message("Partial stroke erasing on masked artwork is not available yet; no masked stroke was changed.");
+                continue;
+            }
+            let Some(index) = self.target_layer_index(target) else {
+                continue;
+            };
+            let Some(element) = sample_layer(&self.symbol().timeline.layers[index], self.frame)
+                .into_iter()
+                .find(|element| element.id == target.element)
+            else {
+                continue;
+            };
+            let Some((commands, rule)) = element.to_path_commands() else {
+                continue;
+            };
+            let Some((fill, stroke, width)) = paint_parts(&element.kind) else {
+                continue;
+            };
+            let result = match neoflash_core::erase_path_stroke(
+                &commands,
+                transform_matrix(element.transform),
+                &points,
+                f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
+                0.2 / f64::from(gesture.zoom),
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    self.message(error.to_string());
+                    return;
+                }
+            };
+            if !result.changed {
+                continue;
+            }
+            let (fill_gradient, stroke_gradient) = match &element.kind {
+                ElementKind::PaintedPath {
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } => (fill_gradient.clone(), stroke_gradient.clone()),
+                _ => (None, None),
+            };
+            let has_fill = fill[3] > 0 || fill_gradient.is_some();
+            if has_fill && (!element.filters.is_empty() || element.blend_mode != BlendMode::Normal)
+            {
+                self.message("Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; the object was unchanged.");
+                continue;
+            }
+            let mut replacements = Vec::new();
+            if has_fill {
+                let mut retained = element.clone();
+                apply_paint(&mut retained.kind, None, Some(([0; 4], 0.)));
+                replacements.push(retained);
+            }
+            if !result.commands.is_empty() {
+                let mut retained = element.clone();
+                if has_fill {
+                    retained.id = new_id("object");
+                    // Keep object scripts/instance identity on the original fill.
+                    retained.scripts.clear();
+                    retained.accessibility = None;
+                    retained.name.clear();
+                }
+                retained.transform.primitive = None;
+                retained.kind = if stroke_gradient.is_some() {
+                    ElementKind::PaintedPath {
+                        commands: result.commands,
+                        fill_rule: rule,
+                        fill: [0; 4],
+                        stroke,
+                        stroke_width: width,
+                        fill_gradient: None,
+                        stroke_gradient,
+                    }
+                } else {
+                    ElementKind::Path {
+                        commands: result.commands,
+                        fill_rule: rule,
+                        fill: [0; 4],
+                        stroke,
+                        stroke_width: width,
+                    }
+                };
+                replacements.push(retained);
+            }
+            changes.push((target.clone(), replacements));
+        }
+        if changes.is_empty() {
+            return;
+        }
+        self.transact(|editor| {
+            let before = editor.project.clone();
+            for (target, replacements) in changes {
+                if !editor.target_editable(&target) {
+                    continue;
+                }
+                editor.ensure_key_for(&target.layer, false);
+                let Some(index) = editor.target_layer_index(&target) else {
+                    continue;
+                };
+                let frame = editor.frame;
+                let layer = &mut editor.symbol_mut().timeline.layers[index];
+                let elements = &mut layer.key_at_mut(frame).unwrap().elements;
+                if let Some(position) = elements
+                    .iter()
+                    .position(|element| element.id == target.element)
+                {
+                    let ids: Vec<_> = replacements
+                        .iter()
+                        .map(|element| element.id.clone())
+                        .collect();
+                    elements.splice(position..=position, replacements);
+                    for group in &mut layer.properties.groups {
+                        if let Some(position) =
+                            group.members.iter().position(|id| *id == target.element)
+                        {
+                            // Keep the original id if other keyframes still use it.
+                            for (offset, id) in ids
+                                .into_iter()
+                                .filter(|id| *id != target.element)
+                                .enumerate()
+                            {
+                                group.members.insert(position + 1 + offset, id);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            editor.prune_authoring_groups();
+            if let Err(error) = editor.project.validate() {
+                editor.project = before;
+                editor.message(error.to_string());
+            }
+        });
+        self.normalize_targets();
     }
 
     /// Bucket and Ink share the same active paints as newly drawn artwork. Only
@@ -645,6 +820,50 @@ impl Editor {
         }
         for event in ui.input(|i| i.events.clone()) {
             match event {
+                egui::Event::Touch {
+                    device_id,
+                    id,
+                    phase,
+                    pos,
+                    force,
+                } => {
+                    let current = self
+                        .authoring_tools
+                        .pressure_contact
+                        .as_ref()
+                        .is_some_and(|contact| contact.device == device_id && contact.id == id);
+                    match phase {
+                        egui::TouchPhase::Start
+                            if self.authoring_tools.pressure_contact.is_none()
+                                && self.tool == Tool::Brush
+                                && !space
+                                && page.contains(pos)
+                                && view.contains(pos)
+                                && ui
+                                    .ctx()
+                                    .layer_id_at(pos)
+                                    .is_none_or(|layer| layer == ui.layer_id()) =>
+                        {
+                            self.authoring_tools.pressure_contact = Some(PressureContact {
+                                device: device_id,
+                                id,
+                                force: brush_force(force),
+                            });
+                        }
+                        egui::TouchPhase::Move if current => {
+                            if let Some(contact) = &mut self.authoring_tools.pressure_contact {
+                                contact.force = brush_force(force);
+                            }
+                            self.update_authoring_gesture(pos, scene, p);
+                        }
+                        egui::TouchPhase::End if current => {
+                            // Pen-up often reports zero; retain the last contact width.
+                            self.update_authoring_gesture(pos, scene, p);
+                        }
+                        egui::TouchPhase::Cancel if current => self.authoring_tools.cancel(),
+                        _ => {}
+                    }
+                }
                 egui::Event::PointerButton {
                     pos,
                     button: egui::PointerButton::Primary,
@@ -672,7 +891,10 @@ impl Editor {
                             self.cancel_vector();
                         }
                     } else {
+                        // finish_edits cancels the previous draft, not this pen-down sample.
+                        let contact = self.authoring_tools.pressure_contact.take();
                         self.finish_edits();
+                        self.authoring_tools.pressure_contact = contact;
                     }
                     self.playing = false;
                     let local = Pos2::ZERO + (pos - origin) / self.zoom;
@@ -754,6 +976,12 @@ impl Editor {
                         start: pos,
                         latest: pos,
                         points: vec![local],
+                        pressures: vec![
+                            self.authoring_tools
+                                .pressure_contact
+                                .as_ref()
+                                .map_or(1., |c| c.force),
+                        ],
                         shift: modifiers.shift,
                         alt: modifiers.alt,
                         targets: vec![],
@@ -773,6 +1001,7 @@ impl Editor {
                     if let Some(gesture) = self.authoring_tools.gesture.take() {
                         self.finish_authoring_gesture(gesture, scene, p, view);
                     }
+                    self.authoring_tools.pressure_contact = None;
                 }
                 _ => {}
             }
@@ -847,6 +1076,21 @@ impl Editor {
                         return;
                     }
                     g.points.push(point);
+                    g.pressures.push(
+                        self.authoring_tools
+                            .pressure_contact
+                            .as_ref()
+                            .map_or(1., |c| c.force),
+                    );
+                } else if g.tool == Tool::Brush {
+                    // Stationary pressure changes update the current contact, not a duplicate point.
+                    if let Some(last) = g.pressures.last_mut() {
+                        *last = self
+                            .authoring_tools
+                            .pressure_contact
+                            .as_ref()
+                            .map_or(1., |c| c.force);
+                    }
                 }
             }
             Tool::Eraser => {
@@ -893,7 +1137,11 @@ impl Editor {
                     return;
                 }
                 let commands = if g.tool == Tool::Brush {
-                    brush_outline(&g.points, self.authoring_tools.brush_size / g.zoom)
+                    brush_outline_with_pressure(
+                        &g.points,
+                        &g.pressures,
+                        self.authoring_tools.brush_size / g.zoom,
+                    )
                 } else {
                     polyline(&g.points, false)
                 };
@@ -932,6 +1180,10 @@ impl Editor {
             }
             Tool::Eraser => {
                 let mode = self.authoring_tools.eraser_mode;
+                if mode == EraserMode::StrokeSegments {
+                    self.erase_stroke_parts(&g, p);
+                    return;
+                }
                 let mut changes = vec![];
                 for target in g.targets {
                     let Some(index) = self.target_layer_index(&target) else {
@@ -946,10 +1198,6 @@ impl Editor {
                     };
                     let kind = if mode == EraserMode::Objects {
                         None
-                    } else if mode == EraserMode::StrokeSegments {
-                        let radius =
-                            f64::from(self.authoring_tools.eraser_size / 2. / g.zoom.max(0.05));
-                        erase_stroke_segments_in_element(&element, &g.points, radius)
                     } else {
                         if paint_parts(&element.kind).is_none() {
                             continue;
@@ -1109,6 +1357,30 @@ impl Editor {
             let screen = |point: Pos2| g.origin + point.to_vec2() * g.zoom;
             match g.tool {
                 Tool::Line | Tool::Brush => {
+                    if g.tool == Tool::Brush && g.pressures.iter().any(|force| *force < 1.) {
+                        let commands = brush_outline_with_pressure(
+                            &g.points,
+                            &g.pressures,
+                            self.authoring_tools.brush_size / g.zoom,
+                        );
+                        if let Ok(geometry) =
+                            crate::vector::tessellate(&commands, FillRule::NonZero, None, 0.3)
+                        {
+                            let mut mesh = egui::Mesh::default();
+                            let color = Color32::from_rgba_unmultiplied(
+                                self.fill[0],
+                                self.fill[1],
+                                self.fill[2],
+                                self.fill[3],
+                            );
+                            for point in geometry.vertices {
+                                mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
+                            }
+                            mesh.indices = geometry.indices;
+                            p.add(Shape::mesh(mesh));
+                        }
+                        return;
+                    }
                     let color = if g.tool == Tool::Brush {
                         self.fill
                     } else {
@@ -1349,192 +1621,52 @@ fn brush_outline(points: &[Pos2], width: f32) -> Vec<PathCommand> {
     commands
 }
 
-#[allow(dead_code)]
+/// Round, variable-width vector ink. Overlapping disks and connecting quads have
+/// the same winding and are tessellated as one fill, including sharp reversals.
 pub(crate) fn brush_outline_with_pressure(
     points: &[Pos2],
     pressures: &[f32],
     width: f32,
 ) -> Vec<PathCommand> {
-    if points.is_empty() {
+    if points.is_empty() || !width.is_finite() || width <= 0. {
         return vec![];
     }
-    if pressures.len() != points.len()
-        || pressures
-            .iter()
-            .all(|&p| (p - pressures[0]).abs() < 1e-3 && (p - 1.0).abs() < 1e-3)
-    {
+    if pressures.len() != points.len() || pressures.iter().all(|&p| brush_force(Some(p)) == 1.) {
         return brush_outline(points, width);
     }
-    if points.len() == 1 {
-        let p = pressures[0].clamp(0.1, 2.0);
-        return brush_outline(points, (width * p).max(0.5));
-    }
-    let mut left_side = Vec::with_capacity(points.len());
-    let mut right_side = Vec::with_capacity(points.len());
-    for i in 0..points.len() {
-        let dir = if i + 1 < points.len() {
-            points[i + 1] - points[i]
-        } else {
-            points[i] - points[i - 1]
-        };
-        let len = dir.length();
-        let normal = if len > 1e-4 {
-            Vec2::new(-dir.y / len, dir.x / len)
-        } else {
-            Vec2::new(0.0, 1.0)
-        };
-        let radius = (width * pressures[i].clamp(0.1, 2.0) * 0.5).max(0.25);
-        left_side.push(points[i] + normal * radius);
-        right_side.push(points[i] - normal * radius);
-    }
-    right_side.reverse();
-    left_side.extend(right_side);
-    polyline(&left_side, true)
-}
-
-fn try_close_open_path(commands: &[PathCommand], max_gap: f64) -> Option<Vec<PathCommand>> {
-    if commands.len() < 3 || matches!(commands.last(), Some(PathCommand::Close)) {
-        return None;
-    }
-    let PathCommand::MoveTo { x: sx, y: sy } = *commands.first()? else {
-        return None;
-    };
-    let (ex, ey) = match *commands.last()? {
-        PathCommand::LineTo { x, y }
-        | PathCommand::QuadraticTo { x, y, .. }
-        | PathCommand::CubicTo { x, y, .. } => (x, y),
-        _ => return None,
-    };
-    let gap = (ex - sx).hypot(ey - sy);
-    if gap > max_gap {
-        return None;
-    }
-    let mut closed = commands.to_vec();
-    if gap > 1e-4 {
-        closed.push(PathCommand::LineTo { x: sx, y: sy });
-    }
-    closed.push(PathCommand::Close);
-    Some(closed)
-}
-
-fn erase_stroke_segments_in_element(
-    element: &Element,
-    eraser_points: &[Pos2],
-    radius: f64,
-) -> Option<ElementKind> {
-    let (commands, fill_rule, _) = path_geometry(&element.kind)?;
-    let (fill, stroke, stroke_width) = paint_parts(&element.kind)?;
-    let inv_mat = transform_matrix(element.transform);
-    let mut out = Vec::new();
-    let mut cur = [0.0_f64, 0.0_f64];
-    let mut sub_start = [0.0_f64, 0.0_f64];
-    let mut pen_down = false;
-    let hits_eraser = |lx: f64, ly: f64| -> bool {
-        let world = affine(inv_mat, Pos2::new(lx as f32, ly as f32));
-        eraser_points
-            .iter()
-            .any(|ep| f64::from(ep.distance(world)) <= radius)
-    };
-    for cmd in commands {
-        match cmd {
-            PathCommand::MoveTo { x, y } => {
-                cur = [x, y];
-                sub_start = [x, y];
-                pen_down = false;
-            }
-            PathCommand::LineTo { x, y } => {
-                let mid = [(cur[0] + x) * 0.5, (cur[1] + y) * 0.5];
-                if hits_eraser(cur[0], cur[1]) || hits_eraser(mid[0], mid[1]) || hits_eraser(x, y) {
-                    pen_down = false;
-                } else {
-                    if !pen_down {
-                        out.push(PathCommand::MoveTo {
-                            x: cur[0],
-                            y: cur[1],
-                        });
-                        pen_down = true;
-                    }
-                    out.push(PathCommand::LineTo { x, y });
-                }
-                cur = [x, y];
-            }
-            PathCommand::QuadraticTo { cx, cy, x, y } => {
-                if hits_eraser(cur[0], cur[1]) || hits_eraser(cx, cy) || hits_eraser(x, y) {
-                    pen_down = false;
-                } else {
-                    if !pen_down {
-                        out.push(PathCommand::MoveTo {
-                            x: cur[0],
-                            y: cur[1],
-                        });
-                        pen_down = true;
-                    }
-                    out.push(PathCommand::QuadraticTo { cx, cy, x, y });
-                }
-                cur = [x, y];
-            }
-            PathCommand::CubicTo {
-                cx1,
-                cy1,
-                cx2,
-                cy2,
-                x,
-                y,
-            } => {
-                if hits_eraser(cur[0], cur[1])
-                    || hits_eraser(cx1, cy1)
-                    || hits_eraser(cx2, cy2)
-                    || hits_eraser(x, y)
-                {
-                    pen_down = false;
-                } else {
-                    if !pen_down {
-                        out.push(PathCommand::MoveTo {
-                            x: cur[0],
-                            y: cur[1],
-                        });
-                        pen_down = true;
-                    }
-                    out.push(PathCommand::CubicTo {
-                        cx1,
-                        cy1,
-                        cx2,
-                        cy2,
-                        x,
-                        y,
-                    });
-                }
-                cur = [x, y];
-            }
-            PathCommand::Close => {
-                if !hits_eraser(cur[0], cur[1]) && !hits_eraser(sub_start[0], sub_start[1]) {
-                    if !pen_down {
-                        out.push(PathCommand::MoveTo {
-                            x: cur[0],
-                            y: cur[1],
-                        });
-                    }
-                    out.push(PathCommand::LineTo {
-                        x: sub_start[0],
-                        y: sub_start[1],
-                    });
-                }
-                pen_down = false;
-            }
+    let radii: Vec<_> = pressures
+        .iter()
+        .map(|&p| width * brush_force(Some(p)) * 0.5)
+        .collect();
+    let mut commands = Vec::with_capacity(points.len() * 23);
+    for (i, &point) in points.iter().enumerate() {
+        commands.extend(polyline(
+            &(0..16)
+                .map(|n| point + Vec2::angled(n as f32 * std::f32::consts::TAU / 16.) * radii[i])
+                .collect::<Vec<_>>(),
+            true,
+        ));
+        if i == 0 {
+            continue;
         }
+        let delta = point - points[i - 1];
+        if delta.length_sq() <= 1e-8 {
+            continue;
+        }
+        let normal = Vec2::new(-delta.y, delta.x).normalized();
+        commands.extend(polyline(
+            &[
+                points[i - 1] - normal * radii[i - 1],
+                point - normal * radii[i],
+                point + normal * radii[i],
+                points[i - 1] + normal * radii[i - 1],
+            ],
+            true,
+        ));
     }
-    if out.len() < 2 {
-        None
-    } else {
-        Some(ElementKind::Path {
-            commands: out,
-            fill_rule,
-            fill,
-            stroke,
-            stroke_width,
-        })
-    }
+    commands
 }
+
 fn inside_polygon(points: &[Pos2], point: Pos2) -> bool {
     let mut inside = false;
     for (a, b) in points

@@ -38,6 +38,7 @@ pub mod as_number_format;
 pub mod as_timers;
 mod authored_layers;
 mod authored_playback;
+mod authoring_geometry;
 mod clipboard;
 mod demo;
 mod evaluate;
@@ -67,6 +68,9 @@ pub use authored_layers::{
     layer_outline_color,
 };
 pub use authored_playback::AuthoredPlayback;
+pub use authoring_geometry::{
+    GapCloseResult, StrokeEraseResult, close_path_gaps, erase_path_stroke,
+};
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };

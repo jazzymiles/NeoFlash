@@ -129,6 +129,8 @@ if the preview frame differs from the modal frame in any visible way, file a req
 Format: **UI** → panel file/function · **Engine** → crate/module · **API** (NEW = proposal) · **Tests** · **Registry**
 (id in `docs/progress/product.json`) · **Acceptance** (short; full criteria in the spec).
 
+**Drawing and workspace follow-ups (TO-07)** — **partial**. Brush pressure is connected to touch force and macOS tablet-point events; mouse width is unchanged. Draft, save/open, cancellation, Undo and exported vector output share the same geometry. Physical pen acceptance and v2.2 pressure/tilt controls remain pending. `authoring_geometry.rs` implements per-contour gap closing and swept partial-stroke clipping; `authoring_tools.rs` preserves fill/gradient/group data. Their controls await R-034. Multiple documents and named workspace management await R-035/R-036; dormant session/preset helpers are not completed workflows. Tests: core `authoring_geometry`, editor `tablet_input` and the drawing family in `vector_gesture_tests`.
+
 ### Phase 0 — UI/editor-only (no engine change)
 
 **W0.1 · Loop playback (TL-02, Control ▸ Loop playback)** — **done** (§7). `WorkspacePrefs.timeline.loop_playback`;

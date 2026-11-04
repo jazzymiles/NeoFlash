@@ -532,6 +532,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-29 · Remaining smaller blocks
 
+**Drawing follow-ups:** Brush pressure is connected in `tablet_input.rs`/`authoring_tools.rs`, using ordinary filled paths with no document-format change. `authoring_geometry.rs` closes independent contours by transformed endpoint distance and clips stroke centrelines against a swept capsule. Untouched contours remain exact; touched curves are bounded approximations. The editor retains original fills and gradient matrices, extends/prunes authoring groups, and rejects masked or combined fill/stroke effects before editing. Gap and partial-eraser controls await R-034; document/workspace UI awaits R-035/R-036. Physical tablet acceptance and the separate v2.2 pressure/tilt panel are still open.
+
 | Block | Model / engine | Notes |
 | --- | --- | --- |
 | 9-slice (DL-15) | `Symbol.scale9: Option<Rect>`; runtime draws 9 regions with separate transforms | Flash applies 9-slice to shapes, not nested symbols — same limit. |

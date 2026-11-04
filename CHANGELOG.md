@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Brush uses pen pressure for variable-width vector ink, with a macOS tablet-event bridge, a matching live draft and one Undo per stroke; ordinary mouse width is unchanged. Pen cancellation preserves the document. Physical tablet acceptance and pressure/tilt options remain pending. Gap-closing and partial-stroke geometry now preserve separate contours, fills, gradients and groups; their authoring controls still await NF2 design.
+
 - Timeline: classic Orient/Snap controls, Paste motion special, editable Bézier motion paths (format 8), draggable a–z shape hints, and real mono/stereo sound waveforms computed in the background. Option-drag breaks a motion tangent; Option-click toggles corner/smooth. Shape hints support ⇧⌘H, ⌥⌘H and offstage removal. Selective paste materializes affected spans to preserve unticked animation; normal single-object curved motion stays editable.
 
 - Selected raw shapes are easy to see on any artwork: the selection hatch is now two-tone (white and black lines) instead of a single grey line that disappeared on blue or light fills. NF2 design system updated to v2.2 (tool flyout groups, Commands, Brushes, Brush and Pencil tool panels, 15 new icons, timeline and field layout rules), with design answers for Paste motion special, classic tween Orient / Snap, motion path Bézier handles, shape hints and real sound waveforms.

@@ -57,6 +57,7 @@ pub struct Editor {
     pub(crate) shown_stage_cursor: Option<neoflash_ui::cursors::Cursor>,
     pub tool: Tool,
     pub(crate) authoring_tools: crate::authoring_tools::AuthoringToolsState,
+    tablet_input: crate::tablet_input::TabletInput,
     pub playing: bool,
     pub(crate) authored_preview: Option<crate::preview::AuthoringPreview>,
     pub last_tick: Instant,
@@ -178,6 +179,7 @@ impl Editor {
             s.open_path(path.into(), &cc.egui_ctx);
         }
         crate::native_windows::install();
+        s.tablet_input = crate::tablet_input::TabletInput::install();
         if let Some(template) = crate::shell::screenshot_workspace() {
             s.workspace.apply_template(template);
             s.bottom = s.workspace.active_bottom;
@@ -308,6 +310,7 @@ impl Editor {
             fill: [50, 117, 184, 255], stroke: [30, 50, 70, 255], stroke_width: 1.0,
             property_edit: None, authoring_modify: crate::authoring_modify::AuthoringModify::default(), bottom: BottomTab::Properties,
             authoring_tools: crate::authoring_tools::AuthoringToolsState::default(),
+            tablet_input: crate::tablet_input::TabletInput::default(),
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             selected_source: None, code_feedback: None, actions_ui: Default::default(),
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
@@ -2315,6 +2318,10 @@ impl Editor {
 }
 
 impl eframe::App for Editor {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.tablet_input.append_events(ctx, raw);
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.workspace.active_bottom = self.bottom;
         self.workspace.save(storage);

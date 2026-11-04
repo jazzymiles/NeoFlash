@@ -1703,3 +1703,388 @@ fn merge_brush_ignores_line_in_empty_corner_of_its_bounds() {
     editor.undo();
     assert_eq!(editor.project, before_line);
 }
+
+#[test]
+fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() {
+    use crate::authoring_tools::{EraserMode, GapCloseMode};
+    use neoflash_core::{
+        AuthoringGroup, Element, FillRule, FlattenOptions, History, Keyframe, Layer, LayerRole,
+        Transform, hit_test_path,
+    };
+    let touch = |phase, pos, force| egui::Event::Touch {
+        device_id: egui::TouchDeviceId(7),
+        id: egui::TouchId(9),
+        phase,
+        pos,
+        force: Some(force),
+    };
+    let contains = |commands: &[PathCommand], point| {
+        hit_test_path(
+            commands,
+            FillRule::NonZero,
+            point,
+            true,
+            0.,
+            FlattenOptions::default(),
+        )
+        .unwrap()
+    };
+    // Real stage events: low/high pressure and pen-up zero; draft is pure and the
+    // emitted artwork is an ordinary fill, retained by save/open and one Undo.
+    for theme in [
+        crate::theme::ThemeMode::Dark,
+        crate::theme::ThemeMode::Light,
+    ] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.set_theme(&ctx, theme);
+        editor.workspace.drawing.object_drawing = true;
+        editor.set_tool(Tool::Brush);
+        editor.authoring_tools.brush_size = 40.;
+        let before = editor.project.clone();
+        let a = page.min + egui::vec2(100., 150.);
+        let b = page.min + egui::vec2(200., 150.);
+        let output = stage_input_frame(
+            &mut editor,
+            &ctx,
+            0.1,
+            vec![
+                touch(egui::TouchPhase::Start, a, 0.2),
+                egui::Event::PointerMoved(a),
+                primary_button(a, true),
+                touch(egui::TouchPhase::Move, b, 1.),
+                egui::Event::PointerMoved(b),
+            ],
+        );
+        assert_eq!(editor.project, before, "pressure ink remains a draft");
+        assert!(output.shapes.iter().any(
+            |shape| matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.vertices.len() > 10)
+        ));
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            0.2,
+            vec![
+                touch(egui::TouchPhase::End, b, 0.),
+                primary_button(b, false),
+            ],
+        );
+        let ink = commands(&editor);
+        assert!(contains(&ink, [100., 153.]));
+        assert!(!contains(&ink, [100., 160.]));
+        assert!(contains(&ink, [200., 165.]));
+        assert!(!contains(&ink, [200., 172.]));
+        assert_eq!(editor.tool, Tool::Brush);
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().unwrap();
+        let encoded = serde_json::to_string(&editor.project).unwrap();
+        let decoded: neoflash_core::Project = serde_json::from_str(&encoded).unwrap();
+        decoded.validate().unwrap();
+        let reopened = &decoded.symbols[0].timeline.layers[0].keyframes[0].elements[0];
+        assert_eq!(reopened.id, editor.selected_element().unwrap().id);
+        let (reopened_commands, _) = reopened.to_path_commands().unwrap();
+        let original_points = neoflash_core::flatten_path(&ink, FlattenOptions::default()).unwrap();
+        let reopened_points =
+            neoflash_core::flatten_path(&reopened_commands, FlattenOptions::default()).unwrap();
+        assert_eq!(original_points.len(), reopened_points.len());
+        for (original, reopened) in original_points.iter().zip(&reopened_points) {
+            assert_eq!(original.points.len(), reopened.points.len());
+            for (a, b) in original.points.iter().zip(&reopened.points) {
+                assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9);
+            }
+        }
+        if let Ok(path) = std::env::var("NEOFLASH_DRAWING_FIXTURE") {
+            std::fs::write(path, encoded).unwrap();
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+        // Cancellation does not leak pressure into the next mouse stroke.
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            0.3,
+            vec![
+                touch(egui::TouchPhase::Start, a, 0.1),
+                primary_button(a, true),
+                touch(egui::TouchPhase::Cancel, b, 0.),
+                primary_button(b, false),
+            ],
+        );
+        assert_eq!(editor.project, before);
+        pen_click(&mut editor, &ctx, 0.4, a, b);
+        assert!(contains(&commands(&editor), [150., 165.]));
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+    // Gap mode is engine-ready but intentionally not added to the locked UI.
+    // Screen-space threshold honours element scale and closes separate contours.
+    for (scale, mode, changed) in [
+        (1., GapCloseMode::None, false),
+        (1., GapCloseMode::Small, true),
+        (2., GapCloseMode::Small, false),
+        (2., GapCloseMode::Medium, true),
+    ] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.workspace.drawing.object_drawing = true;
+        let open = vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::LineTo { x: 80., y: 0. },
+            PathCommand::LineTo { x: 80., y: 80. },
+            PathCommand::LineTo { x: 0., y: 80. },
+            PathCommand::LineTo { x: 0., y: 5. },
+        ];
+        editor.add_element_transformed(
+            ElementKind::Path {
+                commands: open,
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [20, 30, 40, 255],
+                stroke_width: 2.,
+            },
+            Transform {
+                x: 100.,
+                y: 100.,
+                scale_x: scale,
+                scale_y: scale,
+                ..Default::default()
+            },
+        );
+        editor.history = History::default();
+        let before = editor.project.clone();
+        editor.set_tool(Tool::Bucket);
+        editor.authoring_tools.gap_close = mode;
+        let point = page.min + egui::vec2(120., 120.);
+        pen_click(&mut editor, &ctx, 0.1, point, point);
+        assert_eq!(editor.project != before, changed, "{scale} {mode:?}");
+        editor.project.validate().unwrap();
+        if changed {
+            assert_eq!(editor.history.undo_len(), 1);
+            assert!(matches!(commands(&editor).last(), Some(PathCommand::Close)));
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+    }
+    // Gap closing may not fill a masked-out interior. Partial stroke erasing is
+    // explicitly refused even when the cursor touches the visible masked stroke.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 80., y: 0. },
+                PathCommand::LineTo { x: 80., y: 80. },
+                PathCommand::LineTo { x: 0., y: 80. },
+                PathCommand::LineTo { x: 0., y: 5. },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 30, 40, 255],
+            stroke_width: 4.,
+        },
+        100.,
+        100.,
+    );
+    let mut mask = Layer {
+        id: "drawing-gap-mask".into(),
+        name: "Mask".into(),
+        visible: true,
+        locked: true,
+        properties: Default::default(),
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "drawing-gap-mask-fill".into(),
+                kind: ElementKind::Rectangle {
+                    width: 20.,
+                    height: 90.,
+                    fill: [0, 0, 0, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.,
+                },
+                transform: Transform {
+                    x: 100.,
+                    y: 95.,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    };
+    mask.properties.role = LayerRole::Mask;
+    editor.symbol_mut().timeline.layers[0].properties.mask = Some(mask.id.clone());
+    editor.symbol_mut().timeline.layers.push(mask);
+    editor.project.upgrade_format_for_features();
+    editor.project.format_version = editor.project.format_version.max(4);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Bucket);
+    editor.authoring_tools.gap_close = GapCloseMode::Small;
+    let outside = page.min + egui::vec2(160., 140.);
+    pen_click(&mut editor, &ctx, 0.1, outside, outside);
+    assert_eq!(editor.project, before, "gap closing respects the mask");
+    assert!(!editor.history.can_undo());
+    editor.set_tool(Tool::Eraser);
+    editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+    editor.authoring_tools.eraser_size = 10.;
+    let visible_stroke = page.min + egui::vec2(110., 100.);
+    pen_click(&mut editor, &ctx, 0.3, visible_stroke, visible_stroke);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(
+        editor
+            .status
+            .contains("Partial stroke erasing on masked artwork")
+    );
+    editor.project.validate().unwrap();
+
+    // Sparse pointer motion cuts the interior of a long stroke, preserving both
+    // remaining pieces and the original filled contour/gradient in one undo step.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    let outline = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::LineTo { x: 200., y: 0. },
+        PathCommand::LineTo { x: 200., y: 80. },
+        PathCommand::LineTo { x: 0., y: 80. },
+        PathCommand::Close,
+    ];
+    let gradient = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Linear,
+        stops: vec![
+            neoflash_core::GradientStop {
+                ratio: 0,
+                color: [200, 20, 30, 255],
+            },
+            neoflash_core::GradientStop {
+                ratio: 255,
+                color: [20, 30, 200, 255],
+            },
+        ],
+        matrix: [0.1, 0., 0., 0.1, 80., 40.],
+        focal_point_ratio: 0.,
+    };
+    editor.add_element_transformed(
+        ElementKind::PaintedPath {
+            commands: outline.clone(),
+            fill_rule: FillRule::NonZero,
+            fill: [80, 120, 180, 255],
+            stroke: [0; 4],
+            stroke_width: 2.,
+            fill_gradient: Some(gradient.clone()),
+            stroke_gradient: Some(gradient.clone()),
+        },
+        Transform {
+            x: 100.,
+            y: 200.,
+            ..Default::default()
+        },
+    );
+    let original_id = editor.selected_element().unwrap().id.clone();
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 10., y: 0. },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 30, 40, 255],
+            stroke_width: 2.,
+        },
+        400.,
+        200.,
+    );
+    let remote_id = editor.selected_element().unwrap().id.clone();
+    editor.symbol_mut().timeline.layers[0]
+        .properties
+        .groups
+        .push(AuthoringGroup {
+            id: "partial-stroke-group".into(),
+            name: "Artwork".into(),
+            members: vec![original_id.clone(), remote_id.clone()],
+        });
+    editor.project.upgrade_format_for_features();
+    editor.project.format_version = editor.project.format_version.max(5);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+    editor.authoring_tools.eraser_size = 20.;
+    editor.set_tool(Tool::Eraser);
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        page.min + egui::vec2(140., 170.),
+        page.min + egui::vec2(140., 225.),
+    );
+    editor.project.validate().unwrap();
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert_eq!(elements.len(), 3);
+    assert_eq!(elements[0].id, original_id);
+    let ElementKind::PaintedPath {
+        commands: fill_commands,
+        fill_gradient,
+        stroke_gradient,
+        ..
+    } = &elements[0].kind
+    else {
+        panic!()
+    };
+    assert_eq!(fill_commands, &outline);
+    assert_eq!(fill_gradient, &Some(gradient.clone()));
+    assert_eq!(stroke_gradient, &None);
+    let ElementKind::PaintedPath {
+        commands: cut,
+        stroke_gradient,
+        ..
+    } = &elements[1].kind
+    else {
+        panic!()
+    };
+    assert_eq!(stroke_gradient, &Some(gradient));
+    let stroked = |x| {
+        hit_test_path(
+            cut,
+            FillRule::NonZero,
+            [x, 0.],
+            false,
+            2.,
+            FlattenOptions::default(),
+        )
+        .unwrap()
+    };
+    assert!(stroked(10.));
+    assert!(!stroked(40.));
+    assert!(stroked(80.));
+    assert_eq!(elements[2].id, remote_id);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups[0].members,
+        vec![original_id.clone(), elements[1].id.clone(), remote_id]
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
+    // Removing the complete remote stroke prunes the now-single-member group
+    // before validation; Undo restores both its member and the group itself.
+    let remote_stroke = page.min + egui::vec2(405., 200.);
+    pen_click(&mut editor, &ctx, 0.4, remote_stroke, remote_stroke);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty()
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
