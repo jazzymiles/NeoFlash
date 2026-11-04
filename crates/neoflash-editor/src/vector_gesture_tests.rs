@@ -1711,6 +1711,133 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         AuthoringGroup, Element, FillRule, FlattenOptions, History, Keyframe, Layer, LayerRole,
         Transform, hit_test_path,
     };
+    // Exercise the actual NF2 selector before the gesture: options are transient
+    // tool state, while only the resulting artwork belongs in project history.
+    fn choose_option(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        start: f64,
+        current: &str,
+        choice: &str,
+    ) {
+        ctx.enable_accesskit();
+        let mut time = start;
+        let mut frame = |editor: &mut Editor, events| {
+            time += 0.001;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280., 900.),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.set_width(280.);
+                        editor.authoring_tool_options(ui);
+                    });
+                },
+            )
+        };
+        let locate = |output: &egui::FullOutput, label: &str| {
+            output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(|r| egui::pos2((r.x0 + r.x1) as f32 / 2., (r.y0 + r.y1) as f32 / 2.))
+                })
+                .unwrap_or_else(|| panic!("tool option {label:?} must be visible"))
+        };
+        let before = editor.project.clone();
+        let undo = editor.history.undo_len();
+        let output = frame(editor, vec![]);
+        let at = locate(&output, current);
+        frame(
+            editor,
+            vec![egui::Event::PointerMoved(at), primary_button(at, true)],
+        );
+        frame(editor, vec![primary_button(at, false)]);
+        let output = frame(editor, vec![]);
+        let at = locate(&output, choice);
+        frame(
+            editor,
+            vec![egui::Event::PointerMoved(at), primary_button(at, true)],
+        );
+        frame(editor, vec![primary_button(at, false)]);
+        frame(editor, vec![]);
+        assert_eq!(editor.project, before, "options never mutate artwork");
+        assert_eq!(editor.history.undo_len(), undo);
+        // Retire the popup hit layer before the following real stage gesture.
+        stage_input_frame(editor, ctx, start + 0.01, vec![]);
+    }
+
+    for theme in [
+        crate::theme::ThemeMode::Dark,
+        crate::theme::ThemeMode::Light,
+    ] {
+        for (mode, label) in [
+            (EraserMode::Objects, "Whole objects"),
+            (EraserMode::Fills, "Whole fills"),
+            (EraserMode::Strokes, "Whole strokes"),
+        ] {
+            let (mut editor, ctx, page) = rectangle_stage();
+            editor.set_theme(&ctx, theme);
+            editor.workspace.drawing.object_drawing = true;
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 80.,
+                    height: 80.,
+                    fill: [80, 120, 180, 255],
+                    stroke: [20, 30, 40, 255],
+                    stroke_width: 4.,
+                },
+                100.,
+                100.,
+            );
+            editor.history = History::default();
+            let before = editor.project.clone();
+            editor.set_tool(Tool::Eraser);
+            choose_option(&mut editor, &ctx, 0.01, "Whole objects", "Cut strokes");
+            assert!(editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments);
+            choose_option(&mut editor, &ctx, 0.03, "Cut strokes", label);
+            assert!(editor.authoring_tools.eraser_mode == mode);
+            let point = page.min + egui::vec2(100., 140.);
+            pen_click(&mut editor, &ctx, 0.1, point, point);
+            let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            if mode == EraserMode::Objects {
+                assert!(elements.is_empty());
+            } else {
+                let ElementKind::Rectangle {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                } = elements[0].kind
+                else {
+                    panic!("whole modes retain the original geometry");
+                };
+                assert_eq!(fill[3] == 0, mode == EraserMode::Fills);
+                assert_eq!(
+                    stroke[3] == 0 && stroke_width == 0.,
+                    mode == EraserMode::Strokes
+                );
+            }
+            editor.project.validate().unwrap();
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+    }
     let touch = |phase, pos, force| egui::Event::Touch {
         device_id: egui::TouchDeviceId(7),
         id: egui::TouchId(9),
@@ -1815,13 +1942,14 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         editor.undo();
         assert_eq!(editor.project, before);
     }
-    // Gap mode is engine-ready but intentionally not added to the locked UI.
-    // Screen-space threshold honours element scale and closes separate contours.
-    for (scale, mode, changed) in [
-        (1., GapCloseMode::None, false),
-        (1., GapCloseMode::Small, true),
-        (2., GapCloseMode::Small, false),
-        (2., GapCloseMode::Medium, true),
+    // Approved gap choices drive the real Bucket path. The screen-space
+    // threshold honours element scale and closes separate contours.
+    for (scale, mode, label, changed) in [
+        (1., GapCloseMode::None, "Don’t close gaps", false),
+        (1., GapCloseMode::Small, "Close small gaps", true),
+        (2., GapCloseMode::Small, "Close small gaps", false),
+        (2., GapCloseMode::Medium, "Close medium gaps", true),
+        (4., GapCloseMode::Large, "Close large gaps", true),
     ] {
         let (mut editor, ctx, page) = rectangle_stage();
         editor.workspace.drawing.object_drawing = true;
@@ -1851,7 +1979,8 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         editor.history = History::default();
         let before = editor.project.clone();
         editor.set_tool(Tool::Bucket);
-        editor.authoring_tools.gap_close = mode;
+        choose_option(&mut editor, &ctx, 0.01, "Gap size: Don’t close gaps", label);
+        assert_eq!(editor.authoring_tools.gap_close, mode);
         let point = page.min + egui::vec2(120., 120.);
         pen_click(&mut editor, &ctx, 0.1, point, point);
         assert_eq!(editor.project != before, changed, "{scale} {mode:?}");
@@ -1926,7 +2055,8 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
     assert_eq!(editor.project, before, "gap closing respects the mask");
     assert!(!editor.history.can_undo());
     editor.set_tool(Tool::Eraser);
-    editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+    choose_option(&mut editor, &ctx, 0.21, "Whole objects", "Cut strokes");
+    assert!(editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments);
     editor.authoring_tools.eraser_size = 10.;
     let visible_stroke = page.min + egui::vec2(110., 100.);
     pen_click(&mut editor, &ctx, 0.3, visible_stroke, visible_stroke);
@@ -2106,7 +2236,7 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         pen_click(
             &mut editor,
             &ctx,
-            if filtered { 0.9 } else { 0.7 },
+            if filtered { 1.1 } else { 0.7 },
             page.min + egui::vec2(140., 170.),
             page.min + egui::vec2(140., 225.),
         );
@@ -2114,6 +2244,21 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         assert!(!editor.history.can_undo());
         assert!(editor.status.contains("combined fill/stroke"));
         editor.project.validate().unwrap();
+        // A stroke collected before the forbidden target must also remain
+        // intact: refusal cancels the entire gesture, not just one target.
+        pen_click(
+            &mut editor,
+            &ctx,
+            if filtered { 1.3 } else { 0.9 },
+            page.min + egui::vec2(405., 200.),
+            page.min + egui::vec2(140., 200.),
+        );
+        assert_eq!(
+            editor.project, protected,
+            "refusal is atomic across targets"
+        );
+        assert!(!editor.history.can_undo());
+        assert!(editor.status.contains("combined fill/stroke"));
     }
 
     // The guided pose differs from the stored/interpolated pose. Erasing uses

@@ -195,7 +195,7 @@ Step over (F10), Step in (F11), Step out (⇧F11), Stop, the call stack, read-on
 Toggle breakpoint uses the current Actions caret line (⌘B while Debugger is open); Remove all clears the session's
 breakpoints. Use Debug options again to pause a running session. Test Movie (⌘↵) restarts an active debug session
 with its breakpoints. Editing or switching documents retires the session and clears stale source bindings.
-Debug state and breakpoints are not saved in the document.
+The toolbar distinguishes Connecting (spinner), Running, Paused and Disconnected; Disconnected offers Restart. Continue/step controls are inactive outside a ready pause, and call-stack/variable hints replace stale data without a paused frame. Error/Watch inline messages, diagnostic peek/range painting and the keyboard quick-fix chooser still need the remaining R-033 components. Debug state and breakpoints are not saved in the document.
 
 The debugger verifies the generated Function body before applying source locations and installs authored
 breakpoints before initial execution. A breakpoint that Chrome can place only on a different authored line remains

@@ -1,6 +1,7 @@
 //! Existing NF2 Debugger composition bound to a live Test Movie session.
 use crate::app::Editor;
 use crate::debugger_protocol::{DebugCommand, DebugState};
+use crate::theme::DesignUi as _;
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
@@ -39,6 +40,10 @@ impl Editor {
         let mut close = false;
         let nf = neoflash_ui::palette(ui.ctx());
         let paused = snapshot.state == DebugState::Paused && !snapshot.command_pending;
+        let has_paused_frame = snapshot.state == DebugState::Paused
+            && snapshot
+                .selected_frame
+                .is_some_and(|index| index < snapshot.frames.len());
         let actionscript = snapshot
             .selected_frame
             .and_then(|index| snapshot.frames.get(index))
@@ -47,7 +52,7 @@ impl Editor {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             if ui
-                .add_enabled(
+                .add_enabled_semantic(
                     paused,
                     c::IconButton::new(i16::DEBUG_CONTINUE, "Continue")
                         .kind(c::IconButtonType::Primary)
@@ -63,7 +68,10 @@ impl Editor {
                 (i16::STEP_OUT, "Step out", "⇧F11", DebugCommand::StepOut),
             ] {
                 if ui
-                    .add_enabled(paused, c::IconButton::new(icon, label).shortcut(shortcut))
+                    .add_enabled_semantic(
+                        paused,
+                        c::IconButton::new(icon, label).shortcut(shortcut),
+                    )
                     .clicked()
                 {
                     self.debug_command(command);
@@ -87,18 +95,36 @@ impl Editor {
                 self.debug_command(DebugCommand::SetBreakpoints(Vec::new()));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let status = snapshot
-                    .frames
-                    .get(snapshot.selected_frame.unwrap_or(0))
-                    .and_then(|frame| frame.location.as_ref())
-                    .map(|location| {
-                        format!(
-                            "{:?} · {} · line {} ({})",
-                            snapshot.state, location.source, location.line, snapshot.reason
-                        )
-                    })
-                    .unwrap_or_else(|| format!("{:?}", snapshot.state));
-                ui.add(c::Badge::new(&status, c::BadgeType::Warning));
+                if snapshot.state == DebugState::Disconnected
+                    && ui.add(c::Button::new("Restart")).clicked()
+                {
+                    self.start_debug_movie(ui.ctx());
+                }
+                let status = if has_paused_frame {
+                    snapshot
+                        .frames
+                        .get(snapshot.selected_frame.unwrap_or(0))
+                        .and_then(|frame| frame.location.as_ref())
+                        .map(|location| {
+                            format!(
+                                "Paused · {} · line {} ({})",
+                                location.source, location.line, snapshot.reason
+                            )
+                        })
+                        .unwrap_or_else(|| "Paused".into())
+                } else {
+                    format!("{:?}", snapshot.state)
+                };
+                let badge = match snapshot.state {
+                    DebugState::Connecting | DebugState::Disconnected => c::BadgeType::Neutral,
+                    DebugState::Running => c::BadgeType::Accent,
+                    // The approved Error line still needs the design-owned inline-message API.
+                    DebugState::Paused | DebugState::Failed => c::BadgeType::Warning,
+                };
+                ui.add(c::Badge::new(&status, badge));
+                if snapshot.state == DebugState::Connecting {
+                    c::spinner(ui);
+                }
             });
         });
         let total = ui.available_width();
@@ -106,7 +132,21 @@ impl Editor {
             ui.spacing_mut().item_spacing.x = 0.0;
             column(ui, 240.0, |ui| {
                 column_title(ui, "Call stack");
-                for (index, frame) in snapshot.frames.iter().enumerate() {
+                if !has_paused_frame {
+                    ui.label(
+                        neoflash_ui::typography::rich(
+                            "Pause to view the call stack.",
+                            TextStyle::Small,
+                        )
+                        .color(nf.text_tertiary),
+                    );
+                }
+                for (index, frame) in snapshot
+                    .frames
+                    .iter()
+                    .enumerate()
+                    .filter(|_| has_paused_frame)
+                {
                     let label = frame
                         .location
                         .as_ref()
@@ -140,6 +180,16 @@ impl Editor {
             });
             column(ui, 380.0, |ui| {
                 column_title(ui, "Variables");
+                if !has_paused_frame {
+                    ui.label(
+                        neoflash_ui::typography::rich(
+                            "Pause to inspect variables.",
+                            TextStyle::Small,
+                        )
+                        .color(nf.text_tertiary),
+                    );
+                    return;
+                }
                 let cols = &[0.0, 0.45];
                 ui.add(c::TableRow {
                     cells: &["Name", "Value"],

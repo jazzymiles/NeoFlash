@@ -41,6 +41,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `neoflash-ui/src/components/code.rs`; `docs/NF2-ACTIONS-EDITOR.md`.
 - **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify missing peek/range
   and debugger states. Existing live debugger bindings retain the current NF2 composition.
+- **Integration dependencies:** the current shared code exports no Error peek or wavy-range painter, inline
+  message line, or keyboard-selected Menu Item state. Supply these through T-028; clarify F8 precedence with
+  existing debugger Continue (F8) and Convert to Symbol (F8). Connecting/Running/Paused/Disconnected, inactive
+  step controls, Restart and no-frame hints use available components; these do not resolve the whole request.
 - **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-033.
   Range: 2 pt wavy underline under the exact range, syntax/error or syntax/warning; gutter/overview marks unchanged.
   Hover or F8 opens the existing Error peek (warning variant uses warning tokens and icon). ⌘. with one safe fix
@@ -607,3 +611,17 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   with Cancel for long exports; blocking errors as inline error lines with Export disabled; notes (still image,
   player-specific) as warning lines. (2) Yes: Publish settings gains target `Lottie animation (JSON)` (motion-path
   icon) with the same groups minus Source and Range; footer lists both outputs.
+
+### R-044 · Shared toast host placement and lifetime
+- **Status:** open
+- **Requested by / for:** implementation track (`codex`) · ST-09 / W0.8; R-034 drawing refusal feedback
+- **Where:** window chrome (`shell.rs`), existing `neoflash_ui::components::Toast`.
+- **Need:** authoritative anchor and edge offsets, width/available-space behavior, stack direction/limit,
+  overlap policy with docks/dialogs, dismissal timing, repeated-message handling and optional action placement.
+- **Why:** R-034 specifies a Warning Toast when Cut strokes refuses a gesture, but the editor has no toast host.
+  Its controls and atomic refusal are wired; reasons currently use status and Output. R-043 export feedback needs
+  the same host. Implementers cannot invent a global overlay composition under the design lock.
+- **Checked:** `docs-technical.txt` Toast shelf, design reference component table, ST-09 and WIRING-PLAN W0.8
+  (placement/stacking/timing explicitly unspecified), `components/display.rs::Toast`, `shell.rs`.
+- **Proposal (optional):** one shared host consuming the existing Toast component; retain messages in Output.
+- **Answer:**

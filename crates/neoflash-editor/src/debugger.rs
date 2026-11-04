@@ -474,6 +474,196 @@ mod tests {
     }
 
     #[test]
+    fn approved_debugger_states_bind_live_data_and_gate_step_controls() {
+        use crate::debugger_protocol::{DebugFrame, DebugLocal};
+
+        fn render(
+            editor: &mut Editor,
+            ctx: &egui::Context,
+            events: Vec<egui::Event>,
+        ) -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 500.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        assert!(!editor.debugger_contents(ui));
+                    });
+                },
+            )
+        }
+
+        for theme in [
+            crate::theme::ThemeMode::Dark,
+            crate::theme::ThemeMode::Light,
+        ] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut editor = Editor::from_project(&ctx, Project::blank());
+            theme.apply(&ctx);
+            let original = editor.project.clone();
+            let mut snapshot =
+                DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+            snapshot.frames.push(DebugFrame {
+                function_name: "fixtureFunction".into(),
+                location: None,
+                generated_url: "fixture.js".into(),
+                generated_line: 1,
+                generated_column: 1,
+            });
+            snapshot.selected_frame = Some(0);
+            snapshot.locals.push(DebugLocal {
+                scope: "Local".into(),
+                name: "fixtureLocal".into(),
+                value: "7".into(),
+                kind: "number".into(),
+                accessor: false,
+            });
+            let shared = Arc::new(Mutex::new(snapshot));
+            let (commands, receiver) = mpsc::sync_channel(4);
+            editor.debugger.session = Some(DebugSession {
+                snapshot: shared.clone(),
+                commands,
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: None,
+                errors: Arc::new(Mutex::new(vec![])),
+            });
+            editor.debugger.project = Some(editor.project.clone());
+            for (state, pending) in [
+                (DebugState::Connecting, false),
+                (DebugState::Running, false),
+                (DebugState::Disconnected, false),
+                (DebugState::Paused, true),
+                (DebugState::Paused, false),
+            ] {
+                {
+                    let mut snapshot = shared.lock().unwrap();
+                    snapshot.state = state;
+                    snapshot.command_pending = pending;
+                }
+                let output = render(&mut editor, &ctx, vec![]);
+                let nodes = &output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes;
+                for label in ["Continue", "Step over", "Step in", "Step out"] {
+                    let node = &nodes
+                        .iter()
+                        .find(|(_, node)| node.label() == Some(label))
+                        .unwrap()
+                        .1;
+                    assert_eq!(
+                        node.is_disabled(),
+                        state != DebugState::Paused || pending,
+                        "{state:?}: {label}"
+                    );
+                }
+                assert_eq!(
+                    nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("Restart")),
+                    state == DebugState::Disconnected,
+                );
+                let texts: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) => Some(text),
+                        _ => None,
+                    })
+                    .collect();
+                let status = texts
+                    .iter()
+                    .find(|text| text.galley.job.text == format!("{state:?}"))
+                    .unwrap();
+                let palette = neoflash_ui::palette(&ctx);
+                let expected = match state {
+                    DebugState::Connecting | DebugState::Disconnected => palette.text_secondary,
+                    DebugState::Running => palette.accent_default,
+                    _ => palette.warning_default,
+                };
+                assert!(
+                    status
+                        .galley
+                        .job
+                        .sections
+                        .iter()
+                        .all(|section| section.format.color == expected)
+                );
+                assert_eq!(
+                    texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "fixtureLocal"),
+                    state == DebugState::Paused
+                );
+                assert_eq!(
+                    texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "Pause to inspect variables."),
+                    state != DebugState::Paused
+                );
+                assert_eq!(
+                    texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "Pause to view the call stack."),
+                    state != DebugState::Paused
+                );
+            }
+            let output = render(&mut editor, &ctx, vec![]);
+            let bounds = output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Step over"))
+                .unwrap()
+                .1
+                .bounds()
+                .unwrap();
+            let pos = egui::pos2(
+                ((bounds.x0 + bounds.x1) * 0.5) as f32,
+                ((bounds.y0 + bounds.y1) * 0.5) as f32,
+            );
+            let _ = render(
+                &mut editor,
+                &ctx,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            let _ = render(
+                &mut editor,
+                &ctx,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert!(matches!(receiver.try_recv(), Ok(DebugCommand::StepOver)));
+            assert_eq!(editor.project, original);
+            assert!(!editor.history.can_undo());
+        }
+    }
+
+    #[test]
     fn stopped_sessions_invalidate_after_edits_and_identical_document_switches() {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::demo());

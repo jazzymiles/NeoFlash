@@ -20,7 +20,6 @@ pub(crate) enum EraserMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[allow(dead_code)]
 pub(crate) enum GapCloseMode {
     #[default]
     None,
@@ -30,6 +29,15 @@ pub(crate) enum GapCloseMode {
 }
 
 impl GapCloseMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "Don’t close gaps",
+            Self::Small => "Close small gaps",
+            Self::Medium => "Close medium gaps",
+            Self::Large => "Close large gaps",
+        }
+    }
+
     pub(crate) fn max_gap_px(self) -> f64 {
         match self {
             Self::None => 0.0,
@@ -538,8 +546,8 @@ impl Editor {
                 continue;
             };
             if !draw.clip_ids.is_empty() {
-                self.message("Partial stroke erasing on masked artwork is not available yet; no masked stroke was changed.");
-                continue;
+                self.message("Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
+                return;
             }
             let Some(index) = self.target_layer_index(target) else {
                 continue;
@@ -557,8 +565,8 @@ impl Editor {
                     || motion_span(layer, self.frame).is_some())
                 && draw.item.transform != transform_matrix(element.transform)
             {
-                self.message("Partial stroke erasing cannot insert a keyframe inside guided motion yet. Erase at an existing keyframe, or turn off Auto keyframe for a classic tween; the object was unchanged.");
-                continue;
+                self.message("Partial stroke erasing cannot insert a keyframe inside guided motion yet. Erase at an existing keyframe, or turn off Auto keyframe for a classic tween; no artwork was changed.");
+                return;
             }
             let Some((commands, rule)) = element.to_path_commands() else {
                 continue;
@@ -596,8 +604,8 @@ impl Editor {
             let has_fill = fill[3] > 0 || fill_gradient.is_some();
             if has_fill && (!element.filters.is_empty() || element.blend_mode != BlendMode::Normal)
             {
-                self.message("Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; the object was unchanged.");
-                continue;
+                self.message("Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; no artwork was changed.");
+                return;
             }
             let mut replacements = Vec::new();
             if has_fill {
@@ -1845,6 +1853,7 @@ impl Editor {
                         (EraserMode::Objects, "Whole objects"),
                         (EraserMode::Fills, "Whole fills"),
                         (EraserMode::Strokes, "Whole strokes"),
+                        (EraserMode::StrokeSegments, "Cut strokes"),
                     ],
                     width,
                 );
@@ -1858,13 +1867,25 @@ impl Editor {
                         .width(width),
                 );
                 self.authoring_tools.eraser_size = size as f32;
-                note(
-                    ui,
-                    "Drag over artwork",
-                    Some(
-                        "Removes touched objects or their entire fill/stroke. This mode does not cut holes into vector geometry.",
+                let (text, hint) = match self.authoring_tools.eraser_mode {
+                    EraserMode::Objects => (
+                        "Remove touched objects",
+                        "Removes each touched object completely, including its fill and stroke.",
                     ),
-                );
+                    EraserMode::Fills => (
+                        "Remove whole fills · keep strokes",
+                        "Removes the entire fill of touched artwork. This mode does not cut holes into fills.",
+                    ),
+                    EraserMode::Strokes => (
+                        "Remove whole strokes · keep fills",
+                        "Removes the entire stroke of touched artwork, keeping its fill intact.",
+                    ),
+                    EraserMode::StrokeSegments => (
+                        "Cut touched strokes · keep fills",
+                        "Cuts the touched parts of vector strokes and keeps fills intact; touched curves are approximated. Masked artwork, combined fill/stroke effects and guided tweens needing new keys cannot be cut. A refused gesture changes no artwork.",
+                    ),
+                };
+                note(ui, text, Some(hint));
             }
             Tool::Lasso => {
                 let response = ui.add(nf::Checkbox::new(
@@ -1895,13 +1916,41 @@ impl Editor {
                 note(ui, "Center: move", None);
                 note(ui, "Square: scale / rotate", None);
             }
-            Tool::Bucket => note(
-                ui,
-                "Closed shapes",
-                Some(
-                    "Fills a closed authored vector shape. Open paths and pixel flood fill are not supported.",
-                ),
-            ),
+            Tool::Bucket => {
+                let label = format!("Gap size: {}", self.authoring_tools.gap_close.label());
+                let (response, _) = nf::Select::new("bucket_gap_size", &label)
+                    .width(width)
+                    .show(ui, |ui| {
+                        for mode in [
+                            GapCloseMode::None,
+                            GapCloseMode::Small,
+                            GapCloseMode::Medium,
+                            GapCloseMode::Large,
+                        ] {
+                            if ui
+                                .add(
+                                    nf::MenuItem::new(mode.label())
+                                        .checked(mode == self.authoring_tools.gap_close),
+                                )
+                                .clicked()
+                            {
+                                self.authoring_tools.gap_close = mode;
+                            }
+                        }
+                    });
+                nf::tooltip(
+                    response,
+                    "Closes each contour only when its end-to-start gap fits the chosen limit on screen: Small 6 px, Medium 14 px, Large 28 px. Fills authored vector shapes; bitmap flood fill is unsupported.",
+                    None,
+                );
+                let text = match self.authoring_tools.gap_close {
+                    GapCloseMode::None => "Fill closed vector shapes",
+                    GapCloseMode::Small => "Close gaps up to 6 px on screen",
+                    GapCloseMode::Medium => "Close gaps up to 14 px on screen",
+                    GapCloseMode::Large => "Close gaps up to 28 px on screen",
+                };
+                note(ui, text, None);
+            }
             Tool::Ink => note(
                 ui,
                 "Apply stroke",
