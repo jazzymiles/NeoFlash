@@ -134,7 +134,7 @@ struct SelectionGeometry {
     world_pivot: geometry::Point,
     resizable: bool,
     /// Stage bounds, NF2 selection-box kind, and whether the placement is an ungrouped Merge shape.
-    boxes: Vec<(Rect, cv::SelectionKind, bool)>,
+    boxes: Vec<(Id, Rect, cv::SelectionKind, bool)>,
 }
 
 /// `NF2/Selection Box` kind for a placement: symbols show their registration and transformation
@@ -189,6 +189,35 @@ fn transformed_rect(rect: Rect, m: [f64; 6]) -> Rect {
         result.extend_with(crate::stage::affine(m, p));
     }
     result
+}
+
+/// Groups are independent drawing objects even when their members retain raw Merge geometry.
+/// Temporarily exclude those members from planar edits, preserving their flags and stack order.
+pub(crate) fn edit_ungrouped_merge_shapes<R>(
+    layer: &mut Layer,
+    frame: u32,
+    edit: impl FnOnce(&mut Vec<Element>) -> R,
+) -> Option<R> {
+    let grouped: HashSet<_> = layer
+        .properties
+        .groups
+        .iter()
+        .flat_map(|group| group.members.iter().cloned())
+        .collect();
+    let elements = &mut layer.key_at_mut(frame)?.elements;
+    let protected: HashSet<_> = elements
+        .iter()
+        .filter(|element| element.merge && grouped.contains(&element.id))
+        .map(|element| element.id.clone())
+        .collect();
+    for element in elements.iter_mut().filter(|e| protected.contains(&e.id)) {
+        element.merge = false;
+    }
+    let result = edit(elements);
+    for element in elements.iter_mut().filter(|e| protected.contains(&e.id)) {
+        element.merge = true;
+    }
+    Some(result)
 }
 
 impl Editor {
@@ -273,9 +302,11 @@ impl Editor {
                 continue;
             }
             any_remerged = true;
-            if let Some(key) = self.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame) {
-                let remerged_ids =
-                    remerge_moved_elements_in_keyframe(&mut key.elements, &merge_moved);
+            if let Some(remerged_ids) = edit_ungrouped_merge_shapes(
+                &mut self.symbol_mut().timeline.layers[layer_idx],
+                frame,
+                |elements| remerge_moved_elements_in_keyframe(elements, &merge_moved),
+            ) {
                 for id in moved_ids {
                     if !merge_moved.contains(id) {
                         new_selection.push(SelectionTarget {
@@ -497,7 +528,7 @@ impl Editor {
                     .get(id)
                     .copied()
                     .unwrap_or((cv::SelectionKind::Group, false));
-                (rect, kind, is_merge)
+                (id.clone(), rect, kind, is_merge)
             })
             .collect();
         let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
@@ -1078,7 +1109,8 @@ impl Editor {
             self.cancel_selection_gesture();
         }
         self.normalize_targets();
-        let screen = |point: Pos2| origin + point.to_vec2() * self.zoom;
+        let zoom = self.zoom;
+        let screen = |point: Pos2| origin + point.to_vec2() * zoom;
         let geometry = self.selection_geometry(scene, p);
         // Free Transform zones, first match wins: handles, then skew edges, then rotate corners.
         let mut zones: Vec<(Zone, GestureKind, Cursor)> = Vec::new();
@@ -1199,10 +1231,51 @@ impl Editor {
                 }
             } else {
                 // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
-                for (rect, kind, is_merge) in &g.boxes {
+                let authored = g.boxes.iter().any(|(_, _, _, merge)| *merge).then(|| {
+                    self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()))
+                });
+                let masks = authored
+                    .as_ref()
+                    .map(|scene| crate::stage_clipping::ClipMeshes::new(&scene.clips, origin, zoom))
+                    .transpose();
+                for (id, rect, kind, is_merge) in &g.boxes {
                     let rect = Rect::from_min_max(screen(rect.min), screen(rect.max));
                     if *is_merge {
-                        cv::paint_shape_selection(p, p.ctx(), rect);
+                        let masks = match &masks {
+                            Ok(masks) => masks.as_ref(),
+                            Err(error) => {
+                                if self.status != *error {
+                                    self.message(error.clone());
+                                }
+                                continue;
+                            }
+                        };
+                        for item in scene
+                            .iter()
+                            .filter(|item| item.instance_path.first() == Some(id))
+                        {
+                            let clip_ids = authored
+                                .as_ref()
+                                .and_then(|scene| {
+                                    scene
+                                        .draws
+                                        .iter()
+                                        .find(|draw| draw.item.instance_path == item.instance_path)
+                                })
+                                .map(|draw| draw.clip_ids.as_slice())
+                                .unwrap_or(&[]);
+                            if let Err(error) = crate::stage_clipping::paint_shape_selection(
+                                p,
+                                item,
+                                origin,
+                                zoom,
+                                rect,
+                                masks.map(|m| (m, clip_ids)),
+                            ) && self.status != error
+                            {
+                                self.message(error);
+                            }
+                        }
                     } else {
                         cv::paint_selection_box(p, p.ctx(), rect, *kind);
                     }
@@ -1429,9 +1502,7 @@ impl Editor {
         {
             self.reset_transformation_point();
         }
-        if self.tool == Tool::Select
-            && response.double_clicked()
-            && !self.stage_view.guide_pointer
+        if self.tool == Tool::Select && response.double_clicked() && !self.stage_view.guide_pointer
         {
             if let Some(Element {
                 kind: ElementKind::Instance { symbol_id, .. },

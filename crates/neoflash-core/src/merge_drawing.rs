@@ -9,7 +9,7 @@
 //!   coalesce (`Union`), strokes drawn across a fill slice it into separate selectable fills, and
 //!   intersecting strokes split at their intersection points.
 
-use crate::evaluate::transform_matrix;
+use crate::evaluate::{affine_multiply, transform_matrix};
 use crate::geometry::{FlattenOptions, flatten_path};
 use crate::model::{Color, Element, ElementKind, FillRule, Id, PathCommand, Transform, new_id};
 use crate::runtime_graphics::GradientPaint;
@@ -194,6 +194,14 @@ fn transform_scale_factor(transform: &Transform) -> f64 {
     ((sx + sy) * 0.5).max(1e-3)
 }
 
+/// Merge paths bake the placement matrix into their coordinates. Paint coordinates must follow
+/// the same matrix before the placement is reset, including rotation and skew.
+fn world_gradient(template: &Element, gradient: &GradientPaint) -> GradientPaint {
+    let mut gradient = gradient.clone();
+    gradient.matrix = affine_multiply(transform_matrix(template.transform), gradient.matrix);
+    gradient
+}
+
 fn build_fill_element(
     template: &Element,
     id: Id,
@@ -215,7 +223,7 @@ fn build_fill_element(
             fill_rule,
             fill: [0, 0, 0, 255],
             stroke: [0; 4],
-            fill_gradient: Some((**grad).clone()),
+            fill_gradient: Some(world_gradient(template, grad)),
             stroke_gradient: None,
             stroke_width: 0.0,
         },
@@ -253,7 +261,7 @@ fn build_stroke_element(
             fill: [0; 4],
             stroke: paint.color,
             fill_gradient: None,
-            stroke_gradient: Some(grad.clone()),
+            stroke_gradient: Some(world_gradient(template, grad)),
             stroke_width: paint.width,
         }
     } else {
@@ -432,11 +440,10 @@ pub fn flatten_stroke_polylines(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> 
                 pts.push(p);
             }
         }
-        if c.closed && pts.len() >= 3 {
-            if dist_sq(pts[0], *pts.last().unwrap()) > SNAP_EPS * SNAP_EPS {
-                let first = pts[0];
-                pts.push(first);
-            }
+        if c.closed && pts.len() >= 3 && dist_sq(pts[0], *pts.last().unwrap()) > SNAP_EPS * SNAP_EPS
+        {
+            let first = pts[0];
+            pts.push(first);
         }
         if pts.len() >= 2 {
             polylines.push(pts);
@@ -518,7 +525,12 @@ fn point_to_segment_projection(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> (f64, f
     (t, dist(p, proj))
 }
 
-fn segment_intersections(a0: [f64; 2], a1: [f64; 2], b0: [f64; 2], b1: [f64; 2]) -> Vec<(f64, f64)> {
+fn segment_intersections(
+    a0: [f64; 2],
+    a1: [f64; 2],
+    b0: [f64; 2],
+    b1: [f64; 2],
+) -> Vec<(f64, f64)> {
     let mut hits = Vec::new();
     let r = [a1[0] - a0[0], a1[1] - a0[1]];
     let s = [b1[0] - b0[0], b1[1] - b0[1]];
@@ -694,6 +706,86 @@ fn rings_to_segments(rings: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2])> {
     segs
 }
 
+/// Only edges separating filled and unfilled space are fill boundaries. A compound path can
+/// contain adjacent/overlapping contours (including the triangles of an authored Brush stroke);
+/// their internal edges must not cut artwork or split another stroke. Winding-based occupancy
+/// also retains genuine holes for both fill rules.
+fn fill_boundary_segments(
+    rings: &[Vec<[f64; 2]>],
+    fill_rule: FillRule,
+) -> Vec<([f64; 2], [f64; 2])> {
+    let graph = PlanarGraph::from_segments(&rings_to_segments(rings));
+    let boundary_half_edges: Vec<_> = graph
+        .edges
+        .iter()
+        .enumerate()
+        .filter_map(|(edge_idx, &(u, v))| {
+            let (left, right) = graph.probe_points(edge_idx)?;
+            let left_in = point_in_rings(left, rings, fill_rule);
+            let right_in = point_in_rings(right, rings, fill_rule);
+            match (left_in, right_in) {
+                (true, false) => Some((u, v)),
+                (false, true) => Some((v, u)),
+                _ => None,
+            }
+        })
+        .collect();
+    let rings: Vec<_> = trace_half_edge_cycles(&graph.vertices, &boundary_half_edges)
+        .into_iter()
+        .map(|cycle| {
+            let ring: Vec<_> = cycle
+                .into_iter()
+                .map(|index| graph.vertices[boundary_half_edges[index].0])
+                .collect();
+            simplify_ring_collinear(&ring)
+        })
+        .collect();
+    rings_to_segments(&rings)
+}
+
+/// A stroke following a fill's boundary does not cross it at every contour vertex. Require full
+/// collinear coverage, rather than just matching endpoints: a path can leave and rejoin an edge.
+fn segment_lies_on_polyline(segment: ([f64; 2], [f64; 2]), poly: &[[f64; 2]]) -> bool {
+    let (a, b) = segment;
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    let len_sq = dx * dx + dy * dy;
+    let len = len_sq.sqrt();
+    if len <= SNAP_EPS {
+        return true;
+    }
+    let mut intervals = Vec::new();
+    for pair in poly.windows(2) {
+        let [p, q] = [pair[0], pair[1]];
+        if [p, q]
+            .iter()
+            .any(|v| ((v[0] - a[0]) * dy - (v[1] - a[1]) * dx).abs() > SNAP_EPS * len)
+        {
+            continue;
+        }
+        let t0 = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len_sq;
+        let t1 = ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / len_sq;
+        let start = t0.min(t1).max(0.0);
+        let end = t0.max(t1).min(1.0);
+        if start <= end {
+            intervals.push((start, end));
+        }
+    }
+    intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut covered: f64 = 0.0;
+    let tolerance = SNAP_EPS / len;
+    for (start, end) in intervals {
+        if start > covered + tolerance {
+            return false;
+        }
+        covered = covered.max(end);
+        if covered >= 1.0 - tolerance {
+            return true;
+        }
+    }
+    false
+}
+
 fn polylines_to_segments(polylines: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2])> {
     let mut segs = Vec::new();
     for poly in polylines {
@@ -709,10 +801,7 @@ fn polylines_to_segments(polylines: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2]
 /// At each vertex `v` arrived via `u -> v`, we look in the direction of `v -> u` and rotate
 /// clockwise (decreasing angle) to pick the first outgoing active half-edge `v -> w`. This keeps
 /// the minimal interior face to the left of `u -> v -> w`.
-fn trace_half_edge_cycles(
-    vertices: &[[f64; 2]],
-    half_edges: &[(usize, usize)],
-) -> Vec<Vec<usize>> {
+fn trace_half_edge_cycles(vertices: &[[f64; 2]], half_edges: &[(usize, usize)]) -> Vec<Vec<usize>> {
     if half_edges.is_empty() {
         return Vec::new();
     }
@@ -793,7 +882,11 @@ fn simplify_ring_collinear(ring: &[[f64; 2]]) -> Vec<[f64; 2]> {
                 continue;
             }
             let (_, d) = point_to_segment_projection(curr, prev, next);
-            if d <= 1e-3 && (curr[0] - prev[0]) * (next[0] - curr[0]) + (curr[1] - prev[1]) * (next[1] - curr[1]) > 0.0 {
+            if d <= 1e-3
+                && (curr[0] - prev[0]) * (next[0] - curr[0])
+                    + (curr[1] - prev[1]) * (next[1] - curr[1])
+                    > 0.0
+            {
                 changed = true;
                 continue;
             }
@@ -848,7 +941,8 @@ fn polyline_to_commands(poly: &[[f64; 2]]) -> Vec<PathCommand> {
 }
 
 fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>> {
-    let mut shells: Vec<(Vec<[f64; 2]>, f64, Vec<Vec<[f64; 2]>>)> = Vec::new();
+    type Shell = (Vec<[f64; 2]>, f64, Vec<Vec<[f64; 2]>>);
+    let mut shells: Vec<Shell> = Vec::new();
     let mut holes: Vec<Vec<[f64; 2]>> = Vec::new();
 
     for raw_ring in rings {
@@ -1039,7 +1133,7 @@ pub fn slice_fill_rings_with_polylines(
     }
 
     let mut all_segs = rings_to_segments(fill_rings);
-    all_segs.extend(stroke_segs);
+    all_segs.extend_from_slice(&stroke_segs);
     let graph = PlanarGraph::from_segments(&all_segs);
 
     let mut active_half_edges: Vec<(usize, usize)> = Vec::new();
@@ -1050,10 +1144,23 @@ pub fn slice_fill_rings_with_polylines(
         let left_in = point_in_rings(p_left, fill_rings, fill_rule);
         let right_in = point_in_rings(p_right, fill_rings, fill_rule);
         let (u, v) = graph.edges[edge_idx];
-        if left_in {
+        // An internal contour edge is not a cut. Only an actual stroke may divide two filled
+        // faces. The graph has already split edges at every intersection, so its midpoint
+        // identifies whether this complete subedge belongs to a cutter.
+        let is_cut = if left_in && right_in {
+            let a = graph.vertices[u];
+            let b = graph.vertices[v];
+            let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
+            stroke_segs
+                .iter()
+                .any(|&(s0, s1)| point_to_segment_projection(mid, s0, s1).1 <= SNAP_EPS)
+        } else {
+            false
+        };
+        if left_in && (!right_in || is_cut) {
             active_half_edges.push((u, v));
         }
-        if right_in {
+        if right_in && (!left_in || is_cut) {
             active_half_edges.push((v, u));
         }
     }
@@ -1116,8 +1223,13 @@ pub fn trim_polyline_inside_fill(
     if poly.len() < 2 || fill_rings.is_empty() {
         return vec![poly.to_vec()];
     }
-    let fill_segs = rings_to_segments(fill_rings);
-    let sub_segments = split_polyline_into_subsegments(poly, &fill_segs, false);
+    let fill_segs = fill_boundary_segments(fill_rings, fill_rule);
+    let cutters: Vec<_> = fill_segs
+        .iter()
+        .copied()
+        .filter(|&segment| !segment_lies_on_polyline(segment, poly))
+        .collect();
+    let sub_segments = split_polyline_into_subsegments(poly, &cutters, false);
 
     let mut result: Vec<Vec<[f64; 2]>> = Vec::new();
     let mut current: Vec<[f64; 2]> = Vec::new();
@@ -1211,7 +1323,9 @@ fn split_polyline_into_subsegments(
         if self_split {
             for j in (i + 2)..n_segs {
                 // Skip closing corner of a closed loop.
-                if i == 0 && j + 1 == n_segs && dist_sq(poly[0], poly[n_segs]) <= SNAP_EPS * SNAP_EPS
+                if i == 0
+                    && j + 1 == n_segs
+                    && dist_sq(poly[0], poly[n_segs]) <= SNAP_EPS * SNAP_EPS
                 {
                     continue;
                 }
@@ -1285,10 +1399,7 @@ fn ensure_existing_merge_normalized(elements: &mut Vec<Element>) {
 /// splitting against existing `merge == true` elements on the keyframe.
 ///
 /// Returns the IDs of the newly created Merge element(s).
-pub fn apply_merge_shape_to_keyframe(
-    elements: &mut Vec<Element>,
-    new_element: Element,
-) -> Vec<Id> {
+pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: Element) -> Vec<Id> {
     ensure_existing_merge_normalized(elements);
     let Some((mut new_fill_opt, new_strokes)) = decompose_element_to_merge_parts(&new_element)
     else {
@@ -1335,8 +1446,13 @@ pub fn apply_merge_shape_to_keyframe(
                     }
                     let same_paint = extract_fill_paint(&existing.kind).as_ref() == Some(new_fp);
                     if !has_own_stroke && same_paint {
-                        let unioned =
-                            boolean_rings(&ex_rings, ex_rule, &new_rings, new_rule, BooleanOp::Union);
+                        let unioned = boolean_rings(
+                            &ex_rings,
+                            ex_rule,
+                            &new_rings,
+                            new_rule,
+                            BooleanOp::Union,
+                        );
                         if unioned.len() == 1 {
                             new_cmds = unioned.into_iter().next().unwrap();
                             new_rule = FillRule::NonZero;
@@ -1392,11 +1508,7 @@ pub fn apply_merge_shape_to_keyframe(
                                 };
                                 piece_idx += 1;
                                 next_elements.push(build_stroke_element(
-                                    &existing,
-                                    piece_id,
-                                    cmds,
-                                    &sp,
-                                    true,
+                                    &existing, piece_id, cmds, &sp, true,
                                 ));
                             }
                         }
@@ -1473,7 +1585,8 @@ pub fn apply_merge_shape_to_keyframe(
         // 2b. Split existing Merge strokes at intersections with the new stroke(s), and split
         // the new stroke(s) at intersections with existing Merge strokes & fill boundaries.
         let new_stroke_segs = polylines_to_segments(&stroke_polylines_all);
-        let mut existing_cutter_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
+        let mut existing_stroke_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
+        let mut existing_fill_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
 
         let mut next_elements = Vec::with_capacity(elements.len() + new_strokes.len());
         for existing in elements.drain(..) {
@@ -1483,10 +1596,10 @@ pub fn apply_merge_shape_to_keyframe(
             }
             if is_merge_fill(&existing) {
                 if own_fill_id.as_deref() != Some(existing.id.as_str())
-                    && let Some((ex_cmds, _)) = element_world_commands(&existing)
+                    && let Some((ex_cmds, ex_rule)) = element_world_commands(&existing)
                 {
                     let rings = flatten_closed_rings(&ex_cmds);
-                    existing_cutter_segs.extend(rings_to_segments(&rings));
+                    existing_fill_segs.extend(fill_boundary_segments(&rings, ex_rule));
                 }
                 next_elements.push(existing);
             } else if is_merge_stroke(&existing) {
@@ -1495,7 +1608,7 @@ pub fn apply_merge_shape_to_keyframe(
                     continue;
                 };
                 let polys = flatten_stroke_polylines(&ex_cmds);
-                existing_cutter_segs.extend(polylines_to_segments(&polys));
+                existing_stroke_segs.extend(polylines_to_segments(&polys));
                 let Some(sp) = extract_stroke_paint(&existing.kind) else {
                     next_elements.push(existing);
                     continue;
@@ -1511,13 +1624,8 @@ pub fn apply_merge_shape_to_keyframe(
                                 new_id("element")
                             };
                             piece_idx += 1;
-                            next_elements.push(build_stroke_element(
-                                &existing,
-                                piece_id,
-                                cmds,
-                                &sp,
-                                true,
-                            ));
+                            next_elements
+                                .push(build_stroke_element(&existing, piece_id, cmds, &sp, true));
                         }
                     }
                 }
@@ -1537,7 +1645,14 @@ pub fn apply_merge_shape_to_keyframe(
             let polys = flatten_stroke_polylines(&ns_cmds);
             let mut piece_idx = 0usize;
             for poly in polys {
-                for piece in split_polyline_with_segments(&poly, &existing_cutter_segs, true) {
+                let mut cutters = existing_stroke_segs.clone();
+                cutters.extend(
+                    existing_fill_segs
+                        .iter()
+                        .copied()
+                        .filter(|&segment| !segment_lies_on_polyline(segment, &poly)),
+                );
+                for piece in split_polyline_with_segments(&poly, &cutters, true) {
                     let cmds = polyline_to_commands(&piece);
                     if cmds.len() >= 2 {
                         let piece_id = if piece_idx == 0 {
@@ -1586,14 +1701,17 @@ pub fn remerge_moved_elements_in_keyframe(
 /// Find all Merge-mode stroke IDs on `elements` that lie along or touch the boundary of the
 /// Merge-mode fill `fill_id` (used when double-clicking a Merge fill on stage).
 pub fn merge_fill_adjacent_stroke_ids(elements: &[Element], fill_id: &str) -> Vec<Id> {
-    let Some(fill_el) = elements.iter().find(|e| e.id == fill_id && is_merge_fill(e)) else {
+    let Some(fill_el) = elements
+        .iter()
+        .find(|e| e.id == fill_id && is_merge_fill(e))
+    else {
         return Vec::new();
     };
-    let Some((fill_cmds, _)) = element_world_commands(fill_el) else {
+    let Some((fill_cmds, fill_rule)) = element_world_commands(fill_el) else {
         return Vec::new();
     };
     let fill_rings = flatten_closed_rings(&fill_cmds);
-    let fill_segs = rings_to_segments(&fill_rings);
+    let fill_segs = fill_boundary_segments(&fill_rings, fill_rule);
     if fill_segs.is_empty() {
         return Vec::new();
     }
@@ -1717,20 +1835,24 @@ pub fn combine_elements_boolean(
                 } else {
                     new_id("element")
                 };
-                let mut el =
-                    build_fill_element(base_el, id, cmds.clone(), FillRule::NonZero, &fp, base_el.merge);
+                let mut el = build_fill_element(
+                    base_el,
+                    id,
+                    cmds.clone(),
+                    FillRule::NonZero,
+                    &fp,
+                    base_el.merge,
+                );
                 if let Some(sp) = &sp
                     && !base_el.merge
-                {
-                    if let ElementKind::Path {
+                    && let ElementKind::Path {
                         stroke,
                         stroke_width,
                         ..
                     } = &mut el.kind
-                    {
-                        *stroke = sp.color;
-                        *stroke_width = sp.width;
-                    }
+                {
+                    *stroke = sp.color;
+                    *stroke_width = sp.width;
                 }
                 out.push(el);
             }
@@ -1765,20 +1887,17 @@ pub fn combine_elements_boolean(
         } else {
             new_id("element")
         };
-        let mut el =
-            build_fill_element(first_el, id, cmds, FillRule::NonZero, &fp, first_el.merge);
+        let mut el = build_fill_element(first_el, id, cmds, FillRule::NonZero, &fp, first_el.merge);
         if let Some(sp) = &sp
             && !first_el.merge
-        {
-            if let ElementKind::Path {
+            && let ElementKind::Path {
                 stroke,
                 stroke_width,
                 ..
             } = &mut el.kind
-            {
-                *stroke = sp.color;
-                *stroke_width = sp.width;
-            }
+        {
+            *stroke = sp.color;
+            *stroke_width = sp.width;
         }
         out.push(el);
     }
@@ -1789,6 +1908,7 @@ pub fn combine_elements_boolean(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)] // Test fixture keeps geometry and both paints explicit.
     fn rect_element(
         id: &str,
         x: f64,
@@ -1837,6 +1957,405 @@ mod tests {
             merge: true,
             ..Element::default()
         }
+    }
+
+    /// Adjacent triangles are how existing Brush artwork stores a continuous filled shape.
+    fn triangulated_cells(cells: &[(u32, u32)], fill_rule: FillRule) -> Element {
+        let mut commands = Vec::new();
+        for &(x, y) in cells {
+            let x = f64::from(x) * 20.0;
+            let y = f64::from(y) * 20.0;
+            for triangle in [
+                [[x, y], [x + 20.0, y], [x + 20.0, y + 20.0]],
+                [[x, y], [x + 20.0, y + 20.0], [x, y + 20.0]],
+            ] {
+                commands.extend(ring_to_commands(&triangle));
+            }
+        }
+        Element {
+            id: "brush".into(),
+            kind: ElementKind::Path {
+                commands,
+                fill_rule,
+                fill: [0, 100, 255, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            merge: true,
+            ..Element::default()
+        }
+    }
+
+    fn fills_contain(elements: &[Element], point: [f64; 2]) -> bool {
+        elements.iter().filter(|e| is_merge_fill(e)).any(|e| {
+            let (commands, rule) = element_world_commands(e).unwrap();
+            point_in_rings(point, &flatten_closed_rings(&commands), rule)
+        })
+    }
+
+    #[test]
+    fn merge_triangle_soups_split_only_at_visible_boundaries() {
+        let mut elements = Vec::new();
+        // L-shaped brush: the upper-right corner of its bounding box contains no artwork.
+        apply_merge_shape_to_keyframe(
+            &mut elements,
+            triangulated_cells(&[(0, 0), (1, 0), (0, 1)], FillRule::NonZero),
+        );
+        let original = elements[0].clone();
+        let mut edge = vec![original.clone()];
+        apply_merge_shape_to_keyframe(
+            &mut edge,
+            line_element("edge", -10.0, 0.0, 50.0, 0.0, [255, 0, 0, 255]),
+        );
+        assert_eq!(edge.iter().filter(|e| is_merge_fill(e)).count(), 1);
+        assert_eq!(
+            edge.iter().filter(|e| is_merge_stroke(e)).count(),
+            3,
+            "a line on a straight boundary must not split at triangle seams"
+        );
+        for y in [25.0, 30.0] {
+            apply_merge_shape_to_keyframe(
+                &mut elements,
+                line_element("outside", 25.0, y, 35.0, y, [255, 0, 0, 255]),
+            );
+            let fills: Vec<_> = elements.iter().filter(|e| is_merge_fill(e)).collect();
+            assert_eq!(
+                fills,
+                vec![&original],
+                "an unrelated line must leave the fill intact"
+            );
+        }
+
+        apply_merge_shape_to_keyframe(
+            &mut elements,
+            line_element("cut", -10.0, 10.0, 50.0, 10.0, [255, 0, 0, 255]),
+        );
+        assert_eq!(elements.iter().filter(|e| is_merge_fill(e)).count(), 2);
+        let cut_strokes: Vec<_> = elements
+            .iter()
+            .filter(|e| is_merge_stroke(e))
+            .filter(|e| {
+                let (commands, _) = element_world_commands(e).unwrap();
+                flatten_stroke_polylines(&commands)
+                    .iter()
+                    .flatten()
+                    .all(|p| (p[1] - 10.0).abs() < 1e-9)
+            })
+            .collect();
+        assert_eq!(
+            cut_strokes.len(),
+            3,
+            "only the two exterior boundaries cut the line"
+        );
+        for p in [[5.0, 5.0], [35.0, 15.0], [5.0, 35.0]] {
+            assert!(fills_contain(&elements, p));
+        }
+        assert!(!fills_contain(&elements, [30.0, 30.0]));
+
+        // A new fill trims a pre-existing line only at its exterior, never at triangle seams.
+        let mut underneath = vec![line_element(
+            "under",
+            -10.0,
+            30.0,
+            50.0,
+            30.0,
+            [0, 0, 0, 255],
+        )];
+        apply_merge_shape_to_keyframe(
+            &mut underneath,
+            triangulated_cells(&[(0, 0), (1, 0), (0, 1)], FillRule::NonZero),
+        );
+        assert_eq!(underneath.iter().filter(|e| is_merge_stroke(e)).count(), 2);
+    }
+
+    #[test]
+    fn merge_slicing_preserves_compound_and_triangulated_holes() {
+        for rule in [FillRule::NonZero, FillRule::EvenOdd] {
+            let cells: Vec<_> = (0..3)
+                .flat_map(|x| (0..3).map(move |y| (x, y)))
+                .filter(|cell| *cell != (1, 1))
+                .collect();
+            let triangulated = triangulated_cells(&cells, rule);
+            let outer = [[0.0, 0.0], [60.0, 0.0], [60.0, 60.0], [0.0, 60.0]];
+            let mut hole = vec![[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0]];
+            if rule == FillRule::NonZero {
+                hole.reverse();
+            }
+            let mut compound = triangulated.clone();
+            if let ElementKind::Path { commands, .. } = &mut compound.kind {
+                *commands = ring_to_commands(&outer);
+                commands.extend(ring_to_commands(&hole));
+            }
+            for shape in [triangulated, compound] {
+                let mut elements = Vec::new();
+                apply_merge_shape_to_keyframe(&mut elements, shape);
+                apply_merge_shape_to_keyframe(
+                    &mut elements,
+                    line_element("in-hole", 25.0, 30.0, 35.0, 30.0, [0, 0, 0, 255]),
+                );
+                assert_eq!(elements.iter().filter(|e| is_merge_fill(e)).count(), 1);
+                assert!(!fills_contain(&elements, [30.0, 30.0]));
+
+                apply_merge_shape_to_keyframe(
+                    &mut elements,
+                    line_element("cut", -10.0, 10.0, 70.0, 10.0, [0, 0, 0, 255]),
+                );
+                assert_eq!(elements.iter().filter(|e| is_merge_fill(e)).count(), 2);
+                assert_eq!(elements.iter().filter(|e| is_merge_stroke(e)).count(), 4);
+                let area: f64 = elements
+                    .iter()
+                    .filter(|e| is_merge_fill(e))
+                    .flat_map(|e| flatten_closed_rings(&element_world_commands(e).unwrap().0))
+                    .map(|ring| signed_ring_area(&ring))
+                    .sum();
+                assert!((area - 3200.0).abs() < 1e-6, "hole area changed: {area}");
+                assert!(!fills_contain(&elements, [30.0, 30.0]));
+                for p in [[5.0, 5.0], [5.0, 30.0], [55.0, 30.0], [30.0, 55.0]] {
+                    assert!(fills_contain(&elements, p));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn merge_repeated_outline_moves_preserve_contours_and_real_junctions() {
+        let rectangle = rect_element(
+            "outlined",
+            0.0,
+            0.0,
+            100.0,
+            80.0,
+            [20, 100, 220, 255],
+            [0, 0, 0, 255],
+            2.0,
+        );
+        let ellipse = Element {
+            kind: ElementKind::Ellipse {
+                width: 100.0,
+                height: 80.0,
+                fill: [20, 100, 220, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..rectangle.clone()
+        };
+        for shape in [rectangle.clone(), ellipse] {
+            for reverse in [false, true] {
+                let mut elements = Vec::new();
+                apply_merge_shape_to_keyframe(&mut elements, shape.clone());
+                assert_eq!(elements.len(), 2);
+                if reverse {
+                    elements.reverse();
+                }
+                for _ in 0..3 {
+                    for element in &mut elements {
+                        element.transform.x = 11.25;
+                        element.transform.y = -7.75;
+                        element.transform.rotation = 15.0;
+                    }
+                    let ids: Vec<_> = elements.iter().map(|e| e.id.clone()).collect();
+                    remerge_moved_elements_in_keyframe(&mut elements, &ids);
+                    assert_eq!(elements.iter().filter(|e| is_merge_fill(e)).count(), 1);
+                    assert_eq!(
+                        elements.iter().filter(|e| is_merge_stroke(e)).count(),
+                        1,
+                        "a coincident outline must not split at its own vertices"
+                    );
+                    let outline = elements.iter().find(|e| is_merge_stroke(e)).unwrap();
+                    let (commands, _) = element_world_commands(outline).unwrap();
+                    assert!(matches!(commands.last(), Some(PathCommand::Close)));
+                }
+            }
+        }
+
+        // A crossing and an endpoint junction with a DIFFERENT stroke still split the outline.
+        for end_y in [0.0, 100.0] {
+            let mut elements = Vec::new();
+            apply_merge_shape_to_keyframe(&mut elements, rectangle.clone());
+            apply_merge_shape_to_keyframe(
+                &mut elements,
+                line_element("junction", 50.0, -20.0, 50.0, end_y, [255, 0, 0, 255]),
+            );
+            let outlines: Vec<_> = elements
+                .iter()
+                .filter(|e| {
+                    is_merge_stroke(e)
+                        && extract_stroke_paint(&e.kind).unwrap().color == [0, 0, 0, 255]
+                })
+                .collect();
+            assert!(
+                outlines.len() >= 2,
+                "real stroke junction must remain selectable"
+            );
+            for point in if end_y == 0.0 {
+                vec![[50.0, 0.0]]
+            } else {
+                vec![[50.0, 0.0], [50.0, 80.0]]
+            } {
+                let ends = outlines
+                    .iter()
+                    .flat_map(|e| flatten_stroke_polylines(&element_world_commands(e).unwrap().0))
+                    .filter(|poly| {
+                        dist_sq(poly[0], point) < 1e-9
+                            || dist_sq(*poly.last().unwrap(), point) < 1e-9
+                    })
+                    .count();
+                assert_eq!(
+                    ends, 2,
+                    "both outline pieces must meet at the actual junction"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn merge_bakes_fill_and_stroke_gradient_coordinates_once() {
+        use crate::runtime_graphics::{GradientKind, GradientStop};
+
+        let fill_gradient = GradientPaint {
+            kind: GradientKind::Linear,
+            matrix: [0.06103515625, 0.0, 0.0, 0.06103515625, 50.0, 50.0],
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [0, 80, 220, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [240, 40, 0, 255],
+                },
+            ],
+            focal_point_ratio: 0.0,
+        };
+        let stroke_gradient = GradientPaint {
+            kind: GradientKind::Radial,
+            ..fill_gradient.clone()
+        };
+        let transform = Transform {
+            x: 200.0,
+            y: 80.0,
+            scale_x: 1.5,
+            scale_y: 0.75,
+            rotation: 25.0,
+            skew: 12.0,
+            alpha: 0.6,
+            ..Transform::default()
+        };
+        let source = Element {
+            id: "gradient".into(),
+            transform,
+            kind: ElementKind::PaintedPath {
+                commands: ring_to_commands(&[
+                    [0.0, 0.0],
+                    [100.0, 0.0],
+                    [100.0, 100.0],
+                    [0.0, 100.0],
+                ]),
+                fill_rule: FillRule::NonZero,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 255],
+                fill_gradient: Some(fill_gradient.clone()),
+                stroke_gradient: Some(stroke_gradient.clone()),
+                stroke_width: 2.0,
+            },
+            merge: true,
+            ..Element::default()
+        };
+        let (fill, strokes) = decompose_element_to_merge_parts(&source).unwrap();
+        assert!(fill.is_some());
+        assert_eq!(strokes.len(), 1);
+        // Check individual paints and the mixed fill/outline pair. Normalizing an already baked
+        // path must not bake paint twice or split the coincident outline on repeated moves.
+        let mut cases: Vec<_> = fill
+            .into_iter()
+            .chain(strokes)
+            .map(|part| (part, 1))
+            .collect();
+        cases.push((source.clone(), 2));
+        for (part, expected_count) in cases {
+            let mut elements = Vec::new();
+            apply_merge_shape_to_keyframe(&mut elements, part);
+            let mut placement_matrix = transform_matrix(transform);
+            for round in 0..3 {
+                assert_eq!(elements.len(), expected_count);
+                for element in &elements {
+                    assert_eq!(element.transform.x, 0.0);
+                    assert_eq!(element.transform.y, 0.0);
+                    assert_eq!(element.transform.alpha, transform.alpha);
+                    let ElementKind::PaintedPath {
+                        fill_gradient: fill,
+                        stroke_gradient: stroke,
+                        ..
+                    } = &element.kind
+                    else {
+                        panic!("gradient paint was lost");
+                    };
+                    let (actual, original) = if let Some(gradient) = fill {
+                        (gradient, &fill_gradient)
+                    } else {
+                        (stroke.as_ref().unwrap(), &stroke_gradient)
+                    };
+                    let expected = affine_multiply(placement_matrix, original.matrix);
+                    for (actual, expected) in actual.matrix.iter().zip(expected) {
+                        assert!((actual - expected).abs() < 1e-9);
+                    }
+                    for local in [[20.0, 30.0], [50.0, 50.0], [80.0, 60.0]] {
+                        let world = transform_point(placement_matrix, local[0], local[1]);
+                        for (a, b) in actual
+                            .sample(world[0], world[1])
+                            .into_iter()
+                            .zip(original.sample(local[0], local[1]))
+                        {
+                            assert!(a.abs_diff(b) <= 1, "paint moved relative to its geometry");
+                        }
+                    }
+                }
+                if round < 2 {
+                    let movement = Transform {
+                        x: 40.0,
+                        y: -25.0,
+                        rotation: -15.0,
+                        ..Transform::default()
+                    };
+                    for element in &mut elements {
+                        element.transform = Transform {
+                            alpha: transform.alpha,
+                            ..movement
+                        };
+                    }
+                    let ids: Vec<_> = elements.iter().map(|e| e.id.clone()).collect();
+                    remerge_moved_elements_in_keyframe(&mut elements, &ids);
+                    placement_matrix =
+                        affine_multiply(transform_matrix(movement), placement_matrix);
+                }
+            }
+        }
+
+        // Boolean commands bake transformed object paths through the same paint builders.
+        let clip = rect_element(
+            "clip",
+            100.0,
+            0.0,
+            400.0,
+            400.0,
+            [0, 0, 0, 255],
+            [0; 4],
+            0.0,
+        );
+        let combined =
+            combine_elements_boolean(&[source, clip], BooleanOp::Intersection, false).unwrap();
+        assert_eq!(combined.len(), 1);
+        let ElementKind::PaintedPath {
+            fill_gradient: Some(actual),
+            ..
+        } = &combined[0].kind
+        else {
+            panic!("boolean operation lost the gradient");
+        };
+        assert_eq!(
+            actual.matrix,
+            affine_multiply(transform_matrix(transform), fill_gradient.matrix)
+        );
     }
 
     #[test]
@@ -1900,26 +2419,8 @@ mod tests {
     #[test]
     fn overlapping_same_color_fills_without_stroke_union() {
         let mut elements = Vec::new();
-        let a = rect_element(
-            "a",
-            0.0,
-            0.0,
-            60.0,
-            60.0,
-            [0, 200, 100, 255],
-            [0; 4],
-            0.0,
-        );
-        let b = rect_element(
-            "b",
-            30.0,
-            0.0,
-            60.0,
-            60.0,
-            [0, 200, 100, 255],
-            [0; 4],
-            0.0,
-        );
+        let a = rect_element("a", 0.0, 0.0, 60.0, 60.0, [0, 200, 100, 255], [0; 4], 0.0);
+        let b = rect_element("b", 30.0, 0.0, 60.0, 60.0, [0, 200, 100, 255], [0; 4], 0.0);
         apply_merge_shape_to_keyframe(&mut elements, a);
         apply_merge_shape_to_keyframe(&mut elements, b);
         assert_eq!(elements.len(), 1);

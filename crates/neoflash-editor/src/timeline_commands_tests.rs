@@ -268,6 +268,75 @@ fn loop_off_stops_on_the_last_frame_and_play_all_scenes_continues() {
     editor.after_playback_tick(before);
     assert_eq!(editor.current_scene(), second);
     assert!(editor.playing);
+
+    // Play all scenes is independent of looping: retain the last frame of the first
+    // scene, enter the second on the next tick, then stop at the final scene's end.
+    editor.set_playing(false);
+    editor.switch_scene(&root);
+    editor.workspace.timeline.loop_playback = false;
+    editor.frame = 18;
+    editor.set_playing(true);
+    let before = editor.frame;
+    editor.tick_authored_preview();
+    editor.after_playback_tick(before);
+    assert_eq!(
+        (editor.current_scene(), editor.frame, editor.playing),
+        (root.as_str(), 19, true)
+    );
+    let before = editor.frame;
+    editor.tick_authored_preview();
+    editor.after_playback_tick(before);
+    assert_eq!(
+        (editor.current_scene(), editor.frame, editor.playing),
+        (second.as_str(), 0, true)
+    );
+    for _ in 0..30 {
+        if !editor.playing {
+            break;
+        }
+        let before = editor.frame;
+        editor.tick_authored_preview();
+        editor.after_playback_tick(before);
+    }
+    assert_eq!(
+        (editor.current_scene(), editor.frame, editor.playing),
+        (second.as_str(), 19, false)
+    );
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn grouping_objects_on_other_frames_is_safe_and_actionable() {
+    let mut editor = editor_with(
+        vec![],
+        vec![
+            element("first", rectangle(), 0.),
+            element("second", rectangle(), 30.),
+        ],
+    );
+    editor.frame = 9;
+    editor.timeline_edit.edit_multiple = true;
+    editor.select_all();
+    assert_eq!(editor.selection.targets.len(), 2);
+    let before = editor.project.clone();
+    editor.group_selection();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(editor.status.contains("current keyframe"));
+    editor.project.validate().unwrap();
+
+    // Following the diagnostic works: grouping those objects on their keyframe is
+    // still a single undoable operation with the multi-frame view enabled.
+    editor.frame = 10;
+    editor.select_all();
+    editor.group_selection();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups.len(),
+        1
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]

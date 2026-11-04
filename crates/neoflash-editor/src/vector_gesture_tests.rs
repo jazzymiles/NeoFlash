@@ -1082,3 +1082,493 @@ fn pencil_recognition_smooth_curves_lines_shapes_and_connect_lines() {
     editor.undo();
     assert_eq!(editor.project, before_third);
 }
+
+#[test]
+fn paint_tools_share_drawing_gradients_and_sampled_solid_colors() {
+    use crate::authoring_modify::PaintFillType;
+    use neoflash_core::{GradientKind, History};
+
+    for stroke_well in [false, true] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.workspace.drawing.object_drawing = true;
+        editor.add_element(
+            ElementKind::Rectangle {
+                width: 80.,
+                height: 60.,
+                fill: [255, 0, 0, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 3.,
+            },
+            100.,
+            100.,
+        );
+        editor.set_selection_fill_type(!stroke_well, PaintFillType::RadialGradient);
+        editor.history = History::default();
+        let before = editor.project.clone();
+        editor.set_drawing_fill_type(stroke_well, PaintFillType::LinearGradient);
+        editor.set_tool(if stroke_well { Tool::Ink } else { Tool::Bucket });
+        let point = page.min + egui::vec2(140., 130.);
+        pen_click(&mut editor, &ctx, 0.1, point, point);
+        let ElementKind::PaintedPath {
+            fill_gradient,
+            stroke_gradient,
+            ..
+        } = &editor.selected_element().unwrap().kind
+        else {
+            panic!("gradient paint expected")
+        };
+        let (applied, preserved) = if stroke_well {
+            (stroke_gradient, fill_gradient)
+        } else {
+            (fill_gradient, stroke_gradient)
+        };
+        assert_eq!(applied.as_ref().unwrap().kind, GradientKind::Linear);
+        assert_eq!(preserved.as_ref().unwrap().kind, GradientKind::Radial);
+        editor.project.validate().unwrap();
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // Sampling the solid well replaces the previous drawing gradient. A new
+        // rectangle must use the sampled solid paint, including alpha and width.
+        editor.set_tool(Tool::Eyedropper);
+        let sample = page.min
+            + if stroke_well {
+                egui::vec2(100., 130.)
+            } else {
+                egui::vec2(140., 130.)
+            };
+        pen_click(&mut editor, &ctx, 0.3, sample, sample);
+        let gradient = if stroke_well {
+            &editor.authoring_modify.drawing_stroke_gradient
+        } else {
+            &editor.authoring_modify.drawing_fill_gradient
+        };
+        assert!(gradient.is_none());
+        assert_eq!(
+            if stroke_well {
+                editor.stroke
+            } else {
+                editor.fill
+            },
+            if stroke_well {
+                [0, 0, 0, 255]
+            } else {
+                [255, 0, 0, 255]
+            }
+        );
+        editor.set_tool(Tool::Rectangle);
+        pen_click(
+            &mut editor,
+            &ctx,
+            0.5,
+            page.min + egui::vec2(300., 100.),
+            page.min + egui::vec2(400., 180.),
+        );
+        assert!(matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::Rectangle { .. }
+        ));
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}
+
+#[test]
+fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
+    use neoflash_core::{Element, FillRule, History, Keyframe, Layer, LayerRole, Transform};
+    let rectangle = |width, height| ElementKind::Rectangle {
+        width,
+        height,
+        fill: [240, 20, 40, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    // A small shape wholly inside the eraser circle, away from its axes.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    editor.add_element(rectangle(8., 8.), 235., 235.);
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.authoring_tools.eraser_size = 128.;
+    editor.set_tool(Tool::Eraser);
+    let point = page.min + egui::vec2(200., 200.);
+    pen_click(&mut editor, &ctx, 0.1, point, point);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Sparse pointer events must still hit a thin transformed stroke between them.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    editor.add_element_transformed(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 80., y: 0. },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 40, 200, 255],
+            stroke_width: 2.,
+        },
+        Transform {
+            x: 250.,
+            y: 160.,
+            rotation: 90.,
+            scale_y: 2.,
+            ..Default::default()
+        },
+    );
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Eraser);
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        page.min + egui::vec2(200., 200.),
+        page.min + egui::vec2(300., 200.),
+    );
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    let locked = editor.project.clone();
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.3,
+        page.min + egui::vec2(200., 200.),
+        page.min + egui::vec2(300., 200.),
+    );
+    assert_eq!(editor.project, locked);
+
+    // Empty space in a vector hole is not an eraser target.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    let mut commands = Vec::new();
+    for (low, high) in [(0., 100.), (25., 75.)] {
+        commands.extend([
+            PathCommand::MoveTo { x: low, y: low },
+            PathCommand::LineTo { x: high, y: low },
+            PathCommand::LineTo { x: high, y: high },
+            PathCommand::LineTo { x: low, y: high },
+            PathCommand::Close,
+        ]);
+    }
+    editor.add_element(
+        ElementKind::Path {
+            commands,
+            fill_rule: FillRule::EvenOdd,
+            fill: [240, 20, 40, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        100.,
+        100.,
+    );
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Eraser);
+    let hole = page.min + egui::vec2(150., 150.);
+    pen_click(&mut editor, &ctx, 0.1, hole, hole);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    let edge = page.min + egui::vec2(110., 150.);
+    pen_click(&mut editor, &ctx, 0.3, edge, edge);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Artwork outside a locked mask remains untouched; visible artwork erases.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    editor.add_element(rectangle(200., 100.), 100., 100.);
+    let mut mask = Layer {
+        id: "eraser-mask".into(),
+        name: "Mask".into(),
+        visible: true,
+        locked: true,
+        properties: Default::default(),
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "eraser-mask-fill".into(),
+                kind: rectangle(100., 100.),
+                transform: Transform {
+                    x: 100.,
+                    y: 100.,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    };
+    mask.properties.role = LayerRole::Mask;
+    editor.symbol_mut().timeline.layers[0].properties.mask = Some(mask.id.clone());
+    editor.symbol_mut().timeline.layers.push(mask);
+    editor.project.format_version = editor.project.format_version.max(4);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Eraser);
+    let outside = page.min + egui::vec2(250., 150.);
+    pen_click(&mut editor, &ctx, 0.1, outside, outside);
+    assert_eq!(editor.project, before);
+    let inside = page.min + egui::vec2(150., 150.);
+    pen_click(&mut editor, &ctx, 0.3, inside, inside);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn properties_paint_fields_replace_rgb_and_preserve_gradients_for_alpha() {
+    use crate::authoring_modify::PaintFillType;
+    use neoflash_core::History;
+    fn panel_frame(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600., 1200.),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+                editor.end_property_interaction(ctx);
+            },
+        )
+    }
+    for (stroke_well, alpha_only) in [(false, false), (true, false), (false, true), (true, true)] {
+        let (mut editor, ctx, _) = rectangle_stage();
+        ctx.enable_accesskit();
+        editor.workspace.drawing.object_drawing = true;
+        editor.add_element(
+            ElementKind::Rectangle {
+                width: 80.,
+                height: 60.,
+                fill: [255, 0, 0, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 3.,
+            },
+            100.,
+            100.,
+        );
+        editor.set_selection_fill_type(false, PaintFillType::LinearGradient);
+        editor.set_selection_fill_type(true, PaintFillType::RadialGradient);
+        editor.history = History::default();
+        let before = editor.project.clone();
+        let before_kind = editor.selected_element().unwrap().kind.clone();
+        panel_frame(&mut editor, &ctx, 0.1, vec![]);
+        let output = panel_frame(&mut editor, &ctx, 0.2, vec![]);
+        let name = match (stroke_well, alpha_only) {
+            (false, false) => "Fill hex",
+            (true, false) => "Stroke hex",
+            (false, true) => "Fill alpha",
+            (true, true) => "Stroke alpha",
+        };
+        let bounds = output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(name))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+            .unwrap_or_else(|| panic!("missing inspector field {name}"));
+        let point = egui::pos2(
+            ((bounds.x0 + bounds.x1) / 2.) as f32,
+            ((bounds.y0 + bounds.y1) / 2.) as f32,
+        );
+        panel_frame(
+            &mut editor,
+            &ctx,
+            0.3,
+            vec![
+                egui::Event::PointerMoved(point),
+                primary_button(point, true),
+            ],
+        );
+        panel_frame(&mut editor, &ctx, 0.4, vec![primary_button(point, false)]);
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        panel_frame(
+            &mut editor,
+            &ctx,
+            0.5,
+            vec![
+                key(egui::Key::A, egui::Modifiers::COMMAND),
+                egui::Event::Text(if alpha_only { "50" } else { "#123456" }.into()),
+            ],
+        );
+        panel_frame(
+            &mut editor,
+            &ctx,
+            0.6,
+            vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+        panel_frame(&mut editor, &ctx, 0.7, vec![]);
+        let ElementKind::PaintedPath {
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            ..
+        } = &editor.selected_element().unwrap().kind
+        else {
+            panic!("painted path remains")
+        };
+        let (color, replaced, preserved) = if stroke_well {
+            (stroke, stroke_gradient, fill_gradient)
+        } else {
+            (fill, fill_gradient, stroke_gradient)
+        };
+        if alpha_only {
+            assert_eq!(color[3], 128);
+            let ElementKind::PaintedPath {
+                fill_gradient: old_fill,
+                stroke_gradient: old_stroke,
+                ..
+            } = before_kind
+            else {
+                unreachable!()
+            };
+            let (mut expected, opposite) = if stroke_well {
+                (old_stroke, old_fill)
+            } else {
+                (old_fill, old_stroke)
+            };
+            for stop in &mut expected.as_mut().unwrap().stops {
+                stop.color[3] = 128;
+            }
+            assert_eq!(
+                *replaced, expected,
+                "alpha preserves every gradient stop color and geometry"
+            );
+            assert_eq!(*preserved, opposite);
+        } else {
+            assert_eq!(*color, [0x12, 0x34, 0x56, 255]);
+            assert!(replaced.is_none());
+            assert!(preserved.is_some());
+        }
+        editor.project.validate().unwrap();
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}
+
+#[test]
+fn merge_brush_ignores_line_in_empty_corner_of_its_bounds() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = false;
+    editor.fill = [40, 120, 200, 255];
+    editor.stroke = [220, 40, 40, 255];
+    editor.stroke_width = 2.;
+    editor.authoring_tools.brush_size = 12.;
+    editor.set_tool(Tool::Brush);
+    let points = [
+        egui::vec2(100., 100.),
+        egui::vec2(200., 100.),
+        egui::vec2(200., 200.),
+    ]
+    .map(|point| page.min + point);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(points[0]),
+            primary_button(points[0], true),
+            egui::Event::PointerMoved(points[1]),
+            egui::Event::PointerMoved(points[2]),
+            primary_button(points[2], false),
+        ],
+    );
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert_eq!(elements.len(), 1, "one continuous Merge brush fill");
+    let brush = elements[0].clone();
+    editor.project.validate().unwrap();
+    let before_line = editor.project.clone();
+    editor.history.clear();
+    editor.set_tool(Tool::Line);
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.3,
+        page.min + egui::vec2(130., 150.),
+        page.min + egui::vec2(170., 150.),
+    );
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert_eq!(
+        elements.len(),
+        2,
+        "untouched brush and separate line, without triangle fragments"
+    );
+    assert_eq!(
+        elements.iter().find(|element| element.id == brush.id),
+        Some(&brush)
+    );
+    assert_eq!(
+        elements
+            .iter()
+            .filter(|element| matches!(element.kind,
+        ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. } if fill[3] > 0))
+            .count(),
+        1
+    );
+    assert_eq!(elements.iter().filter(|element| matches!(element.kind,
+        ElementKind::Path { stroke, stroke_width, .. } | ElementKind::PaintedPath { stroke, stroke_width, .. }
+        if stroke[3] > 0 && stroke_width > 0.)).count(), 1);
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before_line);
+}

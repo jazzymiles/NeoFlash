@@ -4059,6 +4059,25 @@ fn file_close_revert_recent_files_and_window_hide_panels() {
     assert!(!editor.dirty());
     assert_eq!(editor.project.name, "SavedOriginal");
 
+    // Revert uses the saved format, including FLA archives, and failed reads keep the edit.
+    let fla_path = dir.join("saved-test.fla");
+    assert!(editor.save_to_path(fla_path.clone()));
+    let saved_width = editor.project.width;
+    editor.transact(|e| e.project.width += 17);
+    assert!(editor.revert_to_saved(&ctx));
+    assert_eq!(editor.project.width, saved_width);
+    assert_eq!(editor.path.as_ref(), Some(&fla_path));
+    assert!(!editor.dirty());
+    editor.project.validate().unwrap();
+    editor.transact(|e| e.project.width += 23);
+    let unsaved = editor.project.clone();
+    std::fs::write(&fla_path, b"broken archive").unwrap();
+    assert!(!editor.revert_to_saved(&ctx));
+    assert_eq!(editor.project, unsaved);
+    assert!(editor.dirty());
+    editor.undo();
+    assert_eq!(editor.project.width, saved_width);
+
     // Recent files deduplication, cap at 10, and clear.
     for i in 0..12 {
         editor

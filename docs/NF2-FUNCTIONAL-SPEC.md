@@ -58,7 +58,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TO-04 | Spray brush | Tools | absent | editor | P3 |
 | TO-05 | Bone / Bind (IK) | Tools | absent | yes | P3 |
 | TO-06 | Snap toggle (tools rail) | Tools | done | editor | P1 |
-| TO-07 | Tool options: Object drawing, smooth / straighten | Tools | absent | editor | P2 |
+| TO-07 | Tool options: Object drawing, smooth / straighten | Tools | partial | editor | P2 |
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
 | ST-01 | Stage rulers + ruler corner | Stage chrome | working | UI-only | P1 |
 | ST-02 | Guides | Stage chrome | working | yes (small) | P1 |
@@ -153,7 +153,7 @@ groups.
   along a drawn curve in the editor and in HTML5; the guide is not exported as artwork.
 
 **TL-02 · Loop playback** — `timeline_transport` · done
-- Done: `WorkspacePrefs.timeline.loop_playback` (default on), toggle in the bar and Control ▸ Loop playback; off stops on the last frame and Play restarts from frame 1.
+- Done: `WorkspacePrefs.timeline.loop_playback` (default on), toggle in the bar and Control ▸ Loop playback; off stops on the last frame of the last scene when Play all scenes is enabled, otherwise on the current timeline; Play restarts from frame 1.
 - Purpose: when on, editor playback wraps from the last frame to frame 1; when off, it stops at the last frame
   (Control ▸ Loop playback, checked by default in §8).
 - Behaviour: toggle (Selected style when on). Editor preference, not document data; no Undo.
@@ -216,11 +216,15 @@ groups.
 - Acceptance: waveform span on the layer; Event/Start/Stop/Stream behave in HTML5 preview; scrubbing with Stream
   sync plays audio (or a documented limitation).
 
+- Layer merge preserves frame sound commands. Same-frame sound collisions and changes that would truncate a Stream
+  span are rejected before mutation; compatible merges remain one Undo step (`layer_controls.rs` tests).
+
 **TL-08 · Edit multiple frames** — `timeline_onion_group` · done
 - Done: toggle; stage draws every keyframe in the onion range opaque; clicking, marquee-selecting or Select All hits objects across every keyframe in `onion_range` (including objects that exist only on other keyframes), and Move / Scale / Rotate / Skew gestures apply across all selected keyframes in a single Undo step (`selection.rs`, `stage_selection.rs`, `timeline_commands.rs`).
 - Purpose: show and edit content of all keyframes inside the onion range at once (Flash "Edit multiple frames").
 - Behaviour: toggle; while on, stage shows every keyframe in the range opaque; selection/move/transform apply to
-  objects on several keyframes; one Undo for the whole gesture.
+  objects on several keyframes; one Undo for the whole gesture. Group requires every selected member on the current
+  keyframe; a selection containing other-frame-only objects produces a diagnostic without mutation.
 - Data: selection targets are per keyframe; no model change.
 - Depends on: editor (selection across keyframes; `animation-frame-ranges` limit "simultaneous artwork editing").
 - Acceptance: select-all + move shifts objects on all keyframes in range with one Undo; off restores normal view.
@@ -320,14 +324,17 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Acceptance: with snap on, dragging an object's registration point snaps to another object's edge/centre with the
   NF2 snap ring.
 
-**TO-07 · Tool options: Object drawing, Smooth / Straighten, Snap to objects** — absent in options area
-- Purpose: Flash Options section — Object drawing mode (J), pencil Straighten/Smooth/Ink, brush shape.
-- Behaviour: options live in the existing tool-options popover / Properties ▸ Tool; current options are brush size
-  and eraser mode only.
-- Data: Merge vs Object drawing needs NEW merge semantics for raw shapes (today every draw creates a separate
-  element). Smoothing: editor algorithm on pencil input.
-- Depends on: editor (smoothing), engine (merge drawing).
-- Acceptance: Straighten turns a rough rectangle stroke into lines; Object drawing toggles a stored default.
+**TO-07 · Tool options: Object drawing, Smooth / Straighten, Snap to objects** — partial
+- Done: Object / Merge Drawing (`J`, existing tool options and Drawing preferences), pencil smoothing/straightening,
+  brush size and whole-object/fill/stroke eraser modes. Merge separates fill/stroke, merges or subtracts overlapping
+  fills and splits at actual fill/stroke intersections; internal tessellation edges are not cuts. Grouped Merge
+  elements remain isolated from raw drawing and drop-time remerging. Transformed gradients keep their appearance.
+- Bucket and Ink Bottle apply the active solid or gradient paint; Eyedropper replaces the selected well with the
+  sampled solid color. Properties RGB edits replace a gradient; alpha-only edits retain stops and update their alpha.
+- Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks.
+- Pending: pressure-sensitive brush input, bucket gap closing and stroke-segment erasing.
+- Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
+  actual intersections, group isolation and Undo without changing the NF2 components.
 
 **TO-08 · Fill/stroke chip → Swatches popover** — `fill_stroke_chip` · partial
 - Purpose: §6 says the chip opens the NF2 Swatches popover; today it opens an egui RGB colour picker in a rail popover.
@@ -426,7 +433,8 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
   group; edges split.
 
 **ST-11 · Canvas editing chrome variants** — partial
-- Done: Selection and Subselection draw `NF2/Selection Box` per selected placement (Symbol for instances, Static text
+- Done: Raw Merge selections clip the existing NF2 hatch to the actual fill/stroke silhouette and authored masks,
+  preserving holes and empty bounding-box areas. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
   for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
   on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones and a draggable
   `NF2/Transformation Point` (`Transform.pivot` in format 7 for single placements + transient group pivot; rotation and

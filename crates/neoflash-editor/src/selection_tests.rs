@@ -1641,7 +1641,7 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
 
 #[test]
 fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
-    let (mut editor, _ctx, _page) = fixture(0);
+    let (mut editor, ctx, page) = fixture(0);
     editor.layer = 1; // clean empty layer `top`
     editor.symbol_mut().timeline.layers[1].keyframes[0]
         .elements
@@ -1756,8 +1756,16 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
         let elements = &editor.symbol().timeline.layers[1].keyframes[0].elements;
         let fills: Vec<&Element> = elements.iter().filter(|e| is_merge_fill(e)).collect();
         let strokes: Vec<&Element> = elements.iter().filter(|e| is_merge_stroke(e)).collect();
-        assert_eq!(fills.len(), 2, "line across fill must slice it into 2 fills");
-        assert_eq!(strokes.len(), 3, "line must split at the 2 fill boundary crossings");
+        assert_eq!(
+            fills.len(),
+            2,
+            "line across fill must slice it into 2 fills"
+        );
+        assert_eq!(
+            strokes.len(),
+            3,
+            "line must split at the 2 fill boundary crossings"
+        );
     }
 
     // 5. Modify ▸ Combine objects (Union & Punch) on Object Drawing shapes.
@@ -1816,4 +1824,336 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
     );
     editor.undo();
     assert_eq!(editor.project, before_combine);
+
+    // Grouped Merge artwork is isolated both from drawing and from dropping raw shapes onto it.
+    editor.symbol_mut().timeline.layers = vec![layer("group-layer", vec![], false)];
+    editor.symbol_mut().timeline.frame_count = 1;
+    editor.layer = 0;
+    editor.clear_selection();
+    editor.history.clear();
+    editor.workspace.drawing.object_drawing = false;
+    let kind = ElementKind::Rectangle {
+        width: 50.,
+        height: 40.,
+        fill: [40, 120, 220, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    editor.add_element(kind.clone(), 200., 100.);
+    editor.add_element(kind, 300., 100.);
+    editor.select_all();
+    editor.group_selection();
+    let grouped = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .clone();
+    let before_cover = editor.project.clone();
+    let cover = ElementKind::Rectangle {
+        width: 200.,
+        height: 80.,
+        fill: [220, 40, 40, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    editor.add_element(cover.clone(), 180., 80.);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        &editor.symbol().timeline.layers[0].keyframes[0].elements[..2],
+        grouped
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_cover);
+
+    editor.add_element(cover, 500., 300.);
+    let before_move = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 10., vec![]);
+    drag(
+        &mut editor,
+        &ctx,
+        11.,
+        page.min + egui::vec2(600., 340.),
+        page.min + egui::vec2(280., 120.),
+        false,
+        Modifiers::NONE,
+    );
+    editor.project.validate().unwrap();
+    assert_ne!(
+        editor.project, before_move,
+        "the raw shape was actually moved"
+    );
+    assert_eq!(
+        &editor.symbol().timeline.layers[0].keyframes[0].elements[..2],
+        grouped
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_move);
+}
+
+#[test]
+fn merge_selection_hatch_follows_transformed_fill_holes_and_strokes() {
+    let ctx = egui::Context::default();
+    let meshes_from = |out: egui::FullOutput| -> Vec<egui::epaint::Mesh> {
+        ctx.tessellate(out.shapes, out.pixels_per_point)
+            .into_iter()
+            .filter_map(|p| {
+                if let egui::epaint::Primitive::Mesh(mesh) = p.primitive {
+                    Some(mesh)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+    let rect_commands = |min: f64, max: f64| {
+        vec![
+            PathCommand::MoveTo { x: min, y: min },
+            PathCommand::LineTo { x: max, y: min },
+            PathCommand::LineTo { x: max, y: max },
+            PathCommand::LineTo { x: min, y: max },
+            PathCommand::Close,
+        ]
+    };
+    let mut ring = rect_commands(0., 100.);
+    ring.extend(rect_commands(30., 70.));
+    let cases = [
+        ElementKind::Ellipse {
+            width: 100.,
+            height: 60.,
+            fill: [0, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        ElementKind::Path {
+            commands: ring,
+            fill_rule: FillRule::EvenOdd,
+            fill: [0, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 10., y: 10. },
+                PathCommand::LineTo { x: 90., y: 90. },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 8.,
+        },
+    ];
+    for (case, kind) in cases.into_iter().enumerate() {
+        let item = DrawItem {
+            element_id: "selected".into(),
+            name: String::new(),
+            instance_path: vec!["selected".into()],
+            layer_id: "layer".into(),
+            transform: transform_matrix(Transform {
+                x: 35.,
+                y: 20.,
+                rotation: 24.,
+                scale_x: 1.3,
+                skew: 12.,
+                ..Default::default()
+            }),
+            alpha: 1.,
+            color_transform: Default::default(),
+            kind,
+        };
+        let origin = egui::pos2(100., 100.);
+        let zoom = 1.7;
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800., 600.))),
+                ..Default::default()
+            },
+            |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::background());
+                let rect = crate::stage::world_bounds(&item, &painter);
+                let screen_rect = Rect::from_min_max(
+                    origin + rect.min.to_vec2() * zoom,
+                    origin + rect.max.to_vec2() * zoom,
+                );
+                crate::stage_clipping::paint_shape_selection(
+                    &painter,
+                    &item,
+                    origin,
+                    zoom,
+                    screen_rect,
+                    None,
+                )
+                .unwrap();
+            },
+        );
+        let meshes = meshes_from(out);
+        assert!(
+            meshes.iter().any(|mesh| !mesh.indices.is_empty()),
+            "selection must remain visible"
+        );
+        for mesh in meshes {
+            for indices in mesh.indices.as_chunks::<3>().0 {
+                let tri = indices.map(|i| {
+                    let stage = ((mesh.vertices[i as usize].pos - origin) / zoom).to_pos2();
+                    crate::stage::inverse(item.transform, stage).unwrap()
+                });
+                for point in tri.into_iter().chain([((tri[0].to_vec2()
+                    + tri[1].to_vec2()
+                    + tri[2].to_vec2())
+                    / 3.)
+                    .to_pos2()])
+                {
+                    match case {
+                        0 => assert!(
+                            ((point.x - 50.) / 50.).powi(2) + ((point.y - 30.) / 30.).powi(2)
+                                <= 1.01,
+                            "hatch outside ellipse: {point:?}"
+                        ),
+                        1 => assert!(
+                            !(point.x > 30.01
+                                && point.x < 69.99
+                                && point.y > 30.01
+                                && point.y < 69.99),
+                            "hatch fills a hole: {point:?}"
+                        ),
+                        _ => {
+                            let t = ((point.x + point.y - 20.) / 160.).clamp(0., 1.);
+                            assert!(
+                                point.distance(egui::pos2(10. + 80. * t, 10. + 80. * t)) <= 4.01,
+                                "hatch outside stroke: {point:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Ordinary freehand strokes must retain their hatch across the whole path, without exhausting
+    // the mask-work budget. The point counts cover short and longer editing gestures, not timing.
+    for count in [100, 300] {
+        let commands = (0..count)
+            .map(|i| {
+                let x = i as f64 * 2.;
+                let y = 60. + (i as f64 * 0.13).sin() * 40.;
+                if i == 0 {
+                    PathCommand::MoveTo { x, y }
+                } else {
+                    PathCommand::LineTo { x, y }
+                }
+            })
+            .collect();
+        let item = DrawItem {
+            element_id: "long-stroke".into(),
+            name: String::new(),
+            instance_path: vec!["long-stroke".into()],
+            layer_id: "layer".into(),
+            transform: transform_matrix(Transform::default()),
+            alpha: 1.,
+            color_transform: Default::default(),
+            kind: ElementKind::Path {
+                commands,
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 12.,
+            },
+        };
+        let origin = egui::pos2(30., 40.);
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800., 600.))),
+                ..Default::default()
+            },
+            |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::background());
+                let rect = crate::stage::world_bounds(&item, &painter).translate(origin.to_vec2());
+                crate::stage_clipping::paint_shape_selection(
+                    &painter, &item, origin, 1., rect, None,
+                )
+                .unwrap_or_else(|error| panic!("{count}-point stroke selection: {error}"));
+            },
+        );
+        let meshes = meshes_from(out);
+        assert!(meshes.iter().any(|mesh| !mesh.indices.is_empty()));
+        let vertices: Vec<_> = meshes.iter().flat_map(|mesh| &mesh.vertices).collect();
+        assert!(vertices.iter().any(|v| v.pos.x < origin.x + 8.));
+        assert!(
+            vertices
+                .iter()
+                .any(|v| v.pos.x > origin.x + (count - 1) as f32 * 2. - 8.),
+            "long-stroke hatch was truncated"
+        );
+    }
+
+    // Exercise the real selection_stage lookup: its selected draw must carry the authored mask
+    // IDs into hatch clipping. Calling only the geometry helper would miss that wiring.
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let mut selected = object("masked-selection", 20., 20.);
+    selected.merge = true;
+    selected.kind = ElementKind::Rectangle {
+        width: 100.,
+        height: 80.,
+        fill: [0, 0, 0, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    let mut artwork = layer("masked-layer", vec![selected], false);
+    let mut mask_element = object("selection-mask-fill", 20., 20.);
+    mask_element.kind = ElementKind::Rectangle {
+        width: 30.,
+        height: 80.,
+        fill: [0, 0, 0, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    let mut mask = layer("selection-mask", vec![mask_element], false);
+    mask.properties.role = LayerRole::Mask;
+    mask.locked = true;
+    artwork.properties.mask = Some(mask.id.clone());
+    editor.symbol_mut().timeline.layers = vec![artwork, mask];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.tool = Tool::Select;
+    editor.zoom = 1.;
+    editor.set_layer_masking(&ctx, true);
+    editor.select_single_id("masked-selection".into());
+    let authored = editor.presented_interactive_authored_scene(true);
+    assert!(
+        authored
+            .draws
+            .iter()
+            .any(|draw| draw.item.element_id == "masked-selection" && !draw.clip_ids.is_empty())
+    );
+    let scene: Vec<_> = authored.draws.into_iter().map(|draw| draw.item).collect();
+    let origin = egui::pos2(80., 90.);
+    let view = Rect::from_min_size(Pos2::ZERO, egui::vec2(800., 600.));
+    let out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(view),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(ctx, |ui| {
+                    let response = ui.allocate_rect(view, egui::Sense::click_and_drag());
+                    editor.selection_stage(ui, ui.painter(), origin, view, &scene, &response);
+                });
+        },
+    );
+    let meshes = meshes_from(out);
+    assert!(
+        meshes.iter().any(|mesh| !mesh.indices.is_empty()),
+        "masked selection must stay visible"
+    );
+    let visible = Rect::from_min_max(
+        origin + egui::vec2(20., 20.),
+        origin + egui::vec2(50., 100.),
+    )
+    .expand(0.01);
+    for vertex in meshes.iter().flat_map(|mesh| &mesh.vertices) {
+        assert!(
+            visible.contains(vertex.pos),
+            "selection hatch escaped its authored mask: {:?}",
+            vertex.pos
+        );
+    }
 }

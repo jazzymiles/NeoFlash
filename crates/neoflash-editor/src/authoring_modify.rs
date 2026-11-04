@@ -645,13 +645,17 @@ impl Editor {
             .collect();
         let indices = layer
             .key_at(self.frame)
-            .unwrap()
-            .elements
-            .iter()
-            .enumerate()
+            .into_iter()
+            .flat_map(|key| key.elements.iter().enumerate())
             .filter(|(_, element)| members.contains(&element.id))
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
+        if indices.len() != members.len() {
+            self.message(
+                "Group objects on the current keyframe. Turn off Edit multiple frames or move the playhead to their keyframe.",
+            );
+            return;
+        }
         if indices.last().unwrap() - indices[0] + 1 != indices.len() {
             self.message(
                 "Group a contiguous stack of objects; objects between them must be selected too.",
@@ -3663,16 +3667,26 @@ fn edit_paints(kind: &mut ElementKind, old: (Color, Color, f64), new: (Color, Co
             (fill_gradient, old.0, new.0),
             (stroke_gradient, old.1, new.1),
         ] {
-            if before[..3] != after[..3] {
-                *gradient = None;
-            } else if before[3] != after[3]
-                && let Some(paint) = gradient
-            {
-                for stop in &mut paint.stops {
-                    stop.color[3] = after[3];
-                }
-            }
+            update_gradient_for_color_edit(gradient, before, after);
         }
     }
     true
+}
+
+/// Solid RGB fields replace a gradient; a standalone opacity edit keeps its
+/// geometry and stop colors, applying the requested alpha to every stop.
+pub(crate) fn update_gradient_for_color_edit(
+    gradient: &mut Option<GradientPaint>,
+    before: Color,
+    after: Color,
+) {
+    if before[..3] != after[..3] {
+        *gradient = None;
+    } else if before[3] != after[3]
+        && let Some(paint) = gradient
+    {
+        for stop in &mut paint.stops {
+            stop.color[3] = after[3];
+        }
+    }
 }

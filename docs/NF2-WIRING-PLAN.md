@@ -346,7 +346,7 @@ properties modal dialog (`panels/layer_properties.rs`), except the Orient / Snap
 **W2.4 · Scenes (TL-03, PP-08, ST-08, Insert ▸ Scene, Control ▸ Test scene / Play all scenes)** — E-16 — **done** (§7).
 `Project.scenes`, Scene select, Insert ▸ Scene, Scene panel, Play all scenes, `Control ▸ Test scene` (`⌥⌘↵`),
 breadcrumb `▾` / `Symbols & scenes` popover (`panels/symbols_popover.rs`, ST-08), runtime/HTML5 flattening and
-scene-aware AS2/AS3 navigation. Registry: `animation-lifecycle`.
+scene-aware AS2/AS3 navigation. Native Play all scenes with Loop off stops after the final scene. Registry: `animation-lifecycle`.
 
 **W2.5 · Display & filters (PR-05/PP-14, blend, cache as bitmap, visible)** — E-17
 - UI: Properties movie-clip tabs from `planned_panels::properties_filters`.
@@ -520,6 +520,9 @@ version. Code that calls `history.commit` directly bypasses all three.
   (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, both zero-based; layer index 0 is the bottom row). Capture both
   themes.
 
+Layer copy remaps copied motion-guide links; layer merge samples guided poses and preserves frame sounds. A same-frame
+sound collision or shortened Stream span is rejected before editing (`layer_controls.rs` family tests).
+
 ### 7.4 Remaining timeline work (task cards)
 
 Each row is one delivery unless grouped. Do not change visuals (§1); file a request when the design is missing. Every
@@ -542,7 +545,7 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 12 | ~~Sound properties (DL-08)~~ | Done: modal `panels/sound_properties.rs` opened from `Properties ▸ Sound ▸ Sound properties…` and Library audio menus for name, decoded audio stats, `Test`/`Stop` audition, `Update` and `Import…` byte replacement in one Undo step; export compression rows stay disabled with their hint (`panel_tests.rs`). | | | |
 | 13 | Decoded waveform peaks in Sound spans (TL-07, TL-13) | editor `timeline_sound.rs` (decode peaks once per resource), `panels/timeline.rs` | none | editor test: peaks cached per resource, not per repaint | **Request** a peaks-taking span painter (today `paint_span(SpanType::Sound)` draws a decorative waveform) |
 | 14 | ~~Legacy FLA frame sounds (`fla_frame_sound`, `fla_media_not_imported`)~~ | Done for PCM (`audio/wav`) and MP3 (`audio/mpeg`) streams + `CPicFrame` Event/Start/Stop/Stream sync, repeat/loop-forever and preset effects (`neoflash-import/src/legacy/{media,convert}.rs`, `tests/batch_import_capabilities.rs`); ADPCM/GSM/Nellymoser and custom multi-point envelopes/trim points keep located warnings. | | | |
-| 15 | ~~Edit multiple frames, rest (TL-08)~~ | Done: cross-keyframe selection (`selection.rs`, `stage_selection.rs`, including objects existing only on other keyframes in `onion_range`) and move/scale/rotate/skew across every keyframe in range in one Undo step (`timeline_commands.rs`, `timeline_commands_tests.rs`). | | | |
+| 15 | ~~Edit multiple frames, rest (TL-08)~~ | Done: cross-keyframe selection (`selection.rs`, `stage_selection.rs`, including objects existing only on other keyframes in `onion_range`) and move/scale/rotate/skew across every keyframe in range in one Undo step (`timeline_commands.rs`, `timeline_commands_tests.rs`). Group requires current-keyframe members and diagnoses other-frame-only selections without mutation. | | | |
 | 16 | ~~Control ▸ Test scene ⌥⌘↵ (MN-01, E-16)~~ | Done: `Editor::test_scene_project` / `test_scene` (`app.rs`, `panels/menu.rs` `Control ▸ Test scene` and `⌥⌘↵`) exports and opens a single-scene clone rooted at `current_scene()` (`panel_tests.rs`). | | | |
 | 17 | ~~Breadcrumb ▾ and Symbols & scenes popover (ST-08)~~ | Done: `panels/symbols_popover.rs` + `shell.rs` breadcrumb `▾` and overflow `…` menu with instant search, `Scenes` / `Matches` / `Recent` / `Browse` folder tree and `↑↓ ←→ ↵ ⌥↵ Esc` keyboard navigation (`panel_tests.rs`). | | | |
 | 18 | ~~Range edits inside tweens keep editable curves (`animation-frame-ranges`)~~ | Done: `timeline_edit.rs` subdivides `CubicBezier`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `Linear` span and `property_eases` curves via exact De Casteljau cubic-Bézier splitting (`subdivide_cubic_bezier`) on `InsertKeyframe`, `ClearFrames` and `RemoveFrames` (`timeline_tweens.rs`). | | | |

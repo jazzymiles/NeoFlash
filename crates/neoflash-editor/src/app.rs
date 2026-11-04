@@ -782,11 +782,12 @@ impl Editor {
                         | ElementKind::PaintedPath { .. }
                 );
             if merge_mode {
-                let elements = &mut s.symbol_mut().timeline.layers[layer]
-                    .key_at_mut(frame)
-                    .unwrap()
-                    .elements;
-                let created_ids = apply_merge_shape_to_keyframe(elements, element);
+                let created_ids = crate::stage_selection::edit_ungrouped_merge_shapes(
+                    &mut s.symbol_mut().timeline.layers[layer],
+                    frame,
+                    |elements| apply_merge_shape_to_keyframe(elements, element),
+                )
+                .expect("drawing creates its destination keyframe before merging");
                 let layer_id = s.symbol().timeline.layers[layer].id.clone();
                 let targets = created_ids
                     .into_iter()
@@ -1030,10 +1031,24 @@ impl Editor {
             return false;
         };
         self.cancel_edits();
-        match std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
-        {
+        let loaded = if Self::is_legacy_flash_path(&path) {
+            neoflash_import::inspect(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|report| {
+                    for diagnostic in &report.diagnostics {
+                        self.message(format!(
+                            "{} [{}]: {}",
+                            diagnostic.location, diagnostic.code, diagnostic.message
+                        ));
+                    }
+                    neoflash_import::import_project(&path).map_err(|e| e.to_string())
+                })
+        } else {
+            std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
+        };
+        match loaded {
             Ok(project) => {
                 self.project = project;
                 self.clipboard = Default::default();

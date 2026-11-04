@@ -552,6 +552,11 @@ impl Editor {
                     .mask
                     .as_ref()
                     .and_then(|id| mapping.get(id).cloned());
+                layer.properties.motion_guide = layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .map(|id| mapping.get(id).cloned().unwrap_or_else(|| id.clone()));
                 for group in &mut layer.properties.groups {
                     group.id = new_id("group");
                     for member in &mut group.members {
@@ -564,6 +569,140 @@ impl Editor {
             }
             timeline.frame_count = timeline.frame_count.max(clipboard.frames);
             timeline.layers.splice(index + 1..index + 1, layers);
+        });
+    }
+    fn can_merge_timeline_layer(&self, index: usize) -> bool {
+        let timeline = &self.symbol().timeline;
+        let Some(layer) = timeline.layers.get(index) else {
+            return false;
+        };
+        layer.properties.role == LayerRole::Normal
+            && !layer_effectively_locked(timeline, layer)
+            && timeline.frame_count <= 10000
+            && timeline.layers.get(index + 1).is_some_and(|next| {
+                next.properties.role == LayerRole::Normal
+                    && !layer_effectively_locked(timeline, next)
+                    && next.visible == layer.visible
+                    && next.properties.mask == layer.properties.mask
+                    && next.properties.parent == layer.properties.parent
+                    && next.keyframes.iter().all(|key| key.label.is_empty())
+            })
+    }
+
+    /// Preserve authored poses and frame sounds when combining two adjacent layers. A single
+    /// keyframe cannot carry two sound commands, and adding keys must not truncate a Stream span.
+    fn merge_timeline_layer(&mut self, index: usize) {
+        self.finish_edits();
+        if !self.can_merge_timeline_layer(index) {
+            return;
+        }
+        let timeline = &self.symbol().timeline;
+        let first = &timeline.layers[index];
+        let next = &timeline.layers[index + 1];
+        let end = first
+            .properties
+            .end_frame
+            .unwrap_or(timeline.frame_count)
+            .max(next.properties.end_frame.unwrap_or(timeline.frame_count));
+        let bake = first
+            .keyframes
+            .iter()
+            .chain(&next.keyframes)
+            .any(|key| key.tween.is_some());
+        let mut frames: std::collections::BTreeSet<u32> = if bake {
+            (0..end).collect()
+        } else {
+            first
+                .keyframes
+                .iter()
+                .chain(&next.keyframes)
+                .map(|key| key.frame)
+                .collect()
+        };
+        // A layer that ends earlier must disappear even when neither layer has a tween.
+        for layer in [first, next] {
+            if let Some(boundary) = layer
+                .properties
+                .end_frame
+                .filter(|boundary| *boundary < end)
+            {
+                frames.insert(boundary);
+            }
+        }
+        for key in &first.keyframes {
+            if key.sound.is_some()
+                && next
+                    .keyframes
+                    .iter()
+                    .any(|other| other.frame == key.frame && other.sound.is_some())
+            {
+                self.message("Cannot merge layers with two sounds on the same frame. Keep the sounds on separate layers.");
+                return;
+            }
+        }
+        let changes_stream_span = [first, next].into_iter().any(|layer| {
+            layer.keyframes.iter().any(|key| {
+                if !key
+                    .sound
+                    .as_ref()
+                    .is_some_and(|sound| sound.sync == SoundSync::Stream)
+                {
+                    return false;
+                }
+                let merged_end = frames
+                    .range((
+                        std::ops::Bound::Excluded(key.frame),
+                        std::ops::Bound::Unbounded,
+                    ))
+                    .next()
+                    .copied()
+                    .unwrap_or(end);
+                merged_end != sound_span_end(layer, key, timeline.frame_count)
+            })
+        });
+        if changes_stream_span {
+            self.message("Cannot merge these layers without shortening a Stream sound. Keep the sound on a separate layer.");
+            return;
+        }
+        let mut merged = first.clone();
+        merged.properties.end_frame = (end < timeline.frame_count).then_some(end);
+        // Guide transforms are baked below using the original timeline, before either layer moves.
+        merged.properties.motion_guide = None;
+        let mut group_ids: HashSet<_> = merged
+            .properties
+            .groups
+            .iter()
+            .map(|group| group.id.clone())
+            .collect();
+        for mut group in next.properties.groups.clone() {
+            if !group_ids.insert(group.id.clone()) {
+                group.id = new_id("group");
+                group_ids.insert(group.id.clone());
+            }
+            merged.properties.groups.push(group);
+        }
+        merged.keyframes = frames
+            .into_iter()
+            .map(|frame| {
+                let mut elements = sample_layer_in(timeline, first, frame);
+                elements.extend(sample_layer_in(timeline, next, frame));
+                let first_key = first.keyframes.iter().find(|key| key.frame == frame);
+                let next_key = next.keyframes.iter().find(|key| key.frame == frame);
+                Keyframe {
+                    frame,
+                    elements,
+                    label: first_key.map(|key| key.label.clone()).unwrap_or_default(),
+                    sound: first_key
+                        .and_then(|key| key.sound.clone())
+                        .or_else(|| next_key.and_then(|key| key.sound.clone())),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.layer_change(move |project, symbol| {
+            let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
+            timeline.layers[index] = merged;
+            timeline.layers.remove(index + 1);
         });
     }
     fn set_layer_role(&mut self, index: usize, role: LayerRole) {
@@ -824,66 +963,16 @@ impl Editor {
                 }
             )
         );
-        let can_merge = layer.properties.role == LayerRole::Normal
-            && !layer.locked
-            && self.symbol().timeline.frame_count <= 10000
-            && self
-                .symbol()
-                .timeline
-                .layers
-                .get(index + 1)
-                .is_some_and(|next| {
-                    next.properties.role == LayerRole::Normal
-                        && !next.locked
-                        && next.visible == layer.visible
-                        && next.properties.mask == layer.properties.mask
-                        && next.properties.parent == layer.properties.parent
-                        && next.keyframes.iter().all(|key| key.label.is_empty())
-                });
-        if menu_item_enabled(ui, can_merge, "Merge with next layer", "")
-            .on_hover_text("Preserve both layers’ animation; tweened frames are sampled into keys")
-            .clicked()
+        if menu_item_enabled(
+            ui,
+            self.can_merge_timeline_layer(index),
+            "Merge with next layer",
+            "",
+        )
+        .on_hover_text("Preserve both layers’ animation; tweened frames are sampled into keys")
+        .clicked()
         {
-            self.layer_change(|p, id| {
-                let t = &mut p.symbol_mut(id).unwrap().timeline;
-                let next = t.layers.remove(index + 1);
-                let first = t.layers[index].clone();
-                let frames: Vec<u32> = if first
-                    .keyframes
-                    .iter()
-                    .chain(&next.keyframes)
-                    .any(|k| k.tween.is_some())
-                {
-                    (0..t.frame_count).collect()
-                } else {
-                    first
-                        .keyframes
-                        .iter()
-                        .chain(&next.keyframes)
-                        .map(|k| k.frame)
-                        .collect::<std::collections::BTreeSet<_>>()
-                        .into_iter()
-                        .collect()
-                };
-                t.layers[index].keyframes = frames
-                    .into_iter()
-                    .map(|frame| {
-                        let mut elements = sample_layer(&first, frame);
-                        elements.extend(sample_layer(&next, frame));
-                        Keyframe {
-                            frame,
-                            elements,
-                            tween: None,
-                            label: first
-                                .key_at(frame)
-                                .filter(|k| k.frame == frame)
-                                .map(|k| k.label.clone())
-                                .unwrap_or_default(),
-                            ..Default::default()
-                        }
-                    })
-                    .collect();
-            });
+            self.merge_timeline_layer(index);
             ui.close();
         }
         let group = group_indices(&self.symbol().timeline.layers, index);
@@ -1051,5 +1140,239 @@ impl Editor {
                 linkage_id: None,
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shape(id: &str, x: f64) -> Element {
+        Element {
+            id: id.into(),
+            transform: Transform {
+                x,
+                ..Default::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 10.,
+                height: 10.,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn sound_project() -> Project {
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.resources.push(
+            ResourceUnit::from_bytes("sound", "sound.wav", "audio/wav", b"RIFF0000WAVE").unwrap(),
+        );
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.frame_count = 6;
+        timeline
+            .layers
+            .push(blank_layer("Second".into(), LayerRole::Normal, None));
+        project
+    }
+
+    fn sound_trace(project: &Project) -> Vec<Vec<SoundCommand>> {
+        let mut playback = AuthoredPlayback::new(project, &project.root, 0);
+        let mut trace = vec![playback.drain_sound_commands()];
+        for _ in 1..project.symbols[0].timeline.frame_count {
+            playback.tick(project);
+            trace.push(playback.drain_sound_commands());
+        }
+        trace
+    }
+
+    #[test]
+    fn merging_layers_preserves_sound_and_rejects_unrepresentable_sound_spans() {
+        let ctx = egui::Context::default();
+        let mut project = sound_project();
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.layers[0].keyframes = vec![
+            Keyframe {
+                elements: vec![shape("moving", 0.)],
+                tween: Some(Easing::Linear),
+                sound: Some(FrameSound::new("sound")),
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 5,
+                elements: vec![shape("moving", 100.)],
+                sound: Some(FrameSound {
+                    sync: SoundSync::Stop,
+                    ..FrameSound::new("sound")
+                }),
+                ..Default::default()
+            },
+        ];
+        timeline.layers[1].keyframes.push(Keyframe {
+            frame: 2,
+            sound: Some(FrameSound {
+                sync: SoundSync::Start,
+                loops: 3,
+                effect: SoundEffect::FadeOut,
+                ..FrameSound::new("sound")
+            }),
+            ..Default::default()
+        });
+        project.validate().unwrap();
+        let before = project.clone();
+        let trace = sound_trace(&before);
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.merge_timeline_layer(0);
+        assert_eq!(editor.symbol().timeline.layers.len(), 1);
+        assert_eq!(sound_trace(&editor.project), trace);
+        assert_eq!(
+            editor.symbol().timeline.layers[0]
+                .keyframes
+                .iter()
+                .filter(|key| key.sound.is_some())
+                .count(),
+            3
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // Two independent commands on the same frame cannot fit in one keyframe.
+        let mut conflict = sound_project();
+        for layer in &mut conflict.symbols[0].timeline.layers {
+            layer.keyframes[0].sound = Some(FrameSound::new("sound"));
+        }
+        let mut editor = Editor::from_project(&ctx, conflict.clone());
+        editor.merge_timeline_layer(0);
+        assert_eq!(editor.project, conflict);
+        assert!(!editor.history.can_undo());
+        assert!(editor.status.contains("two sounds"));
+        editor.project.validate().unwrap();
+
+        // A Stream with unchanged key boundaries is preserved. Inserting another
+        // layer's key halfway through its span must instead refuse the merge.
+        let mut stream = sound_project();
+        stream.symbols[0].timeline.layers[0].keyframes[0].sound = Some(FrameSound {
+            sync: SoundSync::Stream,
+            ..FrameSound::new("sound")
+        });
+        let before = stream.clone();
+        let mut editor = Editor::from_project(&ctx, stream.clone());
+        editor.merge_timeline_layer(0);
+        assert_eq!(sound_trace(&editor.project), sound_trace(&before));
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+        stream.symbols[0].timeline.layers[1]
+            .keyframes
+            .push(Keyframe {
+                frame: 2,
+                ..Default::default()
+            });
+        let mut editor = Editor::from_project(&ctx, stream.clone());
+        editor.merge_timeline_layer(0);
+        assert_eq!(editor.project, stream);
+        assert!(!editor.history.can_undo());
+        assert!(editor.status.contains("Stream sound"));
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn copied_guides_are_relinked_and_merged_animation_keeps_guided_poses_and_exposure() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        let folder = blank_layer("Folder".into(), LayerRole::Folder, None);
+        let mut guide = blank_layer("Guide".into(), LayerRole::Guide, Some(folder.id.clone()));
+        guide.keyframes[0].elements.push(Element {
+            id: "path".into(),
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0., y: 0. },
+                    PathCommand::LineTo { x: 0., y: 100. },
+                    PathCommand::LineTo { x: 100., y: 100. },
+                ],
+                fill: [0, 0, 0, 0],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.,
+                fill_rule: FillRule::NonZero,
+            },
+            ..Default::default()
+        });
+        let mut guided = blank_layer("Guided".into(), LayerRole::Normal, Some(folder.id.clone()));
+        guided.properties.motion_guide = Some(guide.id.clone());
+        guided.keyframes = vec![
+            Keyframe {
+                elements: vec![shape("moving", 0.)],
+                tween: Some(Easing::Linear),
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 4,
+                elements: vec![Element {
+                    transform: Transform {
+                        x: 100.,
+                        y: 100.,
+                        ..Default::default()
+                    },
+                    ..shape("moving", 0.)
+                }],
+                ..Default::default()
+            },
+        ];
+        let mut other = blank_layer("Other".into(), LayerRole::Normal, Some(folder.id.clone()));
+        other.properties.end_frame = Some(3);
+        other.keyframes[0].elements.push(shape("still", 200.));
+        project.symbols[0].timeline.frame_count = 6;
+        project.symbols[0].timeline.layers = vec![folder, guide, guided, other];
+        project.validate().unwrap();
+        let before = project.clone();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.copy_timeline_layers(&ctx, 0);
+        let clipboard = ctx
+            .data(|data| data.get_temp::<LayerClipboard>(editor.layer_clipboard_id()))
+            .unwrap();
+        editor.paste_timeline_layers(clipboard, 0);
+        let timeline = &editor.symbol().timeline;
+        let guide = timeline
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Guide copy")
+            .unwrap();
+        let guided = timeline
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Guided copy")
+            .unwrap();
+        assert_eq!(guided.properties.motion_guide.as_ref(), Some(&guide.id));
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        let timeline = &before.symbols[0].timeline;
+        let expected: Vec<_> = (0..6)
+            .map(|frame| {
+                let mut elements = sample_layer_in(timeline, &timeline.layers[2], frame);
+                elements.extend(sample_layer_in(timeline, &timeline.layers[3], frame));
+                elements
+            })
+            .collect();
+        assert!(
+            expected[2][0].transform.y > 0.,
+            "the fixture must exercise a curved guide"
+        );
+        editor.merge_timeline_layer(2);
+        assert_eq!(editor.symbol().timeline.layers.len(), 3);
+        let merged = &editor.symbol().timeline.layers[2];
+        assert!(merged.properties.motion_guide.is_none());
+        for (frame, expected) in expected.iter().enumerate() {
+            assert_eq!(&sample_layer(merged, frame as u32), expected);
+        }
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
     }
 }

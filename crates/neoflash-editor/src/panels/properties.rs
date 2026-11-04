@@ -37,8 +37,21 @@ impl Editor {
             self.finish_property_edit();
             inspector_section(ui, "Tool options", |ui| self.authoring_tool_options(ui));
             inspector_section(ui, "Drawing defaults", |ui| {
-                paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill);
-                paint_row(ui, "inspector-tool-stroke", "Stroke", &mut self.stroke);
+                let (old_fill, old_stroke) = (self.fill, self.stroke);
+                if paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill).changed() {
+                    crate::authoring_modify::update_gradient_for_color_edit(
+                        &mut self.authoring_modify.drawing_fill_gradient,
+                        old_fill,
+                        self.fill,
+                    );
+                }
+                if paint_row(ui, "inspector-tool-stroke", "Stroke", &mut self.stroke).changed() {
+                    crate::authoring_modify::update_gradient_for_color_edit(
+                        &mut self.authoring_modify.drawing_stroke_gradient,
+                        old_stroke,
+                        self.stroke,
+                    );
+                }
                 numeric_row(ui, "Stroke width", &mut self.stroke_width, 0. ..=100., 0.25);
             });
             return;
@@ -179,6 +192,12 @@ impl Editor {
                         if ui.add(nf::Button::new("Edit accessibility…")).clicked() { self.show_panel(crate::workspace::PanelId::Accessibility); }
                     });
                 });
+                if let (ElementKind::PaintedPath { fill: old_fill, stroke: old_stroke, .. },
+                    ElementKind::PaintedPath { fill, stroke, fill_gradient, stroke_gradient, .. })
+                    = (&original.kind, &mut element.kind) {
+                    crate::authoring_modify::update_gradient_for_color_edit(fill_gradient, *old_fill, *fill);
+                    crate::authoring_modify::update_gradient_for_color_edit(stroke_gradient, *old_stroke, *stroke);
+                }
                 if convert_text && let ElementKind::Text { text, font_family, font_size, color } = &element.kind {
                     let named = crate::fonts::styled_family(font_family, false, false);
                     let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) { named } else { egui::FontFamily::Proportional };

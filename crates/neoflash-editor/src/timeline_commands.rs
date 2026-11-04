@@ -526,7 +526,19 @@ impl Editor {
                 return;
             }
         }
-        if !self.workspace.timeline.loop_playback && (wrapped || self.frame == last) {
+        // Leave the last frame visible for its tick before advancing to another scene.
+        // Loop off stops only when the final scene (or the current scene in single-scene mode) ends.
+        let has_next_scene = self.editing.len() == 1
+            && self.timeline_edit.play_all_scenes
+            && self
+                .project
+                .scene_ids()
+                .windows(2)
+                .any(|pair| pair[0] == self.current_scene());
+        if !self.workspace.timeline.loop_playback
+            && !has_next_scene
+            && (wrapped || self.frame == last)
+        {
             self.frame = last;
             self.playing = false;
             self.reset_authored_preview();

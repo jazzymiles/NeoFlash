@@ -96,6 +96,7 @@ struct Gesture {
     shift: bool,
     alt: bool,
     targets: Vec<SelectionTarget>,
+    eraser_meshes: Vec<(SelectionTarget, egui::Mesh)>,
     gradient: Option<GradientGesture>,
 }
 struct GradientGesture {
@@ -452,24 +453,28 @@ impl Editor {
                     stroke
                 };
                 self.stroke_width = width;
+                self.authoring_modify.drawing_stroke_gradient = None;
                 self.set_tool(Tool::Ink);
             } else {
                 self.fill = paint_gradient(&hit.kind)
                     .map(|g| g.sample(hit.local.x as f64, hit.local.y as f64))
                     .unwrap_or(fill);
+                self.authoring_modify.drawing_fill_gradient = None;
                 self.set_tool(Tool::Bucket);
             }
             return;
         }
-        let mut kind = self
+        let mut element = self
             .target_layer_index(&hit.target)
             .and_then(|idx| {
                 sample_layer(&self.symbol().timeline.layers[idx], self.frame)
                     .into_iter()
                     .find(|e| e.id == hit.target.element)
-                    .map(|e| e.kind)
             })
-            .unwrap_or_else(|| hit.kind.clone());
+            .unwrap_or_else(|| Element {
+                kind: hit.kind.clone(),
+                ..Default::default()
+            });
         if tool == Tool::Bucket
             && let (
                 ElementKind::Path {
@@ -484,19 +489,134 @@ impl Editor {
                 | ElementKind::PaintedPath {
                     commands: dst_c, ..
                 },
-            ) = (&hit.kind, &mut kind)
+            ) = (&hit.kind, &mut element.kind)
             && matches!(hit_c.last(), Some(PathCommand::Close))
             && !matches!(dst_c.last(), Some(PathCommand::Close))
         {
             *dst_c = hit_c.clone();
         }
-        apply_paint(
-            &mut kind,
-            (tool == Tool::Bucket).then_some(self.fill),
-            (tool == Tool::Ink).then_some((self.stroke, self.stroke_width)),
-        );
-        self.change_tool_elements(vec![(hit.target.clone(), Some(kind))]);
+        self.apply_active_tool_paint(&mut element, tool == Tool::Ink);
+        self.change_tool_elements(vec![(hit.target.clone(), Some(element.kind))]);
         self.set_selection(vec![hit.target]);
+    }
+
+    /// Bucket and Ink share the same active paints as newly drawn artwork. Only
+    /// the chosen well changes; the opposite paint and gradient keep their data.
+    fn apply_active_tool_paint(&self, element: &mut Element, stroke_well: bool) {
+        apply_paint(
+            &mut element.kind,
+            (!stroke_well).then_some(self.fill),
+            stroke_well.then_some((self.stroke, self.stroke_width)),
+        );
+        let gradient = if stroke_well {
+            &self.authoring_modify.drawing_stroke_gradient
+        } else {
+            &self.authoring_modify.drawing_fill_gradient
+        };
+        let Some(mut gradient) = gradient.clone() else {
+            return;
+        };
+        let Some((commands, fill_rule)) = element.to_path_commands() else {
+            return;
+        };
+        let Some((fill, stroke, stroke_width)) = paint_parts(&element.kind) else {
+            return;
+        };
+        gradient.matrix = crate::authoring_modify::default_gradient_matrix(&commands);
+        let (mut fill_gradient, mut stroke_gradient) = match &element.kind {
+            ElementKind::PaintedPath {
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } => (fill_gradient.clone(), stroke_gradient.clone()),
+            _ => (None, None),
+        };
+        if stroke_well {
+            stroke_gradient = Some(gradient);
+        } else {
+            fill_gradient = Some(gradient);
+        }
+        element.kind = ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            fill_gradient,
+            stroke_gradient,
+        };
+    }
+
+    /// Snapshot the visible geometry once per eraser gesture. Mask clipping and
+    /// vector tessellation are shared with the stage rather than sampled at a
+    /// handful of points inside the displayed eraser circle.
+    fn eraser_meshes(
+        &self,
+        p: &egui::Painter,
+    ) -> Result<Vec<(SelectionTarget, egui::Mesh)>, String> {
+        let eligible: HashMap<_, _> = self
+            .editable_targets()
+            .into_iter()
+            .map(|target| (target.element.clone(), target))
+            .collect();
+        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
+        let clips = crate::stage_clipping::ClipMeshes::new(&authored.clips, Pos2::ZERO, 1.)?;
+        let mut meshes = Vec::new();
+        for draw in &authored.draws {
+            let Some(target) = draw
+                .item
+                .instance_path
+                .first()
+                .and_then(|id| eligible.get(id))
+            else {
+                continue;
+            };
+            let mut item = draw.item.clone();
+            let vector = paint_parts(&item.kind).is_some();
+            if self.authoring_tools.eraser_mode != EraserMode::Objects {
+                // Whole-fill/stroke operations edit raw vector artwork, never a
+                // containing symbol merely because a child was touched.
+                if !vector || item.instance_path.len() != 1 {
+                    continue;
+                }
+                match self.authoring_tools.eraser_mode {
+                    EraserMode::Fills => apply_paint(&mut item.kind, None, Some(([0; 4], 0.))),
+                    EraserMode::Strokes | EraserMode::StrokeSegments => {
+                        apply_paint(&mut item.kind, Some([0; 4]), None)
+                    }
+                    EraserMode::Objects => {}
+                }
+            }
+            let mesh = if vector {
+                let Some(mesh) = crate::stage_clipping::vector_mesh(&item, Pos2::ZERO, 1.)? else {
+                    continue;
+                };
+                mesh
+            } else {
+                // Text/bitmap placements use their local bounds, like selection;
+                // preserve the affine transform instead of using a world AABB.
+                let bounds = crate::stage::local_bounds(&item, p);
+                if !bounds.is_finite() || bounds.is_negative() || item.alpha <= 0. {
+                    continue;
+                }
+                let mut mesh = egui::Mesh::default();
+                for point in [
+                    bounds.left_top(),
+                    bounds.right_top(),
+                    bounds.right_bottom(),
+                    bounds.left_bottom(),
+                ] {
+                    mesh.colored_vertex(affine(item.transform, point), Color32::WHITE);
+                }
+                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                mesh
+            };
+            let mesh = clips.clip_mesh(&mesh, &draw.clip_ids)?;
+            if !mesh.indices.is_empty() {
+                meshes.push((target.clone(), mesh));
+            }
+        }
+        Ok(meshes)
     }
     /// Returns true when extended tools/temporary Hand own this pointer phase.
     pub(crate) fn authoring_tool_stage(
@@ -614,6 +734,17 @@ impl Editor {
                     } else {
                         None
                     };
+                    let eraser_meshes = if tool == Tool::Eraser {
+                        match self.eraser_meshes(p) {
+                            Ok(meshes) => meshes,
+                            Err(error) => {
+                                self.message(error);
+                                continue;
+                            }
+                        }
+                    } else {
+                        Vec::new()
+                    };
                     self.authoring_tools.gesture = Some(Gesture {
                         tool,
                         symbol: self.symbol_id().to_owned(),
@@ -628,6 +759,7 @@ impl Editor {
                         shift: modifiers.shift,
                         alt: modifiers.alt,
                         targets: vec![],
+                        eraser_meshes,
                         gradient,
                     });
                     self.update_authoring_gesture(pos, scene, p);
@@ -683,7 +815,7 @@ impl Editor {
         }
         owned
     }
-    fn update_authoring_gesture(&mut self, pos: Pos2, scene: &[DrawItem], p: &egui::Painter) {
+    fn update_authoring_gesture(&mut self, pos: Pos2, _scene: &[DrawItem], p: &egui::Painter) {
         let Some(mut g) = self.authoring_tools.gesture.take() else {
             return;
         };
@@ -721,18 +853,16 @@ impl Editor {
             }
             Tool::Eraser => {
                 let radius = self.authoring_tools.eraser_size / 2. / g.zoom;
-                for delta in [
-                    Vec2::ZERO,
-                    Vec2::new(radius, 0.),
-                    Vec2::new(-radius, 0.),
-                    Vec2::new(0., radius),
-                    Vec2::new(0., -radius),
-                ] {
-                    if let Some(target) = self.pick_placement(scene, p, point + delta)
-                        && !g.targets.contains(&target)
+                let previous = *g.points.last().unwrap_or(&point);
+                for (target, mesh) in &g.eraser_meshes {
+                    if !g.targets.contains(target)
+                        && swept_disk_hits_mesh(mesh, previous, point, radius)
                     {
-                        g.targets.push(target);
+                        g.targets.push(target.clone());
                     }
+                }
+                if point != previous {
+                    g.points.push(point);
                 }
             }
             _ => {}
@@ -1130,6 +1260,58 @@ fn polyline(points: &[Pos2], closed: bool) -> Vec<PathCommand> {
         commands.push(PathCommand::Close);
     }
     commands
+}
+
+/// A swept disk is a capsule. Its intersection with a triangle is either an
+/// endpoint inside the triangle or an edge within the radius of the sweep.
+fn swept_disk_hits_mesh(mesh: &egui::Mesh, from: Pos2, to: Pos2, radius: f32) -> bool {
+    fn cross(a: Pos2, b: Pos2, c: Pos2) -> f32 {
+        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+    }
+    fn point_segment_distance_sq(point: Pos2, a: Pos2, b: Pos2) -> f32 {
+        let edge = b - a;
+        let t = if edge.length_sq() > 0. {
+            ((point - a).dot(edge) / edge.length_sq()).clamp(0., 1.)
+        } else {
+            0.
+        };
+        point.distance_sq(a + edge * t)
+    }
+    let swept_bounds = Rect::from_two_pos(from, to).expand(radius);
+    mesh.indices.as_chunks::<3>().0.iter().any(|indices| {
+        let triangle = indices.map(|index| mesh.vertices[index as usize].pos);
+        let bounds = Rect::from_points(&triangle);
+        if !swept_bounds.intersects(bounds)
+            || cross(triangle[0], triangle[1], triangle[2]).abs() < 1e-8
+        {
+            return false;
+        }
+        let inside = |point| {
+            let sides = [
+                cross(triangle[0], triangle[1], point),
+                cross(triangle[1], triangle[2], point),
+                cross(triangle[2], triangle[0], point),
+            ];
+            sides.iter().all(|side| *side >= 0.) || sides.iter().all(|side| *side <= 0.)
+        };
+        inside(from)
+            || inside(to)
+            || (0..3).any(|i| {
+                let (a, b) = (triangle[i], triangle[(i + 1) % 3]);
+                let intersects = Rect::from_two_pos(from, to).intersects(Rect::from_two_pos(a, b))
+                    && cross(from, to, a) * cross(from, to, b) <= 0.
+                    && cross(a, b, from) * cross(a, b, to) <= 0.;
+                intersects
+                    || [
+                        point_segment_distance_sq(from, a, b),
+                        point_segment_distance_sq(to, a, b),
+                        point_segment_distance_sq(a, from, to),
+                        point_segment_distance_sq(b, from, to),
+                    ]
+                    .into_iter()
+                    .any(|distance| distance <= radius * radius)
+            })
+    })
 }
 fn brush_outline(points: &[Pos2], width: f32) -> Vec<PathCommand> {
     if points.len() == 1 {
