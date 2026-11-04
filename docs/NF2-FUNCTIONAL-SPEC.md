@@ -62,7 +62,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
 | ST-01 | Stage rulers + ruler corner | Stage chrome | working | UI-only | P1 |
 | ST-02 | Guides | Stage chrome | working | yes (small) | P1 |
-| ST-03 | Stage grid | Stage chrome | working | UI-only | P1 |
+| ST-03 | Stage grid | Stage chrome | partial (contrast/density R-037) | UI-only | P1 |
 | ST-04 | Snapping (grid, guides, objects, pixels) + snap ring | Stage chrome | done (View ▸ Snapping R-003) | editor | P1 |
 | ST-05 | Zoom control toggles rulers/guides/grid/snap | Stage chrome | working | UI-only | P1 |
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
@@ -130,7 +130,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
 | MN-02 | Frame / layer / stage context menu items absent | Menus | partial | mixed | P1–P2 |
-| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | working (Snapping ▸ disabled) | UI-only | P1 |
+| MN-03 | View ▸ Rulers / Guides / Grid / Rulers, guides & grid… | Menus | partial (grid visibility R-037; Snapping ▸ disabled) | UI-only | P1 |
 
 Counts: 93 entries — 14 timeline, 8 tools, 11 stage/window chrome, 11 properties, 3 colour, 2 library, 8 actions,
 2 output, 14 planned panels (3 alias other entries), 17 dialogs/panels (DL-01 covers 9 preference pages), 3 menu
@@ -364,7 +364,7 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Depends on: engine (small: serialized authoring-only data, never exported).
 - Acceptance: guides survive save/open; never appear in HTML5; locked guides cannot be dragged.
 
-**ST-03 · Stage grid** — working. Implemented: see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
+**ST-03 · Stage grid** — partial: controls work, but default contrast and dense-spacing visibility await R-037. See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md) (behaviour, data model, invariants, tests).
 - Purpose: `NF2/Stage Grid` overlay (20 px, every 5th line stronger), below content unless "Show over objects".
 - Behaviour: View ▸ Grid ▸ Show grid (⌘'), Snap to grid (⇧⌘'), Show over objects, Edit grid… (⌥⌘G → View settings).
 - Data: view settings (spacing W/H linked, colour, snap accuracy). Depends on: UI-only + component **request**.
@@ -839,28 +839,35 @@ re-encoding at publish lands. P3.
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 
-**MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — working except the Snapping ▸ submenu
-(R-003). Grid ▸ and Guides ▸ are submenus as in the reference (§8 View ▸ Grid); the Snapping ▸ submenu content waits
-for R-003.
+**MN-03 · View ▸ Rulers / Guides / Grid / Rulers, guides & grid…** — toggles, settings and snapping
+are connected. Grid visibility remains **partial**: the default theme colour can disappear against the document
+background, and very dense spacing suppresses all grid lines (R-037). Show and Snap are independent; hiding the
+grid does not disable snapping. The Snapping ▸ submenu awaits R-003.
 
-**MN-01 · Absent main-menu items** (reference §8 vs. current menus). Each item uses the existing menu row style; adding
-rows to an existing menu is wiring of a reference element, but confirm with NF2-REQUESTS.md if the order/grouping is
-unclear.
+**MN-01 · Main-menu coverage.** Disabled selection/history commands become available when their context exists;
+that is distinct from an unimplemented command. Labelled previews do not execute their planned operation.
 
-| Menu | Still absent or disabled (everything else in §8 works) | Depends on |
+| Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | Open recent, Close, Revert, Print… (disabled); Export ▸ image / video / audio and Publish settings… ⇧F12 open planned previews | editor (recent/revert); DL-03/04–06 |
-| Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
-| View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (working); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
-| Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
-| Modify | Bitmap ▸, Symbol ▸, Shape ▸ (disabled). Done: Document… ⌘J, Combine objects ▸ (Union, Intersect, Punch, Crop), Timeline ▸ Distribute to layers ⇧⌘D, Layer properties…, Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01 |
-| Control | Enable simple buttons ⌥⌘B (disabled). Done: Test scene ⌥⌘↵, Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | editor button preview |
-| Window | Duplicate window, Hide panels F4 (disabled); Compiler errors, Debugger, Code snippets, Movie Explorer and other planned panels open previews. Done: Swatches ⌘F9, Info ⌘I, Ease, History ⌘F10, Scene ⇧F2, Motion editor, Project | PP-*; workspace |
+| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports and HTML5 Publish | Print disabled; Import video, Export image/video/audio and Publish settings open planned previews |
+| Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences and Keyboard shortcuts | Editing commands require the appropriate selection/history; multiple documents are not implemented |
+| View | Zoom/magnification, Rulers, Show/Snap grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Grid contrast/dense-spacing limits R-037; Preview mode and Snapping submenus disabled; Pasteboard always shown |
+| Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
+| Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup | Bitmap and Symbol submenus disabled; shape hints need a shape-tween endpoint |
+| Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
+| Window | Real authoring panels, built-in workspaces/reset, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger and Planned panels are previews; named workspaces and multiple documents remain planned |
+| Help | Open example, About NeoFlash | Documentation/F1 target is unresolved |
+
+Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight menus,
+checks explicitly unavailable rows, exercises View/Control/Window toggles in both directions, panel visibility,
+Find opening and theme changes without editing the document or Undo history. `stage_view_tests` additionally
+checks actual grid paint on the next idle frame and drawing/moving with snapping enabled and disabled.
+These checks do not claim end-to-end acceptance of every context-dependent command.
 
 **MN-02 · Context menus** (reference §8 Frame / Layer / Stage object)
 
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
-| Frame | Paste motion special… (disabled, R-006). Done: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Reverse frames, Synchronise symbols | R-006 |
+| Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles work) | — |
-| Stage object | Edit in new window, Swap symbol…, Duplicate symbol…, Distribute to layers ⇧⌘D (disabled). Done: Edit in place, Create motion tween, Show in library | PR-06, LI-01; distribute = editor |
+| Stage object | Edit in new window, Swap symbol… and Duplicate symbol… remain disabled. Working: Edit in place, Create motion tween, Show in library, Distribute to layers ⇧⌘D | PR-06, LI-01 |

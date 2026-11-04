@@ -301,9 +301,10 @@ fn drawing_and_moving_snap_to_grid_and_guides() {
     };
     assert_eq!((width, height), (80., 80.));
 
-    // Moving: with grid snapping off, the right edge (180) snaps to a guide at 205 when it comes
-    // within 8 screen points, and the move is still one Undo step.
-    editor.stage_view.prefs.grid_snap = false;
+    // Moving: the right edge (180) snaps to a guide at 205 when it comes within 8 screen points.
+    // Grid candidates on the other edges are closer, but must not override the guide's priority.
+    // Grid visibility is independent of snapping, and the move is still one Undo step.
+    editor.stage_view.prefs.grid_show = false;
     editor.add_guide(GuideAxis::Vertical, 205.);
     editor.tool = Tool::Select;
     editor.set_selection(vec![]);
@@ -315,10 +316,37 @@ fn drawing_and_moving_snap_to_grid_and_guides() {
     assert_eq!(moved.transform.y, 60.);
     editor.undo();
     assert_eq!(editor.project, before);
-    // Far from any line nothing snaps.
+    // Far from the guide with grid snapping disabled, nothing snaps.
+    editor.stage_view.prefs.grid_snap = false;
     drag(&mut editor, &ctx, 0.5, grab, grab + Vec2::new(-50., 0.));
     let moved = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
     assert_eq!(moved.transform.x, 50.);
+
+    // Showing the grid alone does not snap either shape tool; the disabled Snap checkbox must
+    // preserve the actual drawn coordinates, even a few pixels from an intersection.
+    editor.stage_view.prefs.grid_show = true;
+    for (i, tool) in [Tool::Rectangle, Tool::Ellipse].into_iter().enumerate() {
+        editor.tool = tool;
+        let before = editor.project.clone();
+        drag(
+            &mut editor,
+            &ctx,
+            0.7 + i as f64 * 0.2,
+            page.min + Vec2::new(303., 157.),
+            page.min + Vec2::new(378., 241.),
+        );
+        let drawn = editor.selected_sampled().expect("new shape selected");
+        assert_eq!((drawn.transform.x, drawn.transform.y), (303., 157.));
+        let (ElementKind::Rectangle { width, height, .. }
+        | ElementKind::Ellipse { width, height, .. }) = drawn.kind
+        else {
+            panic!("rectangle or oval expected")
+        };
+        assert_eq!((width, height), (75., 84.));
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before, "drawing is one Undo step");
+    }
 }
 
 #[test]
@@ -366,8 +394,25 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     };
     let click = |editor: &mut Editor, t: f64, at: Pos2| {
         frame(editor, t, vec![Event::PointerMoved(at), press(at, true)]);
-        frame(editor, t + 0.01, vec![press(at, false)]);
+        let released = frame(editor, t + 0.01, vec![press(at, false)]);
+        assert_eq!(
+            released.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+            std::time::Duration::ZERO,
+            "a changed control requests the next frame even when the pointer stops"
+        );
         frame(editor, t + 0.02, vec![])
+    };
+    let grid_lines = |out: &egui::FullOutput| {
+        let strong = neoflash_ui::palette(&ctx).stage_grid.gamma_multiply(0.14);
+        let minor = strong.gamma_multiply(0.42);
+        out.shapes
+            .iter()
+            .filter(|shape| {
+                matches!(&shape.shape, egui::Shape::LineSegment { points, stroke }
+                    if (stroke.color == strong || stroke.color == minor)
+                        && points[0].distance(points[1]) > 100.)
+            })
+            .count()
     };
     let mut out = frame(&mut editor, 0.0, vec![]);
     for i in 1..4 {
@@ -385,15 +430,50 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     ] {
         let button = bounds(&out, label).unwrap_or_else(|| panic!("zoom control shows {label}"));
         let before = check(&editor.stage_view.prefs);
-        click(&mut editor, 1.0, button.center());
+        let toggled = click(&mut editor, 1.0, button.center());
         assert_ne!(check(&editor.stage_view.prefs), before, "{label}");
+        if label == "Grid" {
+            assert_eq!(grid_lines(&toggled), 0, "hidden grid emits no paint");
+        }
         out = click(&mut editor, 1.5, button.center());
         assert_eq!(check(&editor.stage_view.prefs), before, "{label}");
+        if label == "Grid" {
+            assert!(
+                grid_lines(&out) > 0,
+                "show takes effect without another input"
+            );
+        }
     }
     // ⚙ opens the real View settings popover; its Close button closes it.
     let gear = bounds(&out, "Rulers, guides and grid…").expect("⚙ in the zoom control");
     out = click(&mut editor, 2.0, gear.center());
     assert!(editor.stage_view.settings_open);
+    // The lower "Show" checkbox is the grid's (the upper one belongs to Guides). It applies
+    // before the next idle frame, without needing a mouse move or another menu command.
+    let show_grid = out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter_map(|(_, node)| {
+            (node.label() == Some("Show"))
+                .then(|| node.bounds())
+                .flatten()
+        })
+        .max_by(|a, b| a.y0.total_cmp(&b.y0))
+        .expect("grid Show checkbox");
+    let at = Pos2::new(
+        ((show_grid.x0 + show_grid.x1) * 0.5) as f32,
+        ((show_grid.y0 + show_grid.y1) * 0.5) as f32,
+    );
+    out = click(&mut editor, 2.1, at);
+    assert!(!editor.stage_view.prefs.grid_show);
+    assert_eq!(grid_lines(&out), 0);
+    out = click(&mut editor, 2.2, at);
+    assert!(editor.stage_view.prefs.grid_show);
+    assert!(grid_lines(&out) > 0);
     let close = bounds(&out, "Close").expect("popover close button");
     click(&mut editor, 2.5, close.center());
     assert!(!editor.stage_view.settings_open);

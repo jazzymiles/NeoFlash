@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Moving selections now preserve guide/object/grid/pixel snapping priority across all edges and centres. The main-menu coverage table now distinguishes working, context-dependent and unavailable commands. Grid visibility remains partial: default colour can blend into artwork and dense spacing can suppress lines; a custom grid colour works around the contrast issue.
+
 - Actions preserves diagnostic severity, codes, Unicode ranges and project-file locations; warnings use existing NF2 markers and counts. ⌘. applies a unique safe fix with one Undo. Shared compiler-token analysis improves scoped hints and multiline members. Exported handlers, classes and modules carry source maps used by Test Movie errors and trace output. Error-peek/fix selection and a connected pause/step debugger remain pending.
 
 - Brush uses pen pressure for variable-width vector ink, with a macOS tablet-event bridge, a matching live draft and one Undo per stroke; ordinary mouse width is unchanged. Pen cancellation preserves the document. Physical tablet acceptance and pressure/tilt options remain pending. Gap-closing and partial-stroke geometry now preserve separate contours, fills, gradients and groups; their authoring controls still await NF2 design.

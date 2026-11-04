@@ -55,7 +55,7 @@ impl Snapper {
 
     /// Offset that moves `value` onto the best line of one axis, if any is within tolerance.
     /// Priority: **1. Guides > 2. Objects > 3. Grid > 4. Pixels**.
-    fn axis(&self, value: f64, guides: &[f64], objects: &[f64], axis: usize) -> Option<f64> {
+    fn axis(&self, value: f64, guides: &[f64], objects: &[f64], axis: usize) -> Option<(u8, f64)> {
         if !value.is_finite() {
             return None;
         }
@@ -67,17 +67,17 @@ impl Snapper {
                 .min_by(|a, b| a.abs().total_cmp(&b.abs()))
         };
         if let Some(d) = nearest(guides, self.guide_tolerance) {
-            return Some(d);
+            return Some((0, d));
         }
         if let Some(d) = nearest(objects, self.object_tolerance) {
-            return Some(d);
+            return Some((1, d));
         }
         if let Some((spacing, tolerance)) = self.grid {
             let s = spacing[axis];
             if s.is_finite() && s > 0.0 {
                 let d = (value / s).round() * s - value;
                 if d.is_finite() && d.abs() <= tolerance {
-                    return Some(d);
+                    return Some((2, d));
                 }
             }
         }
@@ -87,7 +87,7 @@ impl Snapper {
         {
             let d = value.round() - value;
             if d.is_finite() && d.abs() <= pixel_tol {
-                return Some(d);
+                return Some((3, d));
             }
         }
         None
@@ -95,12 +95,12 @@ impl Snapper {
 
     pub fn snap_x(&self, x: f64) -> Option<f64> {
         self.axis(x, &self.guides_x, &self.objects_x, 0)
-            .map(|d| x + d)
+            .map(|(_, d)| x + d)
     }
 
     pub fn snap_y(&self, y: f64) -> Option<f64> {
         self.axis(y, &self.guides_y, &self.objects_y, 1)
-            .map(|d| y + d)
+            .map(|(_, d)| y + d)
     }
 
     /// Snap one point (pen anchor, shape corner, path handle).
@@ -115,15 +115,20 @@ impl Snapper {
     }
 
     /// Best correction for a moving selection whose candidate edges are `xs` / `ys` (left, centre,
-    /// right; top, centre, bottom): per axis, the smallest offset that puts any candidate on a line.
+    /// right; top, centre, bottom): per axis, preserve target priority across all candidates, then
+    /// choose the smallest offset within that target family.
     /// Returns the offset and the candidate indices that snapped.
     pub fn offset(&self, xs: &[f64], ys: &[f64]) -> ([f64; 2], [Option<usize>; 2]) {
         let best = |values: &[f64], guides: &[f64], objects: &[f64], axis: usize| {
             values
                 .iter()
                 .enumerate()
-                .filter_map(|(i, v)| self.axis(*v, guides, objects, axis).map(|d| (i, d)))
-                .min_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+                .filter_map(|(i, v)| {
+                    self.axis(*v, guides, objects, axis)
+                        .map(|(priority, d)| (i, priority, d))
+                })
+                .min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.abs().total_cmp(&b.2.abs())))
+                .map(|(i, _, d)| (i, d))
         };
         let x = best(xs, &self.guides_x, &self.objects_x, 0);
         let y = best(ys, &self.guides_y, &self.objects_y, 1);
@@ -204,6 +209,35 @@ mod tests {
         assert_eq!(offset, [3.0, 0.0]);
         assert_eq!(which, [Some(2), None]);
         assert!(Snapper::default().is_empty());
+
+        // Priority applies to the selection as a whole, even when a different edge/centre is
+        // already on a lower-priority target. Each axis still chooses independently.
+        let mut s = Snapper {
+            guides_x: vec![205.0],
+            guide_tolerance: 8.0,
+            objects_x: vec![201.0],
+            objects_y: vec![205.0],
+            object_tolerance: 8.0,
+            grid: Some(([20.0, 20.0], 8.0)),
+            pixel_tolerance: Some(0.5),
+            ..Default::default()
+        };
+        let candidates = [160.0, 181.0, 201.0];
+        assert_eq!(
+            s.offset(&candidates, &candidates),
+            ([4.0, 4.0], [Some(2), Some(2)]),
+            "guide/object targets beat another anchor already on the grid"
+        );
+        s.guides_x.clear();
+        assert_eq!(s.offset(&candidates, &[]).1[0], Some(2));
+        s.objects_x.clear();
+        assert_eq!(
+            s.offset(&[161.0, 181.0, 201.0], &[]).0[0],
+            -1.0,
+            "grid beats an anchor already on an integer pixel"
+        );
+        s.grid = None;
+        assert_eq!(s.offset(&[161.25], &[]).0[0], -0.25);
     }
 
     #[test]

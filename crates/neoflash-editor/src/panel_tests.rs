@@ -1188,26 +1188,46 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
     assert!(!editor.dirty());
 }
 
-/// Design §8: every menu-bar dropdown shows its designed rows, and a preview row opens its planned
-/// panel (Edit ▸ Find and replace → Find and replace preview).
+/// Design §8: all main menus open, their live toggles change the editor both ways, and view/workspace
+/// changes leave authored content and Undo untouched. Preview/unsupported rows stay distinguishable.
 #[test]
-fn menu_bar_follows_design_and_opens_planned_previews() {
-    let ctx = egui::Context::default();
-    ctx.enable_accesskit();
-    let mut editor = Editor::from_project(&ctx, Project::demo());
-    let size = Vec2::new(1920., 1080.);
-    let mut time = 0.1;
-    let mut step = |editor: &mut Editor, events: Vec<Event>| {
-        time += 0.1;
-        frame(editor, &ctx, size, time, events)
+fn menu_bar_toggles_live_state_without_changing_the_document() {
+    let mut d = Driver::new();
+    d.settle();
+    let project = d.editor.project.clone();
+    let close_menu = |d: &mut Driver| {
+        d.step(vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        d.settle();
     };
-    let mut out = step(&mut editor, vec![]);
-    let escape = || Event::Key {
-        key: egui::Key::Escape,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: egui::Modifiers::NONE,
+    // Grid, Guides and Loop playback also exist in the canvas/timeline controls. Resolve the
+    // upper menu row explicitly; AccessKit's node order is not the visual stacking order.
+    let click_row = |d: &mut Driver, label: &str| {
+        let at = d
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab
+            })
+            .filter_map(|(_, node)| node.bounds())
+            .min_by(|a, b| a.y0.total_cmp(&b.y0))
+            .unwrap_or_else(|| {
+                panic!("menu row {label:?} is not shown; visible: {:?}", d.labels())
+            });
+        d.press(
+            Pos2::new(((at.x0 + at.x1) / 2.) as f32, ((at.y0 + at.y1) / 2.) as f32),
+            egui::PointerButton::Primary,
+        );
     };
     let menus: [(&str, &[&str]); 8] = [
         (
@@ -1245,32 +1265,132 @@ fn menu_bar_follows_design_and_opens_planned_previews() {
         ("Help", &["Open example", "About NeoFlash"]),
     ];
     for (title, rows) in menus {
-        let at = named_bounds(&out, title).unwrap().center();
-        step(
-            &mut editor,
-            vec![Event::PointerMoved(at), primary_button(at, true)],
-        );
-        step(&mut editor, vec![primary_button(at, false)]);
-        out = step(&mut editor, vec![]);
+        d.click(title);
         for row in rows {
-            assert!(named_bounds(&out, row).is_some(), "{title} ▸ {row}");
+            assert!(d.find(row).is_some(), "{title} ▸ {row}");
+        }
+        let unavailable: &[&str] = match title {
+            "File" => &["Print… (⌘P)"],
+            "View" => &["Preview mode", "Snapping", "Pasteboard"],
+            "Modify" => &["Bitmap", "Symbol"],
+            "Window" => &["Duplicate window (⌥⌘K)"],
+            _ => &[],
+        };
+        for label in unavailable {
+            let node = d
+                .out
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(*label))
+                .unwrap_or_else(|| panic!("missing {title} ▸ {label}"));
+            assert!(
+                node.1.is_disabled(),
+                "{title} ▸ {label} must not promise an available command"
+            );
         }
         if title == "Edit" {
-            let find = named_bounds(&out, "Find and replace (⌘F)")
-                .unwrap()
-                .center();
-            step(
-                &mut editor,
-                vec![Event::PointerMoved(find), primary_button(find, true)],
+            d.click("Find and replace (⌘F)");
+            assert!(
+                d.editor.find_replace.is_some(),
+                "opens the real Find dialog"
             );
-            step(&mut editor, vec![primary_button(find, false)]);
-            assert!(editor.find_replace.is_some());
-            editor.find_replace = None;
+            d.click("Close");
+            assert!(d.editor.find_replace.is_none());
         } else {
-            step(&mut editor, vec![escape()]);
+            close_menu(&mut d);
         }
-        out = step(&mut editor, vec![]);
     }
+
+    type Toggle = fn(&Editor) -> bool;
+    let toggles: &[(&str, Option<&str>, &str, Toggle)] = &[
+        ("View", None, "Rulers (⌥⇧⌘R)", |e| {
+            e.stage_view.prefs.rulers
+        }),
+        ("View", Some("Grid"), "Show grid (⌘')", |e| {
+            e.stage_view.prefs.grid_show
+        }),
+        ("View", Some("Grid"), "Snap to grid (⇧⌘')", |e| {
+            e.stage_view.prefs.grid_snap
+        }),
+        ("View", Some("Grid"), "Show over objects", |e| {
+            e.stage_view.prefs.grid_over_objects
+        }),
+        ("View", Some("Guides"), "Show guides (⌘;)", |e| {
+            e.stage_view.prefs.guides_show
+        }),
+        ("View", Some("Guides"), "Lock guides", |e| {
+            e.stage_view.prefs.guides_lock
+        }),
+        ("View", Some("Guides"), "Snap to guides (⇧⌘;)", |e| {
+            e.stage_view.prefs.guides_snap
+        }),
+        ("View", None, "Show shape hints (⌥⌘H)", |e| {
+            e.timeline_shape_hints.show
+        }),
+        ("Control", None, "Loop playback", |e| {
+            e.workspace.timeline.loop_playback
+        }),
+        ("Control", None, "Play all scenes", |e| {
+            e.timeline_edit.play_all_scenes
+        }),
+        ("Control", None, "Mute sounds (⌥⌘M)", |e| {
+            e.timeline_audio.muted
+        }),
+        ("Control", None, "Enable simple buttons (⌥⌘B)", |e| {
+            e.enable_simple_buttons
+        }),
+        ("Window", None, "Hide panels (F4)", |e| e.panels_hidden),
+    ];
+    for &(menu, submenu, label, state) in toggles {
+        let initial = state(&d.editor);
+        for expected in [!initial, initial] {
+            d.click(menu);
+            if let Some(submenu) = submenu {
+                click_row(&mut d, submenu);
+            }
+            click_row(&mut d, label);
+            assert_eq!(state(&d.editor), expected, "{menu} ▸ {label}");
+            close_menu(&mut d);
+            if label == "Hide panels (F4)" {
+                assert_eq!(d.tab(PanelId::Timeline).is_none(), expected);
+                assert_eq!(d.find("Selection (V)").is_none(), expected);
+            }
+        }
+    }
+
+    // A representative panel actually disappears and returns, rather than only changing a checkmark.
+    assert!(d.tab(PanelId::Timeline).is_some());
+    for visible in [false, true] {
+        d.click("Window");
+        d.click("Timeline (⌥⌘T)");
+        assert_eq!(
+            d.editor.workspace.is_panel_visible(PanelId::Timeline),
+            visible
+        );
+        assert_eq!(d.tab(PanelId::Timeline).is_some(), visible);
+    }
+    let initial_theme = d.editor.workspace.theme;
+    for theme in [ThemeMode::Light, ThemeMode::Dark, initial_theme] {
+        d.click("Window");
+        d.click("Appearance");
+        d.click(if theme == ThemeMode::Light {
+            "Light"
+        } else {
+            "Dark"
+        });
+        assert_eq!(d.editor.workspace.theme, theme);
+        assert_eq!(
+            neoflash_ui::palette(&d.ctx).bg_app,
+            theme.nf2().palette().bg_app
+        );
+    }
+    assert_eq!(d.editor.project, project);
+    assert!(!d.editor.dirty());
+    assert!(!d.editor.history.can_undo());
 }
 
 /// Design §8 stage-object menu opens on right-click over the Stage with its designed rows.

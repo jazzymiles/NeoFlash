@@ -33,6 +33,19 @@ cargo run --locked -p neoflash-export -- --demo --output dist/demo
 
 Deliveries that change ActionScript or product status also run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families (for example `NEOFLASH_WORKFLOWS=sound-playback`); that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
 
+### Stage grid and main-menu controls
+
+`stage_view_tests` covers independent Show/Snap state, immediate idle-frame grid repaint, drawing and moving
+with snapping on/off and one Undo. `snapping::tests` checks target priority across all moving-selection anchors.
+`panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight main menus and checks
+View/Control/Window toggles in both directions, real panel visibility, theme changes and document preservation.
+
+Native macOS checks on 4 November 2026 opened all eight menus and exercised grid Show/Snap/Over objects,
+rulers, Control toggles, Hide panels/F4 and the real Find dialog on a disposable demo session. The default Light
+grid was barely visible on the dark page; setting a contrasting grid colour made Show on/off visibly effective.
+No delayed repaint was reproduced. Default contrast and dense-spacing suppression remain open under R-037;
+this is not end-to-end acceptance of every menu command, audible sound or every display/zoom configuration.
+
 <a id="timeline-scenes-sound"></a>
 ### Timeline, scenes and sound
 

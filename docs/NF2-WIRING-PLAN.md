@@ -145,7 +145,8 @@ span under the playhead as a draft (egui temp memory) and applies it with one Un
 accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic presets and per-property curves are also done
 (W2.2, §7.4 rows 1–2).
 
-**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — **done**; see
+**W0.4 · Rulers and grid view state (ST-01, ST-03, ST-05, ST-06, PP-12, MN-03)** — wiring done; grid
+visibility **partial** pending contrast/dense-spacing design R-037. Show/Snap toggles and immediate repaint are verified; see
 [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). View settings live in `stage_view.rs` (`ViewPrefs`), defaults in
 `WorkspacePrefs::view_defaults`; the popover is `panels/view_settings.rs`. Original plan:
 - UI: `shell.rs › stage_chrome` (pass `Some(..)` to `ZoomControl`, handle `ZoomAction::{Rulers, Grid, ViewSettings}`),
@@ -219,7 +220,9 @@ Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Un
 Control ▸ Go to end / step, Window ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
 keyframes and Select all frames work. Open: Properties `Swap…` picker and Stage context menu `Swap symbol…` / `Duplicate
-symbol…` (R-012), Distribute to layers.
+symbol…` (R-012). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
+Hide panels and Enable simple buttons are implemented; current working/unavailable boundaries are in
+`NF2-FUNCTIONAL-SPEC.md` §11. Real-input menu tests exercise toggles in both directions without document changes.
 - UI: `panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus (`panels/timeline.rs`,
   `timeline_edit.rs::frame_range_menu`, `layer_controls.rs`), Library actions in `panels/library.rs`.
 - Commands that already exist and only need rows/shortcuts: Insert ▸ Layer / Layer folder; Edit ▸ Timeline ▸
@@ -255,7 +258,7 @@ no preview exists in code, the panel body must be built from NF2 components per 
 - Registry: `editor-advanced-drawing` (snapping/guides). Acceptance: spec ST-02.
 
 **W1.3 · Snapping (ST-04, TO-06, Preferences ▸ Drawing snapping)** — E-05; **partial**: grid, guide, object and pixel
-snapping (`Guides > Objects > Grid > Pixels`) with the snap ring, the Tools rail `Snap to objects` toggle (TO-06) and
+snapping (`Guides > Objects > Grid > Pixels`, also across all moving-selection anchors) with the snap ring, the Tools rail `Snap to objects` toggle (TO-06) and
 `⌘`-suspend during stage gestures are done (`snapping.rs`, `stage_view.rs`, `panels/tools.rs`); `View ▸ Snapping` submenu
 remains blocked on R-003. Original plan:
 - UI: tools rail snap toggle (if present in composition; else request), View ▸ Snapping, zoom-control Snap toggle,

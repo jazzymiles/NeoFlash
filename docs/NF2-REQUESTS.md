@@ -440,3 +440,13 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** the current menu exposes built-in templates and Reset only. The dormant named-presets map stores only DockLayout; a usable preset must also preserve panel visibility and floating/detached layout state.
 - **Checked:** `panels-menus.txt`, `interface-editor-main.txt`, Preferences General outline and planned dialog previews (no workspace naming dialog).
 - **Proposal (optional):** existing NF2 Menu Item/Select/Dialog components after their composition is approved; built-in templates remain intact.
+
+
+### R-037 · Stage-grid contrast and dense-spacing visibility
+- **Status:** open
+- **Requested by / for:** implementation track · ST-03 / MN-03; user-reported invisible grid on the demo scene.
+- **Where:** `neoflash-ui/src/components/canvas.rs::paint_stage_grid`, `view_settings.rs::default_grid_color` and their design tokens.
+- **Need:** approved default grid contrast over arbitrary authored backgrounds and a defined dense-spacing state for each axis.
+- **Why:** Light's dark 14% grid nearly vanishes on the dark demo; Dark's white grid vanishes on white pages. Show toggles correctly repaint, but the result looks unchanged. Either axis below 3 screen points suppresses both axes, including a still-readable axis. Native Light demo became clearly visible using the existing custom colour field; no theme token or painter was changed.
+- **Checked:** `docs-rulers-guides-grid.txt`, `panels-view-settings.txt`, ST-03, `NF2-RULERS-GUIDES-GRID.md`, current grid painter and `color/stage-grid`.
+- **Proposal (optional):** design-owned background-independent contrast treatment and per-axis major-line fallback at dense zoom; retain custom colour/opacity and separate Show/Snap settings. The design track chooses the approved rendering.
