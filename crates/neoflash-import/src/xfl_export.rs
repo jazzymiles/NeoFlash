@@ -3940,6 +3940,7 @@ mod tests {
                 visible: false,
                 cache_as_bitmap: true,
                 blend_mode: BlendMode::Multiply,
+                merge: false,
                 accessibility: Some(Accessibility {
                     name: "Hero Box".into(),
                     description: "Clickable box".into(),
