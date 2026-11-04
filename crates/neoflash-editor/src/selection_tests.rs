@@ -1387,6 +1387,7 @@ fn auto_keyframe_off_edits_span_keyframe_keeps_motion_property_keys_and_f6_inser
     motion_ed.workspace.timeline_prefs.auto_keyframe = false;
     let before_motion = motion_ed.project.clone();
     motion_ed.frame = 6;
+    motion_ed.set_tool(Tool::Select);
     let text_id = motion_ed.symbol().timeline.layers[0].keyframes[0].elements[0]
         .id
         .clone();
@@ -1447,6 +1448,7 @@ fn tween_type_on_drag_creates_classic_or_motion_tween_in_one_undo_step() {
     let before_classic = editor.project.clone();
 
     editor.frame = 8;
+    editor.set_tool(Tool::Select);
     editor.select_single_id(rect_id.clone());
     stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
     let p0 = page.min + egui::vec2(120., 120.);
@@ -1497,6 +1499,7 @@ fn tween_type_on_drag_creates_classic_or_motion_tween_in_one_undo_step() {
     let before_motion = motion_ed.project.clone();
 
     motion_ed.frame = 10;
+    motion_ed.set_tool(Tool::Select);
     motion_ed.select_single_id(text_id);
     stage_input_frame(&mut motion_ed, &mctx, 0.1, vec![]);
     let q0 = mpage.min + egui::vec2(110., 105.);

@@ -514,6 +514,18 @@ impl Editor {
         group: &DockGroup,
         rect: egui::Rect,
     ) {
+        let first_shape = parent.ctx().graphics(|graphics| {
+            graphics
+                .get(parent.layer_id())
+                .map_or(0, |list| list.next_idx().0)
+        });
+        // Pressing an inactive tab previews that panel during its drag. Keep
+        // the persisted active tab untouched so Escape restores the group.
+        let mut group = group.clone();
+        if let Some(panel) = self.dragged_panel_in_group(surface, &group) {
+            group.active = panel;
+        }
+        let group = &group;
         // NF2: horizontal docks use `Dock Tab` (40, icon + label); side columns use `Panel Tab` (36).
         // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
         // `Panel Tab`s (36). The docked tools rail only gets a slim drag strip, like the Figma rail.
@@ -821,20 +833,21 @@ impl Editor {
         self.detached.dock_groups.push(target);
         // A tab drag may have moved this group during the header callback.
         // Its new owner renders it on the next frame, never a second copy here.
-        let active = self
-            .current_dock_group(surface, edge, group.id)
-            .and_then(|g| {
-                g.tabs
-                    .iter()
-                    .copied()
-                    .find(|p| *p == g.active && self.workspace.is_panel_visible(*p))
-                    .or_else(|| {
-                        g.tabs
-                            .iter()
-                            .copied()
-                            .find(|p| self.workspace.is_panel_visible(*p))
-                    })
-            });
+        let active = self.dragged_panel_in_group(surface, group).or_else(|| {
+            self.current_dock_group(surface, edge, group.id)
+                .and_then(|g| {
+                    g.tabs
+                        .iter()
+                        .copied()
+                        .find(|p| *p == g.active && self.workspace.is_panel_visible(*p))
+                        .or_else(|| {
+                            g.tabs
+                                .iter()
+                                .copied()
+                                .find(|p| self.workspace.is_panel_visible(*p))
+                        })
+                })
+        });
         if let Some(panel) = active
             && body.is_positive()
         {
@@ -847,6 +860,7 @@ impl Editor {
             content.set_min_size(body.size());
             self.dock_panel_contents(&mut content, panel);
         }
+        self.remember_panel_drag_preview(parent, surface, group, rect, first_shape);
     }
 
     pub(crate) fn register_dock_viewport(

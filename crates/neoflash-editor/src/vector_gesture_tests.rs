@@ -34,6 +34,136 @@ fn changed_layout_frame(
 }
 
 #[test]
+fn drawing_tools_remain_active_for_consecutive_gestures_until_explicit_switch() {
+    for tool in [
+        Tool::Rectangle,
+        Tool::Ellipse,
+        Tool::Line,
+        Tool::Pen,
+        Tool::Pencil,
+        Tool::Brush,
+        Tool::PolyStar,
+        Tool::Text,
+    ] {
+        let (mut editor, ctx, page) = rectangle_stage();
+        editor.set_tool(tool);
+        for step in 1..4 {
+            stage_input_frame(&mut editor, &ctx, step as f64 * 0.1, vec![]);
+        }
+        let before = editor.project.clone();
+        let mut after_first = None;
+        for index in 0..2 {
+            let time = 1. + index as f64;
+            let start = page.min + egui::vec2(100. + index as f32 * 320., 100.);
+            let end = start + egui::vec2(90., 45.);
+            if tool == Tool::Pen {
+                for (step, point) in [start, end, start + egui::vec2(20., 80.), start]
+                    .into_iter()
+                    .enumerate()
+                {
+                    pen_click(&mut editor, &ctx, time + step as f64 * 0.1, point, point);
+                }
+            } else if tool == Tool::Text {
+                stage_input_frame(
+                    &mut editor,
+                    &ctx,
+                    time,
+                    vec![
+                        egui::Event::PointerMoved(start),
+                        primary_button(start, true),
+                    ],
+                );
+                stage_input_frame(
+                    &mut editor,
+                    &ctx,
+                    time + 0.1,
+                    vec![primary_button(start, false)],
+                );
+            } else {
+                pen_click(&mut editor, &ctx, time, start, end);
+            }
+            assert_eq!(editor.tool, tool, "drawing must keep {tool:?} active");
+            assert!(editor.shape_draft.is_none());
+            assert!(editor.vector.draft.is_none());
+            let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert_eq!(
+                elements.len(),
+                index + 1,
+                "each {tool:?} gesture creates content"
+            );
+            let selected = editor
+                .selected_element()
+                .expect("new content stays selected");
+            assert_eq!(selected.id, elements[index].id);
+            assert!(match tool {
+                Tool::Rectangle => matches!(selected.kind, ElementKind::Rectangle { .. }),
+                Tool::Ellipse => matches!(selected.kind, ElementKind::Ellipse { .. }),
+                Tool::Text => matches!(selected.kind, ElementKind::TextBox { .. }),
+                _ => matches!(selected.kind, ElementKind::Path { .. }),
+            });
+            editor.project.validate().unwrap();
+            if index == 0 {
+                after_first = Some(editor.project.clone());
+            }
+        }
+        editor.undo();
+        assert_eq!(editor.project, after_first.unwrap());
+        assert_eq!(editor.tool, tool);
+        editor.undo();
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+
+        // Holding Space pans temporarily without replacing the chosen tool.
+        let start = page.center();
+        let end = start + egui::vec2(30., 20.);
+        let key = |key, pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        stage_input_frame(
+            &mut editor,
+            &ctx,
+            3.,
+            vec![
+                key(egui::Key::Space, true),
+                egui::Event::PointerMoved(start),
+                primary_button(start, true),
+                egui::Event::PointerMoved(end),
+                primary_button(end, false),
+            ],
+        );
+        stage_input_frame(&mut editor, &ctx, 3.1, vec![key(egui::Key::Space, false)]);
+        assert_eq!(editor.pan, egui::vec2(30., 20.));
+        assert_eq!(editor.tool, tool);
+        assert_eq!(editor.project, before);
+
+        // The explicit Selection shortcut still changes the tool normally.
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280., 900.),
+                )),
+                time: Some(3.2),
+                events: vec![key(egui::Key::V, true)],
+                ..Default::default()
+            },
+            |ctx| {
+                editor.shortcuts(ctx);
+                editor.stage(ctx);
+            },
+        );
+        assert_eq!(editor.tool, Tool::Select);
+        pen_click(&mut editor, &ctx, 3.3, start, end);
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+    }
+}
+
+#[test]
 fn edit_menu_undo_cancels_an_open_pen_path_with_empty_history() {
     let (mut editor, ctx, page) = rectangle_stage();
     editor.set_tool(Tool::Pen);
@@ -298,7 +428,7 @@ fn pencil_batched_and_separate_outside_release_produce_the_same_path() {
     editor.fill = [0; 4];
     pen_click(&mut editor, &ctx, 0.3, point, point);
     assert_eq!(editor.fill, [90, 50, 110, 77]);
-    assert!(editor.tool == Tool::Bucket);
+    assert_eq!(editor.tool, Tool::Eyedropper);
     editor.undo();
     assert_eq!(editor.project, original);
     assert!(!editor.history.can_undo());
@@ -1139,6 +1269,7 @@ fn paint_tools_share_drawing_gradients_and_sampled_solid_colors() {
                 egui::vec2(140., 130.)
             };
         pen_click(&mut editor, &ctx, 0.3, sample, sample);
+        assert_eq!(editor.tool, Tool::Eyedropper);
         let gradient = if stroke_well {
             &editor.authoring_modify.drawing_stroke_gradient
         } else {

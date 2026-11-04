@@ -23,6 +23,7 @@ pub(crate) struct DetachedState {
     monitors: Vec<ScreenRect>,
     checked_monitors: Option<Instant>,
     drag: Option<PanelDrag>,
+    drag_preview: Option<PanelDragPreview>,
     pub(crate) root_inner: Option<egui::Rect>,
     pub(crate) dock_groups: Vec<DockGroupTarget>,
     pub(crate) content_header: Option<PanelId>,
@@ -44,6 +45,17 @@ struct PanelDrag {
     moved: bool,
     released: bool,
     began: Instant,
+}
+
+/// Read-only copies of the source panel's current paint output. Replaying
+/// shapes keeps its widgets, focus and document callbacks in one viewport.
+struct PanelDragPreview {
+    panel: PanelId,
+    source: egui::ViewportId,
+    grab_offset: egui::Vec2,
+    zoom: f32,
+    size: egui::Vec2,
+    shapes: Vec<egui::epaint::ClippedShape>,
 }
 
 fn viewport(panel: PanelId) -> egui::ViewportId {
@@ -156,6 +168,7 @@ impl Editor {
                 released: false,
                 began: Instant::now(),
             });
+            self.detached.drag_preview = None;
         }
         self.continue_panel_drag(ctx);
         if self.detached.drag.is_some_and(|drag| drag.moved) {
@@ -177,6 +190,7 @@ impl Editor {
             || surface_viewport(self.workspace.panel_surface(drag.panel)) != drag.source
         {
             self.detached.drag = None;
+            self.detached.drag_preview = None;
             return;
         }
         if drag.released {
@@ -228,6 +242,7 @@ impl Editor {
             // A backend with neither native capture nor a release event can
             // cancel safely; it must never invent a drop at a stale point.
             self.detached.drag = None;
+            self.detached.drag_preview = None;
             return;
         }
         drag.moved |= drag.pointer.distance(drag.started) >= 8. * zoom;
@@ -248,6 +263,7 @@ impl Editor {
             return;
         };
         self.detached.drag = None;
+        let preview = self.detached.drag_preview.take();
         if !drag.moved {
             return;
         }
@@ -280,7 +296,13 @@ impl Editor {
                 outer_position: [0., 0.],
                 inner_size: crate::workspace::default_window_size(drag.panel),
             });
-            let position = drag.pointer - drag.grab_offset - egui::vec2(0., 28.);
+            let grab_offset = if let Some(preview) = preview {
+                geometry.inner_size = preview.size.into();
+                preview.grab_offset
+            } else {
+                drag.grab_offset
+            };
+            let position = drag.pointer - grab_offset - egui::vec2(0., 28.);
             geometry.outer_position = [position.x, position.y];
             let window = if drag.group.is_some() {
                 self.workspace.float_group(&panels, drag.panel, geometry)
@@ -296,6 +318,77 @@ impl Editor {
             );
         }
         ctx.request_repaint_of(egui::ViewportId::ROOT);
+    }
+
+    pub(crate) fn dragged_panel_in_group(
+        &self,
+        surface: DockSurface,
+        group: &crate::workspace::DockGroup,
+    ) -> Option<PanelId> {
+        self.detached
+            .drag
+            .filter(|drag| {
+                drag.source == surface_viewport(surface) && group.tabs.contains(&drag.panel)
+            })
+            .map(|drag| drag.panel)
+    }
+
+    pub(crate) fn remember_panel_drag_preview(
+        &mut self,
+        ui: &egui::Ui,
+        surface: DockSurface,
+        group: &crate::workspace::DockGroup,
+        rect: egui::Rect,
+        first_shape: usize,
+    ) {
+        let Some(panel) = self.dragged_panel_in_group(surface, group) else {
+            return;
+        };
+        let Some(drag) = self.detached.drag else {
+            return;
+        };
+        let ctx = ui.ctx();
+        let mut shapes = vec![egui::epaint::ClippedShape {
+            clip_rect: rect,
+            // The parent panel paints its background after its closure returns.
+            shape: neoflash_ui::components::Surface::PanelFlush
+                .frame(ctx)
+                .paint(rect),
+        }];
+        ctx.graphics(|graphics| {
+            if let Some(list) = graphics.get(ui.layer_id()) {
+                shapes.extend(list.all_entries().skip(first_shape).filter_map(|shape| {
+                    let mut shape = shape.clone();
+                    shape.clip_rect = shape.clip_rect.intersect(rect);
+                    shape.clip_rect.is_positive().then_some(shape)
+                }));
+            }
+        });
+        for shape in &mut shapes {
+            shape.transform(egui::emath::TSTransform::from_translation(
+                -rect.min.to_vec2(),
+            ));
+        }
+        let zoom = ctx.zoom_factor();
+        let inner = ctx
+            .input(|i| i.viewport().inner_rect)
+            .unwrap_or_else(|| ctx.viewport_rect());
+        self.detached.drag_preview = Some(PanelDragPreview {
+            panel,
+            source: drag.source,
+            grab_offset: drag.started - (inner.min + rect.min.to_vec2()) * zoom,
+            zoom,
+            size: rect.size() * zoom,
+            shapes,
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn panel_drag_preview_visible(&self) -> bool {
+        self.detached
+            .drag
+            .is_some_and(|drag| drag.moved && !drag.released)
+            && self.detached.drag_preview.is_some()
     }
 
     fn docking_overlay(&self, ctx: &egui::Context, surface: DockSurface) {
@@ -330,25 +423,46 @@ impl Editor {
                 true,
             );
         }
-        // A panel still follows the pointer over the Stage or empty window
-        // space, where releasing will detach it rather than hit a dock target.
-        // Paint only in the frontmost receiving viewport, using the same NF2
-        // ghost as a dock hit; the panel itself keeps its owner until release.
+        // Follow the pointer with the panel's actual contents, not just its tab
+        // label. Only paint copies: the source remains the sole widget owner.
         if self
             .dock_surface_at(drag.pointer)
             .is_some_and(|under_pointer| under_pointer.surface == surface)
         {
             let pointer = (drag.pointer - view.inner.min).to_pos2() / view.zoom;
-            let label = hit.map_or_else(
-                || title(drag.panel).to_owned(),
-                |hit| format!("{} · {}", title(drag.panel), hit.caption),
-            );
-            neoflash_ui::components::drag_ghost_at(
-                &painter,
-                ctx,
-                pointer + egui::vec2(12., 24.),
-                &label,
-            );
+            if let Some(preview) = &self.detached.drag_preview
+                && preview.panel == drag.panel
+                && preview.source == drag.source
+            {
+                let transform = egui::emath::TSTransform {
+                    translation: (drag.pointer - preview.grab_offset - view.inner.min) / view.zoom,
+                    scaling: preview.zoom / view.zoom,
+                };
+                for shape in &preview.shapes {
+                    let mut shape = shape.clone();
+                    shape.transform(transform);
+                    shape.clip_rect = shape.clip_rect.intersect(ctx.viewport_rect());
+                    if shape.clip_rect.is_positive() {
+                        painter.with_clip_rect(shape.clip_rect).add(shape.shape);
+                    }
+                }
+                // Capture the frame that actually paints the preview, even if
+                // an automated drag also delivered its release in this frame.
+                if ctx.viewport_id() == egui::ViewportId::ROOT
+                    && std::env::var_os("NEOFLASH_SCREENSHOT").is_some()
+                    && std::env::var_os("NEOFLASH_SCREENSHOT_DRAG").is_some()
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                }
+            }
+            if let Some(hit) = hit {
+                neoflash_ui::components::drag_ghost_at(
+                    &painter,
+                    ctx,
+                    pointer + egui::vec2(12., 24.),
+                    &format!("{} · {}", title(drag.panel), hit.caption),
+                );
+            }
         }
     }
 
@@ -644,6 +758,7 @@ impl Editor {
         self.detached.active.remove(&window_id);
         if self.detached.drag.is_some_and(|drag| drag.source == id) {
             self.detached.drag = None;
+            self.detached.drag_preview = None;
         }
         self.detached
             .dock_viewports

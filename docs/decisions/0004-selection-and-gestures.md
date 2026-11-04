@@ -2,7 +2,7 @@
 
 Status: accepted and implemented for the initial object tools, 2026-10-26. Live native visual checks remain pending as recorded in VERIFICATION.md.
 
-Classic editing needs a distinction between selecting/moving artwork and changing its transform. V remains Selection; Q exposes Free Transform handles; A edits vector anchors and control points. Selection supports Shift toggling, an additive marquee and Select All across the current symbol's visible, unlocked layers. A nested leaf selects its outer placement in the current editing scope. Selection is editor state, not serialized document data.
+Classic editing needs a distinction between selecting/moving artwork and changing its transform. V remains Selection; Q exposes Free Transform handles; A edits vector anchors and control points. Selection supports Shift toggling, an additive marquee and Select All across the current symbol's visible, unlocked layers. A nested leaf selects its outer placement in the current editing scope. Selection is editor state, not serialized document data. Creating or importing content may select it for inspection without changing the active authoring tool. Tools stay active until an explicit user tool choice; temporary Space pan restores the same tool, and Eyedropper sampling does not switch to a paint tool.
 
 Each selected target uses stable layer and element IDs, scoped to the active symbol. The active insertion layer does not redefine which object is selected. Properties and object Actions require exactly one selected target; a multi-selection must not silently edit an arbitrary member. Duplicate and Delete act on the whole selection and preserve painter order and unrelated sampled objects.
 

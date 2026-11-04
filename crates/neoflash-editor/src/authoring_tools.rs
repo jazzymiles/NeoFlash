@@ -454,13 +454,11 @@ impl Editor {
                 };
                 self.stroke_width = width;
                 self.authoring_modify.drawing_stroke_gradient = None;
-                self.set_tool(Tool::Ink);
             } else {
                 self.fill = paint_gradient(&hit.kind)
                     .map(|g| g.sample(hit.local.x as f64, hit.local.y as f64))
                     .unwrap_or(fill);
                 self.authoring_modify.drawing_fill_gradient = None;
-                self.set_tool(Tool::Bucket);
             }
             return;
         }
@@ -931,7 +929,6 @@ impl Editor {
                     },
                     Transform::default(),
                 );
-                self.tool = g.tool;
             }
             Tool::Eraser => {
                 let mode = self.authoring_tools.eraser_mode;
@@ -1096,7 +1093,6 @@ impl Editor {
                         ..Default::default()
                     },
                 );
-                self.tool = g.tool;
             }
             _ => {}
         }

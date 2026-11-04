@@ -806,7 +806,8 @@ impl Editor {
                 s.select_single_id(id);
             }
         });
-        self.tool = Tool::Select;
+        // Creating content selects it for inspection, but the chosen authoring
+        // tool stays active for the next gesture until the user changes it.
     }
     pub fn convert_to_symbol(&mut self) {
         self.begin_symbol_conversion();

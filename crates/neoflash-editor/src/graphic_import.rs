@@ -458,7 +458,6 @@ impl Editor {
             };
             editor.library_selected = last_symbol;
         });
-        self.tool = crate::app::Tool::Select;
         let suffix = if notices.is_empty() {
             String::new()
         } else {

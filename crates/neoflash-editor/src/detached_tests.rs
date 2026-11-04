@@ -9,84 +9,161 @@ use neoflash_core::Project;
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
-fn panel_drag_ghost_follows_pointer_between_dock_targets_and_cancels_cleanly() {
-    let ctx = egui::Context::default();
-    let mut editor = Editor::from_project(&ctx, Project::blank());
-    let origin = egui::pos2(100., 80.);
-    let render = |editor: &mut Editor, events| {
-        let mut input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1440., 960.),
-            )),
-            events,
-            ..Default::default()
+fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_cleanly() {
+    for (panel, body_label) in [
+        (PanelId::Properties, "HTML5 · Rust / WebAssembly"),
+        (PanelId::Accessibility, "No object selected"),
+    ] {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let origin = egui::pos2(100., 80.);
+        let render = |editor: &mut Editor, events| {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1440., 960.),
+                )),
+                events,
+                ..Default::default()
+            };
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .inner_rect = Some(egui::Rect::from_min_size(origin, egui::vec2(1440., 960.)));
+            ctx.run(input, |ctx| {
+                editor.dock_grid(ctx);
+                editor.detached_panels(ctx);
+            })
         };
-        input
-            .viewports
-            .get_mut(&egui::ViewportId::ROOT)
+        let text_positions = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text)
+                        if text.galley.job.text == body_label
+                            && shape.clip_rect.contains(text.pos) =>
+                    {
+                        Some(text.pos)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        render(&mut editor, vec![]);
+        let source_group = editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|group| group.tabs.iter().any(|(id, _)| *id == panel))
             .unwrap()
-            .inner_rect = Some(egui::Rect::from_min_size(origin, egui::vec2(1440., 960.)));
-        ctx.run(input, |ctx| {
-            editor.dock_grid(ctx);
-            editor.detached_panels(ctx);
-        })
-    };
-    let has_ghost = |output: &egui::FullOutput, pointer: egui::Pos2, label: &str| {
-        output.shapes.iter().any(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.job.text == label => {
-                text.pos.x > pointer.x
-                    && text.pos.y > pointer.y
-                    && text.pos.y < pointer.y + 64.
-                    && shape.clip_rect.contains(text.pos)
-            }
-            _ => false,
-        })
-    };
-    render(&mut editor, vec![]);
-    let tab = editor
-        .detached
-        .dock_groups
-        .iter()
-        .flat_map(|group| &group.tabs)
-        .find(|(panel, _)| *panel == PanelId::Properties)
-        .unwrap()
-        .1
-        .center()
-        - origin.to_vec2();
-    let before = editor.workspace.clone();
-    render(
-        &mut editor,
-        vec![
-            egui::Event::PointerMoved(tab),
-            crate::tests::primary_button(tab, true),
-        ],
-    );
-    let stage = egui::pos2(600., 300.);
-    let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
-    assert!(editor.dock_hit(origin + stage.to_vec2(), 1.).is_none());
-    assert!(has_ghost(&output, stage, "Properties"));
-    assert_eq!(editor.workspace, before, "preview must not move the panel");
+            .rect;
+        let tab = editor
+            .detached
+            .dock_groups
+            .iter()
+            .flat_map(|group| &group.tabs)
+            .find(|(id, _)| *id == panel)
+            .unwrap()
+            .1
+            .center()
+            - origin.to_vec2();
+        let before = editor.workspace.clone();
+        let press = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(tab),
+                crate::tests::primary_button(tab, true),
+            ],
+        );
+        let source_body = text_positions(&press)[0];
+        let stage = egui::pos2(600., 300.);
+        let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+        assert!(editor.dock_hit(origin + stage.to_vec2(), 1.).is_none());
+        let expected = source_body + (stage - tab);
+        assert!(
+            text_positions(&output)
+                .iter()
+                .any(|pos| pos.distance(expected) < 0.1),
+            "{panel:?} must preview its actual body at the drag position, not a title badge"
+        );
+        assert!(editor.panel_drag_preview_visible());
+        assert_eq!(
+            editor.workspace, before,
+            "preview must not reparent or activate the source tab"
+        );
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
 
-    let edge = egui::pos2(40., 400.);
-    let output = render(&mut editor, vec![egui::Event::PointerMoved(edge)]);
-    assert!(has_ghost(&output, edge, "Properties · Dock Left"));
-    let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
-    assert!(has_ghost(&output, stage, "Properties"));
-    let output = render(
-        &mut editor,
-        vec![egui::Event::Key {
-            key: egui::Key::Escape,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        }],
-    );
-    assert!(!has_ghost(&output, stage, "Properties"));
-    assert_eq!(editor.workspace, before);
-    assert!(!editor.dirty());
-    assert!(!editor.history.can_undo());
+        // Content clips travel with the panel between dock targets.
+        let edge = egui::pos2(40., 400.);
+        let output = render(&mut editor, vec![egui::Event::PointerMoved(edge)]);
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
+            if text.galley.job.text == format!("{} · Dock Left", panel.title())))
+        );
+        let output = render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+        assert!(
+            text_positions(&output)
+                .iter()
+                .any(|pos| pos.distance(expected) < 0.1)
+        );
+        let output = render(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!editor.panel_drag_preview_visible());
+        assert!(
+            !text_positions(&output)
+                .iter()
+                .any(|pos| pos.distance(expected) < 0.1)
+        );
+        assert_eq!(editor.workspace, before);
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
+
+        // Detaching a later tab must not jump back to tab-relative coordinates
+        // or resize to a different window footprint when the button is released.
+        render(
+            &mut editor,
+            vec![crate::tests::primary_button(stage, false)],
+        );
+        render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(tab),
+                crate::tests::primary_button(tab, true),
+            ],
+        );
+        render(&mut editor, vec![egui::Event::PointerMoved(stage)]);
+        render(
+            &mut editor,
+            vec![crate::tests::primary_button(stage, false)],
+        );
+        let geometry = editor.workspace.detached_geometry(panel).unwrap();
+        let expected_position = source_group.min + (stage - tab) - egui::vec2(0., 28.);
+        assert_eq!(
+            geometry.outer_position,
+            [expected_position.x, expected_position.y]
+        );
+        assert_eq!(
+            geometry.inner_size,
+            [source_group.width(), source_group.height()]
+        );
+        assert!(!editor.panel_drag_preview_visible());
+        assert!(!editor.dirty());
+        assert!(!editor.history.can_undo());
+    }
 }
 
 #[test]

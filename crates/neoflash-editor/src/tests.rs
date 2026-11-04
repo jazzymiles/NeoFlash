@@ -1151,6 +1151,7 @@ fn selecting_a_highly_scaled_tiny_curve_matches_visible_geometry() {
     editor.selected_element_mut().unwrap().transform.scale_x = 1000.;
     editor.selected_element_mut().unwrap().transform.scale_y = 1000.;
     editor.clear_selection();
+    editor.set_tool(crate::app::Tool::Select);
     let point = page.min + egui::vec2(150., 150.);
     pen_click(&mut editor, &ctx, 0.1, point, point);
     assert_eq!(editor.selection, id);

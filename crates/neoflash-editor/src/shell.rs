@@ -360,6 +360,8 @@ impl Editor {
 /// `NEOFLASH_SCREENSHOT=path.png` saves a PNG of the main window after a few frames and quits.
 /// Optional `NEOFLASH_SCREENSHOT_THEME=light|dark`. Used to compare against
 /// `interface/design-system/exports/interface/{dark,light}/png/editor-main.png`.
+/// `NEOFLASH_SCREENSHOT_DRAG=1` waits for the docking overlay to paint a panel
+/// preview in the main window instead of capturing an idle frame.
 pub(crate) fn capture(ctx: &egui::Context, frame_index: u64) {
     let Ok(path) = std::env::var("NEOFLASH_SCREENSHOT") else {
         return;
@@ -377,7 +379,8 @@ pub(crate) fn capture(ctx: &egui::Context, frame_index: u64) {
             )));
         }
     }
-    if frame_index == 120 {
+    let drag_capture = std::env::var_os("NEOFLASH_SCREENSHOT_DRAG").is_some();
+    if !drag_capture && frame_index == 120 {
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
     }
     let image = ctx.input(|i| {

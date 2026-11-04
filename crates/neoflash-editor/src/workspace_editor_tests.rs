@@ -92,6 +92,7 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     std::fs::write(&rich_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><defs><linearGradient id="g"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><rect width="100" height="100" fill="url(#g)"/></svg>"##).unwrap();
     let graphics_ctx = egui::Context::default();
     let mut graphic_editor = Editor::from_project(&graphics_ctx, Project::blank());
+    graphic_editor.set_tool(Tool::Ellipse);
     graphic_editor.library_panel.selected_folder = "Artwork/Imported".into();
     // Import into a selected folder still creates visible artwork, in one Undo.
     graphic_editor
@@ -137,6 +138,11 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     let _ = graphics_ctx.run(raw, |ctx| graphic_editor.stage(ctx));
     graphic_editor.project.validate().unwrap();
     assert_eq!(graphic_editor.selection.len(), 3);
+    assert_eq!(
+        graphic_editor.tool,
+        Tool::Ellipse,
+        "import keeps the chosen tool"
+    );
     assert_eq!(graphic_editor.symbol().timeline.layers.len(), 2);
     assert_eq!(graphic_editor.layer, 1);
     assert_eq!(
@@ -188,6 +194,7 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
         "a failed file batch changes nothing"
     );
     graphic_editor.undo();
+    assert_eq!(graphic_editor.tool, Tool::Ellipse);
     assert_eq!(
         graphic_editor.project, before,
         "one Undo removes the complete drop batch"

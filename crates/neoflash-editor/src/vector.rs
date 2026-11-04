@@ -1161,8 +1161,6 @@ impl Editor {
             self.frame = draft.frame;
             self.layer = target_layer;
         }
-        let tool = self.tool;
-
         if let Some(shape) = recognised_shape {
             let (kind, x, y, msg) = match shape {
                 RecognisedShape::Rectangle {
@@ -1201,7 +1199,6 @@ impl Editor {
                 ),
             };
             self.add_element(kind, x, y);
-            self.tool = tool;
             if let Some((editing, frame, layer, selected)) = restore {
                 self.editing = editing;
                 self.frame = frame;
@@ -1284,7 +1281,6 @@ impl Editor {
             );
             effective_closed
         };
-        self.tool = tool;
         if let Some((editing, frame, layer, selected)) = restore {
             self.editing = editing;
             self.frame = frame;
