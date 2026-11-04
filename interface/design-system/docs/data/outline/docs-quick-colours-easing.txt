@@ -4,8 +4,8 @@ F Shelf / Quick colours & easing 1148×1050 [V gap 16]
     F Selected=False 18×18
     F Selected=True 18×18
   F NF2/Swatches Popover 300×430 [V gap 10]
-    F Current 274×32 [H gap 6]
-      I NF2/Color Field {Alpha=100 %, Hex=00FFCC} 122×32 "00FFCC" "100 %"
+    F Current 274×32 [H gap 4]
+      I NF2/Color Field {Alpha=100 %, Hex=00FFCC} 130×32 "00FFCC" "100 %"
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32

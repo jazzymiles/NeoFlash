@@ -50,7 +50,7 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Item 576×28 [H gap 16]
         I NF2/TL Layer {Indent 2=true, Editing=true, Indent 1=false, Label=hand, Type=Masked, Selected=True} 280×28 "hand"
         T "Selected + current layer (pencil)"
-    F Frame states 616×506 [V gap 10]
+    F Frame states 616×516 [V gap 10]
       T "Frames (12 px per frame)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
@@ -59,8 +59,8 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 144×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 144×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
         T "Keyframe ● with content, static frames (grey), span end ▯"
@@ -73,31 +73,31 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Classic Tween} 180×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Classic Tween} 180×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
         T "Classic tween — purple with arrow"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Shape Tween} 180×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Shape Tween} 180×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
         T "Shape tween — green with arrow"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Broken Tween} 180×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Broken Tween} 180×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
         T "Broken tween — dashed (missing end keyframe)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Motion Tween} 216×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Motion Tween} 216×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
@@ -106,8 +106,8 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 216×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 216×27
           I NF2/TL Span {Type=Selected} 84×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Marker {Kind=Keyframe, Tone=On Selection} 12×27
@@ -116,37 +116,37 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 144×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 144×27
           I NF2/TL Marker {Kind=Action Keyframe, Tone=Default} 12×27 "a"
           I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
         T "Action keyframe (script on frame)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Frame Label {Label=intro, Kind=Label} 49×27 "intro"
         T "Frame label (red flag)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Frame Label {Label=loop, Kind=Comment} 42×27 "loop"
         T "Frame comment (green //)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28
           I NF2/TL Grid {Kind=Layer} 1440×28
-          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Grid Lines 1440×28
+          I NF2/TL Span {Type=Static} 240×27
           I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
           I NF2/TL Frame Label {Label=home, Kind=Anchor} 43×27 "home"
         T "Anchor (named anchor)"
-      F Onion 616×24 [H gap 16]
-        F Sample 240×24
+      F Onion 616×34 [H gap 16]
+        F Sample 240×34
           I NF2/TL Onion Range 84×24
           I NF2/TL Playhead {Time=1.21s, Frame=8} 24×40 "8" "1.21s"
         T "Playhead with frame number; onion-skin range on the ruler"

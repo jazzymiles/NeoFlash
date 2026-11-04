@@ -6,7 +6,7 @@ F Ease — range states 376×1418 [V gap 32]
       F Row 350×32 [H gap 8]
         I NF2/Select {Label=Property: All, State=Default} 176×32 "Property: All"
         I NF2/Checkbox {Label=One curve for all, Checked=True} 127×20 "One curve for all"
-      F Presets 352×136 [H gap 8]
+      F Presets 350×136 [H gap 8]
         I NF2/Ease Preset {Preset=Linear, Selected=False} 72×64 "Linear"
         I NF2/Ease Preset {Preset=Ease In, Selected=False} 72×64 "Ease In"
         I NF2/Ease Preset {Preset=Ease Out, Selected=False} 72×64 "Ease Out"
@@ -16,12 +16,12 @@ F Ease — range states 376×1418 [V gap 32]
         I NF2/Ease Preset {Preset=Elastic, Selected=False} 72×64 "Elastic"
         I NF2/Ease Preset {Preset=Custom, Selected=False} 72×64 "Custom"
       I NF2/Ease Graph {Range=Overshoot (above 100%)} 336×224 "-20%" "0%" "20%" "40%" "60%" "80%" "100%" "120%" "0" "5" "10" "15"
-      F Row 352×32 [H gap 8]
-        I NF2/Field {Show prefix=true, Prefix=X1, Label=0.30, State=Default} 82×32 "X1" "0.30"
+      F Row 350×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=X1, Label=0.30, State=Default} 80×32 "X1" "0.30"
         I NF2/Field {Show prefix=true, Prefix=Y1, Label=0.00, State=Default} 82×32 "Y1" "0.00"
         I NF2/Field {Show prefix=true, Prefix=X2, Label=0.55, State=Default} 82×32 "X2" "0.55"
         I NF2/Field {Show prefix=true, Prefix=Y2, Label=1.30, State=Focus} 82×32 "Y2" "1.30"
-      F Preview track 352×28
+      F Preview track 350×28
       F Row 226×32 [H gap 8]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
@@ -38,7 +38,7 @@ F Ease — range states 376×1418 [V gap 32]
       F Row 350×32 [H gap 8]
         I NF2/Select {Label=Property: All, State=Default} 176×32 "Property: All"
         I NF2/Checkbox {Label=One curve for all, Checked=True} 127×20 "One curve for all"
-      F Presets 352×136 [H gap 8]
+      F Presets 350×136 [H gap 8]
         I NF2/Ease Preset {Preset=Linear, Selected=False} 72×64 "Linear"
         I NF2/Ease Preset {Preset=Ease In, Selected=False} 72×64 "Ease In"
         I NF2/Ease Preset {Preset=Ease Out, Selected=False} 72×64 "Ease Out"
@@ -48,12 +48,12 @@ F Ease — range states 376×1418 [V gap 32]
         I NF2/Ease Preset {Preset=Elastic, Selected=False} 72×64 "Elastic"
         I NF2/Ease Preset {Preset=Custom, Selected=False} 72×64 "Custom"
       I NF2/Ease Graph {Range=Undershoot (below 0%)} 336×224 "-20%" "0%" "20%" "40%" "60%" "80%" "100%" "120%" "0" "5" "10" "15"
-      F Row 352×32 [H gap 8]
-        I NF2/Field {Show prefix=true, Prefix=X1, Label=0.35, State=Default} 82×32 "X1" "0.35"
+      F Row 350×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=X1, Label=0.35, State=Default} 80×32 "X1" "0.35"
         I NF2/Field {Show prefix=true, Prefix=Y1, Label=-0.30, State=Focus} 82×32 "Y1" "-0.30"
         I NF2/Field {Show prefix=true, Prefix=X2, Label=0.70, State=Default} 82×32 "X2" "0.70"
         I NF2/Field {Show prefix=true, Prefix=Y2, Label=1.00, State=Default} 82×32 "Y2" "1.00"
-      F Preview track 352×28
+      F Preview track 350×28
       F Row 226×32 [H gap 8]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32

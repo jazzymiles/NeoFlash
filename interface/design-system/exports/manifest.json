@@ -653,11 +653,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "dialogs-sound-stroke",
-  "png": "exports/panels/dark/png/dialogs-sound-stroke.png",
-  "svg": "exports/panels/dark/svg/dialogs-sound-stroke.svg",
+  "png": "exports/panels/dark/boards/png/dialogs-sound-stroke.png",
+  "svg": "exports/panels/dark/boards/svg/dialogs-sound-stroke.svg",
   "w": 680,
   "h": 1164,
-  "pngMaxDimension": 2328
+  "pngMaxDimension": 2328,
+  "split": true
  },
  {
   "id": "69:15752",
@@ -665,11 +666,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "dialogs-sound-stroke",
-  "png": "exports/panels/light/png/dialogs-sound-stroke.png",
-  "svg": "exports/panels/light/svg/dialogs-sound-stroke.svg",
+  "png": "exports/panels/light/boards/png/dialogs-sound-stroke.png",
+  "svg": "exports/panels/light/boards/svg/dialogs-sound-stroke.svg",
   "w": 680,
   "h": 1164,
-  "pngMaxDimension": 2328
+  "pngMaxDimension": 2328,
+  "split": true
  },
  {
   "id": "43:4271",
@@ -677,11 +679,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "panels-more",
-  "png": "exports/panels/dark/png/panels-more.png",
-  "svg": "exports/panels/dark/svg/panels-more.svg",
+  "png": "exports/panels/dark/boards/png/panels-more.png",
+  "svg": "exports/panels/dark/boards/svg/panels-more.svg",
   "w": 324,
   "h": 1711,
-  "pngMaxDimension": 3422
+  "pngMaxDimension": 3422,
+  "split": true
  },
  {
   "id": "69:15839",
@@ -689,11 +692,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "panels-more",
-  "png": "exports/panels/light/png/panels-more.png",
-  "svg": "exports/panels/light/svg/panels-more.svg",
+  "png": "exports/panels/light/boards/png/panels-more.png",
+  "svg": "exports/panels/light/boards/svg/panels-more.svg",
   "w": 324,
   "h": 1711,
-  "pngMaxDimension": 3422
+  "pngMaxDimension": 3422,
+  "split": true
  },
  {
   "id": "43:4272",
@@ -701,11 +705,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "panels-more-2",
-  "png": "exports/panels/dark/png/panels-more-2.png",
-  "svg": "exports/panels/dark/svg/panels-more-2.svg",
+  "png": "exports/panels/dark/boards/png/panels-more-2.png",
+  "svg": "exports/panels/dark/boards/svg/panels-more-2.svg",
   "w": 560,
   "h": 1005,
-  "pngMaxDimension": 2010
+  "pngMaxDimension": 2010,
+  "split": true
  },
  {
   "id": "69:15902",
@@ -713,11 +718,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "panels-more-2",
-  "png": "exports/panels/light/png/panels-more-2.png",
-  "svg": "exports/panels/light/svg/panels-more-2.svg",
+  "png": "exports/panels/light/boards/png/panels-more-2.png",
+  "svg": "exports/panels/light/boards/svg/panels-more-2.svg",
   "w": 560,
   "h": 1005,
-  "pngMaxDimension": 2010
+  "pngMaxDimension": 2010,
+  "split": true
  },
  {
   "id": "54:6859",
@@ -725,11 +731,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "dialogs-convert-to-symbol",
-  "png": "exports/panels/dark/png/dialogs-convert-to-symbol.png",
-  "svg": "exports/panels/dark/svg/dialogs-convert-to-symbol.svg",
+  "png": "exports/panels/dark/boards/png/dialogs-convert-to-symbol.png",
+  "svg": "exports/panels/dark/boards/svg/dialogs-convert-to-symbol.svg",
   "w": 560,
   "h": 1550,
-  "pngMaxDimension": 3100
+  "pngMaxDimension": 3100,
+  "split": true
  },
  {
   "id": "69:15975",
@@ -737,11 +744,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "dialogs-convert-to-symbol",
-  "png": "exports/panels/light/png/dialogs-convert-to-symbol.png",
-  "svg": "exports/panels/light/svg/dialogs-convert-to-symbol.svg",
+  "png": "exports/panels/light/boards/png/dialogs-convert-to-symbol.png",
+  "svg": "exports/panels/light/boards/svg/dialogs-convert-to-symbol.svg",
   "w": 560,
   "h": 1550,
-  "pngMaxDimension": 3100
+  "pngMaxDimension": 3100,
+  "split": true
  },
  {
   "id": "56:7102",
@@ -749,11 +757,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "ease-range-states",
-  "png": "exports/panels/dark/png/ease-range-states.png",
-  "svg": "exports/panels/dark/svg/ease-range-states.svg",
+  "png": "exports/panels/dark/boards/png/ease-range-states.png",
+  "svg": "exports/panels/dark/boards/svg/ease-range-states.svg",
   "w": 376,
   "h": 1418,
-  "pngMaxDimension": 2836
+  "pngMaxDimension": 2836,
+  "split": true
  },
  {
   "id": "69:16083",
@@ -761,11 +770,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "ease-range-states",
-  "png": "exports/panels/light/png/ease-range-states.png",
-  "svg": "exports/panels/light/svg/ease-range-states.svg",
+  "png": "exports/panels/light/boards/png/ease-range-states.png",
+  "svg": "exports/panels/light/boards/svg/ease-range-states.svg",
   "w": 376,
   "h": 1418,
-  "pngMaxDimension": 2836
+  "pngMaxDimension": 2836,
+  "split": true
  },
  {
   "id": "56:7523",
@@ -821,11 +831,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "dialogs-export",
-  "png": "exports/panels/dark/png/dialogs-export.png",
-  "svg": "exports/panels/dark/svg/dialogs-export.svg",
+  "png": "exports/panels/dark/boards/png/dialogs-export.png",
+  "svg": "exports/panels/dark/boards/svg/dialogs-export.svg",
   "w": 880,
   "h": 3540,
-  "pngMaxDimension": 7080
+  "pngMaxDimension": 7080,
+  "split": true
  },
  {
   "id": "69:16257",
@@ -833,11 +844,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "dialogs-export",
-  "png": "exports/panels/light/png/dialogs-export.png",
-  "svg": "exports/panels/light/svg/dialogs-export.svg",
+  "png": "exports/panels/light/boards/png/dialogs-export.png",
+  "svg": "exports/panels/light/boards/svg/dialogs-export.svg",
   "w": 880,
   "h": 3540,
-  "pngMaxDimension": 7080
+  "pngMaxDimension": 7080,
+  "split": true
  },
  {
   "id": "63:12029",
@@ -845,11 +857,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "drawing-tools-panels",
-  "png": "exports/panels/dark/png/drawing-tools-panels.png",
-  "svg": "exports/panels/dark/svg/drawing-tools-panels.svg",
+  "png": "exports/panels/dark/boards/png/drawing-tools-panels.png",
+  "svg": "exports/panels/dark/boards/svg/drawing-tools-panels.svg",
   "w": 560,
   "h": 1318,
-  "pngMaxDimension": 2636
+  "pngMaxDimension": 2636,
+  "split": true
  },
  {
   "id": "69:16544",
@@ -857,11 +870,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "drawing-tools-panels",
-  "png": "exports/panels/light/png/drawing-tools-panels.png",
-  "svg": "exports/panels/light/svg/drawing-tools-panels.svg",
+  "png": "exports/panels/light/boards/png/drawing-tools-panels.png",
+  "svg": "exports/panels/light/boards/svg/drawing-tools-panels.svg",
   "w": 560,
   "h": 1318,
-  "pngMaxDimension": 2636
+  "pngMaxDimension": 2636,
+  "split": true
  },
  {
   "id": "63:12030",
@@ -869,11 +883,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "drawing-tools-panels-2",
-  "png": "exports/panels/dark/png/drawing-tools-panels-2.png",
-  "svg": "exports/panels/dark/svg/drawing-tools-panels-2.svg",
+  "png": "exports/panels/dark/boards/png/drawing-tools-panels-2.png",
+  "svg": "exports/panels/dark/boards/svg/drawing-tools-panels-2.svg",
   "w": 320,
   "h": 1600,
-  "pngMaxDimension": 3200
+  "pngMaxDimension": 3200,
+  "split": true
  },
  {
   "id": "69:16621",
@@ -881,11 +896,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "drawing-tools-panels-2",
-  "png": "exports/panels/light/png/drawing-tools-panels-2.png",
-  "svg": "exports/panels/light/svg/drawing-tools-panels-2.svg",
+  "png": "exports/panels/light/boards/png/drawing-tools-panels-2.png",
+  "svg": "exports/panels/light/boards/svg/drawing-tools-panels-2.svg",
   "w": 320,
   "h": 1600,
-  "pngMaxDimension": 3200
+  "pngMaxDimension": 3200,
+  "split": true
  },
  {
   "id": "64:12881",
@@ -893,11 +909,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "symbols-panels",
-  "png": "exports/panels/dark/png/symbols-panels.png",
-  "svg": "exports/panels/dark/svg/symbols-panels.svg",
+  "png": "exports/panels/dark/boards/png/symbols-panels.png",
+  "svg": "exports/panels/dark/boards/svg/symbols-panels.svg",
   "w": 440,
   "h": 938,
-  "pngMaxDimension": 1876
+  "pngMaxDimension": 1876,
+  "split": true
  },
  {
   "id": "69:16718",
@@ -905,11 +922,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "symbols-panels",
-  "png": "exports/panels/light/png/symbols-panels.png",
-  "svg": "exports/panels/light/svg/symbols-panels.svg",
+  "png": "exports/panels/light/boards/png/symbols-panels.png",
+  "svg": "exports/panels/light/boards/svg/symbols-panels.svg",
   "w": 440,
   "h": 938,
-  "pngMaxDimension": 1876
+  "pngMaxDimension": 1876,
+  "split": true
  },
  {
   "id": "64:13054",
@@ -941,11 +959,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "scripting-panels",
-  "png": "exports/panels/dark/png/scripting-panels.png",
-  "svg": "exports/panels/dark/svg/scripting-panels.svg",
+  "png": "exports/panels/dark/boards/png/scripting-panels.png",
+  "svg": "exports/panels/dark/boards/svg/scripting-panels.svg",
   "w": 960,
   "h": 1001,
-  "pngMaxDimension": 2002
+  "pngMaxDimension": 2002,
+  "split": true
  },
  {
   "id": "69:16844",
@@ -953,11 +972,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "scripting-panels",
-  "png": "exports/panels/light/png/scripting-panels.png",
-  "svg": "exports/panels/light/svg/scripting-panels.svg",
+  "png": "exports/panels/light/boards/png/scripting-panels.png",
+  "svg": "exports/panels/light/boards/svg/scripting-panels.svg",
   "w": 960,
   "h": 1001,
-  "pngMaxDimension": 2002
+  "pngMaxDimension": 2002,
+  "split": true
  },
  {
   "id": "66:13302",
@@ -965,11 +985,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "document-dialogs",
-  "png": "exports/panels/dark/png/document-dialogs.png",
-  "svg": "exports/panels/dark/svg/document-dialogs.svg",
+  "png": "exports/panels/dark/boards/png/document-dialogs.png",
+  "svg": "exports/panels/dark/boards/svg/document-dialogs.svg",
   "w": 640,
   "h": 1424,
-  "pngMaxDimension": 2848
+  "pngMaxDimension": 2848,
+  "split": true
  },
  {
   "id": "69:16960",
@@ -977,11 +998,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "document-dialogs",
-  "png": "exports/panels/light/png/document-dialogs.png",
-  "svg": "exports/panels/light/svg/document-dialogs.svg",
+  "png": "exports/panels/light/boards/png/document-dialogs.png",
+  "svg": "exports/panels/light/boards/svg/document-dialogs.svg",
   "w": 640,
   "h": 1424,
-  "pngMaxDimension": 2848
+  "pngMaxDimension": 2848,
+  "split": true
  },
  {
   "id": "67:13512",
@@ -989,11 +1011,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "motion-panels",
-  "png": "exports/panels/dark/png/motion-panels.png",
-  "svg": "exports/panels/dark/svg/motion-panels.svg",
+  "png": "exports/panels/dark/boards/png/motion-panels.png",
+  "svg": "exports/panels/dark/boards/svg/motion-panels.svg",
   "w": 1120,
   "h": 1120,
-  "pngMaxDimension": 2240
+  "pngMaxDimension": 2240,
+  "split": true
  },
  {
   "id": "69:17059",
@@ -1001,11 +1024,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "motion-panels",
-  "png": "exports/panels/light/png/motion-panels.png",
-  "svg": "exports/panels/light/svg/motion-panels.svg",
+  "png": "exports/panels/light/boards/png/motion-panels.png",
+  "svg": "exports/panels/light/boards/svg/motion-panels.svg",
   "w": 1120,
   "h": 1120,
-  "pngMaxDimension": 2240
+  "pngMaxDimension": 2240,
+  "split": true
  },
  {
   "id": "69:13727",
@@ -1013,11 +1037,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "publish-misc-dialogs",
-  "png": "exports/panels/dark/png/publish-misc-dialogs.png",
-  "svg": "exports/panels/dark/svg/publish-misc-dialogs.svg",
+  "png": "exports/panels/dark/boards/png/publish-misc-dialogs.png",
+  "svg": "exports/panels/dark/boards/svg/publish-misc-dialogs.svg",
   "w": 1000,
   "h": 2177,
-  "pngMaxDimension": 4354
+  "pngMaxDimension": 4354,
+  "split": true
  },
  {
   "id": "69:17237",
@@ -1025,11 +1050,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "publish-misc-dialogs",
-  "png": "exports/panels/light/png/publish-misc-dialogs.png",
-  "svg": "exports/panels/light/svg/publish-misc-dialogs.svg",
+  "png": "exports/panels/light/boards/png/publish-misc-dialogs.png",
+  "svg": "exports/panels/light/boards/svg/publish-misc-dialogs.svg",
   "w": 1000,
   "h": 2177,
-  "pngMaxDimension": 4354
+  "pngMaxDimension": 4354,
+  "split": true
  },
  {
   "id": "44:5714",
@@ -1037,11 +1063,12 @@
   "group": "panels",
   "theme": "dark",
   "slug": "menus",
-  "png": "exports/panels/dark/png/menus.png",
-  "svg": "exports/panels/dark/svg/menus.svg",
+  "png": "exports/panels/dark/boards/png/menus.png",
+  "svg": "exports/panels/dark/boards/svg/menus.svg",
   "w": 1438,
   "h": 2054,
-  "pngMaxDimension": 4108
+  "pngMaxDimension": 4108,
+  "split": true
  },
  {
   "id": "60:10332",
@@ -1049,11 +1076,12 @@
   "group": "panels",
   "theme": "light",
   "slug": "menus",
-  "png": "exports/panels/light/png/menus.png",
-  "svg": "exports/panels/light/svg/menus.svg",
+  "png": "exports/panels/light/boards/png/menus.png",
+  "svg": "exports/panels/light/boards/svg/menus.svg",
   "w": 1438,
   "h": 2054,
-  "pngMaxDimension": 4108
+  "pngMaxDimension": 4108,
+  "split": true
  },
  {
   "id": "45:6581",
@@ -1294,6 +1322,156 @@
   "w": 1250,
   "h": 1348,
   "pngMaxDimension": 2696
+ },
+ {
+  "id": "97:15992",
+  "name": "Tools — flyout groups",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "tools-flyout-groups",
+  "png": "exports/panels/dark/boards/png/tools-flyout-groups.png",
+  "svg": "exports/panels/dark/boards/svg/tools-flyout-groups.svg",
+  "w": 780,
+  "h": 1982,
+  "pngMaxDimension": 3964,
+  "split": true
+ },
+ {
+  "id": "104:16949",
+  "name": "Tools — flyout groups",
+  "group": "panels",
+  "theme": "light",
+  "slug": "tools-flyout-groups",
+  "png": "exports/panels/light/boards/png/tools-flyout-groups.png",
+  "svg": "exports/panels/light/boards/svg/tools-flyout-groups.svg",
+  "w": 780,
+  "h": 1982,
+  "pngMaxDimension": 3964,
+  "split": true
+ },
+ {
+  "id": "99:16270",
+  "name": "Dialog / Customize tools panel",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "dialog-customize-tools-panel",
+  "png": "exports/panels/dark/png/dialog-customize-tools-panel.png",
+  "svg": "exports/panels/dark/svg/dialog-customize-tools-panel.svg",
+  "w": 780,
+  "h": 682,
+  "pngMaxDimension": 1560
+ },
+ {
+  "id": "104:17009",
+  "name": "Dialog / Customize tools panel",
+  "group": "panels",
+  "theme": "light",
+  "slug": "dialog-customize-tools-panel",
+  "png": "exports/panels/light/png/dialog-customize-tools-panel.png",
+  "svg": "exports/panels/light/svg/dialog-customize-tools-panel.svg",
+  "w": 780,
+  "h": 682,
+  "pngMaxDimension": 1560
+ },
+ {
+  "id": "100:16596",
+  "name": "Commands — panel & dialog",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "commands-panel-dialog",
+  "png": "exports/panels/dark/boards/png/commands-panel-dialog.png",
+  "svg": "exports/panels/dark/boards/svg/commands-panel-dialog.svg",
+  "w": 420,
+  "h": 1555,
+  "pngMaxDimension": 3110,
+  "split": true
+ },
+ {
+  "id": "104:17080",
+  "name": "Commands — panel & dialog",
+  "group": "panels",
+  "theme": "light",
+  "slug": "commands-panel-dialog",
+  "png": "exports/panels/light/boards/png/commands-panel-dialog.png",
+  "svg": "exports/panels/light/boards/svg/commands-panel-dialog.svg",
+  "w": 420,
+  "h": 1555,
+  "pngMaxDimension": 3110,
+  "split": true
+ },
+ {
+  "id": "101:16811",
+  "name": "Brushes & pencil — panels",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "brushes-pencil-panels",
+  "png": "exports/panels/dark/boards/png/brushes-pencil-panels.png",
+  "svg": "exports/panels/dark/boards/svg/brushes-pencil-panels.svg",
+  "w": 760,
+  "h": 2462,
+  "pngMaxDimension": 4924,
+  "split": true
+ },
+ {
+  "id": "104:17174",
+  "name": "Brushes & pencil — panels",
+  "group": "panels",
+  "theme": "light",
+  "slug": "brushes-pencil-panels",
+  "png": "exports/panels/light/boards/png/brushes-pencil-panels.png",
+  "svg": "exports/panels/light/boards/svg/brushes-pencil-panels.svg",
+  "w": 760,
+  "h": 2462,
+  "pngMaxDimension": 4924,
+  "split": true
+ },
+ {
+  "id": "102:17071",
+  "name": "Canvas — brush & pencil",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "canvas-brush-pencil",
+  "png": "exports/panels/dark/png/canvas-brush-pencil.png",
+  "svg": "exports/panels/dark/svg/canvas-brush-pencil.svg",
+  "w": 760,
+  "h": 520,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "104:17289",
+  "name": "Canvas — brush & pencil",
+  "group": "panels",
+  "theme": "light",
+  "slug": "canvas-brush-pencil",
+  "png": "exports/panels/light/png/canvas-brush-pencil.png",
+  "svg": "exports/panels/light/svg/canvas-brush-pencil.svg",
+  "w": 760,
+  "h": 520,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "103:17084",
+  "name": "Dialog / Trace bitmap",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "dialog-trace-bitmap",
+  "png": "exports/panels/dark/png/dialog-trace-bitmap.png",
+  "svg": "exports/panels/dark/svg/dialog-trace-bitmap.svg",
+  "w": 680,
+  "h": 684,
+  "pngMaxDimension": 1368
+ },
+ {
+  "id": "104:17323",
+  "name": "Dialog / Trace bitmap",
+  "group": "panels",
+  "theme": "light",
+  "slug": "dialog-trace-bitmap",
+  "png": "exports/panels/light/png/dialog-trace-bitmap.png",
+  "svg": "exports/panels/light/svg/dialog-trace-bitmap.svg",
+  "w": 680,
+  "h": 684,
+  "pngMaxDimension": 1368
  },
  {
   "id": "1:8742",
@@ -1642,5 +1820,17 @@
   "w": 2560,
   "h": 1440,
   "pngMaxDimension": 5120
+ },
+ {
+  "id": "96:793",
+  "name": "Brushes and tool flyouts",
+  "group": "docs",
+  "theme": "-",
+  "slug": "brushes-tool-flyouts",
+  "png": "docs/illustrations/brushes-tool-flyouts.png",
+  "svg": null,
+  "w": 1000,
+  "h": 590,
+  "pngMaxDimension": 2000
  }
 ]

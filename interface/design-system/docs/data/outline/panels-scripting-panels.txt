@@ -27,16 +27,16 @@ F Scripting — panels 960×1001 [V gap 32]
         F Frame 239×28 [H gap 6]
           I NF2 Icon/16/callstack 16×16
           T "[global code]"
-      F Variables 380×227 [V gap 0]
-        F Title 379×30 [H gap 6]
+      F Variables 378×227 [V gap 0]
+        F Title 377×30 [H gap 6]
           T "Variables"
-        I NF2/Table Row {Value=Value, Property=Name, Kind=Header} 379×28 "Name" "Value"
-        I NF2/Table Row {Value=MovieClip "orbit", Property=▸ this, Kind=Row} 379×28 "▸ this" "MovieClip "orbit""
-        I NF2/Table Row {Value=Animator, Property=▾ animator, Kind=Row} 379×28 "▾ animator" "Animator"
-        I NF2/Table Row {Value=orbit_mc → null, Property=    target, Kind=Row} 379×28 "    target" "orbit_mc → null"
-        I NF2/Table Row {Value=2.5  (changed), Property=    speed, Kind=Selected} 379×28 "    speed" "2.5  (changed)"
-        I NF2/Table Row {Value=XML (14 nodes), Property=▸ orbitXML, Kind=Row} 379×28 "▸ orbitXML" "XML (14 nodes)"
-        I NF2/Table Row {Value=1, Property=  frame, Kind=Row} 379×28 "  frame" "1"
+        I NF2/Table Row {Value=Value, Property=Name, Kind=Header} 377×28 "Name" "Value"
+        I NF2/Table Row {Value=MovieClip "orbit", Property=▸ this, Kind=Row} 377×28 "▸ this" "MovieClip "orbit""
+        I NF2/Table Row {Value=Animator, Property=▾ animator, Kind=Row} 377×28 "▾ animator" "Animator"
+        I NF2/Table Row {Value=orbit_mc → null, Property=    target, Kind=Row} 377×28 "    target" "orbit_mc → null"
+        I NF2/Table Row {Value=2.5  (changed), Property=    speed, Kind=Selected} 377×28 "    speed" "2.5  (changed)"
+        I NF2/Table Row {Value=XML (14 nodes), Property=▸ orbitXML, Kind=Row} 377×28 "▸ orbitXML" "XML (14 nodes)"
+        I NF2/Table Row {Value=1, Property=  frame, Kind=Row} 377×28 "  frame" "1"
       F Watch 340×253 [V gap 0]
         F Title 339×30 [H gap 6]
           T "Watch"

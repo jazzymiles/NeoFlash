@@ -58,9 +58,10 @@ figcaption { font-size: 8pt; color: var(--ink-3); margin-top: 1.5mm; }
 .warn { background: #fff4e6; border-left-color: var(--orange); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; align-items: start; }
 .panel { break-inside: avoid; border-top: 1px solid var(--line); padding-top: 2mm; }
-.panel.wide { break-inside: auto; }
+.panel.wide { break-inside: avoid; }
+.panel.wide h3, .panel.wide p { break-after: avoid; }
 .panel.wide p { font-size: 9pt; }
-.panel.wide img { max-height: 228mm; }
+.panel.wide img { max-height: 190mm; }
 .panel-row { display: grid; grid-template-columns: 70mm 1fr; gap: 6mm; align-items: start; }
 .panel-pic figure { margin: 0; }
 .panel-pic img { max-height: 150mm; }

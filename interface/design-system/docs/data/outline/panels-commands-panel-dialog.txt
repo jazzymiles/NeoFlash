@@ -1,0 +1,94 @@
+F Commands — panel & dialog 420×1555 [V gap 40]
+  F Panel / Commands 300×1151 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Commands" "Panel" "Panel"
+    F Toolbar 298×50 [H gap 8]
+      I NF2/Search {Label=Find command, State=Empty} 234×32 "Find command"
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Count 93×20 [H gap 0]
+      T "31 commands"
+    F Tree 298×998 [V gap 0]
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Animation, Type=Folder Open, Selected=False} 286×32 "Animation"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=PNG sequence to SWF, Type=Symbol, Selected=False} 270×32 "PNG sequence to SWF"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Propagate element names across frames, Type=Symbol, Selected=False} 270×32 "Propagate element names across frames"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Development, Type=Folder Open, Selected=False} 286×32 "Development"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=ActionScript, Type=Folder Open, Selected=False} 270×32 "ActionScript"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Declare stage instances, Type=Symbol, Selected=False} 254×32 "Declare stage instances"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Export class, Type=Symbol, Selected=False} 254×32 "Export class"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Export SWC, Type=Symbol, Selected=False} 254×32 "Export SWC"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Tools, Type=Folder Open, Selected=False} 270×32 "Tools"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Execute script file, Type=Symbol, Selected=False} 254×32 "Execute script file"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Inspect bitmap, Type=Symbol, Selected=False} 254×32 "Inspect bitmap"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Inspect variable, Type=Symbol, Selected=False} 254×32 "Inspect variable"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Extensions, Type=Folder Open, Selected=False} 270×32 "Extensions"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Change module, Type=Symbol, Selected=False} 254×32 "Change module"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Sync module, Type=Symbol, Selected=False} 254×32 "Sync module"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Library, Type=Folder Open, Selected=False} 286×32 "Library"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Delete empty folders, Type=Symbol, Selected=False} 270×32 "Delete empty folders"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Inspect selected items, Type=Symbol, Selected=False} 270×32 "Inspect selected items"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Select items by property, Type=Symbol, Selected=True} 270×32 "Select items by property"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Smooth bitmaps, Type=Symbol, Selected=False} 270×32 "Smooth bitmaps"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Spreadsheet-edit properties, Type=Symbol, Selected=False} 270×32 "Spreadsheet-edit properties"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Wrap bitmaps in classes, Type=Symbol, Selected=False} 270×32 "Wrap bitmaps in classes"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Stage, Type=Folder Open, Selected=False} 286×32 "Stage"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Apply tints, Type=Symbol, Selected=False} 270×32 "Apply tints"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Assign unique names, Type=Symbol, Selected=False} 270×32 "Assign unique names"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Create test squares, Type=Symbol, Selected=False} 270×32 "Create test squares"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Make circular, Type=Symbol, Selected=False} 270×32 "Make circular"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Randomize selected elements, Type=Symbol, Selected=False} 270×32 "Randomize selected elements"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Set 9-slice guides, Type=Symbol, Selected=False} 270×32 "Set 9-slice guides"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Tools, Type=Folder Open, Selected=False} 286×32 "Tools"
+      F Row 286×32 [H gap 0]
+        I NF2/Tree Item {Label=Find, Type=Symbol, Selected=False} 270×32 "Find"
+    F Footer 298×45 [H gap 2]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Spacer 112×1 [H gap 0]
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Dialog / Commands set 420×364 [V gap 0]
+    I NF2/Dialog Header 418×60 "Commands"
+    F Body 418×238 [V gap 16]
+      F Set 370×178 [H gap 16]
+        T "Set"
+        F Options 290×178 [V gap 12]
+          I NF2/Radio {Label=User commands, Selected=False} 116×16 "User commands"
+          I NF2/Radio {Label=Commands folder, Selected=True} 124×16 "Commands folder"
+          I NF2/Radio {Label=API examples, Selected=False} 100×16 "API examples"
+          T "Commands are script files (.nfsl) run on the document. User commands live in your profile; the commands folder is shared by the team."
+      F Action 370×32 [H gap 16]
+        T "Action"
+        I NF2/Select {Label=Load (replace list), State=Default} 290×32 "Load (replace list)"
+    F Footer 418×64 [H gap 8]
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
+      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"

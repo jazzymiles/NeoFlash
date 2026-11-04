@@ -10,31 +10,31 @@ F Timeline — Button symbol (cta_btn) 900×300
     T "Hit"
   I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=label, Type=Layer, Selected=False} 208×28 "label"
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=shape, Type=Layer, Selected=True} 208×28 "shape"
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=hit area, Type=Guide, Selected=False} 208×28 "hit area"
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 83×27
-  E Ellipse 8×8
+  E Ellipse 6×6
   R Rectangle 2×114
   F State previews 676×66 [H gap 12]
     F State Up 160×66 [V gap 6]

@@ -4,7 +4,7 @@ F Dialogs — Convert to Symbol 560×1550 [V gap 32]
     F Body 558×260 [V gap 14]
       F Name 510×52 [V gap 4]
         T "Name"
-        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 510×32 "W" "Badge symbol"
       F Row 510×52 [H gap 12]
         F Type 196×52 [V gap 4]
           T "Type"
@@ -27,7 +27,7 @@ F Dialogs — Convert to Symbol 560×1550 [V gap 32]
     F Body 558×260 [V gap 14]
       F Name 510×52 [V gap 4]
         T "Name"
-        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 510×32 "W" "Badge symbol"
       F Row 510×52 [H gap 12]
         F Type 196×52 [V gap 4]
           T "Type"
@@ -54,7 +54,7 @@ F Dialogs — Convert to Symbol 560×1550 [V gap 32]
     F Body 558×780 [V gap 14]
       F Name 510×52 [V gap 4]
         T "Name"
-        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 512×32 "W" "Badge symbol"
+        I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 510×32 "W" "Badge symbol"
       F Row 510×52 [H gap 12]
         F Type 196×52 [V gap 4]
           T "Type"
@@ -77,13 +77,13 @@ F Dialogs — Convert to Symbol 560×1550 [V gap 32]
             I NF2/Checkbox {Label=Export for ActionScript, Checked=True} 167×20 "Export for ActionScript"
             I NF2/Checkbox {Label=Export in frame 1, Checked=True} 130×20 "Export in frame 1"
           F Row 484×32 [H gap 8]
-            I NF2/Field {Show prefix=true, Prefix=Identifier, Label=badge_symbol, State=Default} 488×32 "Identifier" "badge_symbol"
+            I NF2/Field {Show prefix=true, Prefix=Identifier, Label=badge_symbol, State=Default} 484×32 "Identifier" "badge_symbol"
           F Row 484×32 [H gap 8]
-            I NF2/Field {Show prefix=true, Prefix=Class, Label=Badge, State=Default} 408×32 "Class" "Badge"
+            I NF2/Field {Show prefix=true, Prefix=Class, Label=Badge, State=Default} 404×32 "Class" "Badge"
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
           F Row 484×32 [H gap 8]
-            I NF2/Field {Show prefix=true, Prefix=Base, Label=flash.display.MovieClip, State=Default} 408×32 "Base" "flash.display.MovieClip"
+            I NF2/Field {Show prefix=true, Prefix=Base, Label=flash.display.MovieClip, State=Default} 404×32 "Base" "flash.display.MovieClip"
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         F Runtime shared library 510×110 [V gap 8]
@@ -92,7 +92,7 @@ F Dialogs — Convert to Symbol 560×1550 [V gap 32]
             I NF2/Checkbox {Label=Export for runtime sharing, Checked=False} 187×20 "Export for runtime sharing"
             I NF2/Checkbox {Label=Import for runtime sharing, Checked=False} 187×20 "Import for runtime sharing"
           F Row 484×32 [H gap 8]
-            I NF2/Field {Prefix=URL, Show prefix=true, Label=shared/ui.swf, State=Disabled} 488×32 "URL" "shared/ui.swf"
+            I NF2/Field {Prefix=URL, Show prefix=true, Label=shared/ui.swf, State=Disabled} 484×32 "URL" "shared/ui.swf"
         F Authortime sharing 510×150 [V gap 8]
           T "Authortime sharing"
           F Row 484×32 [H gap 8]

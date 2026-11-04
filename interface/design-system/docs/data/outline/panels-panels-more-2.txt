@@ -52,20 +52,24 @@ F Panels — more 2 560×1005 [V gap 32]
       F Description 274×72 [V gap 0]
         T "An orange planet orbiting a blue core."
       F Row 274×32 [H gap 8]
-        I NF2/Field {Show prefix=true, Prefix=Shortcut, Label=⌥O, State=Default} 134×32 "Shortcut" "⌥O"
+        I NF2/Field {Show prefix=true, Prefix=Shortcut, Label=⌥O, State=Default} 132×32 "Shortcut" "⌥O"
         I NF2/Stepper Field {Prefix=Tab, Label=3, State=Default} 134×32 "Tab" "3"
   F Panel / Info 300×199 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Info" "Panel" "Panel"
     F Body 298×161 [V gap 8]
-      F Row 274×32 [H gap 8]
-        I NF2/Field {Prefix=W, Show prefix=true, Label=163.0, State=Disabled} 134×32 "W" "163.0"
-        I NF2/Field {Prefix=H, Show prefix=true, Label=163.0, State=Disabled} 134×32 "H" "163.0"
-      F Row 274×32 [H gap 8]
-        I NF2/Field {Prefix=X, Show prefix=true, Label=412.0, State=Disabled} 134×32 "X" "412.0"
-        I NF2/Field {Prefix=Y, Show prefix=true, Label=160.0, State=Disabled} 134×32 "Y" "160.0"
+      F Geometry 274×72 [H gap 8]
+        F Size 115×72 [V gap 8]
+          I NF2/Field {Prefix=W, Show prefix=true, Label=163.0, State=Disabled} 115×32 "W" "163.0"
+          I NF2/Field {Prefix=H, Show prefix=true, Label=163.0, State=Disabled} 115×32 "H" "163.0"
+        F Symbol position 28×46 [V gap 4]
+          I NF2/Registration Picker {Point=Center} 28×28
+          T "Reg."
+        F Position 115×72 [V gap 8]
+          I NF2/Field {Prefix=X, Show prefix=true, Label=412.0, State=Disabled} 115×32 "X" "412.0"
+          I NF2/Field {Prefix=Y, Show prefix=true, Label=160.0, State=Disabled} 115×32 "Y" "160.0"
       F Row 274×20 [H gap 8]
         T "Cursor"
         T "X 486   Y 233"
       F Row 274×20 [H gap 8]
         T "Colour"
-        T "R 91  G 140  B 255  A 100%"
+        T "R 91 G 140 B 255 A 100%"

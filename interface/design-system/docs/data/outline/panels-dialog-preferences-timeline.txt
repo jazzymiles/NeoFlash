@@ -42,7 +42,7 @@ F Dialog / Preferences — Timeline 920×614 [V gap 0]
           I NF2/Swatch Cell {Selected=False} 18×18
         F Row 650×20 [H gap 8]
           T "Opacity falloff"
-          I NF2/Slider 200×20
+          I NF2/Slider {Value=50} 200×20
           T "70 → 15 %"
       F Animation 650×130 [V gap 10]
         T "Animation"

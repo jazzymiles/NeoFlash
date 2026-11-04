@@ -21,12 +21,12 @@ F Panel / Properties — Oval primitive 320×704 [V gap 0]
       I NF2/Color Well {Target=Stroke, Active=False} 74×32
     F Row 294×32 [H gap 8]
       I NF2/Combo Field {Label=2} 80×32 "2"
-      I NF2/Line Style Select {Style=Solid} 208×32 "Solid"
+      I NF2/Line Style Select {Style=Solid} 206×32 "Solid"
     F Row 294×32 [H gap 8]
       I NF2/Button {Icon=true, Label=Custom…, Type=Secondary, State=Default} 109×32 "Custom…"
       I NF2/Switch {Label=Stroke hinting, On=False} 124×20 "Stroke hinting"
     F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Scale: Normal, State=Default} 144×32 "Scale: Normal"
+      I NF2/Select {Label=Scale: Normal, State=Default} 142×32 "Scale: Normal"
       I NF2/Field {Prefix=Miter, Show prefix=true, Label=3, State=Disabled} 144×32 "Miter" "3"
     F Row 294×34 [H gap 8]
       T "Cap"
@@ -36,7 +36,7 @@ F Panel / Properties — Oval primitive 320×704 [V gap 0]
       I NF2/Icon Group {Count=3} 100×34
     I NF2/Section Header {Label=Oval options, State=Expanded} 294×32 "Oval options"
     F Row 294×32 [H gap 8]
-      I NF2/Stepper Field {Prefix=Start, Label=90°, State=Default} 144×32 "Start" "90°"
+      I NF2/Stepper Field {Prefix=Start, Label=90°, State=Default} 142×32 "Start" "90°"
       I NF2/Stepper Field {Prefix=End, Label=0°, State=Default} 144×32 "End" "0°"
     F Row 294×32 [H gap 8]
       I NF2/Stepper Field {Prefix=Inner, Label=0 %, State=Default} 144×32 "Inner" "0 %"

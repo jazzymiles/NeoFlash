@@ -1,0 +1,25 @@
+F Canvas — brush & pencil 760×520
+  R Stage 720×448
+  T "Canvas — brush and pencil feedback"
+  F Frame 220×60
+  I NF2/Brush Cursor {State=Idle} 96×96
+  T "BRUSH · footprint ring at current size"
+  I NF2/Brush Cursor {State=Resize} 96×96 "56 px"
+  T "RESIZE · ⌥⌘-drag, dashed ring + size"
+  F Frame 120×70
+  F Frame 60×70
+  I NF2/Brush Cursor {State=Eraser} 96×96
+  T "ERASER · square footprint"
+  F Frame 300×70
+  T "PRESSURE · width follows pen pressure (min 10 %)"
+  F Frame 300×70
+  F Frame 300×70
+  I NF2 Cursor/pencil 24×24
+  T "PREVIEW · solid = committed, dashed = smoothing ahead"
+  F Frame 150×60
+  T "PENCIL · STRAIGHTEN"
+  F Frame 150×60
+  T "PENCIL · SMOOTH"
+  F Frame 150×60
+  T "PENCIL · INK"
+  T "Brush and eraser rings are black + white so they read on any colour; sizes follow zoom."

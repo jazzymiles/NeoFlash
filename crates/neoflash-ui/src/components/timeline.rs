@@ -487,6 +487,51 @@ pub enum SpanType {
     Video,
 }
 
+/// Decoded peaks of one sound channel: per screen column, the lowest and highest sample in it (−1…1).
+pub type SoundPeaks<'a> = &'a [(f32, f32)];
+
+/// `NF2/TL Span · Sound — decoded peaks` (R-010): paints real waveform peaks over a Sound span painted
+/// with [`paint_span`]. One 1 pt `success/default` column per screen point, mirrored around the lane
+/// centre, height = peak × (lane height / 2 − 2). `channels` holds one slice (mono) or two (L, R: two lanes,
+/// 1 pt apart); column `i` of a channel is drawn at `body.left() + i + 0.5`. An empty `channels` (not decoded
+/// yet) draws a flat 1 pt centre line at 50 %. Cache peaks per resource and zoom; never decode while scrubbing.
+pub fn paint_sound_peaks(
+    painter: &Painter,
+    ctx: &egui::Context,
+    rect: Rect,
+    channels: &[SoundPeaks<'_>],
+) {
+    let p = palette(ctx);
+    let body = Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.bottom() - 1.0));
+    let painter = painter.with_clip_rect(body.intersect(painter.clip_rect()));
+    if channels.is_empty() {
+        painter.hline(
+            body.x_range(),
+            body.center().y,
+            Stroke::new(1.0_f32, p.success_default.gamma_multiply(0.5)),
+        );
+        return;
+    }
+    let lanes = channels.len().min(2) as f32;
+    let lane_h = (body.height() - (lanes - 1.0)) / lanes;
+    let stroke = Stroke::new(1.0_f32, p.success_default);
+    for (lane, peaks) in channels.iter().take(2).enumerate() {
+        let top = body.top() + lane as f32 * (lane_h + 1.0);
+        let centre = top + lane_h / 2.0;
+        let scale = (lane_h / 2.0 - 2.0).max(0.5);
+        for (i, &(lo, hi)) in peaks.iter().enumerate() {
+            let x = body.left() + i as f32 + 0.5;
+            if x > body.right() {
+                break;
+            }
+            let (lo, hi) = (lo.clamp(-1.0, 1.0), hi.clamp(-1.0, 1.0));
+            // Mirrored: the larger excursion sets both halves, so quiet passages stay readable.
+            let a = lo.abs().max(hi.abs()) * scale;
+            painter.vline(x, (centre - a.max(0.5))..=(centre + a.max(0.5)), stroke);
+        }
+    }
+}
+
 /// `NF2/TL Span` — one element per span, `frames × frame_width` wide. `tinted = false`
 /// (Frame view ▸ Tinted frames off) draws spans neutral with arrows only.
 pub fn paint_span(

@@ -19,7 +19,8 @@ What it writes:
 | Path | Content |
 |---|---|
 | `exports/interface/{dark,light}/{png,svg}/` | Editor screens, PNG @2x and SVG (text outlined) |
-| `exports/panels/{dark,light}/{png,svg}/` | Floating panels, dialogs, menus, preferences, timeline views |
+| `exports/panels/{dark,light}/{png,svg}/` | One file per floating panel, dialog, menu, flyout, preferences page, timeline view board (boards marked `split` in the manifest are cut into their panels by layer name: `Panel / …`, `Dialog / …`, `Menu / …`, `Flyout / …`, `Window / …`, `Sample / …`, `Canvas — …`) |
+| `exports/panels/{dark,light}/boards/{png,svg}/` | The multi-panel boards themselves, as laid out in Figma |
 | `docs/illustrations/` | Foundations and component shelves, audit, icons, used by the docs |
 | `docs/data/figma-dump.json` | Every variable collection (all modes), text style, component (properties, variants, description), page and top-level frame |
 | `docs/data/outline/*.txt` | Text outline of every exported frame: containers, auto layout, texts, instances with property values |

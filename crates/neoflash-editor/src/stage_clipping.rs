@@ -364,8 +364,9 @@ pub(crate) fn paint_shape_selection(
     )
 }
 /// Restrict NF2's hatch-generation loop to the visible viewport. Its diagonals have
-/// constant x+y modulo 4; extending the bounded left edge by less than one period
+/// constant x+y modulo `SHAPE_SELECTION_PERIOD`; extending the bounded left edge by less than one period
 /// preserves that phase without iterating across distant/offscreen selection bounds.
+const HATCH_PERIOD: f64 = neoflash_ui::components::canvas::SHAPE_SELECTION_PERIOD as f64;
 fn bounded_hatch_rect(rect: egui::Rect, clip: egui::Rect) -> Option<(egui::Rect, egui::Rect)> {
     let visible = rect.intersect(clip);
     if !rect.is_finite() || !visible.is_finite() || !visible.is_positive() {
@@ -373,7 +374,7 @@ fn bounded_hatch_rect(rect: egui::Rect, clip: egui::Rect) -> Option<(egui::Rect,
     }
     let shift = ((visible.left() as f64 + visible.top() as f64)
         - (rect.left() as f64 + rect.top() as f64))
-        .rem_euclid(4.);
+        .rem_euclid(HATCH_PERIOD);
     let mut hatch = visible;
     hatch.min.x -= shift as f32;
     Some((visible, hatch))
@@ -605,10 +606,10 @@ mod tests {
         );
         let (visible, hatch) = bounded_hatch_rect(huge, viewport).unwrap();
         assert_eq!(visible, viewport);
-        assert!(hatch.width() <= viewport.width() + 4.);
+        assert!(hatch.width() <= viewport.width() + HATCH_PERIOD as f32);
         assert_eq!(
             ((hatch.left() as f64 + hatch.top() as f64) - (huge.left() as f64 + huge.top() as f64))
-                .rem_euclid(4.),
+                .rem_euclid(HATCH_PERIOD),
             0.
         );
         assert!(bounded_hatch_rect(egui::Rect::NOTHING, viewport).is_none());

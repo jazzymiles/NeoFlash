@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-31T17:17:06.987Z",
+ "generated": "2026-11-02T09:13:55.291Z",
  "file": "Interface test",
  "pages": [
   {
@@ -244,7 +244,7 @@
      "id": "17:177",
      "name": "Shelf / Panels & Tools — icons",
      "w": 948,
-     "h": 289
+     "h": 319
     },
     {
      "id": "19:171",
@@ -287,6 +287,12 @@
      "name": "Shelf / Technical",
      "w": 868,
      "h": 1370
+    },
+    {
+     "id": "96:793",
+     "name": "Shelf / Brushes & tool flyouts",
+     "w": 1000,
+     "h": 590
     }
    ]
   },
@@ -315,7 +321,7 @@
     {
      "id": "22:431",
      "name": "Panels — Dark",
-     "w": 16648,
+     "w": 19448,
      "h": 3636
     },
     {
@@ -357,7 +363,7 @@
     {
      "id": "69:15209",
      "name": "Panels — Light",
-     "w": 16648,
+     "w": 19448,
      "h": 3636
     }
    ]
@@ -4648,7 +4654,7 @@
     "w": 160,
     "h": 32,
     "shelf": "Shelf / Field · Search · Select",
-    "description": "",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 72 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Label",
@@ -4686,7 +4692,7 @@
     "w": 240,
     "h": 32,
     "shelf": "Shelf / Field · Search · Select",
-    "description": "",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 120 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Label",
@@ -4712,7 +4718,7 @@
     "w": 200,
     "h": 32,
     "shelf": "Shelf / Field · Search · Select",
-    "description": "",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 96 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Label",
@@ -4756,17 +4762,6 @@
       ]
      }
     ]
-   },
-   {
-    "name": "NF2/Slider",
-    "id": "1:9669",
-    "kind": "component",
-    "variants": 1,
-    "w": 140,
-    "h": 20,
-    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
-    "description": "",
-    "properties": []
    },
    {
     "name": "NF2/Swatch",
@@ -4823,6 +4818,32 @@
        "Neutral",
        "Accent",
        "Warning"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Slider",
+    "id": "95:884",
+    "kind": "set",
+    "variants": 7,
+    "w": 140,
+    "h": 20,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "Slider, 140 px. Value variants 0 / 10 / 25 / 50 / 75 / 90 / 100 %. Pair with a numeric field and min / max captions; drag the thumb, click the track to jump, arrows step.",
+    "properties": [
+     {
+      "name": "Value",
+      "type": "VARIANT",
+      "default": "50",
+      "options": [
+       "50",
+       "0",
+       "10",
+       "25",
+       "75",
+       "90",
+       "100"
       ]
      }
     ]
@@ -4899,7 +4920,7 @@
     "w": 288,
     "h": 32,
     "shelf": "Shelf / Tree item",
-    "description": "",
+    "description": "Label truncates with “…” on one line; place rows with Fill width.",
     "properties": [
      {
       "name": "Label",
@@ -5105,7 +5126,7 @@
     "w": 1440,
     "h": 28,
     "shelf": "Shelf / Timeline 2.0 — frames",
-    "description": "Empty-frame grid of one row: a cell per frame, every 5th frame shaded. Folder rows show a flat strip.",
+    "description": "Empty-frame grid of one row: short frame ticks at the bottom (Flash style), every 5th frame shaded, row line at the bottom. Folder rows show a flat strip.",
     "properties": [
      {
       "name": "Kind",
@@ -5126,7 +5147,7 @@
     "w": 1440,
     "h": 28,
     "shelf": "Shelf / Timeline 2.0 — frames",
-    "description": "Per-frame dividers drawn over spans, so filled frames stay countable.",
+    "description": "Frame ticks (short, at the bottom of the row). Place directly above TL Grid and below spans, so tween and static spans stay continuous.",
     "properties": []
    },
    {
@@ -5593,6 +5614,61 @@
    {
     "name": "NF2 Icon/20/tool-bind",
     "id": "62:780",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-3d-rotate",
+    "id": "95:793",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-3d-translate",
+    "id": "95:798",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-pen-add",
+    "id": "95:801",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-pen-remove",
+    "id": "95:808",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-pen-convert",
+    "id": "95:815",
     "kind": "component",
     "variants": 1,
     "w": 20,
@@ -7164,6 +7240,116 @@
     "properties": []
    },
    {
+    "name": "NF2 Icon/16/chevleft",
+    "id": "95:820",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/refresh",
+    "id": "95:823",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/trace-bitmap",
+    "id": "95:827",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pressure",
+    "id": "95:833",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tilt",
+    "id": "95:837",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pencil-straighten",
+    "id": "95:842",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pencil-smooth",
+    "id": "95:845",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/pencil-ink",
+    "id": "95:848",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/brushes",
+    "id": "95:851",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/customize",
+    "id": "95:855",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
     "name": "NF2/Tool Button",
     "id": "19:188",
     "kind": "set",
@@ -7335,7 +7521,7 @@
     "w": 200,
     "h": 32,
     "shelf": "Shelf / Panels & Tools — components",
-    "description": "Colour value: swatch, hex, alpha. Click swatch → colour popover.",
+    "description": "Colour value: swatch, hex, alpha. Click swatch → colour popover. Layout: place with Fill width inside rows (never fixed widths in panels); min width 120 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Hex",
@@ -7554,7 +7740,7 @@
     "w": 1600,
     "h": 20,
     "shelf": "Shelf / Rulers, guides, grid",
-    "description": "Stage ruler in stage units at 75 % zoom. The \"0\" mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide.",
+    "description": "Stage ruler in stage units at 75 % zoom. The “0” mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide.",
     "properties": [
      {
       "name": "Orientation",
@@ -7617,7 +7803,7 @@
     "w": 720,
     "h": 452,
     "shelf": "Shelf / Rulers, guides, grid",
-    "description": "Stage grid overlay (20 px spacing, every 5th line stronger) drawn above the stage background, below content unless \"Show over objects\" is on.",
+    "description": "Stage grid overlay (20 px spacing, every 5th line stronger) drawn above the stage background, below content unless “Show over objects” is on.",
     "properties": []
    },
    {
@@ -7628,7 +7814,7 @@
     "w": 320,
     "h": 542,
     "shelf": "Shelf / Rulers, guides, grid",
-    "description": "View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides & Grid…",
+    "description": "View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides and Grid…",
     "properties": []
    },
    {
@@ -7729,7 +7915,7 @@
     "w": 120,
     "h": 32,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
-    "description": "Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10.",
+    "description": "Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10. Layout: place with Fill width inside rows (never fixed widths in panels); min width 88 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Label",
@@ -7760,7 +7946,7 @@
     "w": 96,
     "h": 32,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
-    "description": "Editable value + preset menu (stroke size, angles, inner radius…).",
+    "description": "Editable value + preset menu (stroke size, angles, inner radius…). Layout: place with Fill width inside rows (never fixed widths in panels); min width 72 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Label",
@@ -7803,7 +7989,7 @@
     "w": 200,
     "h": 32,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
-    "description": "",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 128 px; text truncates with “…”.",
     "properties": [
      {
       "name": "Style",
@@ -7987,7 +8173,7 @@
     "w": 160,
     "h": 100,
     "shelf": "Shelf / Canvas editing chrome",
-    "description": "Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate & skew (round corner handles rotate, edge bars skew). White circle = transformation point.",
+    "description": "Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate and skew (round corner handles rotate, edge bars skew). White circle = transformation point.",
     "properties": [
      {
       "name": "Mode",
@@ -8085,7 +8271,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"arrow\". Hotspot at x 4, y 2.",
+    "description": "Cursor “arrow”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8096,7 +8282,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"arrow-move\". Hotspot at x 4, y 2.",
+    "description": "Cursor “arrow-move”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8107,7 +8293,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"arrow-reshape-curve\". Hotspot at x 4, y 2.",
+    "description": "Cursor “arrow-reshape-curve”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8118,7 +8304,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"arrow-reshape-corner\". Hotspot at x 4, y 2.",
+    "description": "Cursor “arrow-reshape-corner”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8129,7 +8315,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"subselect\". Hotspot at x 4, y 2.",
+    "description": "Cursor “subselect”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8140,7 +8326,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"subselect-point\". Hotspot at x 4, y 2.",
+    "description": "Cursor “subselect-point”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8151,7 +8337,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"hand-open\". Hotspot at x 12, y 12.",
+    "description": "Cursor “hand-open”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8162,7 +8348,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"hand-closed\". Hotspot at x 12, y 12.",
+    "description": "Cursor “hand-closed”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8173,7 +8359,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"zoom-in\". Hotspot at x 10, y 10.",
+    "description": "Cursor “zoom-in”. Hotspot at x 10, y 10.",
     "properties": []
    },
    {
@@ -8184,7 +8370,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"zoom-out\". Hotspot at x 10, y 10.",
+    "description": "Cursor “zoom-out”. Hotspot at x 10, y 10.",
     "properties": []
    },
    {
@@ -8195,7 +8381,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"text-ibeam\". Hotspot at x 12, y 12.",
+    "description": "Cursor “text-ibeam”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8206,7 +8392,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"crosshair\". Hotspot at x 12, y 12.",
+    "description": "Cursor “crosshair”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8217,7 +8403,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pen\". Hotspot at x 6, y 21.",
+    "description": "Cursor “pen”. Hotspot at x 6, y 21.",
     "properties": []
    },
    {
@@ -8228,7 +8414,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pen-add\". Hotspot at x 6, y 21.",
+    "description": "Cursor “pen-add”. Hotspot at x 6, y 21.",
     "properties": []
    },
    {
@@ -8239,7 +8425,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pen-remove\". Hotspot at x 6, y 21.",
+    "description": "Cursor “pen-remove”. Hotspot at x 6, y 21.",
     "properties": []
    },
    {
@@ -8250,7 +8436,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pen-close\". Hotspot at x 6, y 21.",
+    "description": "Cursor “pen-close”. Hotspot at x 6, y 21.",
     "properties": []
    },
    {
@@ -8261,7 +8447,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pen-convert\". Hotspot at x 6, y 21.",
+    "description": "Cursor “pen-convert”. Hotspot at x 6, y 21.",
     "properties": []
    },
    {
@@ -8272,7 +8458,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"pencil\". Hotspot at x 3, y 21.",
+    "description": "Cursor “pencil”. Hotspot at x 3, y 21.",
     "properties": []
    },
    {
@@ -8283,7 +8469,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"brush\". Hotspot at x 3, y 21.",
+    "description": "Cursor “brush”. Hotspot at x 3, y 21.",
     "properties": []
    },
    {
@@ -8294,7 +8480,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"brush-size\". Hotspot at x 12, y 12.",
+    "description": "Cursor “brush-size”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8305,7 +8491,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"bucket\". Hotspot at x 19, y 20.",
+    "description": "Cursor “bucket”. Hotspot at x 19, y 20.",
     "properties": []
    },
    {
@@ -8316,7 +8502,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"ink-bottle\". Hotspot at x 15, y 3.",
+    "description": "Cursor “ink-bottle”. Hotspot at x 15, y 3.",
     "properties": []
    },
    {
@@ -8327,7 +8513,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"eyedropper\". Hotspot at x 5, y 19.",
+    "description": "Cursor “eyedropper”. Hotspot at x 5, y 19.",
     "properties": []
    },
    {
@@ -8338,7 +8524,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"eraser\". Hotspot at x 12, y 12.",
+    "description": "Cursor “eraser”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8349,7 +8535,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"lasso\". Hotspot at x 10, y 20.",
+    "description": "Cursor “lasso”. Hotspot at x 10, y 20.",
     "properties": []
    },
    {
@@ -8360,7 +8546,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"resize-h\". Hotspot at x 12, y 12.",
+    "description": "Cursor “resize-h”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8371,7 +8557,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"resize-v\". Hotspot at x 12, y 12.",
+    "description": "Cursor “resize-v”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8382,7 +8568,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"resize-d1\". Hotspot at x 12, y 12.",
+    "description": "Cursor “resize-d1”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8393,7 +8579,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"resize-d2\". Hotspot at x 12, y 12.",
+    "description": "Cursor “resize-d2”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8404,7 +8590,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"rotate\". Hotspot at x 12, y 12.",
+    "description": "Cursor “rotate”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8415,7 +8601,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"skew-h\". Hotspot at x 12, y 9.",
+    "description": "Cursor “skew-h”. Hotspot at x 12, y 9.",
     "properties": []
    },
    {
@@ -8426,7 +8612,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"skew-v\". Hotspot at x 9, y 12.",
+    "description": "Cursor “skew-v”. Hotspot at x 9, y 12.",
     "properties": []
    },
    {
@@ -8437,7 +8623,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"move\". Hotspot at x 12, y 12.",
+    "description": "Cursor “move”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8448,7 +8634,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"drag-copy\". Hotspot at x 4, y 2.",
+    "description": "Cursor “drag-copy”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8459,7 +8645,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"drag-link\". Hotspot at x 4, y 2.",
+    "description": "Cursor “drag-link”. Hotspot at x 4, y 2.",
     "properties": []
    },
    {
@@ -8470,7 +8656,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"col-resize\". Hotspot at x 12, y 12.",
+    "description": "Cursor “col-resize”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8481,7 +8667,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"row-resize\". Hotspot at x 12, y 12.",
+    "description": "Cursor “row-resize”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8492,7 +8678,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"not-allowed\". Hotspot at x 12, y 12.",
+    "description": "Cursor “not-allowed”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8503,7 +8689,7 @@
     "w": 24,
     "h": 24,
     "shelf": "Shelf / Cursors",
-    "description": "Cursor \"wait\". Hotspot at x 12, y 12.",
+    "description": "Cursor “wait”. Hotspot at x 12, y 12.",
     "properties": []
    },
    {
@@ -8693,6 +8879,224 @@
     "shelf": "Shelf / Technical",
     "description": "",
     "properties": []
+   },
+   {
+    "name": "NF2/Tool Flyout Item",
+    "id": "96:807",
+    "kind": "set",
+    "variants": 2,
+    "w": 260,
+    "h": 28,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Row of a tool flyout (long-press or click the corner of a grouped tool). ■ marks the tool currently shown on the rail. Icon = 20 px tool icon, shortcut on the right; hover = bg/hover.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Selection tool"
+     },
+     {
+      "name": "Shortcut",
+      "type": "TEXT",
+      "default": "V"
+     },
+     {
+      "name": "Icon",
+      "type": "INSTANCE_SWAP",
+      "default": "17:183"
+     },
+     {
+      "name": "Active",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2 Brush/round",
+    "id": "96:809",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/flat",
+    "id": "96:812",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/chisel",
+    "id": "96:815",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/charcoal",
+    "id": "96:818",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/ink",
+    "id": "96:821",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/watercolour",
+    "id": "96:824",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/dots",
+    "id": "96:827",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Brush/vine",
+    "id": "96:837",
+    "kind": "component",
+    "variants": 1,
+    "w": 96,
+    "h": 20,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2/Brush Preset",
+    "id": "96:851",
+    "kind": "set",
+    "variants": 2,
+    "w": 272,
+    "h": 36,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush library row: stroke preview (swap NF2 Brush/*), name, default size. Click to select, double-click to edit the brush.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Round"
+     },
+     {
+      "name": "Size",
+      "type": "TEXT",
+      "default": "12"
+     },
+     {
+      "name": "Stroke",
+      "type": "INSTANCE_SWAP",
+      "default": "96:809"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Brush Shape",
+    "id": "96:900",
+    "kind": "set",
+    "variants": 16,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush tip shape (Flash brush shapes): round, ovals, square, rectangles, slanted. Used in Properties — Brush tool.",
+    "properties": [
+     {
+      "name": "Shape",
+      "type": "VARIANT",
+      "default": "Round",
+      "options": [
+       "Round",
+       "Oval H",
+       "Oval V",
+       "Square",
+       "Rect H",
+       "Rect V",
+       "Slash",
+       "Backslash"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Brush Cursor",
+    "id": "96:915",
+    "kind": "set",
+    "variants": 3,
+    "w": 96,
+    "h": 96,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush / eraser footprint on the canvas at the current size and zoom: black + white double ring readable on any colour. Resize = ⌥⌘-drag (dashed ring + size chip). Eraser uses a square footprint for square shapes.",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Idle",
+      "options": [
+       "Idle",
+       "Resize",
+       "Eraser"
+      ]
+     }
+    ]
    }
   ]
  }

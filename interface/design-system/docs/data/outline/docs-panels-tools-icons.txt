@@ -1,4 +1,4 @@
-F Shelf / Panels & Tools — icons 948×289 [V gap 16]
+F Shelf / Panels & Tools — icons 948×319 [V gap 16]
   T "Icons — tools 20 px (monochrome) and panel icons 16 px"
   F Icon grid · 20 900×54 [H gap 14]
     F NF2 Icon/20/tool-select 20×20
@@ -32,7 +32,12 @@ F Shelf / Panels & Tools — icons 948×289 [V gap 16]
     F NF2 Icon/20/tool-spray 20×20
     F NF2 Icon/20/tool-bone 20×20
     F NF2 Icon/20/tool-bind 20×20
-  F Icon grid · 16 · panels 900×136 [H gap 14]
+    F NF2 Icon/20/tool-3d-rotate 20×20
+    F NF2 Icon/20/tool-3d-translate 20×20
+    F NF2 Icon/20/tool-pen-add 20×20
+    F NF2 Icon/20/tool-pen-remove 20×20
+    F NF2 Icon/20/tool-pen-convert 20×20
+  F Icon grid · 16 · panels 900×166 [H gap 14]
     F NF2 Icon/16/align-left 16×16
     F NF2 Icon/16/align-hcenter 16×16
     F NF2 Icon/16/align-right 16×16
@@ -175,3 +180,13 @@ F Shelf / Panels & Tools — icons 948×289 [V gap 16]
     F NF2 Icon/16/globe 16×16
     F NF2 Icon/16/speed 16×16
     F NF2 Icon/16/desktop 16×16
+    F NF2 Icon/16/chevleft 16×16
+    F NF2 Icon/16/refresh 16×16
+    F NF2 Icon/16/trace-bitmap 16×16
+    F NF2 Icon/16/pressure 16×16
+    F NF2 Icon/16/tilt 16×16
+    F NF2 Icon/16/pencil-straighten 16×16
+    F NF2 Icon/16/pencil-smooth 16×16
+    F NF2 Icon/16/pencil-ink 16×16
+    F NF2 Icon/16/brushes 16×16
+    F NF2 Icon/16/customize 16×16

@@ -3,7 +3,7 @@ F Panels — more 324×1711 [V gap 32]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Library" "Panel" "Panel"
     F Body 298×517 [V gap 8]
       F Row 274×32 [H gap 8]
-        I NF2/Select {Label=Ideas in motion.nfl, State=Default} 236×32 "Ideas in motion.nfl"
+        I NF2/Select {Label=Ideas in motion.nfl, State=Default} 234×32 "Ideas in motion.nfl"
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       F Preview 274×120
       I NF2/Search {Label=Search library, State=Empty} 274×32 "Search library"
@@ -54,4 +54,4 @@ F Panels — more 324×1711 [V gap 32]
   F Panel / Swatches 324×490 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 322×36 "Color" "Swatches" "Panel"
     F Body 322×452 [V gap 8]
-      I NF2/Swatches Popover 300×428 "00FFCC" "100 %" "Recent" "Document" "Palette" "Gradients"
+      I NF2/Swatches Popover 298×428 "00FFCC" "100 %" "Recent" "Document" "Palette" "Gradients"

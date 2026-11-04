@@ -29,7 +29,7 @@ F Dialog / Preferences — Publish 920×524 [V gap 0]
         T "Compression"
         F Row 650×20 [H gap 8]
           T "Images"
-          I NF2/Slider 200×20
+          I NF2/Slider {Value=50} 200×20
           T "JPEG 80"
         F Row 650×32 [H gap 8]
           T "Audio"

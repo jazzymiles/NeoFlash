@@ -20,7 +20,7 @@ F Symbols — panels 440×938 [V gap 32]
       I NF2/Radio {Label=Loop reverse, Selected=False} 97×16 "Loop reverse"
       I NF2/Radio {Label=Play once reverse, Selected=False} 124×16 "Play once reverse"
       F Row 294×32 [H gap 8]
-        I NF2/Stepper Field {Prefix=First, Label=1, State=Default} 144×32 "First" "1"
+        I NF2/Stepper Field {Prefix=First, Label=1, State=Default} 142×32 "First" "1"
         I NF2/Stepper Field {Prefix=Last, Label=24, State=Default} 144×32 "Last" "24"
       F Frame picker 294×44 [H gap 4]
         F Frame 36×36
@@ -35,12 +35,12 @@ F Symbols — panels 440×938 [V gap 32]
     I NF2/Dialog Header 438×60 "Layer properties"
     F Body 438×312 [V gap 12]
       F Row 390×32 [H gap 8]
-        I NF2/Field {Show prefix=true, Prefix=Name, Label=hand, State=Focus} 392×32 "Name" "hand"
+        I NF2/Field {Show prefix=true, Prefix=Name, Label=hand, State=Focus} 390×32 "Name" "hand"
       F Row 390×20 [H gap 8]
         I NF2/Switch {Label=Visible, On=True} 79×20 "Visible"
         I NF2/Switch {Label=Locked, On=False} 83×20 "Locked"
       T "Type"
-      F Types 392×40 [H gap 16]
+      F Types 390×40 [H gap 16]
         I NF2/Radio {Label=Normal, Selected=False} 64×16 "Normal"
         I NF2/Radio {Label=Guide, Selected=False} 56×16 "Guide"
         I NF2/Radio {Label=Guided, Selected=False} 64×16 "Guided"

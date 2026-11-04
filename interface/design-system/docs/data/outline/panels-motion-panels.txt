@@ -95,9 +95,9 @@ F Motion — panels 1120×1120 [V gap 32]
     T "30"
     F Footer 934×28 [H gap 12]
       T "Graph size"
-      I NF2/Slider 120×20
+      I NF2/Slider {Value=50} 120×20
       T "Expanded"
-      I NF2/Slider 120×20
+      I NF2/Slider {Value=50} 120×20
       I NF2/Stepper Field {Prefix=Frames, Label=60, State=Default} 120×28 "Frames" "60"
       T "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames"
   F Panel / Properties — Motion tween 320×568 [V gap 0]
@@ -116,7 +116,7 @@ F Motion — panels 1120×1120 [V gap 32]
       I NF2/Section Header {Label=Rotation, State=Expanded} 294×32 "Rotation"
       F Row 294×32 [H gap 8]
         I NF2/Stepper Field {Prefix=Rotate, Label=1 ×, State=Default} 140×32 "Rotate" "1 ×"
-        I NF2/Select {Label=Direction: CW, State=Default} 148×32 "Direction: CW"
+        I NF2/Select {Label=Direction: CW, State=Default} 146×32 "Direction: CW"
       F Row 294×20 [H gap 8]
         I NF2/Checkbox {Label=Orient to path, Checked=True} 112×20 "Orient to path"
       I NF2/Section Header {Label=Path, State=Expanded} 294×32 "Path"

@@ -14,7 +14,7 @@ standard. The design system is **locked**: implementation agents use it and neve
 | What every unfinished control must do / how to wire it | [NF2-FUNCTIONAL-SPEC.md](NF2-FUNCTIONAL-SPEC.md), [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) |
 | Requests to the design track | [NF2-REQUESTS.md](NF2-REQUESTS.md) |
 
-The Figma file (`BUz3pseopiuOg2Uiy3Fog7`, local copy `interface/figma/Interface v2.fig`, not versioned) is the source
+The Figma file (`BUz3pseopiuOg2Uiy3Fog7`, local copy `interface/figma/Interface test.fig`, not versioned) is the source
 of truth for visuals. Code never copies a hex value or a size from a screenshot: it reads tokens and metrics from
 `neoflash-ui`, which `build.rs` generates from the exported files. Exact gaps and sizes come from
 `interface/design-system/docs/data/outline/*.txt`. If the design lacks a value, it is listed below
@@ -99,7 +99,7 @@ crates/neoflash-editor
 | `unavailable.rs` | "Not available yet" tooltip for disabled controls |
 | `surface.rs` | Surfaces (App, Panel, Floating, Popover, Dialog, Canvas), scrim, dialog footer, status bar, Zoom Control, Dock Zone, Dock Compass, Drop Indicator, Splitter, Drag Ghost |
 | `docking.rs` | dock target and drag ghost helpers |
-| `timeline.rs` | TL Layer, TL Toggle, TL Layers Header, TL Grid, TL Grid Lines, TL Span, TL Marker, TL Frame Label, TL Ruler, TL Onion Range, TL Playhead |
+| `timeline.rs` | TL Layer, TL Toggle, TL Layers Header, TL Grid, TL Grid Lines, TL Span (incl. Sound decoded peaks, `paint_sound_peaks`), TL Marker, TL Frame Label, TL Ruler, TL Onion Range, TL Playhead |
 | `code.rs` | Code Editor: syntax highlighter (NF2 syntax tokens), gutter, markers, current line, script status, compiler messages, log lines |
 | `text_area.rs` | multi-line Text Field |
 | `ease.rs` | Ease Preset, Ease Graph (0–100 %, Overshoot, Undershoot), preview track |
@@ -109,7 +109,22 @@ crates/neoflash-editor
 | `color_picker.rs` | Color Picker (saturation/brightness area, hue and alpha strips; standard HSB conversion) |
 | `gradient.rs` | Gradient Bar, Gradient Stop |
 | `envelope.rs` | Sound envelope lanes and anchor points (Edit envelope) |
-| `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection, Gradient Transform, Snap Ring, Motion Path |
+| `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection (two-tone hatch), Gradient Transform, Snap Ring, Motion Path, Motion Path Handle, Shape Hint |
+
+### Additions after the v2.2 export
+
+The v2.2 export in `interface/design-system/` (2026-11-02) does not yet contain these. They live in Figma on the shelf
+"Timeline & canvas answers (R-006…R-010) · selection contrast" (page `v2 · System & Components`, node `116:797`) and
+in `neoflash-ui`. They appear in the generated reference with the next export.
+
+| Component | Rule |
+| --- | --- |
+| `NF2/Shape Selection` (changed) | Two-tone 45° hatch: 1 pt white at 90 % plus 1 pt black at 75 %, 1.5 pt apart, repeating every 8 pt. It does not follow the theme. On any fill, the better of the two lines reaches at least 3.8:1 (the v2.2 single grey hatch reached 1.5:1 on blue artwork in Dark and 1.1:1 in Light). |
+| `NF2/Shape Hint` | 16 pt disc with a letter a–z. Unplaced = `danger/default`, Start = `warning/default`, End = `success/default`, with `text/on-accent` for the letter and outline. Colours are pinned to the Dark token mode (R-009). |
+| `NF2/Motion Path Handle` | `color/guide` tangent line and a 7 pt disc. Hover adds a ring; Drag uses `color/guide-selected` (R-008). |
+| `NF2/TL Span · Sound — decoded peaks` | One mirrored 1 pt column per point in `success/default`; stereo uses two lanes; while not yet decoded, a 1 pt centre line at 50 % (R-010). |
+| Paste motion special dialog | Checkbox grid of properties, two override options, Select none · Cancel · **Paste** (R-006). |
+| Properties — Classic tween | Rotate × count + Direction, then Orient to path, Snap to motion guide, Sync graphic symbols and Scale (R-007). |
 
 ### Panel files (`crates/neoflash-editor/src/panels/`)
 

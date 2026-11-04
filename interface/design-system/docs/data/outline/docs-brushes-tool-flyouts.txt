@@ -1,0 +1,52 @@
+F Shelf / Brushes & tool flyouts 1000×590 [V gap 24]
+  T "Brushes, pencil and tool flyouts"
+  F NF2/Tool Flyout Item 276×80 [V gap 8]
+    F Active=True 260×28 [H gap 8]
+      I NF2 Icon/20/tool-select 20×20
+      T "Selection tool"
+      T "V"
+    F Active=False 260×28 [H gap 8]
+      I NF2 Icon/20/tool-select 20×20
+      T "Selection tool"
+      T "V"
+  F Brush strokes 936×20 [H gap 24]
+    F NF2 Brush/round 96×20
+    F NF2 Brush/flat 96×20
+    F NF2 Brush/chisel 96×20
+    F NF2 Brush/charcoal 96×20
+    F NF2 Brush/ink 96×20
+    F NF2 Brush/watercolour 96×20
+    F NF2 Brush/dots 96×20
+    F NF2 Brush/vine 96×20
+  F NF2/Brush Preset 288×92 [V gap 4]
+    F Selected=False 272×36 [H gap 12]
+      I NF2 Brush/round 96×20
+      T "Round"
+      T "12"
+    F Selected=True 272×36 [H gap 12]
+      I NF2 Brush/round 96×20
+      T "Round"
+      T "12"
+  F NF2/Brush Shape 256×70 [H gap 6]
+    F Shape=Round, Selected=False 24×24
+    F Shape=Oval H, Selected=False 24×24
+    F Shape=Oval V, Selected=False 24×24
+    F Shape=Square, Selected=False 24×24
+    F Shape=Rect H, Selected=False 24×24
+    F Shape=Rect V, Selected=False 24×24
+    F Shape=Slash, Selected=False 24×24
+    F Shape=Backslash, Selected=False 24×24
+    F Shape=Round, Selected=True 24×24
+    F Shape=Oval H, Selected=True 24×24
+    F Shape=Oval V, Selected=True 24×24
+    F Shape=Square, Selected=True 24×24
+    F Shape=Rect H, Selected=True 24×24
+    F Shape=Rect V, Selected=True 24×24
+    F Shape=Slash, Selected=True 24×24
+    F Shape=Backslash, Selected=True 24×24
+  F NF2/Brush Cursor 344×120 [H gap 16]
+    F State=Idle 96×96
+    F State=Resize 96×96
+      F Size chip 46×18 [H gap 0]
+        T "56 px"
+    F State=Eraser 96×96

@@ -1,4 +1,4 @@
-F Drawing tools — panels 560×1318 [V gap 32]
+F Drawing tools — panels 560×1334 [V gap 32]
   F Panel / Properties — Rectangle primitive 320×562 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Filters" "Panel"
     F Body 318×524 [V gap 10]
@@ -21,23 +21,23 @@ F Drawing tools — panels 560×1318 [V gap 32]
         I NF2/Color Well {Target=Stroke, Active=False} 74×32
       F Row 294×32 [H gap 8]
         I NF2/Combo Field {Label=1} 80×32 "1"
-        I NF2/Line Style Select {Style=Solid} 208×32 "Solid"
+        I NF2/Line Style Select {Style=Solid} 206×32 "Solid"
       I NF2/Section Header {Label=Rectangle options, State=Expanded} 294×32 "Rectangle options"
       F Row 294×32 [H gap 8]
-        I NF2/Stepper Field {Prefix=↖, Label=12, State=Default} 128×32 "↖" "12"
+        I NF2/Stepper Field {Prefix=↖, Label=12, State=Default} 118×32 "↖" "12"
         I NF2/Stepper Field {Prefix=↗, Label=12, State=Default} 128×32 "↗" "12"
         I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
       F Row 294×32 [H gap 8]
         I NF2/Stepper Field {Prefix=↙, Label=12, State=Default} 128×32 "↙" "12"
         I NF2/Stepper Field {Prefix=↘, Label=12, State=Default} 128×32 "↘" "12"
-      I NF2/Slider 294×20
+      I NF2/Slider {Value=50} 294×20
       I NF2/Button {Icon=false, Label=Reset, Type=Ghost, State=Default} 60×32 "Reset"
-  F Dialog / PolyStar tool settings 400×272 [V gap 0]
+  F Dialog / PolyStar tool settings 400×288 [V gap 0]
     I NF2/Dialog Header 398×60 "PolyStar tool settings"
-    F Body 398×158 [H gap 20]
+    F Body 398×174 [H gap 20]
       F Frame 110×110
         F Frame 90×90
-      F Options 220×142 [V gap 10]
+      F Options 220×158 [V gap 10]
         I NF2/Select {Label=Style: Star, State=Default} 220×32 "Style: Star"
         I NF2/Stepper Field {Prefix=Sides, Label=5, State=Default} 220×32 "Sides" "5"
         I NF2/Stepper Field {Prefix=Point size, Label=0.50, State=Default} 220×32 "Point size" "0.50"

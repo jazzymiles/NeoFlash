@@ -1,0 +1,139 @@
+F Brushes & pencil — panels 760×2462 [V gap 40]
+  F Panel / Brushes 320×650 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Brushes" "Panel" "Panel"
+    F Body 318×612 [V gap 12]
+      F Row 294×32 [H gap 8]
+        I NF2/Search {Label=Find brush, State=Empty} 254×32 "Find brush"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Section Header {Label=Basic, State=Expanded} 294×32 "Basic"
+      F Basic list 294×112 [V gap 2]
+        I NF2/Brush Preset {Stroke=96:809, Size=12, Label=Round, Selected=True} 294×36 "Round" "12"
+        I NF2/Brush Preset {Stroke=96:812, Size=16, Label=Flat, Selected=False} 294×36 "Flat" "16"
+        I NF2/Brush Preset {Stroke=96:815, Size=10, Label=Chisel, Selected=False} 294×36 "Chisel" "10"
+      I NF2/Section Header {Label=Artistic, State=Expanded} 294×32 "Artistic"
+      F Artistic list 294×112 [V gap 2]
+        I NF2/Brush Preset {Stroke=96:818, Size=24, Label=Charcoal, Selected=False} 294×36 "Charcoal" "24"
+        I NF2/Brush Preset {Stroke=96:821, Size=6, Label=Ink pen, Selected=False} 294×36 "Ink pen" "6"
+        I NF2/Brush Preset {Stroke=96:824, Size=32, Label=Watercolour, Selected=False} 294×36 "Watercolour" "32"
+      I NF2/Section Header {Label=Pattern, State=Expanded} 294×32 "Pattern"
+      F Pattern list 294×74 [V gap 2]
+        I NF2/Brush Preset {Stroke=96:827, Size=14, Label=Dots, Selected=False} 294×36 "Dots" "14"
+        I NF2/Brush Preset {Stroke=96:837, Size=20, Label=Vine, Selected=False} 294×36 "Vine" "20"
+      F Size 294×32 [V gap 2]
+        F Row 294×32 [H gap 10]
+          T "Size"
+          I NF2/Slider {Value=25} 140×20
+          I NF2/Field {Show prefix=false, Prefix=, Label=12 px, State=Default} 74×32 "12 px"
+      F Row 294×32 [H gap 2]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Spacer 192×1 [H gap 0]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / Properties — Brush tool 320×656 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×618 [V gap 12]
+      F Row 294×36 [H gap 10]
+        F Type icon 36×36 [H gap 0]
+          I NF2 Icon/20/tool-brush 20×20
+        F Title 76×36 [V gap 0]
+          T "Brush tool"
+          T "Paints fills · B"
+      I NF2/Section Header {Label=Brush mode, State=Expanded} 294×32 "Brush mode"
+      I NF2/Select {Label=Paint normal, State=Default} 294×32 "Paint normal"
+      T "Normal · Fills · Behind · Selection · Inside — where paint lands relative to existing shapes."
+      I NF2/Section Header {Label=Shape and size, State=Expanded} 294×32 "Shape and size"
+      F Shapes 234×24 [H gap 6]
+        I NF2/Brush Shape {Shape=Round, Selected=True} 24×24
+        I NF2/Brush Shape {Shape=Oval H, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Oval V, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Square, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Rect H, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Rect V, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Slash, Selected=False} 24×24
+        I NF2/Brush Shape {Shape=Backslash, Selected=False} 24×24
+      F Size 294×48 [V gap 2]
+        F Row 294×32 [H gap 10]
+          T "Size"
+          I NF2/Slider {Value=25} 140×20
+          I NF2/Field {Show prefix=false, Prefix=, Label=12 px, State=Default} 74×32 "12 px"
+        F Row 294×14 [H gap 0]
+          T "1"
+          F Spacer 133×1 [H gap 0]
+          T "200"
+      F Smoothing 294×32 [V gap 2]
+        F Row 294×32 [H gap 10]
+          T "Smoothing"
+          I NF2/Slider {Value=50} 140×20
+          I NF2/Field {Show prefix=false, Prefix=, Label=50, State=Default} 72×32 "50"
+      I NF2/Section Header {Label=Pen pressure and tilt, State=Expanded} 294×32 "Pen pressure and tilt"
+      F Row 294×20 [H gap 8]
+        I NF2 Icon/16/pressure 16×16
+        I NF2/Switch {Label=Pressure controls size, On=True} 173×20 "Pressure controls size"
+      F Row 294×20 [H gap 8]
+        I NF2 Icon/16/tilt 16×16
+        I NF2/Switch {Label=Tilt controls angle, On=False} 148×20 "Tilt controls angle"
+      I NF2/Section Header {Label=Fill, State=Expanded} 294×32 "Fill"
+      F Row 294×32 [H gap 8]
+        I NF2/Color Well {Target=Fill, Active=True} 74×32
+        I NF2/Checkbox {Label=Lock fill, Checked=False} 73×20 "Lock fill"
+      I NF2/Button {Icon=false, Label=Brush library…, Type=Secondary, State=Default} 294×32 "Brush library…"
+  F Panel / Properties — Pencil tool 320×516 [V gap 0]
+    I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
+    F Body 318×478 [V gap 12]
+      F Row 294×36 [H gap 10]
+        F Type icon 36×36 [H gap 0]
+          I NF2 Icon/20/tool-pencil 20×20
+        F Title 99×36 [V gap 0]
+          T "Pencil tool"
+          T "Draws strokes · Y"
+      I NF2/Section Header {Label=Pencil mode, State=Expanded} 294×32 "Pencil mode"
+      F Row 294×34 [H gap 10]
+        I NF2/Icon Group {Count=3} 100×34
+        T "Smooth"
+      T "Straighten turns strokes into lines and arcs, Smooth evens out the curve, Ink keeps the stroke as drawn."
+      F Smoothing 294×48 [V gap 2]
+        F Row 294×32 [H gap 10]
+          T "Smoothing"
+          I NF2/Slider {Value=50} 140×20
+          I NF2/Field {Show prefix=false, Prefix=, Label=50, State=Default} 72×32 "50"
+        F Row 294×14 [H gap 0]
+          T "0"
+          F Spacer 133×1 [H gap 0]
+          T "100"
+      I NF2/Section Header {Label=Stroke, State=Expanded} 294×32 "Stroke"
+      F Row 294×32 [H gap 8]
+        I NF2/Color Well {Target=Stroke, Active=True} 74×32
+        I NF2/Combo Field {Label=2} 212×32 "2"
+      I NF2/Line Style Select {Style=Solid} 294×32 "Solid"
+      F Row 294×34 [H gap 10]
+        T "Cap"
+        I NF2/Icon Group {Count=3} 100×34
+        T "Join"
+        I NF2/Icon Group {Count=3} 100×34
+      F Row 294×32 [H gap 8]
+        I NF2/Switch {Label=Stroke hinting, On=True} 124×20 "Stroke hinting"
+        I NF2/Select {Label=Scale: Normal, State=Default} 162×32 "Scale: Normal"
+  F Canvas — brush & pencil 760×520
+    T "Canvas — brush and pencil feedback"
+    F Frame 220×60
+    I NF2/Brush Cursor {State=Idle} 96×96
+    T "BRUSH · footprint ring at current size"
+    I NF2/Brush Cursor {State=Resize} 96×96 "56 px"
+    T "RESIZE · ⌥⌘-drag, dashed ring + size"
+    F Frame 120×70
+    F Frame 60×70
+    I NF2/Brush Cursor {State=Eraser} 96×96
+    T "ERASER · square footprint"
+    F Frame 300×70
+    T "PRESSURE · width follows pen pressure (min 10 %)"
+    F Frame 300×70
+    F Frame 300×70
+    I NF2 Cursor/pencil 24×24
+    T "PREVIEW · solid = committed, dashed = smoothing ahead"
+    F Frame 150×60
+    T "PENCIL · STRAIGHTEN"
+    F Frame 150×60
+    T "PENCIL · SMOOTH"
+    F Frame 150×60
+    T "PENCIL · INK"
+    T "Brush and eraser rings are black + white so they read on any colour; sizes follow zoom."

@@ -52,9 +52,9 @@ F Dialogs — sound & stroke 680×1164 [V gap 32]
           T "44 kHz · Stereo · 16 bit · 32.4 s · 5.7 MB"
       T "Export"
       F Row 470×32 [H gap 8]
-        I NF2/Select {Label=Compression: MP3, State=Default} 472×32 "Compression: MP3"
+        I NF2/Select {Label=Compression: MP3, State=Default} 470×32 "Compression: MP3"
       F Row 470×32 [H gap 8]
-        I NF2/Select {Label=Bit rate: 128 kbps, State=Default} 232×32 "Bit rate: 128 kbps"
+        I NF2/Select {Label=Bit rate: 128 kbps, State=Default} 230×32 "Bit rate: 128 kbps"
         I NF2/Select {Label=Quality: Best, State=Default} 232×32 "Quality: Best"
       I NF2/Checkbox {Label=Convert stereo to mono, Checked=False} 172×20 "Convert stereo to mono"
       T "Result: 128 kbps stereo, 518.6 kB — 9 % of original"

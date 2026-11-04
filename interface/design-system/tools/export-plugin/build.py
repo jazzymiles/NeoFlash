@@ -4,7 +4,7 @@ import json, os
 here = os.path.dirname(os.path.abspath(__file__))
 root = os.path.normpath(os.path.join(here, '..', '..'))
 items = json.load(open(os.path.join(root, 'exports', 'manifest.json')))
-keep = [{k: i[k] for k in ('id', 'group', 'theme', 'png', 'svg')} for i in items]
+keep = [{**{k: i[k] for k in ('id', 'group', 'theme', 'png', 'svg')}, **({'split': True} if i.get('split') else {})} for i in items]
 src = open(os.path.join(here, 'code.src.js')).read()
 out = src.replace('/*ITEMS*/[]', json.dumps(keep, ensure_ascii=False))
 open(os.path.join(here, 'code.js'), 'w').write(out)

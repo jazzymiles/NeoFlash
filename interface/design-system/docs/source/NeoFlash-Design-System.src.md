@@ -222,7 +222,7 @@ Frame `NF2 / Editor — Main`, 1920 × 1080. Regions (top to bottom, left to rig
 | Region | Size | Content |
 |---|---|---|
 | Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Modify · Insert · Control · Window (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
-| Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools, fill/stroke chip, swap/default colours, snap toggle at the bottom. |
+| Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools (long-press opens the group menu built from `NF2/Tool Flyout Item`; all groups and their shortcuts are on the board “Tools — flyout groups”, §6; the rail is edited in “Customize tools panel”, §9), fill/stroke chip, swap/default colours, snap toggle at the bottom. |
 | Canvas | 1544 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
 | Inspector | 320 × 588 | **Properties** (`Panel Header`, `Segmented Control` Selection / Tool; sections Stage: Name, W × H with link, Background swatch + hex + α; Playback: FPS, Frames; Publish: target badge "HTML5 · Rust / WebAssembly" + "Publish settings…") and **Library** (search, tree). Content changes with the selection (see §6 Properties variants). |
 | Bottom dock | 1920 × 420 | Dock tabs (40): Timeline · Actions · Output · Accessibility, collapse ⌄ and more ⋯. Timeline controls (44). Timeline body (336). |
@@ -268,7 +268,8 @@ frame view ⋯ · zoom − slider +.
 | Row height | 28 px (Short mode: 18 px). |
 | Ruler | `NF2/TL Ruler`, 32 px: seconds row on top (`0s 1s 2s …` at 24 fps), frame numbers row below (1, 5, 10, …) with ticks. |
 | Layer column | 280 px (`NF2/TL Layers Header` + `NF2/TL Layer` rows). |
-| Grid | `NF2/TL Grid` 1440 px = 120 frames; every 5th frame shaded (`timeline/empty-5th`); `NF2/TL Grid Lines` overlay keeps filled frames countable. |
+| Grid | `NF2/TL Grid` 1440 px = 120 frames: frame dividers are **short ticks at the bottom** of the row (1 × 4 px, Flash style), not full-height lines; every 5th frame shaded (`timeline/empty-5th`); row line at the bottom. `NF2/TL Grid Lines` (the same ticks) sits directly above `TL Grid` and **below** spans, so static and tween spans stay continuous. |
+| Glyph line | Keyframe glyphs sit low in the cell: centre at y 19 of the 27 px cell. Tween lines and arrowheads use the same line. The action “a”, label flags and label text sit at the top of the cell. |
 | Marker position | Frame `n` → `x = (n − 1) × 12`; spans resize to `frames × 12`. |
 
 ### 5.2 Layers
@@ -295,8 +296,14 @@ outline-only square). Header icons eye, lock, outline toggle all rows.
 
 {{GEN:timeline-states}}
 
-`NF2/TL Marker` kinds: Keyframe ● (filled), Blank Keyframe ○, Span End ▯, Property Keyframe ◆ (motion tween / armature),
-Action Keyframe "a" (script on frame); `Tone=On Selection` inverts colours on selected frames.
+`NF2/TL Marker` kinds: Keyframe ● (filled, 6 px), Blank Keyframe ○, Span End ▯ (small 5 × 8 rectangle on the last frame
+of a span with nothing after it and no animation), Property Keyframe ◆ (motion tween / armature), Action Keyframe “a”
+(script on frame; the “a” sits at the top, above the keyframe dot); `Tone=On Selection` inverts colours on selected frames.
+Classic and shape tweens: a thin 1 px line from the start keyframe with a small 4 × 5 arrowhead before the end keyframe,
+on the glyph line; the tween band is never divided by frame lines. Broken tween: the same line dashed, no arrowhead.
+
+`NF2/TL Playhead`: the frame-number chip uses the ruler digit style (Roboto Mono 11/14) and shares the ruler digits’
+top line, so the current number reads as part of the ruler; the chip stays centred on the line (min width 20).
 `NF2/TL Frame Label` kinds: Label (red flag, `timeline/label`), Comment (green `//`, `timeline/comment`),
 Anchor (⚓, named anchor).
 
@@ -375,7 +382,7 @@ Main menu items are `NF2/Menu Bar Item` (Default / Open); dropdowns are `bg/rais
 
 {{GEN:menus}}
 
-![Menus](../exports/panels/dark/png/menus.png)
+![Menus](../exports/panels/dark/boards/png/menus.png)
 
 ---
 
@@ -483,7 +490,8 @@ design-system/
   exports/
     manifest.json                    ← node id → file paths
     interface/{dark,light}/{png,svg}/
-    panels/{dark,light}/{png,svg}/
+    panels/{dark,light}/{png,svg}/     ← one file per panel / dialog / menu / flyout
+    panels/{dark,light}/boards/       ← multi-panel boards as laid out in Figma
     icons/{16,20}/*.svg               ← every NF2 icon
     cursors/*.svg                     ← every NF2 cursor
   tools/
@@ -528,6 +536,11 @@ Switch theme by setting `data-theme="light"` on the root (or on a subtree, like 
   pseudo-classes, not props, except `Selected` / `Checked` / `Active` which are real props).
 - TEXT properties → string props / children; BOOLEAN properties → boolean props (e.g. `Icon`, `Flyout`, `Submenu`,
   `Indent 1/2`, `Editing`); nested icon instances → an `icon` prop taking an icon name (`"16/align-left"`).
+- **Inputs never get fixed widths in panels.** Field, Select, Stepper, Combo, Line Style Select, Search and Color Field
+  fill their row (one input per row → Fill; several → share the row, widest shrinks first). Each has a min width
+  (Field 72, Select 96, Stepper 88, Combo 72, Line Style 128, Search 120, Color Field 120) and its text truncates with “…”.
+  Rows clip their content, so an input wider than its row is silently cut. This was the cause of the clipped fields
+  fixed on 2026-11-02 (188 places in panels, 89 per interface page).
 - Sizes in §10 are the default instance size. Heights are fixed (32 / 28 / 40 / 36 / 24 px); widths hug content or
   fill the parent as in the outlines (`[H gap 8]` = horizontal auto layout with 8 px gap → `display:flex; gap:8px`).
 - Timeline must be virtualised: 12 px × frame count per row, markers absolutely positioned at `(frame − 1) × 12`,

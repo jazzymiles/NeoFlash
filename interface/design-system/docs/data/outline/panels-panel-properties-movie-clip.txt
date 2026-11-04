@@ -19,15 +19,15 @@ F Panel / Properties — Movie clip 320×592 [V gap 0]
       I NF2/Field {Show prefix=true, Prefix=H, Label=163.0, State=Default} 120×32 "H" "163.0"
     I NF2/Section Header {Label=Colour effect, State=Expanded} 294×32 "Colour effect"
     F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Style: Alpha, State=Default} 144×32 "Style: Alpha"
+      I NF2/Select {Label=Style: Alpha, State=Default} 142×32 "Style: Alpha"
       I NF2/Field {Show prefix=true, Prefix=α, Label=60 %, State=Default} 144×32 "α" "60 %"
-    I NF2/Slider 294×20
+    I NF2/Slider {Value=50} 294×20
     I NF2/Section Header {Label=Display, State=Expanded} 294×32 "Display"
     F Row 294×20 [H gap 8]
       I NF2/Switch {Label=Visible, On=True} 79×20 "Visible"
       I NF2/Checkbox {Label=Cache as bitmap, Checked=False} 130×20 "Cache as bitmap"
     F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Blending: Normal, State=Default} 144×32 "Blending: Normal"
+      I NF2/Select {Label=Blending: Normal, State=Default} 142×32 "Blending: Normal"
       I NF2/Select {Label=Render: Original, State=Default} 144×32 "Render: Original"
     I NF2/Section Header {Label=Accessibility, State=Collapsed} 294×32 "Accessibility"
     I NF2/Section Header {Label=Filters, State=Collapsed} 294×32 "Filters"

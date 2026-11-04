@@ -194,6 +194,36 @@
   "title": "Preferences — Updates",
   "text": "Version (\"NeoFlash 2.0.0 · build 412 · up to date\") + Check now / Release notes, channel Stable / Beta, automatic checks, background download. Privacy: anonymous usage statistics, crash reports. Extensions: installed count + updates, Manage…."
  },
+ "tools-flyout-groups": {
+  "cat": "panels",
+  "title": "Tools — flyout groups",
+  "text": "Rail of the `NF2/Tools Panel` with the flyout menu of every grouped tool (`NF2/Tool Flyout Item`: ■ marks the tool shown on the rail, 20 px icon, name, shortcut). Groups: Selection · Subselection (V, A); Free transform · Gradient transform · 3D rotation · 3D translation (Q, F, W, G); Pen · Add / Delete / Convert anchor point (P, =, −, C); Rectangle · Oval · Rectangle primitive · Oval primitive · PolyStar (R, O); Pencil · Brush · Spray brush (Y, B); Paint bucket · Ink bottle (K, S); Bone · Bind (M); Deco (U). Long-press a tool with a corner mark to open its group."
+ },
+ "dialog-customize-tools-panel": {
+  "cat": "dialogs",
+  "title": "Customize tools panel",
+  "text": "Rail preview with the selected slot, **Available tools** (search, alphabetical list with icons and shortcuts, scrollbar), **Add ›** / **‹ Remove**, **Current selection** of the slot (the first tool is the default shown on the rail; several tools in one slot form a flyout group). Footer: Restore default · Cancel · **OK**."
+ },
+ "commands-panel-dialog": {
+  "cat": "panels",
+  "title": "Commands panel · Commands set",
+  "text": "**Commands** panel (script commands run on the document, like xJSFL snippets): search, open commands folder, count, folder tree (Animation, Development ▸ ActionScript / Tools / Extensions, Library, Stage, Tools) with an icon per command, bottom toolbar: new command, new folder, info, refresh, delete. **Commands** dialog: Set — User commands / Commands folder / API examples; Action — Load (replace list); Cancel · **OK**."
+ },
+ "brushes-pencil-panels": {
+  "cat": "panels",
+  "title": "Brushes · Brush tool · Pencil tool",
+  "text": "**Brushes** library: search, sections Basic / Artistic / Pattern with stroke previews (`NF2/Brush Preset`, `NF2 Brush/*`), size slider, new brush / folder, delete. **Properties — Brush tool**: brush mode (Paint normal / fills / behind / selection / inside), brush shape (`NF2/Brush Shape`, 8 Flash shapes), size, smoothing, pen pressure → size and tilt → angle, fill colour + Lock fill, Brush library…. **Properties — Pencil tool**: pencil mode Straighten / Smooth / Ink, smoothing, stroke colour and size, line style, cap and join, stroke hinting, scale."
+ },
+ "canvas-brush-pencil": {
+  "cat": "panels",
+  "title": "Canvas — brush and pencil feedback",
+  "text": "How brushes show on the canvas: `NF2/Brush Cursor` footprint ring at the current size (black + white, readable on any colour), resize with ⌥⌘-drag (dashed ring + size chip), square eraser footprint, pressure stroke whose width follows the pen, live pencil preview (committed solid, smoothing ahead dashed), and the three pencil modes."
+ },
+ "dialog-trace-bitmap": {
+  "cat": "dialogs",
+  "title": "Trace bitmap",
+  "text": "Split preview (bitmap ▏traced) with the result size, Preset, Mode (Colour / Greyscale / Black and white), Palette (Limited / Full / Automatic), Colours 2–30. **Advanced options**: Paths (Low–High), Corners (Less–More), Noise (1–100 px), Method Abutting / Overlapping, Create fills / strokes, stroke width, Snap curves to lines, Ignore white. Footer: Live preview · Cancel · **Trace**."
+ },
  "editor-main": {
   "cat": "screens",
   "title": "Editor — Main",

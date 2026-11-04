@@ -78,10 +78,38 @@ async function outline(node, depth = 0, lines = []) {
   return lines;
 }
 
+// Boards marked `split` hold several panels / dialogs; each one is also exported on its own,
+// named after its layer (“Panel / Properties — Brush tool” → panel-properties-brush-tool).
+const PART = /^(Panel|Dialog|Window|Sample|Menu|Flyout|Canvas) [\/—]/;
+const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+function parts(node, out = []) {
+  for (const c of node.children || []) {
+    if (!c.visible) continue;
+    if (PART.test(c.name) && (c.type === 'FRAME' || c.type === 'INSTANCE')) out.push(c);
+    else if (c.type === 'FRAME' || c.type === 'GROUP') parts(c, out);
+  }
+  return out;
+}
+async function exportParts(node, it, opts, used, failed) {
+  let n = 0;
+  for (const p of parts(node)) {
+    let slug = slugify(p.name); const k = it.theme + '/' + slug;
+    used[k] = (used[k] || 0) + 1; if (used[k] > 1) slug += '-' + used[k];
+    const base = `exports/panels/${it.theme}`;
+    try {
+      await post(`${base}/png/${slug}.png`, await p.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: opts.scale } }));
+      if (opts.svg) await post(`${base}/svg/${slug}.svg`, await p.exportAsync({ format: 'SVG', svgOutlineText: true, svgIdAttribute: false }));
+      n++;
+    } catch (e) { failed.push(p.id + ' ' + slug + ': ' + e.message); }
+  }
+  return n;
+}
+
 async function run(opts) {
   const items = ITEMS.filter(i => opts.groups.includes(i.group));
   const t0 = Date.now();
-  let done = 0, failed = [];
+  let done = 0, failed = [], singles = 0;
+  const used = {};
   const original = figma.currentPage;
   for (const it of items) {
     status(`${++done}/${items.length}  ${it.png}`);
@@ -95,6 +123,7 @@ async function run(opts) {
         if (!(await post(it.svg, svg))) throw new Error('receiver rejected ' + it.svg);
       }
       if (opts.data && it.theme !== 'light') await postText(`docs/data/outline/${it.group}-${it.png.split('/').pop().replace('.png', '')}.txt`, (await outline(node)).join('\n'));
+      if (it.split) singles += await exportParts(node, it, opts, used, failed);
     } catch (e) { failed.push(it.id + ' ' + it.png + ': ' + e.message); }
   }
   if (opts.icons) {
@@ -113,9 +142,9 @@ async function run(opts) {
     try { await postText('docs/data/figma-dump.json', JSON.stringify(await dump(), null, 1)); } catch (e) { failed.push('dump: ' + e.message); }
   }
   await figma.setCurrentPageAsync(original);
-  const report = { frames: items.length, failed, seconds: Math.round((Date.now() - t0) / 1000) };
+  const report = { frames: items.length, singlePanels: singles, failed, seconds: Math.round((Date.now() - t0) / 1000) };
   await postText('exports/export-report.json', JSON.stringify(report, null, 1));
-  status(`Done: ${items.length} frames in ${report.seconds}s` + (failed.length ? ` — ${failed.length} failed (see exports/export-report.json)` : ''));
+  status(`Done: ${items.length} frames + ${singles} single panels in ${report.seconds}s` + (failed.length ? ` — ${failed.length} failed (see exports/export-report.json)` : ''));
 }
 
 figma.ui.onmessage = m => {

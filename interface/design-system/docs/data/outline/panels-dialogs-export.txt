@@ -19,10 +19,10 @@ F Dialogs — Export 880×3540 [V gap 32]
           I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
         T "Size"
         F Row 386×32 [H gap 8]
-          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 114×32 "W" "960"
           I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
           I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
-          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+          I NF2/Select {Label=1×, State=Default} 96×32 "1×"
         T "Background"
         F Row 386×16 [H gap 8]
           I NF2/Radio {Label=Stage colour, Selected=True} 95×16 "Stage colour"
@@ -34,7 +34,7 @@ F Dialogs — Export 880×3540 [V gap 32]
         I NF2/Checkbox {Label=Symbols → smart objects, Checked=True} 183×20 "Symbols → smart objects"
         I NF2/Checkbox {Label=Keep text editable, Checked=True} 138×20 "Keep text editable"
         F Row 386×32 [H gap 8]
-          I NF2/Select {Label=Colour: sRGB 8-bit, State=Default} 200×32 "Colour: sRGB 8-bit"
+          I NF2/Select {Label=Colour: sRGB 8-bit, State=Default} 198×32 "Colour: sRGB 8-bit"
           I NF2/Select {Label=Resolution: 144 ppi, State=Default} 180×32 "Resolution: 144 ppi"
     F Footer 758×65 [H gap 8]
       T "~ 4.2 MB · 6 layers"
@@ -61,10 +61,10 @@ F Dialogs — Export 880×3540 [V gap 32]
           I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
         T "Size"
         F Row 386×32 [H gap 8]
-          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 114×32 "W" "960"
           I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
           I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
-          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+          I NF2/Select {Label=1×, State=Default} 96×32 "1×"
         T "Background"
         F Row 386×16 [H gap 8]
           I NF2/Radio {Label=Stage colour, Selected=False} 95×16 "Stage colour"
@@ -72,7 +72,7 @@ F Dialogs — Export 880×3540 [V gap 32]
         T "SVG options"
         F Row 386×32 [H gap 8]
           I NF2/Select {Label=Images: Embed, State=Default} 180×32 "Images: Embed"
-          I NF2/Select {Label=Text: Convert to outlines, State=Default} 200×32 "Text: Convert to outlines"
+          I NF2/Select {Label=Text: Convert to outlines, State=Default} 198×32 "Text: Convert to outlines"
         I NF2/Switch {Label=Minify output, On=True} 120×20 "Minify output"
         I NF2/Switch {Label=Use CSS classes for styles, On=False} 202×20 "Use CSS classes for styles"
         I NF2/Checkbox {Label=Include hidden & guide layers, Checked=False} 207×20 "Include hidden & guide layers"
@@ -104,10 +104,10 @@ F Dialogs — Export 880×3540 [V gap 32]
           I NF2/Field {Prefix=Frames, Show prefix=true, Label=30, State=Disabled} 160×32 "Frames" "30"
         T "Size"
         F Row 386×32 [H gap 8]
-          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 114×32 "W" "960"
           I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
           I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
-          I NF2/Select {Label=1×, State=Default} 80×32 "1×"
+          I NF2/Select {Label=1×, State=Default} 96×32 "1×"
         T "Background"
         F Row 386×16 [H gap 8]
           I NF2/Radio {Label=Stage colour, Selected=True} 95×16 "Stage colour"
@@ -149,13 +149,13 @@ F Dialogs — Export 880×3540 [V gap 32]
           I NF2/Field {Show prefix=true, Prefix=W, Label=1920, State=Default} 110×32 "W" "1920"
           I NF2/Field {Show prefix=true, Prefix=H, Label=1200, State=Default} 110×32 "H" "1200"
           I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
-          I NF2/Select {Label=2×, State=Default} 76×32 "2×"
+          I NF2/Select {Label=2×, State=Default} 96×32 "2×"
         F Row 466×32 [H gap 8]
           I NF2/Select {Label=24 fps (document), State=Default} 160×32 "24 fps (document)"
           I NF2/Select {Label=Codec: H.264, State=Default} 160×32 "Codec: H.264"
         F Row 466×20 [H gap 8]
           T "Quality"
-          I NF2/Slider 180×20
+          I NF2/Slider {Value=50} 180×20
           T "High · ~8 Mbps"
         T "Content"
         I NF2/Checkbox {Label=Render nested movie clip animation and scripts (runtime capture), Checked=True} 427×20 "Render nested movie clip animation and scripts (runtime capture)"
@@ -165,7 +165,7 @@ F Dialogs — Export 880×3540 [V gap 32]
           I NF2/Field {Prefix=W, Show prefix=false, Label=10 s, State=Disabled} 72×32 "W" "10 s"
         F Row 466×32 [H gap 8]
           I NF2/Switch {Label=Include audio, On=True} 121×20 "Include audio"
-          I NF2/Select {Label=AAC 192 kbps, State=Default} 150×32 "AAC 192 kbps"
+          I NF2/Select {Label=AAC 192 kbps, State=Default} 123×32 "AAC 192 kbps"
           I NF2/Checkbox {Label=Transparent bg (MOV/WebM), Checked=False} 206×20 "Transparent bg (MOV/WebM)"
     F Footer 838×65 [H gap 8]
       T "~ 12.1 MB · 00:05 · 1920×1200"

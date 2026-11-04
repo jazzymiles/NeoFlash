@@ -7,9 +7,9 @@ F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
   F NF2/TL Span 900×139 [H gap 12]
     F Type=Static 120×27 [H gap 0]
     F Type=Classic Tween 120×27 [H gap 0]
-      F Arrowhead 6×7
+      F Arrowhead 4×5
     F Type=Shape Tween 120×27 [H gap 0]
-      F Arrowhead 6×7
+      F Arrowhead 4×5
     F Type=Motion Tween 120×27 [H gap 0]
     F Type=Broken Tween 120×27 [H gap 0]
     F Type=Selected 120×27 [H gap 0]
@@ -18,28 +18,28 @@ F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
     F Type=Video 1440×27
       F Filmstrip 1440×27
   F NF2/TL Marker 600×61 [H gap 12]
-    F Kind=Keyframe, Tone=Default 12×27 [H gap 1]
-    F Kind=Keyframe, Tone=On Selection 12×27 [H gap 1]
-    F Kind=Blank Keyframe, Tone=Default 12×27 [H gap 1]
-    F Kind=Blank Keyframe, Tone=On Selection 12×27 [H gap 1]
-    F Kind=Span End, Tone=Default 12×27 [H gap 1]
-    F Kind=Span End, Tone=On Selection 12×27 [H gap 1]
-    F Kind=Property Keyframe, Tone=Default 12×27 [H gap 1]
-      F Diamond 8×8
-    F Kind=Property Keyframe, Tone=On Selection 12×27 [H gap 1]
-      F Diamond 8×8
-    F Kind=Action Keyframe, Tone=Default 12×27 [V gap 1]
+    F Kind=Keyframe, Tone=Default 12×27
+    F Kind=Keyframe, Tone=On Selection 12×27
+    F Kind=Blank Keyframe, Tone=Default 12×27
+    F Kind=Blank Keyframe, Tone=On Selection 12×27
+    F Kind=Span End, Tone=Default 12×27
+    F Kind=Span End, Tone=On Selection 12×27
+    F Kind=Property Keyframe, Tone=Default 12×27
+      F Diamond 7×7
+    F Kind=Property Keyframe, Tone=On Selection 12×27
+      F Diamond 7×7
+    F Kind=Action Keyframe, Tone=Default 12×27
       T "a"
-    F Kind=Action Keyframe, Tone=On Selection 12×27 [V gap 1]
+    F Kind=Action Keyframe, Tone=On Selection 12×27
       T "a"
   F NF2/TL Frame Label 600×61 [H gap 12]
-    F Kind=Label 49×27 [H gap 3]
+    F Kind=Label 49×27
       F Icon 7×10
       T "intro"
-    F Kind=Comment 49×27 [H gap 3]
+    F Kind=Comment 49×27
       F Icon 7×10
       T "intro"
-    F Kind=Anchor 50×27 [H gap 3]
+    F Kind=Anchor 50×27
       F Icon 8×10
       T "intro"
   F NF2/TL Ruler 1440×32
@@ -75,7 +75,7 @@ F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
     T "4s"
   F NF2/TL Onion Range 60×24 [H gap 0]
   F NF2/TL Playhead 24×480
-    F Head 24×18 [H gap 0]
+    F Head 20×16 [H gap 0]
       T "1"
     F Time 39×13 [H gap 0]
       T "1.21s"

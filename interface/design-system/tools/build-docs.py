@@ -399,14 +399,14 @@ SHELF_CAPTIONS = {
            'code-editor': 'Code editor', 'timeline-layers': 'Timeline — layers', 'timeline-frames': 'Timeline — frames',
            'panels-tools-icons': 'Panels & Tools — icons', 'panels-tools-components': 'Panels & Tools — components',
            'rulers-guides-grid': 'Rulers, guides, grid', 'quick-colours-easing': 'Quick colours & easing', 'inputs-menus-breadcrumb': 'Inputs, menus, breadcrumb',
-           'canvas-editing-chrome': 'Canvas editing chrome', 'cursors': 'Cursors', 'technical': 'Technical', 'icons-16-and-20-px': 'Icons 16 / 20 px'},
+           'canvas-editing-chrome': 'Canvas editing chrome', 'cursors': 'Cursors', 'technical': 'Technical', 'icons-16-and-20-px': 'Icons 16 / 20 px', 'brushes-tool-flyouts': 'Brushes, pencil and tool flyouts'},
     'ru': {'button': 'Кнопка', 'icon-button': 'Кнопка-иконка', 'segmented-control': 'Сегментированный переключатель', 'field-search-select': 'Поле · Поиск · Выпадающий список',
            'checkbox-slider-swatch-badge': 'Чекбокс · Слайдер · Образец цвета · Бейдж', 'dock-tab-section-header-panel-header': 'Вкладка дока · Заголовок секции · Заголовок панели',
            'tree-item': 'Элемент дерева', 'kbd-tooltip-dialog-header-zoom-control-logo': 'Клавиша · Тултип · Заголовок диалога · Зум · Логотип',
            'code-editor': 'Редактор кода', 'timeline-layers': 'Таймлайн — слои', 'timeline-frames': 'Таймлайн — кадры',
            'panels-tools-icons': 'Панели и инструменты — иконки', 'panels-tools-components': 'Панели и инструменты — компоненты',
            'rulers-guides-grid': 'Линейки, направляющие, сетка', 'quick-colours-easing': 'Быстрые цвета и изинг', 'inputs-menus-breadcrumb': 'Поля, меню, хлебные крошки',
-           'canvas-editing-chrome': 'Элементы редактирования на холсте', 'cursors': 'Курсоры', 'technical': 'Технические элементы', 'icons-16-and-20-px': 'Иконки 16 / 20 px'},
+           'canvas-editing-chrome': 'Элементы редактирования на холсте', 'cursors': 'Курсоры', 'technical': 'Технические элементы', 'icons-16-and-20-px': 'Иконки 16 / 20 px', 'brushes-tool-flyouts': 'Кисти, карандаш и флайауты инструментов'},
 }
 
 
@@ -536,6 +536,10 @@ def render(src, fmt, lang, out_dir):
             return img(path, fmt, out_dir, cap, 1800)
         return GENS[name](fmt, lang, out_dir)
     s = re.sub(r'\{\{GEN:([^}]+)\}\}', rep, src)
+    counts = {'N_TOKENS': len(NF2['variables']), 'N_COMPONENTS': sum(1 for c in COMPS if not c['name'].startswith(('NF2 Icon/', 'NF2 Cursor/'))),
+              'N_ICONS': sum(1 for c in COMPS if c['name'].startswith('NF2 Icon/')), 'N_CURSORS': sum(1 for c in COMPS if c['name'].startswith('NF2 Cursor/'))}
+    for k, v in counts.items():
+        s = s.replace('{{' + k + '}}', str(v))
     return s.replace('{{GENERATED}}', dump['generated'][:10]).replace('{{FILE_NAME}}', dump['file']).replace('{{TODAY}}', date.today().isoformat())
 
 

@@ -27,7 +27,7 @@ F Dialog / Preferences — Code editor 920×774 [V gap 0]
         F Row 650×20 [H gap 8]
           I NF2/Switch {Label=Code hints, On=True} 105×20 "Code hints"
           T "Delay"
-          I NF2/Slider 160×20
+          I NF2/Slider {Value=50} 160×20
           T "300 ms"
         F Row 650×32 [H gap 8]
           I NF2/Select {Label=Tab: 4 spaces, State=Default} 180×32 "Tab: 4 spaces"

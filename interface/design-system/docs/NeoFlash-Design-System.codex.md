@@ -6,7 +6,7 @@
 > Generated parts (tokens, styles, components, icons, cursors, exports, outlines) are rebuilt from the Figma file
 > by `tools/build-docs.py`. Do not hand-edit this file; edit `docs/source/NeoFlash-Design-System.src.md` and rebuild.
 
-Generated: 2026-10-31 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fog7`).
+Generated: 2026-11-02 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fog7`).
 
 ---
 
@@ -336,11 +336,11 @@ Usage:
 - The **Icons** page lists every icon with where it is used, grouped like the table below. Unused icons are listed
   as cleanup candidates (kept on purpose for upcoming features).
 
-**304 icons** (16 px and 20 px).
+**319 icons** (16 px and 20 px).
 
 | Group | # | Icons |
 |---|---|---|
-| Tools (20 px) | 31 | 20/color-default, 20/color-none, 20/color-swap, 20/tool-bind, 20/tool-bone, 20/tool-brush, 20/tool-bucket, 20/tool-deco, 20/tool-eraser, 20/tool-eyedropper, 20/tool-gradient, 20/tool-hand, 20/tool-ink, 20/tool-lasso, 20/tool-line, 20/tool-oval, 20/tool-oval-primitive, 20/tool-pen, 20/tool-pencil, 20/tool-polystar, 20/tool-rect, 20/tool-rect-primitive, 20/tool-select, 20/tool-smooth, 20/tool-snap, 20/tool-spray, 20/tool-straighten, 20/tool-subselect, 20/tool-text, 20/tool-transform, 20/tool-zoom |
+| Tools (20 px) | 36 | 20/color-default, 20/color-none, 20/color-swap, 20/tool-3d-rotate, 20/tool-3d-translate, 20/tool-bind, 20/tool-bone, 20/tool-brush, 20/tool-bucket, 20/tool-deco, 20/tool-eraser, 20/tool-eyedropper, 20/tool-gradient, 20/tool-hand, 20/tool-ink, 20/tool-lasso, 20/tool-line, 20/tool-oval, 20/tool-oval-primitive, 20/tool-pen, 20/tool-pen-add, 20/tool-pen-convert, 20/tool-pen-remove, 20/tool-pencil, 20/tool-polystar, 20/tool-rect, 20/tool-rect-primitive, 20/tool-select, 20/tool-smooth, 20/tool-snap, 20/tool-spray, 20/tool-straighten, 20/tool-subselect, 20/tool-text, 20/tool-transform, 20/tool-zoom |
 | Layers & timeline | 47 | 16/anchor, 16/armature, 16/blankkey-add, 16/centerframe, 16/ease, 16/editmulti, 16/eye, 16/eyeoff, 16/film, 16/flag, 16/folder, 16/folderopen, 16/folderplus, 16/frame-add, 16/guide, 16/guideplus, 16/joint, 16/keyframe-add, 16/keyframe-remove, 16/layer, 16/layerplus, 16/layers, 16/lock, 16/markers, 16/mask, 16/masked, 16/motion-editor, 16/motion-path, 16/motionguide, 16/onion, 16/onionoutline, 16/pencil, 16/trash, 16/tween-classic, 16/tween-motion, 16/tween-shape, 16/unlock, 20/eye, 20/eyeoff, 20/film, 20/folder, 20/layers, 20/lock, 20/onion, 20/pencil, 20/trash, 20/unlock |
 | Playback, sound & video | 19 | 16/first, 16/last, 16/loop, 16/pause, 16/play, 16/sound, 16/sound-file, 16/stepback, 16/stepfwd, 16/stop, 16/video, 16/waveform, 20/first, 20/last, 20/loop, 20/pause, 20/play, 20/stepback, 20/stepfwd |
 | Align & transform | 28 | 16/align-bottom, 16/align-hcenter, 16/align-left, 16/align-right, 16/align-top, 16/align-vmiddle, 16/angle, 16/dist-bottom, 16/dist-hcenter, 16/dist-left, 16/dist-right, 16/dist-top, 16/dist-vmiddle, 16/flip-h, 16/flip-v, 16/link, 16/match-both, 16/match-h, 16/match-w, 16/reset-transform, 16/rotate-ccw, 16/rotate-cw, 16/scale, 16/skew, 16/space-h, 16/space-v, 16/to-stage, 20/link |
@@ -351,7 +351,7 @@ Usage:
 | Library & symbols | 9 | 16/bitmap, 16/button-symbol, 16/class, 16/graphic, 16/movieclip, 16/package, 16/scene, 16/symbol, 20/symbol |
 | Code, debug & diagnostics | 36 | 16/autoformat, 16/bookmark, 16/breakpoint, 16/callstack, 16/code, 16/codehint, 16/collapse, 16/comment-block, 16/comment-line, 16/debug, 16/debug-continue, 16/error, 16/exec-arrow, 16/expand, 16/file-code, 16/find-replace, 16/fold-closed, 16/fold-open, 16/frame, 16/help, 16/info, 16/pin, 16/sidebar, 16/snippet, 16/step-into, 16/step-out, 16/step-over, 16/target, 16/terminal, 16/tree, 16/uncomment, 16/variable, 16/wand, 16/warning, 20/code, 20/terminal |
 | App, menus & publishing | 27 | 16/access, 16/copy, 16/desktop, 16/globe, 16/history, 16/info-panel, 16/keyboard, 16/new-file, 16/open, 16/paste, 16/pen, 16/publish, 16/redo, 16/save, 16/scissors, 16/select-all, 16/settings, 16/speed, 16/submenu, 16/undo, 16/upload, 20/access, 20/pen, 20/save, 20/settings, 20/undo, 20/upload |
-| Interface & other | 53 | 16/brush, 16/check, 16/chevdown, 16/chevright, 16/chevup, 16/detach, 16/eraser, 16/external, 16/eyedropper, 16/filter, 16/gradient, 16/grip, 16/grip-h, 16/lasso, 16/line, 16/minus, 16/more, 16/oval, 16/plus, 16/rect, 16/search, 16/select, 16/stamp, 16/subselect, 16/transform, 16/tridown, 16/triright, 16/x, 20/brush, 20/check, 20/chevdown, 20/chevright, 20/chevup, 20/eraser, 20/external, 20/eyedropper, 20/gradient, 20/grip, 20/lasso, 20/line, 20/minus, 20/more, 20/oval, 20/plus, 20/rect, 20/search, 20/select, 20/stamp, 20/subselect, 20/transform, 20/tridown, 20/triright, 20/x |
+| Interface & other | 63 | 16/brush, 16/brushes, 16/check, 16/chevdown, 16/chevleft, 16/chevright, 16/chevup, 16/customize, 16/detach, 16/eraser, 16/external, 16/eyedropper, 16/filter, 16/gradient, 16/grip, 16/grip-h, 16/lasso, 16/line, 16/minus, 16/more, 16/oval, 16/pencil-ink, 16/pencil-smooth, 16/pencil-straighten, 16/plus, 16/pressure, 16/rect, 16/refresh, 16/search, 16/select, 16/stamp, 16/subselect, 16/tilt, 16/trace-bitmap, 16/transform, 16/tridown, 16/triright, 16/x, 20/brush, 20/check, 20/chevdown, 20/chevright, 20/chevup, 20/eraser, 20/external, 20/eyedropper, 20/gradient, 20/grip, 20/lasso, 20/line, 20/minus, 20/more, 20/oval, 20/plus, 20/rect, 20/search, 20/select, 20/stamp, 20/subselect, 20/transform, 20/tridown, 20/triright, 20/x |
 
 
 ![Icons — tools section](illustrations/icons-page-tools-section.png)
@@ -409,7 +409,7 @@ Frame `NF2 / Editor — Main`, 1920 × 1080. Regions (top to bottom, left to rig
 | Region | Size | Content |
 |---|---|---|
 | Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Modify · Insert · Control · Window (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
-| Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools, fill/stroke chip, swap/default colours, snap toggle at the bottom. |
+| Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools (long-press opens the group menu built from `NF2/Tool Flyout Item`; all groups and their shortcuts are on the board “Tools — flyout groups”, §6; the rail is edited in “Customize tools panel”, §9), fill/stroke chip, swap/default colours, snap toggle at the bottom. |
 | Canvas | 1544 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
 | Inspector | 320 × 588 | **Properties** (`Panel Header`, `Segmented Control` Selection / Tool; sections Stage: Name, W × H with link, Background swatch + hex + α; Playback: FPS, Frames; Publish: target badge "HTML5 · Rust / WebAssembly" + "Publish settings…") and **Library** (search, tree). Content changes with the selection (see §6 Properties variants). |
 | Bottom dock | 1920 × 420 | Dock tabs (40): Timeline · Actions · Output · Accessibility, collapse ⌄ and more ⋯. Timeline controls (44). Timeline body (336). |
@@ -469,7 +469,8 @@ frame view ⋯ · zoom − slider +.
 | Row height | 28 px (Short mode: 18 px). |
 | Ruler | `NF2/TL Ruler`, 32 px: seconds row on top (`0s 1s 2s …` at 24 fps), frame numbers row below (1, 5, 10, …) with ticks. |
 | Layer column | 280 px (`NF2/TL Layers Header` + `NF2/TL Layer` rows). |
-| Grid | `NF2/TL Grid` 1440 px = 120 frames; every 5th frame shaded (`timeline/empty-5th`); `NF2/TL Grid Lines` overlay keeps filled frames countable. |
+| Grid | `NF2/TL Grid` 1440 px = 120 frames: frame dividers are **short ticks at the bottom** of the row (1 × 4 px, Flash style), not full-height lines; every 5th frame shaded (`timeline/empty-5th`); row line at the bottom. `NF2/TL Grid Lines` (the same ticks) sits directly above `TL Grid` and **below** spans, so static and tween spans stay continuous. |
+| Glyph line | Keyframe glyphs sit low in the cell: centre at y 19 of the 27 px cell. Tween lines and arrowheads use the same line. The action “a”, label flags and label text sit at the top of the cell. |
 | Marker position | Frame `n` → `x = (n − 1) × 12`; spans resize to `frames × 12`. |
 
 ### 5.2 Layers
@@ -511,8 +512,14 @@ outline-only square). Header icons eye, lock, outline toggle all rows.
 | Onion skin range | `timeline/onion` | `#6c93ff` | `#3c6bf0` | handles on the ruler around the playhead |
 
 
-`NF2/TL Marker` kinds: Keyframe ● (filled), Blank Keyframe ○, Span End ▯, Property Keyframe ◆ (motion tween / armature),
-Action Keyframe "a" (script on frame); `Tone=On Selection` inverts colours on selected frames.
+`NF2/TL Marker` kinds: Keyframe ● (filled, 6 px), Blank Keyframe ○, Span End ▯ (small 5 × 8 rectangle on the last frame
+of a span with nothing after it and no animation), Property Keyframe ◆ (motion tween / armature), Action Keyframe “a”
+(script on frame; the “a” sits at the top, above the keyframe dot); `Tone=On Selection` inverts colours on selected frames.
+Classic and shape tweens: a thin 1 px line from the start keyframe with a small 4 × 5 arrowhead before the end keyframe,
+on the glyph line; the tween band is never divided by frame lines. Broken tween: the same line dashed, no arrowhead.
+
+`NF2/TL Playhead`: the frame-number chip uses the ruler digit style (Roboto Mono 11/14) and shares the ruler digits’
+top line, so the current number reads as part of the ruler; the chip stays centred on the line (min width 20).
 `NF2/TL Frame Label` kinds: Label (red flag, `timeline/label`), Comment (green `//`, `timeline/comment`),
 Anchor (⚓, named anchor).
 
@@ -669,67 +676,67 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-ease.png) · [SVG](../exports
 
 ### Ease — overshoot / undershoot
 
-![Ease — overshoot / undershoot](../exports/panels/dark/png/ease-range-states.png)
+![Ease — overshoot / undershoot](../exports/panels/dark/boards/png/ease-range-states.png)
 
 When a handle goes above 100 % (Back out, overshoot to 112 %) or below 0 % (anticipation, dips to −8 %) the graph switches to `Range = Overshoot` / `Undershoot`: Y axis extends to −30…130 % and the out-of-range bands are tinted; Y1 / Y2 fields accept values outside 0–1.
 
-Files: [Dark PNG](../exports/panels/dark/png/ease-range-states.png) · [SVG](../exports/panels/dark/svg/ease-range-states.svg) · [Light PNG](../exports/panels/light/png/ease-range-states.png) · [SVG](../exports/panels/light/svg/ease-range-states.svg) · Figma node `56:7102`
+Files: [Dark PNG](../exports/panels/dark/boards/png/ease-range-states.png) · [SVG](../exports/panels/dark/boards/svg/ease-range-states.svg) · [Light PNG](../exports/panels/light/boards/png/ease-range-states.png) · [SVG](../exports/panels/light/boards/svg/ease-range-states.svg) · Figma node `56:7102`
 
 ### Library · Scene · History · Swatches
 
-![Library · Scene · History · Swatches](../exports/panels/dark/png/panels-more.png)
+![Library · Scene · History · Swatches](../exports/panels/dark/boards/png/panels-more.png)
 
 **Library**: document select, panel actions (new symbol, new folder, properties, delete), preview of the selected item, search, item count ("7 items"), tree with type icons (folder, movie clip, graphic, button, bitmap, sound, font), pin. **Scene**: search ("Find scene"), list of scenes with the current one highlighted, add / duplicate / delete. **History**: list of steps (Oval, Move, Fill colour, Transform, Delete) with the current position, undo / redo, clear. **Swatches** as a panel tab (the same content as the Swatches popover).
 
-Files: [Dark PNG](../exports/panels/dark/png/panels-more.png) · [SVG](../exports/panels/dark/svg/panels-more.svg) · [Light PNG](../exports/panels/light/png/panels-more.png) · [SVG](../exports/panels/light/svg/panels-more.svg) · Figma node `43:4271`
+Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more.png) · [SVG](../exports/panels/dark/boards/svg/panels-more.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more.png) · [SVG](../exports/panels/light/boards/svg/panels-more.svg) · Figma node `43:4271`
 
 ### Output · Compiler errors · Accessibility · Info
 
-![Output · Compiler errors · Accessibility · Info](../exports/panels/dark/png/panels-more-2.png)
+![Output · Compiler errors · Accessibility · Info](../exports/panels/dark/boards/png/panels-more-2.png)
 
 **Output**: Show (All / Errors / Warnings / Trace), filter field, clear and copy; timestamped log with info, warning (amber) and error (red) lines. **Compiler errors**: badges "1 warning" "1 error", entries with code, message and location (scene · layer · frame · line); double-click jumps to the code. **Accessibility**: make object accessible, make child objects accessible, auto label, Name, Description, Shortcut, Tab index. **Info**: W H X Y of the selection, cursor position, colour under the cursor (R G B A).
 
-Files: [Dark PNG](../exports/panels/dark/png/panels-more-2.png) · [SVG](../exports/panels/dark/svg/panels-more-2.svg) · [Light PNG](../exports/panels/light/png/panels-more-2.png) · [SVG](../exports/panels/light/svg/panels-more-2.svg) · Figma node `43:4272`
+Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more-2.png) · [SVG](../exports/panels/dark/boards/svg/panels-more-2.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more-2.png) · [SVG](../exports/panels/light/boards/svg/panels-more-2.svg) · Figma node `43:4272`
 
 ### Rectangle primitive · PolyStar · Armature
 
-![Rectangle primitive · PolyStar · Armature](../exports/panels/dark/png/drawing-tools-panels.png)
+![Rectangle primitive · PolyStar · Armature](../exports/panels/dark/boards/png/drawing-tools-panels.png)
 
 **Properties — Rectangle primitive**: position and size, fill and stroke, **Rectangle options**: four corner radii (linked by default, unlink to edit separately), radius slider, Reset. **PolyStar tool settings** dialog: Style (Polygon / Star), Sides, Star point size 0–1 (smaller = sharper). **Armature sample**: bone chain on stage + pose layer on the timeline; poses are property keyframes ◆ on the Armature layer; joints honour rotation limits.
 
-Files: [Dark PNG](../exports/panels/dark/png/drawing-tools-panels.png) · [SVG](../exports/panels/dark/svg/drawing-tools-panels.svg) · [Light PNG](../exports/panels/light/png/drawing-tools-panels.png) · [SVG](../exports/panels/light/svg/drawing-tools-panels.svg) · Figma node `63:12029`
+Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels.svg) · Figma node `63:12029`
 
 ### Deco · Spray brush · IK bone
 
-![Deco · Spray brush · IK bone](../exports/panels/dark/png/drawing-tools-panels-2.png)
+![Deco · Spray brush · IK bone](../exports/panels/dark/boards/png/drawing-tools-panels-2.png)
 
 **Deco tool**: Drawing effect (Vine fill, Grid fill, Symmetry brush, …), Leaf / Flower symbols (Edit… or default shape), Advanced: branch angle, pattern scale, segment length, step, Animate pattern. **Spray brush**: symbol or default dots, W/H scale, random scaling, rotate symbol, random rotation; Brush width, height, angle. **IK bone**: bone name, Position (X, Y, length, angle), Joint: rotation (enable, constrain, min, max), Joint: X / Y translation, Spring (strength, damping), Armature (type Authortime / Runtime, style, speed, enable spring).
 
-Files: [Dark PNG](../exports/panels/dark/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/dark/svg/drawing-tools-panels-2.svg) · [Light PNG](../exports/panels/light/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/light/svg/drawing-tools-panels-2.svg) · Figma node `63:12030`
+Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels-2.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels-2.svg) · Figma node `63:12030`
 
 ### Properties — Graphic · Layer properties
 
-![Properties — Graphic · Layer properties](../exports/panels/dark/png/symbols-panels.png)
+![Properties — Graphic · Layer properties](../exports/panels/dark/boards/png/symbols-panels.png)
 
 **Graphic** instances have no instance name (timeline synced to the parent). Looping: Loop / Play once / Single frame / Loop reverse / Play once reverse, First and Last frame, thumbnail strip (click to set the first frame). **Layer properties** dialog: Name, Visible, Locked, Type (Normal, Guide, Guided, Mask, Masked, Folder, Armature), Outline colour swatch, View layer as outlines, Layer height (100 / 200 / 300 %).
 
-Files: [Dark PNG](../exports/panels/dark/png/symbols-panels.png) · [SVG](../exports/panels/dark/svg/symbols-panels.svg) · [Light PNG](../exports/panels/light/png/symbols-panels.png) · [SVG](../exports/panels/light/svg/symbols-panels.svg) · Figma node `64:12881`
+Files: [Dark PNG](../exports/panels/dark/boards/png/symbols-panels.png) · [SVG](../exports/panels/dark/boards/svg/symbols-panels.svg) · [Light PNG](../exports/panels/light/boards/png/symbols-panels.png) · [SVG](../exports/panels/light/boards/svg/symbols-panels.svg) · Figma node `64:12881`
 
 ### Debugger · Project · Code snippets
 
-![Debugger · Project · Code snippets](../exports/panels/dark/png/scripting-panels.png)
+![Debugger · Project · Code snippets](../exports/panels/dark/boards/png/scripting-panels.png)
 
 **Debugger**: toolbar continue / stop / step over / step into / step out, Remove all breakpoints, state badge ("Paused · orbit : Frame 1 · line 18 (breakpoint)"). **Call stack**, **Variables** (expandable tree, changed values marked), **Watch** (expressions, errors shown as values), **Breakpoints** list with checkboxes. **Project**: project select, find file, file tree (unsaved ● marker), Publish; footer explains linkage ("Orbit.as is linked to symbol orbit"). **Code snippets**: search, categories (Actions, Timeline navigation, Animation, Load and unload, Audio and video, Event handlers), preview of the code, Copy, Insert at frame 1.
 
-Files: [Dark PNG](../exports/panels/dark/png/scripting-panels.png) · [SVG](../exports/panels/dark/svg/scripting-panels.svg) · [Light PNG](../exports/panels/light/png/scripting-panels.png) · [SVG](../exports/panels/light/svg/scripting-panels.svg) · Figma node `65:13033`
+Files: [Dark PNG](../exports/panels/dark/boards/png/scripting-panels.png) · [SVG](../exports/panels/dark/boards/svg/scripting-panels.svg) · [Light PNG](../exports/panels/light/boards/png/scripting-panels.png) · [SVG](../exports/panels/light/boards/svg/scripting-panels.svg) · Figma node `65:13033`
 
 ### Motion editor · Motion tween properties
 
-![Motion editor · Motion tween properties](../exports/panels/dark/png/motion-panels.png)
+![Motion editor · Motion tween properties](../exports/panels/dark/boards/png/motion-panels.png)
 
 **Motion editor** (tab next to Timeline): columns Property · Value · Ease · Keyframe + frame ruler. Sections Basic motion (X, Y, Rotation Z), Transformation (Scale X/Y, skew), Colour effect (Alpha …), Filters; each property row has value field, ease select (No ease, Simple (slow), Bounce …), keyframe navigation (◀ ◆ ▶) and a curve. Footer: graph size slider, expanded height, visible frames. **Properties — Motion tween**: ease value (−100 in … +100 out) + Edit curve…, Rotation (count, direction CW / CCW, orient to path), Path X Y W H, show path / frame dots, Sync graphic symbols, Snap to motion guide.
 
-Files: [Dark PNG](../exports/panels/dark/png/motion-panels.png) · [SVG](../exports/panels/dark/svg/motion-panels.svg) · [Light PNG](../exports/panels/light/png/motion-panels.png) · [SVG](../exports/panels/light/svg/motion-panels.svg) · Figma node `67:13512`
+Files: [Dark PNG](../exports/panels/dark/boards/png/motion-panels.png) · [SVG](../exports/panels/dark/boards/svg/motion-panels.svg) · [Light PNG](../exports/panels/light/boards/png/motion-panels.png) · [SVG](../exports/panels/light/boards/svg/motion-panels.svg) · Figma node `67:13512`
 
 ### Actions (script editor)
 
@@ -738,6 +745,38 @@ Files: [Dark PNG](../exports/panels/dark/png/motion-panels.png) · [SVG](../expo
 Floating 960 × 660 (also docked as a dock tab). Toolbar: language (ActionScript 3.0), target, Script assist, format, hints, debug, fold, comment, sidebar, help. Left sidebar: toolbox search + tree (Top level, Language elements, fl.* packages) and **Script navigator** (current selection, scenes, symbol definitions). Editor: gutter with line numbers and markers (error, warning, breakpoint, execution arrow, folds), syntax-coloured code, current line, code hint popover, inline error peek with Quick fix ⌘., overview ruler. Bottom: script tabs (pinned), status "Line 19, Col 10 · 20 lines", problems counter.
 
 Files: [Dark PNG](../exports/panels/dark/png/panel-actions-floating.png) · [SVG](../exports/panels/dark/svg/panel-actions-floating.svg) · [Light PNG](../exports/panels/light/png/panel-actions-floating.png) · [SVG](../exports/panels/light/svg/panel-actions-floating.svg) · Figma node `27:1526`
+
+### Tools — flyout groups
+
+![Tools — flyout groups](../exports/panels/dark/boards/png/tools-flyout-groups.png)
+
+Rail of the `NF2/Tools Panel` with the flyout menu of every grouped tool (`NF2/Tool Flyout Item`: ■ marks the tool shown on the rail, 20 px icon, name, shortcut). Groups: Selection · Subselection (V, A); Free transform · Gradient transform · 3D rotation · 3D translation (Q, F, W, G); Pen · Add / Delete / Convert anchor point (P, =, −, C); Rectangle · Oval · Rectangle primitive · Oval primitive · PolyStar (R, O); Pencil · Brush · Spray brush (Y, B); Paint bucket · Ink bottle (K, S); Bone · Bind (M); Deco (U). Long-press a tool with a corner mark to open its group.
+
+Files: [Dark PNG](../exports/panels/dark/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/dark/boards/svg/tools-flyout-groups.svg) · [Light PNG](../exports/panels/light/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/light/boards/svg/tools-flyout-groups.svg) · Figma node `97:15992`
+
+### Commands panel · Commands set
+
+![Commands panel · Commands set](../exports/panels/dark/boards/png/commands-panel-dialog.png)
+
+**Commands** panel (script commands run on the document, like xJSFL snippets): search, open commands folder, count, folder tree (Animation, Development ▸ ActionScript / Tools / Extensions, Library, Stage, Tools) with an icon per command, bottom toolbar: new command, new folder, info, refresh, delete. **Commands** dialog: Set — User commands / Commands folder / API examples; Action — Load (replace list); Cancel · **OK**.
+
+Files: [Dark PNG](../exports/panels/dark/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/dark/boards/svg/commands-panel-dialog.svg) · [Light PNG](../exports/panels/light/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/light/boards/svg/commands-panel-dialog.svg) · Figma node `100:16596`
+
+### Brushes · Brush tool · Pencil tool
+
+![Brushes · Brush tool · Pencil tool](../exports/panels/dark/boards/png/brushes-pencil-panels.png)
+
+**Brushes** library: search, sections Basic / Artistic / Pattern with stroke previews (`NF2/Brush Preset`, `NF2 Brush/*`), size slider, new brush / folder, delete. **Properties — Brush tool**: brush mode (Paint normal / fills / behind / selection / inside), brush shape (`NF2/Brush Shape`, 8 Flash shapes), size, smoothing, pen pressure → size and tilt → angle, fill colour + Lock fill, Brush library…. **Properties — Pencil tool**: pencil mode Straighten / Smooth / Ink, smoothing, stroke colour and size, line style, cap and join, stroke hinting, scale.
+
+Files: [Dark PNG](../exports/panels/dark/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/dark/boards/svg/brushes-pencil-panels.svg) · [Light PNG](../exports/panels/light/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/light/boards/svg/brushes-pencil-panels.svg) · Figma node `101:16811`
+
+### Canvas — brush and pencil feedback
+
+![Canvas — brush and pencil feedback](../exports/panels/dark/png/canvas-brush-pencil.png)
+
+How brushes show on the canvas: `NF2/Brush Cursor` footprint ring at the current size (black + white, readable on any colour), resize with ⌥⌘-drag (dashed ring + size chip), square eraser footprint, pressure stroke whose width follows the pen, live pencil preview (committed solid, smoothing ahead dashed), and the three pencil modes.
+
+Files: [Dark PNG](../exports/panels/dark/png/canvas-brush-pencil.png) · [SVG](../exports/panels/dark/svg/canvas-brush-pencil.svg) · [Light PNG](../exports/panels/light/png/canvas-brush-pencil.png) · [SVG](../exports/panels/light/svg/canvas-brush-pencil.svg) · Figma node `102:17071`
 
 
 ---
@@ -1001,7 +1040,7 @@ Main menu items are `NF2/Menu Bar Item` (Default / Open); dropdowns are `bg/rais
 | Show in library |  |  |
 
 
-![Menus](../exports/panels/dark/png/menus.png)
+![Menus](../exports/panels/dark/boards/png/menus.png)
 
 ---
 
@@ -1016,19 +1055,19 @@ footer Reset to defaults · Cancel · **Save**.
 
 ### Edit envelope · Sound properties · Stroke style
 
-![Edit envelope · Sound properties · Stroke style](../exports/panels/dark/png/dialogs-sound-stroke.png)
+![Edit envelope · Sound properties · Stroke style](../exports/panels/dark/boards/png/dialogs-sound-stroke.png)
 
 **Edit envelope**: effect select, Seconds / Frames units, left and right channel lanes with waveform and draggable volume handles (click a lane to add a point), time ruler, zoom, Cancel / OK. **Sound properties**: name, path, source info, Export compression (MP3 / ADPCM / Raw / Speech), bit rate, quality, convert stereo to mono, result size, Update / Import… / Test. **Stroke style**: preview, Type (Solid, Dashed, Dotted, Ragged, Stipple, Hatched), thickness, 4× zoom, dash / gap lengths, Sharp corners.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/dark/svg/dialogs-sound-stroke.svg) · [Light PNG](../exports/panels/light/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/light/svg/dialogs-sound-stroke.svg) · Figma node `42:4160`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-sound-stroke.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/light/boards/svg/dialogs-sound-stroke.svg) · Figma node `42:4160`
 
 ### Convert to Symbol (F8)
 
-![Convert to Symbol (F8)](../exports/panels/dark/png/dialogs-convert-to-symbol.png)
+![Convert to Symbol (F8)](../exports/panels/dark/boards/png/dialogs-convert-to-symbol.png)
 
 Three states. **Default**: Name, Type (Movie clip / Button / Graphic), Folder, Registration — compact 28 px `NF2/Registration Picker` 3 × 3 + caption ("Centre"), helper text for the chosen type, Advanced collapsed, Cancel / **Convert**. **Type menu**: each type with a hint (own timeline · up/over/down/hit · synced to parent). **Advanced**: 9-slice guides, ActionScript linkage (Export for ActionScript, Export in frame 1, Identifier, Class, Base class), Runtime shared library (export / import, URL), Authortime sharing (source file, symbol, update automatically).
 
-Files: [Dark PNG](../exports/panels/dark/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/dark/svg/dialogs-convert-to-symbol.svg) · [Light PNG](../exports/panels/light/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/light/svg/dialogs-convert-to-symbol.svg) · Figma node `54:6859`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-convert-to-symbol.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/light/boards/svg/dialogs-convert-to-symbol.svg) · Figma node `54:6859`
 
 ### Import video
 
@@ -1040,27 +1079,43 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-import-video.png) · [SVG](.
 
 ### Export image / video / audio · Import PSD
 
-![Export image / video / audio · Import PSD](../exports/panels/dark/png/dialogs-export.png)
+![Export image / video / audio · Import PSD](../exports/panels/dark/boards/png/dialogs-export.png)
 
 **Export image** with format segments PNG · SVG · PSD · AI · PDF and a live preview ("Frame 30 of 120 · 960 × 600"): range (current frame / frames), size W × H linked + scale, background (stage colour / transparent). PSD options: layers as Photoshop layers or flatten, folders → groups, symbols → smart objects, editable text, colour profile, resolution. SVG options: images embed/link, text as outlines or text, minify, CSS classes, include hidden & guide layers, precision, ID prefix. AI options: version, layers or keyframes → artboards, strokes as strokes, text to outlines. **Export video**: MP4 · WebM · MOV · GIF · PNG sequence, range (whole movie / scene / frames), size + scale, fps, codec, quality, render nested movie clips and scripts (runtime capture), stop at last frame / after N s, audio, transparent background, live render progress. **Export audio**: WAV · MP3 · OGG · AAC, source (timeline mix / layer), range, sample rate, bit depth, channels, bit rate, normalize, fade out, trim silence. **Import PSD to library**: layer list with checkboxes and per-layer options (bitmap with editable styles / flattened bitmap / vector shapes; create movie clip with instance name and registration; compression), placement (convert layers to timeline layers / keyframes / one layer), keep positions, set stage size to canvas.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialogs-export.png) · [SVG](../exports/panels/dark/svg/dialogs-export.svg) · [Light PNG](../exports/panels/light/png/dialogs-export.png) · [SVG](../exports/panels/light/svg/dialogs-export.svg) · Figma node `57:7729`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-export.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-export.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-export.png) · [SVG](../exports/panels/light/boards/svg/dialogs-export.svg) · Figma node `57:7729`
 
 ### Document settings · Find and replace · Movie Explorer
 
-![Document settings · Find and replace · Movie Explorer](../exports/panels/dark/png/document-dialogs.png)
+![Document settings · Find and replace · Movie Explorer](../exports/panels/dark/boards/png/document-dialogs.png)
 
 **Document settings (⌘J)**: stage size W × H linked, Match contents / Match printer, scale content with stage + anchor (registration picker), units, background colour, frame rate (fps → "120 frames · 5.00 s"), script version, Make default · Cancel · OK. **Find and replace (⌘F)**: search type segments (Text, Font, Colour, Symbol, Sound, Video, Bitmap), scope (current document / scene), find / replace fields, whole word, match case, regex, live edit, where to search (text fields, frames/layers/scenes, ActionScript), results table (location → found), Find all / Replace / Replace all. **Movie Explorer** panel: filter buttons, search, tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, path of the selection in the footer.
 
-Files: [Dark PNG](../exports/panels/dark/png/document-dialogs.png) · [SVG](../exports/panels/dark/svg/document-dialogs.svg) · [Light PNG](../exports/panels/light/png/document-dialogs.png) · [SVG](../exports/panels/light/svg/document-dialogs.svg) · Figma node `66:13302`
+Files: [Dark PNG](../exports/panels/dark/boards/png/document-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/document-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/document-dialogs.png) · [SVG](../exports/panels/light/boards/svg/document-dialogs.svg) · Figma node `66:13302`
 
 ### Bitmap fill · Publish settings · Font embedding · Test Movie
 
-![Bitmap fill · Publish settings · Font embedding · Test Movie](../exports/panels/dark/png/publish-misc-dialogs.png)
+![Bitmap fill · Publish settings · Font embedding · Test Movie](../exports/panels/dark/boards/png/publish-misc-dialogs.png)
 
 **Color — Bitmap fill**: bitmap grid + Import…, Lock fill. **Publish settings**: profile, targets with checkboxes (HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG animation); per target: output file, HTML wrapper + template, runtime (WASM optimisation), scale mode, loop, autoplay, preloader, source maps, JPEG quality, audio, sprite sheets, embed fonts (subset), scripts (strict, include trace(), minify); estimated size; Cancel · OK · **Publish**. **Font embedding**: font list + add/remove, name / family / style, character ranges with counts (Latin, Cyrillic, Greek, …), extra characters, Export for ActionScript + class, glyph count badge. **Test Movie window**: title + fps/memory badge, stage, transport (first, step, play/pause, last, loop, frame / time), speed select, Output drawer with trace lines.
 
-Files: [Dark PNG](../exports/panels/dark/png/publish-misc-dialogs.png) · [SVG](../exports/panels/dark/svg/publish-misc-dialogs.svg) · [Light PNG](../exports/panels/light/png/publish-misc-dialogs.png) · [SVG](../exports/panels/light/svg/publish-misc-dialogs.svg) · Figma node `69:13727`
+Files: [Dark PNG](../exports/panels/dark/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/publish-misc-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/light/boards/svg/publish-misc-dialogs.svg) · Figma node `69:13727`
+
+### Customize tools panel
+
+![Customize tools panel](../exports/panels/dark/png/dialog-customize-tools-panel.png)
+
+Rail preview with the selected slot, **Available tools** (search, alphabetical list with icons and shortcuts, scrollbar), **Add ›** / **‹ Remove**, **Current selection** of the slot (the first tool is the default shown on the rail; several tools in one slot form a flyout group). Footer: Restore default · Cancel · **OK**.
+
+Files: [Dark PNG](../exports/panels/dark/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/dark/svg/dialog-customize-tools-panel.svg) · [Light PNG](../exports/panels/light/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/light/svg/dialog-customize-tools-panel.svg) · Figma node `99:16270`
+
+### Trace bitmap
+
+![Trace bitmap](../exports/panels/dark/png/dialog-trace-bitmap.png)
+
+Split preview (bitmap ▏traced) with the result size, Preset, Mode (Colour / Greyscale / Black and white), Palette (Limited / Full / Automatic), Colours 2–30. **Advanced options**: Paths (Low–High), Corners (Less–More), Noise (1–100 px), Method Abutting / Overlapping, Create fills / strokes, stroke width, Snap curves to lines, Ignore white. Footer: Live preview · Cancel · **Trace**.
+
+Files: [Dark PNG](../exports/panels/dark/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/dark/svg/dialog-trace-bitmap.svg) · [Light PNG](../exports/panels/light/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/light/svg/dialog-trace-bitmap.svg) · Figma node `103:17084`
 
 ### Preferences — General
 
@@ -1204,19 +1259,19 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
-| `NF2/Field` | set · 4 variants | 160×32 | Label: text ("960"); Prefix: text ("W"); Show prefix: bool (on); State = Default / Hover / Focus / Disabled |  |
-| `NF2/Search` | set · 2 variants | 240×32 | Label: text ("Search"); State = Empty / Filled |  |
-| `NF2/Select` | set · 3 variants | 200×32 | Label: text ("Option"); State = Default / Hover / Disabled |  |
+| `NF2/Field` | set · 4 variants | 160×32 | Label: text ("960"); Prefix: text ("W"); Show prefix: bool (on); State = Default / Hover / Focus / Disabled | Layout: place with Fill width inside rows (never fixed widths in panels); min width 72 px; text truncates with “…”. |
+| `NF2/Search` | set · 2 variants | 240×32 | Label: text ("Search"); State = Empty / Filled | Layout: place with Fill width inside rows (never fixed widths in panels); min width 120 px; text truncates with “…”. |
+| `NF2/Select` | set · 3 variants | 200×32 | Label: text ("Option"); State = Default / Hover / Disabled | Layout: place with Fill width inside rows (never fixed widths in panels); min width 96 px; text truncates with “…”. |
 
 #### Checkbox · Slider · Swatch · Badge
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
 | `NF2/Checkbox` | set · 2 variants | 88×20 | Label: text ("Checkbox"); Checked = False / True |  |
-| `NF2/Slider` | component | 140×20 | — |  |
 | `NF2/Swatch` | component | 22×22 | — |  |
 | `NF2/Registration Cell` | set · 2 variants | 28×28 | Selected = True / False |  |
 | `NF2/Badge` | set · 3 variants | 65×22 | Label: text ("Badge"); Type = Neutral / Accent / Warning |  |
+| `NF2/Slider` | set · 7 variants | 140×20 | Value = 50 / 0 / 10 / 25 / 75 / 90 / 100 | Slider, 140 px. Value variants 0 / 10 / 25 / 50 / 75 / 90 / 100 %. Pair with a numeric field and min / max captions; drag the thumb, click the track to jump, arrows step. |
 
 #### Dock tab · Section header · Panel header
 
@@ -1230,7 +1285,7 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
-| `NF2/Tree Item` | set · 5 variants | 288×32 | Label: text ("Item"); Type = Folder Open / Folder Closed / Symbol; Selected = True / False |  |
+| `NF2/Tree Item` | set · 5 variants | 288×32 | Label: text ("Item"); Type = Folder Open / Folder Closed / Symbol; Selected = True / False | Label truncates with “…” on one line; place rows with Fill width. |
 
 #### Kbd · Tooltip · Dialog header · Zoom control · Logo
 
@@ -1260,8 +1315,8 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
-| `NF2/TL Grid` | set · 2 variants | 1440×28 | Kind = Layer / Folder | Empty-frame grid of one row: a cell per frame, every 5th frame shaded. Folder rows show a flat strip. |
-| `NF2/TL Grid Lines` | component | 1440×28 | — | Per-frame dividers drawn over spans, so filled frames stay countable. |
+| `NF2/TL Grid` | set · 2 variants | 1440×28 | Kind = Layer / Folder | Empty-frame grid of one row: short frame ticks at the bottom (Flash style), every 5th frame shaded, row line at the bottom. Folder rows show a flat strip. |
+| `NF2/TL Grid Lines` | component | 1440×28 | — | Frame ticks (short, at the bottom of the row). Place directly above TL Grid and below spans, so tween and static spans stay continuous. |
 | `NF2/TL Span` | set · 8 variants | 120×27 | Type = Static / Classic Tween / Shape Tween / Motion Tween / Broken Tween / Selected / Sound / Video | Frame span. Resize horizontally to frame count × 12 px. Static = frames holding content (grey), Classic / Shape tween = purple / green with arrow, Motion tween = blue (property keyframes as markers), Broken tween = dashed, Selected = frame selection. |
 | `NF2/TL Marker` | set · 10 variants | 12×27 | Kind = Keyframe / Blank Keyframe / Span End / Property Keyframe / Action Keyframe; Tone = Default / On Selection | One-frame marker placed at x = (frame − 1) × 12. Keyframe ●, Blank keyframe ○, Span end ▯, Property keyframe ◆ (motion tween), Action keyframe (a over ●). Use Tone = On Selection over selected frames. |
 | `NF2/TL Frame Label` | set · 3 variants | 49×27 | Label: text ("intro"); Kind = Label / Comment / Anchor | Frame label (red flag), comment (green //) or anchor on a keyframe; sits on top of the span that starts at that keyframe. |
@@ -1280,7 +1335,7 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 | `NF2/Floating Panel Header` | component | 280×36 | Tab 2: bool (off); Tab 3: bool (off) | Header of a detached (floating) panel: drag grip, panel tabs, panel menu, collapse, close. |
 | `NF2/Icon Group` | set · 3 variants | 68×34 | Count = 2 / 3 / 4 | Grouped icon buttons (align, distribute, transform, text align…). Swap nested icons; switch a nested item to Type=Selected for toggles. |
 | `NF2/Radio` | set · 2 variants | 61×16 | Label: text ("Option"); Selected = True / False |  |
-| `NF2/Color Field` | component | 200×32 | Hex: text ("233043"); Alpha: text ("100 %") | Colour value: swatch, hex, alpha. Click swatch → colour popover. |
+| `NF2/Color Field` | component | 200×32 | Hex: text ("233043"); Alpha: text ("100 %") | Colour value: swatch, hex, alpha. Click swatch → colour popover. Layout: place with Fill width inside rows (never fixed widths in panels); min width 120 px; text truncates with “…”. |
 | `NF2/Gradient Stop` | set · 2 variants | 12×16 | Selected = True / False |  |
 | `NF2/Gradient Bar` | component | 232×40 | — | Gradient preview with colour stops (drag to move, click the bar to add, drag off to remove). |
 | `NF2/Color Picker` | component | 248×150 | — | Colour mixer: saturation/brightness area, hue strip, alpha strip. |
@@ -1295,11 +1350,11 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
-| `NF2/Stage Ruler` | set · 2 variants | 1600×20 | Orientation = Horizontal / Vertical | Stage ruler in stage units at 75 % zoom. The "0" mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide. |
+| `NF2/Stage Ruler` | set · 2 variants | 1600×20 | Orientation = Horizontal / Vertical | Stage ruler in stage units at 75 % zoom. The “0” mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide. |
 | `NF2/Ruler Corner` | component | 20×20 | — | Ruler origin: drag to move the zero point, double-click to reset. |
 | `NF2/Guide` | set · 6 variants | 400×9 | Orientation = Horizontal / Vertical; State = Default / Selected / Locked | Ruler guide. Resize along its axis to span the canvas. Selected shows the drag handle; Locked guides are dashed and cannot be moved. |
-| `NF2/Stage Grid` | component | 720×452 | — | Stage grid overlay (20 px spacing, every 5th line stronger) drawn above the stage background, below content unless "Show over objects" is on. |
-| `NF2/View Settings` | component | 320×542 | — | View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides & Grid… |
+| `NF2/Stage Grid` | component | 720×452 | — | Stage grid overlay (20 px spacing, every 5th line stronger) drawn above the stage background, below content unless “Show over objects” is on. |
+| `NF2/View Settings` | component | 320×542 | — | View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides and Grid… |
 
 #### Quick colours & easing
 
@@ -1314,10 +1369,10 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
-| `NF2/Stepper Field` | set · 2 variants | 120×32 | Label: text ("2.0"); Prefix: text ("Size"); State = Default / Focus | Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10. |
-| `NF2/Combo Field` | component | 96×32 | Label: text ("2") | Editable value + preset menu (stroke size, angles, inner radius…). |
+| `NF2/Stepper Field` | set · 2 variants | 120×32 | Label: text ("2.0"); Prefix: text ("Size"); State = Default / Focus | Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10. Layout: place with Fill width inside rows (never fixed widths in panels); min width 88 px; text truncates with “…”. |
+| `NF2/Combo Field` | component | 96×32 | Label: text ("2") | Editable value + preset menu (stroke size, angles, inner radius…). Layout: place with Fill width inside rows (never fixed widths in panels); min width 72 px; text truncates with “…”. |
 | `NF2/Switch` | set · 2 variants | 80×20 | Label: text ("Switch"); On = True / False |  |
-| `NF2/Line Style Select` | set · 6 variants | 200×32 | Style = Solid / Dashed / Dotted / Ragged / Stipple / Hatched |  |
+| `NF2/Line Style Select` | set · 6 variants | 200×32 | Style = Solid / Dashed / Dotted / Ragged / Stipple / Hatched | Layout: place with Fill width inside rows (never fixed widths in panels); min width 128 px; text truncates with “…”. |
 | `NF2/Menu Section` | component | 200×24 | Label: text ("Section") |  |
 | `NF2/Menu Bar Item` | set · 2 variants | 55×28 | Label: text ("Menu"); State = Default / Open |  |
 | `NF2/Breadcrumb Item` | set · 8 variants | 61×28 | Label: text ("Item"); Menu: bool (off); Type = Scene / Movie clip / Graphic / Button; State = Link / Current | Editing path: Scene ▸ symbol ▸ nested symbol. Click an item to go back up; the ▾ menu lists siblings (scenes / symbols) with search. |
@@ -1330,7 +1385,7 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 | Component | Kind | Size | Properties | Description |
 |---|---|---|---|---|
 | `NF2/Selection Box` | set · 5 variants | 160×100 | Kind = Group / Symbol / Text static / Text dynamic / Primitive | Object selection on stage: Group (thin), Symbol instance (registration + transformation point), Static text (round handle = auto width), Dynamic/input text (square handle = fixed size), Primitive (extra control points for angles / inner radius). Resize to the object bounds. |
-| `NF2/Transform Box` | set · 2 variants | 160×100 | Mode = Scale / Rotate & skew | Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate & skew (round corner handles rotate, edge bars skew). White circle = transformation point. |
+| `NF2/Transform Box` | set · 2 variants | 160×100 | Mode = Scale / Rotate & skew | Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate and skew (round corner handles rotate, edge bars skew). White circle = transformation point. |
 | `NF2/Anchor Point` | set · 3 variants | 12×12 | State = Unselected / Selected / Hover |  |
 | `NF2/Bezier Handle` | component | 60×8 | — | Direction line from an anchor to its control point. Rotate/resize along the tangent. |
 | `NF2/Marquee` | component | 160×100 | — |  |
@@ -1353,6 +1408,23 @@ property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_S
 | `NF2/Progress` | set · 2 variants | 280×28 | Mode = Determinate / Indeterminate |  |
 | `NF2/Focus Ring` | component | 120×36 | — | Keyboard focus ring: 2 px, 2 px outside the control radius. Place over any control when focused via Tab. |
 | `NF2/Empty State` | component | 280×204 | — |  |
+
+#### Brushes & tool flyouts
+
+| Component | Kind | Size | Properties | Description |
+|---|---|---|---|---|
+| `NF2/Tool Flyout Item` | set · 2 variants | 260×28 | Label: text ("Selection tool"); Shortcut: text ("V"); Icon: instance_swap; Active = True / False | Row of a tool flyout (long-press or click the corner of a grouped tool). ■ marks the tool currently shown on the rail. Icon = 20 px tool icon, shortcut on the right; hover = bg/hover. |
+| `NF2 Brush/round` | component | 96×20 | — |  |
+| `NF2 Brush/flat` | component | 96×20 | — |  |
+| `NF2 Brush/chisel` | component | 96×20 | — |  |
+| `NF2 Brush/charcoal` | component | 96×20 | — |  |
+| `NF2 Brush/ink` | component | 96×20 | — |  |
+| `NF2 Brush/watercolour` | component | 96×20 | — |  |
+| `NF2 Brush/dots` | component | 96×20 | — |  |
+| `NF2 Brush/vine` | component | 96×20 | — |  |
+| `NF2/Brush Preset` | set · 2 variants | 272×36 | Label: text ("Round"); Size: text ("12"); Stroke: instance_swap; Selected = False / True | Brush library row: stroke preview (swap NF2 Brush/*), name, default size. Click to select, double-click to edit the brush. |
+| `NF2/Brush Shape` | set · 16 variants | 24×24 | Shape = Round / Oval H / Oval V / Square / Rect H / Rect V / Slash / Backslash; Selected = False / True | Brush tip shape (Flash brush shapes): round, ovals, square, rectangles, slanted. Used in Properties — Brush tool. |
+| `NF2/Brush Cursor` | set · 3 variants | 96×96 | State = Idle / Resize / Eraser | Brush / eraser footprint on the canvas at the current size and zoom: black + white double ring readable on any colour. Resize = ⌥⌘-drag (dashed ring + size chip). Eraser uses a square footprint for square shapes. |
 
 
 Shelf illustrations:
@@ -1396,6 +1468,8 @@ Shelf illustrations:
 ![Technical](illustrations/technical.png)
 
 ![Icons 16 / 20 px](illustrations/icons-16-and-20-px.png)
+
+![Brushes, pencil and tool flyouts](illustrations/brushes-tool-flyouts.png)
 
 ---
 
@@ -1473,7 +1547,8 @@ design-system/
   exports/
     manifest.json                    ← node id → file paths
     interface/{dark,light}/{png,svg}/
-    panels/{dark,light}/{png,svg}/
+    panels/{dark,light}/{png,svg}/     ← one file per panel / dialog / menu / flyout
+    panels/{dark,light}/boards/       ← multi-panel boards as laid out in Figma
     icons/{16,20}/*.svg               ← every NF2 icon
     cursors/*.svg                     ← every NF2 cursor
   tools/
@@ -1490,16 +1565,20 @@ SVG text is outlined.
 | Folder | Files |
 |---|---|
 | `exports/cursors/` | 39 |
-| `exports/icons/16/` | 215 |
-| `exports/icons/20/` | 89 |
+| `exports/icons/16/` | 225 |
+| `exports/icons/20/` | 94 |
 | `exports/interface/dark/png/` | 12 |
 | `exports/interface/dark/svg/` | 12 |
 | `exports/interface/light/png/` | 12 |
 | `exports/interface/light/svg/` | 12 |
-| `exports/panels/dark/png/` | 42 |
-| `exports/panels/dark/svg/` | 42 |
-| `exports/panels/light/png/` | 42 |
-| `exports/panels/light/svg/` | 42 |
+| `exports/panels/dark/boards/png/` | 17 |
+| `exports/panels/dark/boards/svg/` | 17 |
+| `exports/panels/dark/png/` | 98 |
+| `exports/panels/dark/svg/` | 98 |
+| `exports/panels/light/boards/png/` | 17 |
+| `exports/panels/light/boards/svg/` | 17 |
+| `exports/panels/light/png/` | 98 |
+| `exports/panels/light/svg/` | 98 |
 
 
 ---
@@ -1531,6 +1610,11 @@ Switch theme by setting `data-theme="light"` on the root (or on a subtree, like 
   pseudo-classes, not props, except `Selected` / `Checked` / `Active` which are real props).
 - TEXT properties → string props / children; BOOLEAN properties → boolean props (e.g. `Icon`, `Flyout`, `Submenu`,
   `Indent 1/2`, `Editing`); nested icon instances → an `icon` prop taking an icon name (`"16/align-left"`).
+- **Inputs never get fixed widths in panels.** Field, Select, Stepper, Combo, Line Style Select, Search and Color Field
+  fill their row (one input per row → Fill; several → share the row, widest shrinks first). Each has a min width
+  (Field 72, Select 96, Stepper 88, Combo 72, Line Style 128, Search 120, Color Field 120) and its text truncates with “…”.
+  Rows clip their content, so an input wider than its row is silently cut. This was the cause of the clipped fields
+  fixed on 2026-11-02 (188 places in panels, 89 per interface page).
 - Sizes in §10 are the default instance size. Heights are fixed (32 / 28 / 40 / 36 / 24 px); widths hug content or
   fill the parent as in the outlines (`[H gap 8]` = horizontal auto layout with 8 px gap → `display:flex; gap:8px`).
 - Timeline must be virtualised: 12 px × frame count per row, markers absolutely positioned at `(frame − 1) × 12`,
@@ -1633,6 +1717,18 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 §NF2 / Timeline — states legend · "Timeline — states legend" · "Flash / Macromedia Flash semantics: layer types, column toggles, frame spans and markers. Every item is an NF2/TL component instance." · §Columns · §Layer types · "Layer types" · §Item · [TL Layer "Layer"] · "Normal layer" · §Item · [TL Layer "character"] · "Folder (expanded) — children indent" · §Item · [TL Layer "background"] · "Folder (collapsed)" · §Item · [TL Layer "Guide: path"] · "Motion guide — guided layers sit under it" · §Item · [TL Layer "ball"] · "Guided layer (indent 2)" · §Item · [TL Layer "mask"] · "Mask layer" · §Item · [TL Layer "arm"] · "Masked layer" · §Item · [TL Layer "Guide: sketch"] · "Guide layer — not exported" · "Columns" · §Toggle · [TL Toggle] · "Shown (dot)" · §Toggle · "Hidden (red X)" · §Toggle · "Unlocked (dot)" · §Toggle · "Locked" · §Toggle · "Layer colour" · §Toggle · "Outline view" · §Item · [TL Layer "hand"] · "Selected + current layer (pencil)" · "Frames (12 px per frame)" · §Sample · §Sample · "Empty frames — grid, every 5th frame shaded" · §Sample · §Sample · [TL Span] · [TL Marker] · "Keyframe ● with content, static frames (grey), span end ▯" · §Sample · §Sample · "Blank keyframe ○ — empty frames stay white" · §Sample · §Sample · "Classic tween — purple with arrow" · §Sample · §Sample · "Shape tween — green with arrow" · §Sample · §Sample · "Broken tween — dashed (missing end keyframe)" · §Sample · §Sample · "Motion tween — blue, property keyframes ◆" · §Sample · §Sample · "Selected frames" · §Sample · §Sample · [TL Marker "a"] · "Action keyframe (script on frame)" · §Sample · §Sample · [TL Frame Label "intro"] · "Frame label (red flag)" · §Sample · §Sample · [TL Frame Label "loop"] · "Frame comment (green //)" · §Sample · §Sample · [TL Frame Label "home"] · "Anchor (named anchor)" · §Onion · §Sample · [TL Onion Range] · [TL Playhead "8" "1.21s"] · "Playhead with frame number; onion-skin range on the ruler"
 ```
 
+### panels-brushes-pencil-panels
+
+```
+§Brushes & pencil — panels · §Panel / Brushes · [Floating Panel Header "Brushes" "Panel" "Panel"] · [Search "Find brush"] · [Icon Button] · [Section Header "Basic"] · §Basic list · [Brush Preset "Round" "12"] · [Brush Preset "Flat" "16"] · [Brush Preset "Chisel" "10"] · [Section Header "Artistic"] · §Artistic list · [Brush Preset "Charcoal" "24"] · [Brush Preset "Ink pen" "6"] · [Brush Preset "Watercolour" "32"] · [Section Header "Pattern"] · §Pattern list · [Brush Preset "Dots" "14"] · [Brush Preset "Vine" "20"] · §Size · "Size" · [Slider] · [Field "12 px"] · §Panel / Properties — Brush tool · [Floating Panel Header "Properties" "Panel" "Panel"] · §Type icon · §Title · "Brush tool" · "Paints fills · B" · [Section Header "Brush mode"] · [Select "Paint normal"] · "Normal · Fills · Behind · Selection · Inside — where paint lands relative to existing shapes." · [Section Header "Shape and size"] · §Shapes · [Brush Shape] · §Size · "1" · "200" · §Smoothing · "Smoothing" · [Field "50"] · [Section Header "Pen pressure and tilt"] · [Switch "Pressure controls size"] · [Switch "Tilt controls angle"] · [Section Header "Fill"] · [Color Well] · [Checkbox "Lock fill"] · [Button "Brush library…"] · §Panel / Properties — Pencil tool · §Type icon · §Title · "Pencil tool" · "Draws strokes · Y" · [Section Header "Pencil mode"] · [Icon Group] · "Smooth" · "Straighten turns strokes into lines and arcs, Smooth evens out the curve, Ink keeps the stroke as drawn." · §Smoothing · "0" · "100" · [Section Header "Stroke"] · [Combo Field "2"] · [Line Style Select "Solid"] · "Cap" · "Join" · [Switch "Stroke hinting"] · [Select "Scale: Normal"] · §Canvas — brush & pencil · "Canvas — brush and pencil feedback" · [Brush Cursor] · "BRUSH · footprint ring at current size" · [Brush Cursor "56 px"] · "RESIZE · ⌥⌘-drag, dashed ring + size" · "ERASER · square footprint" · "PRESSURE · width follows pen pressure (min 10 %)" · [NF2 Cursor/pencil] · "PREVIEW · solid = committed, dashed = smoothing ahead" · "PENCIL · STRAIGHTEN" · "PENCIL · SMOOTH" · "PENCIL · INK" · "Brush and eraser rings are black + white so they read on any colour; sizes follow zoom."
+```
+
+### panels-canvas-brush-pencil
+
+```
+§Canvas — brush & pencil · "Canvas — brush and pencil feedback" · [Brush Cursor] · "BRUSH · footprint ring at current size" · [Brush Cursor "56 px"] · "RESIZE · ⌥⌘-drag, dashed ring + size" · "ERASER · square footprint" · "PRESSURE · width follows pen pressure (min 10 %)" · [NF2 Cursor/pencil] · "PREVIEW · solid = committed, dashed = smoothing ahead" · "PENCIL · STRAIGHTEN" · "PENCIL · SMOOTH" · "PENCIL · INK" · "Brush and eraser rings are black + white so they read on any colour; sizes follow zoom."
+```
+
 ### panels-color-panel-menu-open
 
 ```
@@ -1643,6 +1739,18 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §Color — type menu open · §Panel / Color — Type menu · [Floating Panel Header "Color" "Swatches" "Panel"] · [Segmented Control "Selection" "Drawing"] · "1 object" · [Color Well] · [Icon Button] · [Select "Solid colour"] · [Color Picker] · [Segmented Control "RGB" "HSB"] · [Field "R" "255"] · [Field "G" "204"] · [Field "B" "0"] · [Color Field "FFCC00" "100 %"] · §Stroke · "Stroke" · [Field "Width" "1.0 px"] · [Select "Solid"] · §Menu · [Menu Item "None" " "] · [Menu Item "Solid colour" " "] · [Menu Item "Linear gradient" " "] · [Menu Item "Radial gradient" " "] · [Menu Item "Bitmap fill" " "]
+```
+
+### panels-commands-panel-dialog
+
+```
+§Commands — panel & dialog · §Panel / Commands · [Floating Panel Header "Commands" "Panel" "Panel"] · §Toolbar · [Search "Find command"] · [Icon Button] · §Count · "31 commands" · §Tree · [Tree Item "Animation"] · [Tree Item "PNG sequence to SWF"] · [Tree Item "Propagate element names across frames"] · [Tree Item "Development"] · [Tree Item "ActionScript"] · [Tree Item "Declare stage instances"] · [Tree Item "Export class"] · [Tree Item "Export SWC"] · [Tree Item "Tools"] · [Tree Item "Execute script file"] · [Tree Item "Inspect bitmap"] · [Tree Item "Inspect variable"] · [Tree Item "Extensions"] · [Tree Item "Change module"] · [Tree Item "Sync module"] · [Tree Item "Library"] · [Tree Item "Delete empty folders"] · [Tree Item "Inspect selected items"] · [Tree Item "Select items by property"] · [Tree Item "Smooth bitmaps"] · [Tree Item "Spreadsheet-edit properties"] · [Tree Item "Wrap bitmaps in classes"] · [Tree Item "Stage"] · [Tree Item "Apply tints"] · [Tree Item "Assign unique names"] · [Tree Item "Create test squares"] · [Tree Item "Make circular"] · [Tree Item "Randomize selected elements"] · [Tree Item "Set 9-slice guides"] · [Tree Item "Find"] · §Footer · §Dialog / Commands set · [Dialog Header "Commands"] · §Set · "Set" · §Options · [Radio "User commands"] · [Radio "Commands folder"] · [Radio "API examples"] · "Commands are script files (.nfsl) run on the document. User commands live in your profile; the commands folder is shared by the team." · §Action · "Action" · [Select "Load (replace list)"] · §Footer · [Button "Cancel"] · [Button "OK"]
+```
+
+### panels-dialog-customize-tools-panel
+
+```
+§Dialog / Customize tools panel · [Dialog Header "Customize tools panel"] · §Rail · "RAIL" · §Slots · [Tool Button] · §Available · "AVAILABLE TOOLS · 30" · [Search "Find tool"] · §List · [Tool Flyout Item "3D rotation tool" "W"] · [Tool Flyout Item "3D translation tool" "G"] · [Tool Flyout Item "Add anchor point tool" "="] · [Tool Flyout Item "Bind tool" "M"] · [Tool Flyout Item "Bone tool" "M"] · [Tool Flyout Item "Brush tool" "B"] · [Tool Flyout Item "Convert anchor point tool" "C"] · [Tool Flyout Item "Deco tool" "U"] · [Tool Flyout Item "Delete anchor point tool" "−"] · [Tool Flyout Item "Eraser tool" "E"] · [Tool Flyout Item "Eyedropper tool" "I"] · [Tool Flyout Item "Free transform tool" "Q"] · [Tool Flyout Item "Gradient transform tool" "F"] · [Tool Flyout Item "Hand tool" "H"] · [Tool Flyout Item "Ink bottle tool" "S"] · [Tool Flyout Item "Lasso tool" "L"] · [Tool Flyout Item "Line tool" "N"] · [Tool Flyout Item "Oval tool" "O"] · [Tool Flyout Item "Oval primitive tool" "O"] · [Tool Flyout Item "Paint bucket tool" "K"] · [Tool Flyout Item "Pen tool" "P"] · [Tool Flyout Item "Pencil tool" "Y"] · [Tool Flyout Item "PolyStar tool" "—"] · [Tool Flyout Item "Rectangle tool" "R"] · [Tool Flyout Item "Rectangle primitive tool" "R"] · [Tool Flyout Item "Selection tool" "V"] · [Tool Flyout Item "Spray brush tool" "B"] · [Tool Flyout Item "Subselection tool" "A"] · [Tool Flyout Item "Text tool" "T"] · [Tool Flyout Item "Zoom tool" "Z"] · [Scrollbar] · §Actions · [Button "Add ›"] · [Button "‹ Remove"] · §Current · "SLOT 2 · CURRENT SELECTION" · §List · "Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail." · §Footer · [Button "Restore default"] · [Button "Cancel"] · [Button "OK"]
 ```
 
 ### panels-dialog-import-video
@@ -1703,6 +1811,12 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §Dialog / Preferences — Updates · [Dialog Header "Preferences"] · §Main · §Categories · [Tree Item "General"] · [Tree Item "Code editor"] · [Tree Item "Timeline"] · [Tree Item "Drawing"] · [Tree Item "Text"] · [Tree Item "Clipboard"] · [Tree Item "Shortcuts"] · [Tree Item "Publish"] · [Tree Item "Updates"] · §Version · "Version" · "NeoFlash 2.0.0 · build 412 · up to date" · [Button "Check now"] · [Button "Release notes"] · "Channel" · §Segments · [Segment "Stable"] · [Segment "Beta"] · [Switch "Check for updates automatically"] · [Switch "Download in background"] · §Privacy · "Privacy" · [Switch "Send anonymous usage statistics"] · [Switch "Send crash reports"] · §Extensions · "Extensions" · "Installed" · "3 extensions · 1 update available" · [Button "Manage…"] · [Button "Reset to defaults"] · [Button "Cancel"] · [Button "Save"]
+```
+
+### panels-dialog-trace-bitmap
+
+```
+§Bitmap — dialogs · §Dialog / Trace bitmap · [Dialog Header "Trace bitmap"] · §Preview · §Split preview · §Traced · §Labels · "Bitmap" · "Traced" · "texture.png · 512 × 512 → 1 284 paths, 30 colours" · §Options · §Preset · "Preset" · [Select "[Default]"] · §Mode · "Mode" · [Select "Colour"] · §Palette · "Palette" · [Select "Limited"] · §Colours · "Colours" · [Slider] · [Field "30"] · §Range · "2" · "30" · [Section Header "Advanced options"] · §Paths · "Paths" · [Field "50 %"] · §Range · "Low" · "High" · §Corners · "Corners" · §Range · "Less" · "More" · §Noise · "Noise" · [Field "15 px"] · §Range · "1" · "100" · §Method · "Method" · [Radio "Abutting"] · [Radio "Overlapping"] · §Create · "Create" · [Checkbox "Fills"] · [Checkbox "Strokes"] · §Stroke · "Stroke" · [Field "10 pt"] · §Options · "Options" · §Checks · [Checkbox "Snap curves to lines"] · [Checkbox "Ignore white"] · §Footer · [Checkbox "Live preview"] · [Button "Cancel"] · [Button "Trace"]
 ```
 
 ### panels-dialogs-convert-to-symbol
@@ -1834,7 +1948,7 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 ### panels-panels-more-2
 
 ```
-§Panels — more 2 · §Panel / Output · [Floating Panel Header "Output" "Compiler errors" "Panel"] · [Select "Show: All"] · [Search "Filter output"] · [Icon Button] · §Log · "12:04:18" · "Test Movie started · Rust/WebAssembly runtime 0.9" · "trace: NeoFlash: the stage is ready" · "12:04:19" · "Font "Inter Regular" is not embedded — fallback used" · "12:04:21" · "TypeError #1009: orbit_mc is null (Scene 1, frame 30)" · §Panel / Compiler errors · [Badge "1 warning"] · [Badge "1 error"] · §Error · "1120: Access of undefined property orbit_mc." · "Scene 1 · layer "orbit" · frame 1 · Line 19" · §Error · "1090: Migration issue — frameRate is read-only at runtime." · "Scene 1 · layer "orbit" · frame 1 · Line 4" · §Panel / Accessibility · [Floating Panel Header "Accessibility" "Panel" "Panel"] · [Switch "Make object accessible"] · [Switch "Make child objects accessible"] · [Switch "Auto label"] · [Field "Name" "Orbit animation"] · §Description · "An orange planet orbiting a blue core." · [Field "Shortcut" "⌥O"] · [Stepper Field "Tab" "3"] · §Panel / Info · [Floating Panel Header "Info" "Panel" "Panel"] · [Field "W" "163.0"] · [Field "H" "163.0"] · [Field "X" "412.0"] · [Field "Y" "160.0"] · "Cursor" · "X 486   Y 233" · "Colour" · "R 91  G 140  B 255  A 100%"
+§Panels — more 2 · §Panel / Output · [Floating Panel Header "Output" "Compiler errors" "Panel"] · [Select "Show: All"] · [Search "Filter output"] · [Icon Button] · §Log · "12:04:18" · "Test Movie started · Rust/WebAssembly runtime 0.9" · "trace: NeoFlash: the stage is ready" · "12:04:19" · "Font "Inter Regular" is not embedded — fallback used" · "12:04:21" · "TypeError #1009: orbit_mc is null (Scene 1, frame 30)" · §Panel / Compiler errors · [Badge "1 warning"] · [Badge "1 error"] · §Error · "1120: Access of undefined property orbit_mc." · "Scene 1 · layer "orbit" · frame 1 · Line 19" · §Error · "1090: Migration issue — frameRate is read-only at runtime." · "Scene 1 · layer "orbit" · frame 1 · Line 4" · §Panel / Accessibility · [Floating Panel Header "Accessibility" "Panel" "Panel"] · [Switch "Make object accessible"] · [Switch "Make child objects accessible"] · [Switch "Auto label"] · [Field "Name" "Orbit animation"] · §Description · "An orange planet orbiting a blue core." · [Field "Shortcut" "⌥O"] · [Stepper Field "Tab" "3"] · §Panel / Info · [Floating Panel Header "Info" "Panel" "Panel"] · §Geometry · §Size · [Field "W" "163.0"] · [Field "H" "163.0"] · §Symbol position · [Registration Picker] · "Reg." · §Position · [Field "X" "412.0"] · [Field "Y" "160.0"] · "Cursor" · "X 486   Y 233" · "Colour" · "R 91 G 140 B 255 A 100%"
 ```
 
 ### panels-panels-more
@@ -1877,6 +1991,12 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §Timeline frame views — Dark · "Timeline — panel menu (⋯) and frame view modes" · §Timeline menu + Placement · §Menu / Timeline view · [Menu Item "Placement" " "] · [Menu Item "Tiny" " "] · [Menu Item "Small" " "] · [Menu Item "Normal" " "] · [Menu Item "Medium" " "] · [Menu Item "Large" " "] · [Menu Item "Preview" " "] · [Menu Item "Preview in context" " "] · [Menu Item "Short" " "] · [Menu Item "Tinted frames" " "] · [Menu Item "Show seconds on ruler" " "] · [Menu Item "Snap playhead to keyframes" " "] · [Menu Item "Help" "F1"] · [Menu Item "Close panel" " "] · §Menu / Placement · [Menu Item "Bottom (docked)" " "] · [Menu Item "Top" " "] · [Menu Item "Left" " "] · [Menu Item "Right" " "] · [Menu Item "Floating window" " "] · §Modes · §Mode / Tiny · §Head · "Tiny" · "6 px / frame · row 28 px" · §Frames · §Mode / Small · §Head · "Small" · "9 px / frame · row 28 px" · §Frames · §Mode / Normal (default) · §Head · "Normal (default)" · "12 px / frame · row 28 px" · §Frames · §Mode / Medium · §Head · "Medium" · "16 px / frame · row 28 px" · §Frames · §Mode / Large · §Head · "Large" · "22 px / frame · row 28 px" · §Frames · §Mode / Short · §Head · "Short" · "rows 18 px — more layers on screen" · §Frames · §Mode / Tinted frames off · §Head · "Tinted frames off" · "tween spans not colour-coded, only arrows" · §Frames · §Mode / Preview · §Head · "Preview" · "thumbnails of each keyframe span, scaled to fit" · §Frames · §Mode / Preview in context · §Head · "Preview in context" · "thumbnails show the object inside the full stage" · §Frames
+```
+
+### panels-tools-flyout-groups
+
+```
+§Tools — flyout groups · "Tools panel — flyout groups" · "Long-press a tool with a corner mark (or click the mark) to open its group. ■ marks the tool shown on the rail; the rail keeps the last used tool of each group." · [Tools Panel] · "SELECTION" · §Flyout / Selection · [Tool Flyout Item "Selection tool" "V"] · [Tool Flyout Item "Subselection tool" "A"] · "TRANSFORM" · §Flyout / Transform · [Tool Flyout Item "Free transform tool" "Q"] · [Tool Flyout Item "Gradient transform tool" "F"] · [Tool Flyout Item "3D rotation tool" "W"] · [Tool Flyout Item "3D translation tool" "G"] · "PEN" · §Flyout / Pen · [Tool Flyout Item "Pen tool" "P"] · [Tool Flyout Item "Add anchor point tool" "="] · [Tool Flyout Item "Delete anchor point tool" "−"] · [Tool Flyout Item "Convert anchor point tool" "C"] · "SHAPES" · §Flyout / Shapes · [Tool Flyout Item "Rectangle tool" "R"] · [Tool Flyout Item "Oval tool" "O"] · [Tool Flyout Item "Rectangle primitive tool" "R"] · [Tool Flyout Item "Oval primitive tool" "O"] · [Tool Flyout Item "PolyStar tool" "—"] · "DRAWING" · §Flyout / Drawing · [Tool Flyout Item "Pencil tool" "Y"] · [Tool Flyout Item "Brush tool" "B"] · [Tool Flyout Item "Spray brush tool" "B"] · "FILL" · §Flyout / Fill · [Tool Flyout Item "Paint bucket tool" "K"] · [Tool Flyout Item "Ink bottle tool" "S"] · "RIGGING" · §Flyout / Rigging · [Tool Flyout Item "Bone tool" "M"] · [Tool Flyout Item "Bind tool" "M"] · "DECO" · §Flyout / Deco · [Tool Flyout Item "Deco tool" "U"] · [Tool Flyout Item "Symbol spray" "—"] · §Dialog / Customize tools panel · [Dialog Header "Customize tools panel"] · §Rail · "RAIL" · §Slots · [Tool Button] · §Available · "AVAILABLE TOOLS · 30" · [Search "Find tool"] · §List · [Tool Flyout Item "Eraser tool" "E"] · [Tool Flyout Item "Eyedropper tool" "I"] · [Tool Flyout Item "Hand tool" "H"] · [Tool Flyout Item "Lasso tool" "L"] · [Tool Flyout Item "Line tool" "N"] · [Tool Flyout Item "Text tool" "T"] · [Tool Flyout Item "Zoom tool" "Z"] · [Scrollbar] · §Actions · [Button "Add ›"] · [Button "‹ Remove"] · §Current · "SLOT 2 · CURRENT SELECTION" · §List · "Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail." · §Footer · [Button "Restore default"] · [Button "Cancel"] · [Button "OK"]
 ```
 
 ### panels-view-settings

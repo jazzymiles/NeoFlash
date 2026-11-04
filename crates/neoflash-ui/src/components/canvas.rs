@@ -1,7 +1,7 @@
 //! Stage overlays and canvas editing chrome (shelves "Rulers, guides, grid" and "Canvas editing chrome"):
 //! `NF2/Stage Ruler`, `NF2/Ruler Corner`, `NF2/Guide`, `NF2/Stage Grid`, `NF2/Selection Box`,
 //! `NF2/Transform Box`, `NF2/Anchor Point`, `NF2/Bezier Handle`, `NF2/Marquee`, `NF2/Shape Selection`,
-//! `NF2/Gradient Transform`, `NF2/Snap Ring`, `NF2/Motion Path`.
+//! `NF2/Gradient Transform`, `NF2/Snap Ring`, `NF2/Motion Path`, `NF2/Motion Path Handle`, `NF2/Shape Hint`.
 //!
 //! All painters work in screen points. Stage ↔ screen mapping is the caller's: pass the screen
 //! position of the stage origin and the zoom (screen points per stage pixel).
@@ -554,23 +554,33 @@ pub fn paint_marquee(painter: &Painter, ctx: &egui::Context, rect: Rect) {
     painter.extend(egui::Shape::dashed_line(&pts, s, 4.0, 3.0));
 }
 
-/// `NF2/Shape Selection`: hatch mesh over a selected raw fill / stroke. Clip the painter to the shape.
-pub fn paint_shape_selection(painter: &Painter, ctx: &egui::Context, rect: Rect) {
-    let p = palette(ctx);
-    let s = Stroke::new(1.0_f32, p.text_tertiary.gamma_multiply(0.8));
+/// `NF2/Shape Selection` (v2.3): two-tone hatch over a selected raw fill / stroke, painted inside `rect`
+/// (clip the painter to the shape). 45° lines every 8 pt (≈ 5.7 pt apart): 1 pt white at 90 % with a 1 pt
+/// black line at 75 % 1.5 pt beside it. Theme-independent, because artwork is not themed: on any fill one of
+/// the two lines keeps at least 3.8:1 (WCAG non-text minimum 3:1; the v2.2 single hatch had 1.5:1 on blue in
+/// Dark and 1.1:1 in Light), so selected and unselected parts of a raw shape always differ.
+pub fn paint_shape_selection(painter: &Painter, _ctx: &egui::Context, rect: Rect) {
     let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+    let light = Stroke::new(1.0_f32, Color32::from_white_alpha(230));
+    let dark = Stroke::new(1.0_f32, Color32::from_black_alpha(191));
     let mut x = rect.left() - rect.height();
-    while x < rect.right() {
-        painter.line_segment(
-            [
-                egui::pos2(x, rect.bottom()),
-                egui::pos2(x + rect.height(), rect.top()),
-            ],
-            s,
-        );
-        x += 4.0;
+    while x < rect.right() + SHAPE_SELECTION_OFFSET {
+        for (dx, stroke) in [(0.0, light), (SHAPE_SELECTION_OFFSET, dark)] {
+            painter.line_segment(
+                [
+                    egui::pos2(x + dx, rect.bottom()),
+                    egui::pos2(x + dx + rect.height(), rect.top()),
+                ],
+                stroke,
+            );
+        }
+        x += SHAPE_SELECTION_PERIOD;
     }
 }
+
+/// Horizontal period of the `NF2/Shape Selection` hatch and the offset of its dark line.
+pub const SHAPE_SELECTION_PERIOD: f32 = 8.0;
+pub const SHAPE_SELECTION_OFFSET: f32 = 1.5;
 
 /// `NF2/Gradient Transform`: dashed bounds circle, centre (move), focal triangle, width square,
 /// size circle and rotation dot. Returns handle centres: [centre, focal, width, size, rotation].
@@ -693,9 +703,156 @@ pub fn motion_key_hit(at: Pos2, pointer: Pos2) -> bool {
     at.distance(pointer) <= MOTION_KEY_HIT
 }
 
+/// `State` of a `NF2/Shape Hint` marker (R-009).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShapeHintState {
+    /// Not matched yet (new hint, or not moved on the other keyframe): red.
+    #[default]
+    Unplaced,
+    /// Matched, on the start keyframe of a shape tween: yellow.
+    Start,
+    /// Matched, on the end keyframe: green.
+    End,
+}
+
+/// Radius of a `NF2/Shape Hint` disc (16 pt) and its pointer hit radius.
+pub const SHAPE_HINT_RADIUS: f32 = 8.0;
+
+/// `NF2/Shape Hint` (R-009): 16 pt disc with the hint letter (a–z, Inter Semi Bold 10) and a 1 pt
+/// outline. Unplaced = `danger/default`, Start = `warning/default`, End = `success/default`; letter and
+/// outline `text/on-accent`. Colours are pinned to the Dark token mode in both themes (stage markers sit
+/// on artwork, which is not themed).
+pub fn paint_shape_hint(
+    painter: &Painter,
+    _ctx: &egui::Context,
+    at: Pos2,
+    letter: char,
+    state: ShapeHintState,
+) {
+    let p = crate::theme::Theme::Dark.palette();
+    let fill = match state {
+        ShapeHintState::Unplaced => p.danger_default,
+        ShapeHintState::Start => p.warning_default,
+        ShapeHintState::End => p.success_default,
+    };
+    painter.circle(
+        at,
+        SHAPE_HINT_RADIUS - 0.5,
+        fill,
+        Stroke::new(1.0_f32, p.text_on_accent),
+    );
+    painter.text(
+        at,
+        egui::Align2::CENTER_CENTER,
+        letter,
+        egui::FontId::new(
+            10.0,
+            egui::FontFamily::Name(crate::typography::INTER_SEMIBOLD.into()),
+        ),
+        p.text_on_accent,
+    );
+}
+
+/// Whether `pointer` is on the shape hint at `at`.
+pub fn shape_hint_hit(at: Pos2, pointer: Pos2) -> bool {
+    at.distance(pointer) <= SHAPE_HINT_RADIUS
+}
+
+/// `State` of a `NF2/Motion Path Handle` (R-008).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MotionHandleState {
+    #[default]
+    Default,
+    /// Pointer over the handle: ring around it (cursor `arrow-reshape-curve`).
+    Hover,
+    /// Handle being dragged.
+    Drag,
+}
+
+/// Handle disc radius and pointer hit radius of a `NF2/Motion Path Handle`.
+const MOTION_HANDLE: f32 = 3.5;
+const MOTION_HANDLE_HIT: f32 = 7.0;
+
+/// `NF2/Motion Path Handle` (R-008): Bézier handle of a motion path ◆ key. 1 pt `color/guide` tangent line
+/// from the key to the handle; 7 pt `color/guide` disc with a 1 pt `bg/canvas` outline. Hover adds a 13 pt
+/// `color/guide` ring, Drag fills `color/guide-selected`. Paint handles before [`paint_motion_key`] so the ◆
+/// stays on top. Show both handles of the selected key and the facing handle of each neighbour.
+pub fn paint_motion_handle(
+    painter: &Painter,
+    ctx: &egui::Context,
+    key: Pos2,
+    handle: Pos2,
+    state: MotionHandleState,
+) {
+    let p = palette(ctx);
+    painter.line_segment([key, handle], Stroke::new(1.0_f32, p.guide));
+    let fill = if state == MotionHandleState::Drag {
+        p.guide_selected
+    } else {
+        p.guide
+    };
+    painter.circle(
+        handle,
+        MOTION_HANDLE,
+        fill,
+        Stroke::new(1.0_f32, p.bg_canvas),
+    );
+    if state == MotionHandleState::Hover {
+        painter.circle_stroke(handle, 6.5, Stroke::new(1.0_f32, p.guide));
+    }
+}
+
+/// Whether `pointer` is on the motion path handle at `handle`.
+pub fn motion_handle_hit(handle: Pos2, pointer: Pos2) -> bool {
+    handle.distance(pointer) <= MOTION_HANDLE_HIT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shape_hint_and_motion_handle_hits() {
+        let at = egui::pos2(10.0, 10.0);
+        assert!(shape_hint_hit(at, egui::pos2(18.0, 10.0)));
+        assert!(!shape_hint_hit(at, egui::pos2(19.0, 10.0)));
+        assert!(motion_handle_hit(at, egui::pos2(15.0, 14.0)));
+        assert!(!motion_handle_hit(at, egui::pos2(18.0, 10.0)));
+    }
+
+    #[test]
+    fn shape_selection_lines_keep_contrast_on_any_fill() {
+        // WCAG relative luminance of an sRGB colour.
+        fn lum(c: [f32; 3]) -> f32 {
+            let f = |v: f32| {
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
+        }
+        fn over(line: f32, a: f32, bg: [f32; 3]) -> [f32; 3] {
+            bg.map(|v| line * a + v * (1.0 - a))
+        }
+        fn ratio(a: f32, b: f32) -> f32 {
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        }
+        let light = Color32::from_white_alpha(230).a() as f32 / 255.0;
+        let dark = Color32::from_black_alpha(191).a() as f32 / 255.0;
+        for r in 0..=8 {
+            for g in 0..=8 {
+                for b in 0..=8 {
+                    let bg = [r as f32 / 8.0, g as f32 / 8.0, b as f32 / 8.0];
+                    let base = lum(bg);
+                    let best = ratio(lum(over(1.0, light, bg)), base)
+                        .max(ratio(lum(over(0.0, dark, bg)), base));
+                    assert!(best >= 3.8, "{bg:?}: {best}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn motion_key_hit_covers_the_diamond_and_its_ring() {

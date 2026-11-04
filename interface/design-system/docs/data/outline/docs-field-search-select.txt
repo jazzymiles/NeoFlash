@@ -22,12 +22,12 @@ F Shelf / Field · Search · Select 700×388 [V gap 12]
       T "Search"
       I NF2 Icon/16/x 16×16
   F NF2/Select 660×114 [H gap 16]
-    F State=Default 200×32 [H gap 0]
+    F State=Default 200×32 [H gap 2]
       T "Option"
       I NF2 Icon/16/chevdown 16×16
-    F State=Hover 200×32 [H gap 0]
+    F State=Hover 200×32 [H gap 2]
       T "Option"
       I NF2 Icon/16/chevdown 16×16
-    F State=Disabled 200×32 [H gap 0]
+    F State=Disabled 200×32 [H gap 2]
       T "Option"
       I NF2 Icon/16/chevdown 16×16

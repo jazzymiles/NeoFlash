@@ -8,7 +8,6 @@ F Shelf / Checkbox · Slider · Swatch · Badge 700×332 [V gap 12]
       F Box 18×18 [H gap 0]
         I NF2 Icon/16/check 16×16
       T "Checkbox"
-  F NF2/Slider 140×20
   F NF2/Swatch 22×22
   F NF2/Registration Cell 660×62 [H gap 16]
     F Selected=True 28×28 [H gap 0]
@@ -20,3 +19,11 @@ F Shelf / Checkbox · Slider · Swatch · Badge 700×332 [V gap 12]
       T "Badge"
     F Type=Warning 65×22 [H gap 6]
       T "Badge"
+  F NF2/Slider 1076×20 [H gap 16]
+    F Value=50 140×20
+    F Value=0 140×20
+    F Value=10 140×20
+    F Value=25 140×20
+    F Value=75 140×20
+    F Value=90 140×20
+    F Value=100 140×20

@@ -36,9 +36,9 @@
 <p class="lead">NeoFlash is a desktop vector-animation editor in the tradition of Macromedia&nbsp;/ Adobe&nbsp;Flash: a stage, a timeline with layers and keyframes, nested symbols (movie clip, graphic, button), ActionScript-style scripting and publishing to HTML5 (Rust&nbsp;/ WebAssembly), video, images and audio.</p>
 <p>The design system <b>NF2</b> keeps the mental model Flash animators already have and modernises everything around it: one primary action per screen, task-grouped controls, surfaces instead of borders, two themes on one set of tokens, accessible contrast and focus. Every element is a real Figma component bound to variables — no bitmaps.</p>
 <div class="stats">
-  <div class="stat"><b>78</b><span>tokens · Dark + Light</span></div>
-  <div class="stat"><b>88</b><span>components &amp; sets</span></div>
-  <div class="stat"><b>304</b><span>icons · 39 cursors</span></div>
+  <div class="stat"><b>{{N_TOKENS}}</b><span>tokens · Dark + Light</span></div>
+  <div class="stat"><b>{{N_COMPONENTS}}</b><span>components &amp; sets</span></div>
+  <div class="stat"><b>{{N_ICONS}}</b><span>icons · {{N_CURSORS}} cursors</span></div>
   <div class="stat"><b>33/33</b><span>capabilities covered</span></div>
 </div>
 
@@ -103,7 +103,7 @@
 {{GEN:img:docs/illustrations/icons-page-tools-section.png|Icons page — tools section with “Used in”}}
 
 <h2>Cursors</h2>
-<p>39 cursors, 24 × 24, black glyph with a white outline so they read on any stage colour. The hotspot is stored in each component and must be used when implementing.</p>
+<p>{{N_CURSORS}} cursors, 24 × 24, black glyph with a white outline so they read on any stage colour. The hotspot is stored in each component and must be used when implementing.</p>
 {{GEN:cursors}}
 {{GEN:img:docs/illustrations/icons-page-cursors-section.png|Cursors with hotspots}}
 
@@ -197,7 +197,7 @@
 <h1><span class="num">8</span>Menus and shortcuts</h1>
 <p>Shortcuts are shown for macOS (⌘ ⌥ ⇧); on Windows use Ctrl, Alt, Shift. Checked items show ✓, submenus ▸.</p>
 <div class="menus">{{GEN:menus}}</div>
-{{GEN:img:exports/panels/dark/png/menus.png|Menus board}}
+{{GEN:img:exports/panels/dark/boards/png/menus.png|Menus board}}
 
 <!-- 9 -->
 <h1><span class="num">9</span>Dialogs and preferences</h1>

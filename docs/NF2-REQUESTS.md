@@ -63,53 +63,6 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** the menu row shows no shortcut; clicking the swatch does nothing yet.
 - **Checked:** `panels-menus.txt`, `view-settings.png`.
 
-### R-006 · Paste motion special dialog
-- **Status:** open
-- **Requested by / for:** implementation track · MN-02 frame menu (Copy / Paste motion)
-- **Where:** frame menu ▸ Paste motion special… (`panels/timeline.rs › frame_context_menu`, disabled)
-- **Need:** a dialog choosing which properties to paste (X/Y, scale, rotation and skew, colour, filters, blend,
-  override target scale / rotation, ease) with OK / Cancel.
-- **Why:** Copy motion and Paste motion work; the "special" variant has no dialog in the design.
-- **Checked:** reference §8 (Frame menu), `panels-menus.txt`, `planned_dialogs.rs` — no Paste motion special dialog.
-- **Proposal (optional):** `NF2/Dialog` with a column of `NF2/Checkbox` rows like the other planned dialogs.
-
-### R-007 · Orient / Snap rows in the classic Tween section
-- **Status:** open
-- **Requested by / for:** implementation track · TL-01, PR-10 (WIRING-PLAN §7.4 row 5)
-- **Where:** `panels/properties.rs` frame Tween section for classic tweens on a guided layer
-- **Need:** rows for Orient to path and Snap (to motion guide), as Flash's classic tween properties show them.
-- **Why:** `Keyframe.orient_to_path` and `Editor::set_orient_to_path` work, but the classic Tween section has no slot.
-- **Checked:** `panel-properties-frame` reference and the Motion tween section, which has these rows.
-- **Proposal (optional):** reuse the Motion tween section's Orient checkbox row.
-- **Answer:**
-
-### R-008 · Bézier handles for motion path editing
-- **Status:** open
-- **Requested by / for:** implementation track · TL-05 (WIRING-PLAN §7.4 row 9)
-- **Where:** stage motion path overlay (`NF2/Motion Path`)
-- **Need:** a curve-handle style (tangent line + handle dot, hover/drag states) to bend the path between ◆ keys.
-- **Why:** paths are edited only at their ◆ points today.
-- **Checked:** R-005 answer (◆ handles only), `canvas.rs`.
-- **Answer:**
-
-### R-009 · Shape hint markers
-- **Status:** open
-- **Requested by / for:** implementation track · TL-04 (WIRING-PLAN §7.4 row 10)
-- **Where:** stage overlay on shape-tween keyframes; View ▸ Show shape hints, Modify ▸ Shape ▸ Add shape hint
-- **Need:** the lettered shape-hint marker (a–z) with unplaced / start (yellow) / end (green) states.
-- **Why:** shape hints pin the morph correspondence; there is no marker component.
-- **Checked:** design system reference, `canvas.rs`.
-- **Answer:**
-
-### R-010 · Sound span painter with real waveform peaks
-- **Status:** open
-- **Requested by / for:** implementation track · TL-07, TL-13 (WIRING-PLAN §7.4 row 13)
-- **Where:** `neoflash_ui::components::timeline::paint_span(SpanType::Sound)`
-- **Need:** a variant that takes decoded peak values instead of the decorative waveform.
-- **Why:** Sound spans should show the actual sound.
-- **Checked:** `timeline.rs` span painter, `timeline-states-legend.png`.
-- **Answer:**
-
 ### R-011 · Canvas chrome on artwork: rotated boxes, contrast, Light transformation point, cursor map
 - **Status:** open
 - **Requested by / for:** implementation track · ST-07, ST-11
@@ -347,6 +300,90 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer:**
 
 ## Resolved requests
+
+### R-006 · Paste motion special dialog
+- **Status:** resolved
+- **Requested by / for:** implementation track · MN-02 frame menu (Copy / Paste motion)
+- **Where:** frame menu ▸ Paste motion special… (`panels/timeline.rs › frame_context_menu`, disabled)
+- **Need:** a dialog choosing which properties to paste (X/Y, scale, rotation and skew, colour, filters, blend,
+  override target scale / rotation, ease) with OK / Cancel.
+- **Why:** Copy motion and Paste motion work; the "special" variant has no dialog in the design.
+- **Checked:** reference §8 (Frame menu), `panels-menus.txt`, `planned_dialogs.rs` — no Paste motion special dialog.
+- **Proposal (optional):** `NF2/Dialog` with a column of `NF2/Checkbox` rows like the other planned dialogs.
+- **Answer:** Figma node `118:830` (Dark) / `118:987` (Light), shelf "Timeline & canvas answers". It is an `NF2/Dialog`
+  440 pt wide, built from `NF2/Dialog Header` "Paste motion special". Body (24 pt side padding, 12 pt gap): overline
+  PROPERTIES, then two columns of `NF2/Checkbox` (10 pt row gap). Left column: X position, Horizontal scale, Rotation
+  and skew, Filters, Ease. Right column: Y position, Vertical scale, Colour, Blend mode. All are checked by default,
+  and the dialog keeps the last choice for the session. Then overline OPTIONS with two unchecked boxes: Override
+  target scale properties, Override target rotation and skew properties. With an override on, the target keeps its
+  own scale / rotation and the copied change is added on top. Footer: Ghost "Select none" on the left, Secondary
+  Cancel, Primary **Paste**. Enter = Paste, Esc = Cancel, and Paste is disabled while no property is checked. Open it
+  from the Frame menu and from Edit ▸ Timeline ▸ Paste motion special…. It is composed only of existing components,
+  so `neoflash-ui` needs nothing new.
+
+### R-007 · Orient / Snap rows in the classic Tween section
+- **Status:** resolved
+- **Requested by / for:** implementation track · TL-01, PR-10 (WIRING-PLAN §7.4 row 5)
+- **Where:** `panels/properties.rs` frame Tween section for classic tweens on a guided layer
+- **Need:** rows for Orient to path and Snap (to motion guide), as Flash's classic tween properties show them.
+- **Why:** `Keyframe.orient_to_path` and `Editor::set_orient_to_path` work, but the classic Tween section has no slot.
+- **Checked:** `panel-properties-frame` reference and the Motion tween section, which has these rows.
+- **Proposal (optional):** reuse the Motion tween section's Orient checkbox row.
+- **Answer:** Figma node `118:913` (Dark) / `118:1067` (Light). This is the classic-tween form of the frame Tween section. After
+  the Easing select comes a row with `NF2/Stepper Field` "Rotate" (count, "0 ×") and the `NF2/Select` "Direction:
+  Auto / CW / CCW / None", each set to Fill, the same pair as the Motion tween ROTATION row. Then one `NF2/Checkbox`
+  per row: **Orient to path**, **Snap to motion guide**, Sync graphic symbols, Scale. Labels are identical to the
+  Motion tween panel. Orient and Snap are enabled only when the layer has `motion_guide`. Otherwise they use the
+  standard disabled state with the tooltip "Needs a motion guide layer". Controls whose model field does not exist
+  yet keep "Not available yet".
+
+### R-008 · Bézier handles for motion path editing
+- **Status:** resolved
+- **Requested by / for:** implementation track · TL-05 (WIRING-PLAN §7.4 row 9)
+- **Where:** stage motion path overlay (`NF2/Motion Path`)
+- **Need:** a curve-handle style (tangent line + handle dot, hover/drag states) to bend the path between ◆ keys.
+- **Why:** paths are edited only at their ◆ points today.
+- **Checked:** R-005 answer (◆ handles only), `canvas.rs`.
+- **Answer:** New `NF2/Motion Path Handle` (Figma component set `116:821`, States Default / Hover / Drag;
+  `neoflash_ui::components::canvas::{paint_motion_handle, motion_handle_hit, MotionHandleState}`). A 1 pt
+  `color/guide` tangent line runs from the ◆ to the handle. The handle is a 7 pt `color/guide` disc with a 1 pt
+  `bg/canvas` outline. Hover adds a 13 pt ring; Drag fills `color/guide-selected`. Hit radius is 7 pt and the cursor is
+  `arrow-reshape-curve`. Show both handles of the selected ◆ and the handle of each neighbour that faces it, and paint
+  handles before `paint_motion_key`. Drag keeps the two handles mirrored (smooth), ⌥-drag breaks the tangent
+  (corner), and ⌥-click on a ◆ toggles corner / smooth. A segment without handles stays straight, as in R-005.
+  Frame dots follow the curve (sample `117:892`). The data model is an engine decision; WIRING-PLAN §7.4 row 9 plans
+  `Keyframe.motion_path` with arc-length sampling in `sample_motion`.
+
+### R-009 · Shape hint markers
+- **Status:** resolved
+- **Requested by / for:** implementation track · TL-04 (WIRING-PLAN §7.4 row 10)
+- **Where:** stage overlay on shape-tween keyframes; View ▸ Show shape hints, Modify ▸ Shape ▸ Add shape hint
+- **Need:** the lettered shape-hint marker (a–z) with unplaced / start (yellow) / end (green) states.
+- **Why:** shape hints pin the morph correspondence; there is no marker component.
+- **Checked:** design system reference, `canvas.rs`.
+- **Answer:** New `NF2/Shape Hint` (Figma component set `116:807`, property `Letter`, States Unplaced / Start / End;
+  `neoflash_ui::components::canvas::{paint_shape_hint, shape_hint_hit, ShapeHintState, SHAPE_HINT_RADIUS}`). It is a
+  16 pt disc with a 1 pt outline and a letter a–z in Inter Semi Bold 10. Unplaced = `danger/default` (red),
+  Start = `warning/default` (yellow, start keyframe, matched), End = `success/default` (green, end keyframe, matched).
+  The letter and outline use `text/on-accent`. Colours stay on the Dark token mode in both themes, because they sit on
+  artwork. Hit radius is 8 pt. Drag places a hint; dragging it off the stage removes it. Letters follow creation
+  order, with at most 26 hints. Hints show only on the shape-tween keyframes of the current layer while View ▸ Show
+  shape hints (⌥⌘H) is on. Add with Modify ▸ Shape ▸ Add shape hint (⇧⌘H); Remove all hints is in the same submenu.
+  See sample `117:863`.
+
+### R-010 · Sound span painter with real waveform peaks
+- **Status:** resolved
+- **Requested by / for:** implementation track · TL-07, TL-13 (WIRING-PLAN §7.4 row 13)
+- **Where:** `neoflash_ui::components::timeline::paint_span(SpanType::Sound)`
+- **Need:** a variant that takes decoded peak values instead of the decorative waveform.
+- **Why:** Sound spans should show the actual sound.
+- **Checked:** `timeline.rs` span painter, `timeline-states-legend.png`.
+- **Answer:** New `neoflash_ui::components::timeline::paint_sound_peaks(painter, ctx, rect, channels)` (Figma section `117:930`).
+  Paint it over the Sound span from `paint_span`. Each channel is a slice of per-point `(min, max)` in −1…1. One
+  mirrored 1 pt `success/default` column is drawn per screen point, with height = peak × (lane height / 2 − 2). Stereo
+  uses two lanes (L top, R bottom) 1 pt apart. An empty `channels` (not decoded yet) draws a flat 1 pt centre line
+  at 50 %. Compute peaks off the UI thread, cache them per resource and zoom, and never decode while scrubbing. The
+  decorative waveform in `paint_span` remains only for the gallery and the timeline legend.
 
 ### R-005 · Motion path on the stage
 - **Status:** resolved

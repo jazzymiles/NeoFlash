@@ -19,17 +19,17 @@ F Panel / Properties — Video 320×780 [V gap 0]
       I NF2/Field {Show prefix=true, Prefix=H, Label=360.0, State=Default} 140×32 "H" "360.0"
     I NF2/Section Header {Label=Playback, State=Expanded} 294×32 "Playback"
     F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Deployment: Embedded, State=Default} 296×32 "Deployment: Embedded"
+      I NF2/Select {Label=Deployment: Embedded, State=Default} 294×32 "Deployment: Embedded"
     F Row 294×20 [H gap 8]
       I NF2/Switch {Label=Autoplay, On=True} 93×20 "Autoplay"
       I NF2/Switch {Label=Loop, On=False} 69×20 "Loop"
       I NF2/Switch {Label=Muted, On=False} 78×20 "Muted"
     F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Skin: Minimal overlay, State=Default} 196×32 "Skin: Minimal overlay"
-      I NF2/Select {Label=Scale: Fit, State=Default} 92×32 "Scale: Fit"
+      I NF2/Select {Label=Skin: Minimal overlay, State=Default} 190×32 "Skin: Minimal overlay"
+      I NF2/Select {Label=Scale: Fit, State=Default} 96×32 "Scale: Fit"
     F Row 294×20 [H gap 8]
       T "Volume"
-      I NF2/Slider 180×20
+      I NF2/Slider {Value=50} 180×20
       T "80 %"
     I NF2/Section Header {Label=Cue points, State=Expanded} 294×32 "Cue points"
     F Cue points 294×118 [V gap 0]
