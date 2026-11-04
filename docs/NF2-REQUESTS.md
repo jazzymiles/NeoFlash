@@ -336,6 +336,16 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** `paint_gradient_transform_with_focal(painter, p, center, rx, ry, angle_rad, focal_point: Option<f32>)`.
 - **Answer:**
 
+### R-032 · Publish size scale with weight breakdown in Publish settings
+- **Status:** open
+- **Requested by / for:** implementation track · DL-03 (Publish settings, HTML5 target)
+- **Where:** `crates/neoflash-editor/src/panels/planned_dialogs.rs` (`publish_settings`, `Runtime` group and footer `Estimated size`)
+- **Need:** (1) a four-stop size scale in the HTML5 `Runtime` group: `Full` · `Balanced` · `Compact` · `Shared runtime`, with a selected stop, a `Custom` state when an individual option differs, and a runtime URL field shown only for `Shared runtime`. (2) a stacked weight bar under it with segments `WebAssembly`, `Runtime scripts`, `Project scripts`, `Content`, `Resources`, `Fonts`, `Page`, two totals (`on disk` and `transfer, gzip`), an optional budget line (for example 150 KB) and a computing state while the estimate runs. (3) a short trade-off line per stop (for example "Needs HTTP(S) hosting", or "Left out: AIR desktop APIs; …") and a warning style when a left-out family could matter.
+- **Why:** `neoflash_export::estimate_publish_sizes` returns each level's files, bytes, gzip bytes, per-part breakdown, trade-offs and left-out modules, and `export_project_with_options` publishes any level. The current dialog has only a static `WASM: optimised (−O3)` select and an `Estimated size` footer string, so the user cannot see or choose the trade-off.
+- **Checked:** `panels/planned_dialogs.rs › publish_settings`, `publish-misc-dialogs.png`, docs/decisions/0038-publish-size-levels.md.
+- **Proposal (optional):** replace the `WASM: optimised (−O3)` select with an NF2 segmented control, so the footer's `Estimated size` mirrors the selected stop.
+- **Answer:**
+
 ## Resolved requests
 
 ### R-005 · Motion path on the stage

@@ -55,10 +55,10 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 107 of 121 | 1 | 13 | 6 / 6 / 0 |
 | Timelines and animation | 72 of 75 | 1 | 2 | 7 / 3 / 0 |
-| HTML5 and interactivity | 77 of 77 | 0 | 0 | 12 / 0 / 0 |
+| HTML5 and interactivity | 80 of 81 | 0 | 1 | 11 / 1 / 0 |
 | Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 356 of 391 | 8 | 27 | 37 / 16 / 1 |
+| **All areas** | 359 of 395 | 8 | 28 | 36 / 17 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -98,7 +98,7 @@ Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **O
 
 **Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 
-HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
+HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. `neoflash-export --size-level` trades portability for weight: Full opens from disk, Balanced and Compact need HTTP(S) hosting (Compact leaves out ActionScript families the project never names), and Shared loads a runtime folder published once; `--size-estimate` compares them ([decision](docs/decisions/0038-publish-size-levels.md)). Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
 
 System fonts are discovered through CoreText and can be subsetted and embedded as portable `@font-face` assets on HTML5 export. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
 

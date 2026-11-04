@@ -1523,9 +1523,9 @@
       "id": "web-html5-export",
       "category": "web",
       "title": "Self-contained HTML5 publishing",
-      "status": "implemented",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes.",
-      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately.",
+      "status": "partial",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip.",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and Shared need HTTP(S) hosting. Compact cannot see class names that scripts build at run time. The editor publishes at Full until Publish settings gains the size scale (NF2 request R-032).",
       "items": [
         {
           "id": "self-contained",
@@ -1551,10 +1551,32 @@
           "id": "size-report",
           "title": "Generate publish size report (--size-report) with scene, symbol, asset, script and WASM breakdown",
           "status": "working"
+        },
+        {
+          "id": "size-levels",
+          "title": "Publish at Full, Balanced, Compact or Shared runtime size level (--size-level)",
+          "status": "working"
+        },
+        {
+          "id": "size-estimate",
+          "title": "Estimate package and gzip transfer size for every size level (--size-estimate)",
+          "status": "working"
+        },
+        {
+          "id": "shared-runtime-folder",
+          "title": "Publish a shared HTML5 runtime folder for Shared-level projects (--shared-runtime)",
+          "status": "working"
+        },
+        {
+          "id": "size-scale",
+          "title": "Choose the size level on a scale with a live weight bar in Publish settings",
+          "status": "planned"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/publish.rs",
+        "docs/decisions/0038-publish-size-levels.md",
         "scripts/build-web.sh",
         "README.md"
       ]

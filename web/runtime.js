@@ -245,15 +245,27 @@
     try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
     document.getElementById('loading').style.display = 'none';
     errorElement.style.display = 'block';
-    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + describeThrown(error, true);
+    const omitted = global.NeoFlashBundle?.publish?.omitted_modules || [];
+    const hint = omitted.length ? `\n\nThis package was published at the Compact size level without: ${omitted.join('; ')}. If a script needs one of them, publish at the Balanced level.` : '';
+    errorElement.textContent = 'NeoFlash could not run this project.\n\n' + describeThrown(error, true) + hint;
     console.error(error);
   }
 
   async function boot() {
     const bundle = global.NeoFlashBundle;
     if (!bundle || typeof NeoFlashWasm !== 'function') throw new Error('The HTML5 runtime is incomplete. Re-export this project from NeoFlash.');
-    const bytes = Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0));
-    await NeoFlashWasm({ module_or_path: bytes });
+    if (bundle.runtime_id && global.NeoFlashRuntimeId !== bundle.runtime_id) {
+      throw new Error(`This project was published against NeoFlash runtime ${bundle.runtime_id}, but the shared runtime provides ${global.NeoFlashRuntimeId || 'none'}. Publish the shared runtime again from the NeoFlash build that published this project.`);
+    }
+    if (typeof bundle.wasm === 'string') {
+      await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
+    } else {
+      // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch.
+      if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+        throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
+      }
+      await NeoFlashWasm({ module_or_path: bundle.wasm_url });
+    }
     const project = bundle.project;
     // Published bundles carry a flattened main timeline plus its scene ranges.
     const player = new NeoFlashWasm.WebPlayer(JSON.stringify(project), bundle.scenes ? JSON.stringify(bundle.scenes) : undefined);

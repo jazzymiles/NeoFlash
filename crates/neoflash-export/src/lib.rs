@@ -1,7 +1,9 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
 pub mod fonts;
+pub mod publish;
 pub use fonts::*;
+pub use publish::{PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};
@@ -86,6 +88,8 @@ pub enum ExportError {
     Io(#[from] std::io::Error),
     #[error("Could not serialize HTML5 export: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Invalid publish options: {0}")]
+    Options(String),
 }
 
 #[derive(Serialize)]
@@ -211,65 +215,73 @@ pub fn format_bytes(bytes: usize) -> String {
     }
 }
 
+/// Browser host modules in load order, between the bindings with `bundle.js` and `runtime.js`.
+const HOST_MODULES: &[(&str, &str)] = &[
+    ("path.js", PATH_GEOMETRY),
+    ("accessibility.js", ACCESSIBILITY),
+    ("preview.js", PREVIEW),
+    ("events.js", EVENTS),
+    ("stage.js", STAGE),
+    ("legacy-input.js", LEGACY_INPUT),
+    ("geom.js", GEOMETRY),
+    ("geom3d.js", GEOMETRY_3D),
+    ("as2-strings.js", AS2_STRINGS),
+    ("as2-platform.js", AS2_PLATFORM),
+    ("as2-object.js", AS2_OBJECT),
+    ("as2-transitions.js", AS2_TRANSITIONS),
+    ("as2-depth-manager.js", AS2_DEPTH_MANAGER),
+    ("as2-print.js", AS2_PRINT),
+    ("as2-boxing.js", AS2_BOXING),
+    ("as2-capture.js", AS2_CAPTURE),
+    ("as2-connections.js", AS2_CONNECTIONS),
+    ("as2-stage.js", AS2_STAGE),
+    ("as2-media.js", AS2_MEDIA),
+    ("as2-services.js", AS2_SERVICES),
+    ("as2-locale.js", AS2_LOCALE),
+    ("as2-files.js", AS2_FILES),
+    ("as2-network.js", AS2_NETWORK),
+    ("as2-text.js", AS2_TEXT),
+    ("as2-data.js", AS2_DATA),
+    ("as2-binding.js", AS2_BINDING),
+    ("as3-strings.js", AS3_STRINGS),
+    ("as3-fte-3d.js", AS3_FTE_3D),
+    ("easing.js", SCRIPT_EASING),
+    ("math.js", SCRIPT_MATH),
+    ("date.js", SCRIPT_DATE),
+    ("number-format.js", SCRIPT_NUMBER_FORMAT),
+    ("broadcaster.js", SCRIPT_BROADCASTER),
+    ("timers.js", TIMERS),
+    ("byte-array.js", BYTE_ARRAY),
+    ("net.js", NET),
+    ("external.js", EXTERNAL),
+    ("bitmap.js", BITMAP),
+    ("text.js", TEXT),
+    ("text-input.js", TEXT_INPUT),
+    ("filters.js", FILTERS),
+    ("audio-formats.js", AUDIO_FORMATS),
+    ("audio.js", AUDIO),
+    ("video.js", VIDEO),
+    ("xml.js", XML),
+    ("loader.js", LOADER),
+    ("amf.js", AMF),
+    ("storage.js", STORAGE),
+    ("air.js", AIR),
+    ("as3-net-sys.js", AS3_NET_SYS),
+    ("as3-media-events.js", AS3_MEDIA_EVENTS),
+    ("display.js", DISPLAY),
+    ("dom-layout.js", DOM_LAYOUT),
+];
+const WASM_FILE: &str = "neoflash_web_bg.wasm";
+const BINDINGS_FILE: &str = "neoflash_web.js";
+const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES.txt";
+const RUNTIME_ID_FILE: &str = "runtime-id.js";
+
 fn static_runtime_js_bytes() -> usize {
-    [
-        HOST,
-        PATH_GEOMETRY,
-        ACCESSIBILITY,
-        PREVIEW,
-        EVENTS,
-        STAGE,
-        LEGACY_INPUT,
-        GEOMETRY,
-        GEOMETRY_3D,
-        AS2_STRINGS,
-        AS2_PLATFORM,
-        AS2_OBJECT,
-        AS2_TRANSITIONS,
-        AS2_DEPTH_MANAGER,
-        AS2_PRINT,
-        AS2_BOXING,
-        AS2_CAPTURE,
-        AS2_CONNECTIONS,
-        AS2_STAGE,
-        AS2_MEDIA,
-        AS2_SERVICES,
-        AS2_LOCALE,
-        AS2_FILES,
-        AS2_NETWORK,
-        AS2_TEXT,
-        AS2_DATA,
-        AS2_BINDING,
-        AS3_STRINGS,
-        AS3_FTE_3D,
-        SCRIPT_EASING,
-        SCRIPT_MATH,
-        SCRIPT_DATE,
-        SCRIPT_NUMBER_FORMAT,
-        SCRIPT_BROADCASTER,
-        TIMERS,
-        BYTE_ARRAY,
-        NET,
-        EXTERNAL,
-        BITMAP,
-        TEXT,
-        TEXT_INPUT,
-        FILTERS,
-        AUDIO_FORMATS,
-        AUDIO,
-        VIDEO,
-        XML,
-        LOADER,
-        AMF,
-        STORAGE,
-        AIR,
-        AS3_NET_SYS,
-        AS3_MEDIA_EVENTS,
-        DISPLAY,
-    ]
-    .iter()
-    .map(|s| s.len())
-    .sum()
+    HOST.len()
+        + HOST_MODULES
+            .iter()
+            .map(|(_, source)| source.len())
+            .sum::<usize>()
 }
 
 #[derive(Serialize)]
@@ -279,13 +291,30 @@ struct Bundle<'a> {
     /// Scene names and frame ranges inside the flattened main timeline.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     scenes: Vec<SceneRange>,
-    scripts: Vec<CompiledScript>,
-    program: ProgramBundle<'a>,
-    wasm: String,
+    scripts: Vec<&'a CompiledScript>,
+    /// Absent when a smaller size level drops the prelude of a project without scripts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    program: Option<ProgramBundle<'a>>,
+    /// Base64 WebAssembly at the Full level; otherwise the runtime fetches `wasm_url`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wasm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wasm_url: Option<String>,
+    /// Shared level: the runtime build this project was published against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_id: Option<String>,
+    publish: PublishInfo,
     warnings: Vec<String>,
     load_summary: LoadSummary,
     size_report: String,
-    fonts: FontBundle,
+    fonts: &'a FontBundle,
+}
+
+#[derive(Serialize)]
+struct PublishInfo {
+    level: &'static str,
+    /// Titles of runtime families a Compact package leaves out.
+    omitted_modules: Vec<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -351,25 +380,30 @@ fn decoded_base64_len(encoded: &str) -> usize {
 
 /// Compute a structured project weight and asset load breakdown.
 pub fn compute_load_summary(project: &Project) -> Result<LoadSummary, ExportError> {
-    let (_, summary) = build_size_report_and_summary(project, None, None)?;
+    let (_, summary) = build_size_report_and_summary(project, None)?;
     Ok(summary)
 }
 
 /// Generate a human-readable classic Flash `Size Report` text breakdown by scenes/frames,
 /// library symbols, referenced fonts, embedded audio/bitmap/data resources, and scripts.
 pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
-    let (report, _) = build_size_report_and_summary(project, None, None)?;
+    let (report, _) = build_size_report_and_summary(project, None)?;
     Ok(report)
+}
+
+/// Runtime weight a size report quotes: the WebAssembly binary, how it ships and the runtime
+/// JavaScript of the package.
+#[derive(Clone, Copy)]
+struct RuntimeFigures {
+    wasm_bytes: usize,
+    wasm_inline: bool,
+    runtime_js_bytes: usize,
 }
 
 fn build_size_report_and_summary(
     project: &Project,
-    wasm_bytes_opt: Option<usize>,
-    bindings_bytes_opt: Option<usize>,
+    runtime: Option<RuntimeFigures>,
 ) -> Result<(String, LoadSummary), ExportError> {
-    use std::collections::BTreeMap;
-    use std::fmt::Write as _;
-
     let issues = neoflash_core::validate(project);
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
@@ -384,6 +418,18 @@ fn build_size_report_and_summary(
         )
     })?;
     let compiled_scripts = compile_scripts(project, &program)?;
+    size_report_from(project, &program, &compiled_scripts, runtime)
+}
+
+fn size_report_from(
+    project: &Project,
+    program: &neoflash_script::ProjectProgram,
+    compiled_scripts: &[CompiledScript],
+    runtime: Option<RuntimeFigures>,
+) -> Result<(String, LoadSummary), ExportError> {
+    use std::collections::BTreeMap;
+    use std::fmt::Write as _;
+
     let (published, flattened_ranges) = neoflash_core::flatten_scenes_with_ranges(project);
     let published = publishable(&published).unwrap_or(published);
     let published_project_bytes = serde_json::to_string(&published)?.len();
@@ -508,11 +554,14 @@ fn build_size_report_and_summary(
     let program_compiled_bytes = program.code.len();
     let bundle_payload_bytes =
         published_project_bytes + program_compiled_bytes + handler_compiled_bytes;
-    let runtime_js_bytes = static_runtime_js_bytes() + bindings_bytes_opt.unwrap_or(0);
-    let wasm_bytes = wasm_bytes_opt.unwrap_or(0);
-    let wasm_b64_bytes = wasm_bytes.div_ceil(3) * 4;
+    let runtime_js_bytes = runtime.map_or_else(static_runtime_js_bytes, |r| r.runtime_js_bytes);
+    let wasm_bytes = runtime.map_or(0, |r| r.wasm_bytes);
+    let shipped_wasm_bytes = match runtime {
+        Some(r) if r.wasm_inline => wasm_bytes.div_ceil(3) * 4,
+        _ => wasm_bytes,
+    };
     let total_package_bytes = if wasm_bytes > 0 {
-        bundle_payload_bytes + wasm_b64_bytes + wasm_bytes + runtime_js_bytes
+        bundle_payload_bytes + shipped_wasm_bytes + runtime_js_bytes
     } else {
         0
     };
@@ -790,7 +839,7 @@ fn build_size_report_and_summary(
                 program_compiled_bytes
             );
         }
-        for script in &compiled_scripts {
+        for script in compiled_scripts {
             let _ = writeln!(
                 out,
                 "{:<34} {:<16} {:>12} {:>12}",
@@ -917,6 +966,126 @@ pub fn export_project_with_policy(
     runtime_dir: &Path,
     font_policy: FontExportPolicy,
 ) -> Result<PathBuf, ExportError> {
+    let options = PublishOptions {
+        fonts: font_policy,
+        size: SizeLevel::Full,
+    };
+    export_project_with_options(project, output_dir, runtime_dir, &options)
+}
+
+/// Export an HTML5 package at a size level (see [`SizeLevel`]) with a font policy.
+pub fn export_project_with_options(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+) -> Result<PathBuf, ExportError> {
+    let prepared = prepare(project, runtime_dir, options.fonts)?;
+    let package = assemble(project, &prepared, &options.size)?;
+    write_package(output_dir, &package.files, &project.name, "project")
+}
+
+/// Measure every size level for the publish dialog by assembling each package in memory.
+/// `runtime_url` is where the Shared level would load the runtime from.
+pub fn estimate_publish_sizes(
+    project: &Project,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+    runtime_url: &str,
+) -> Result<Vec<SizeEstimate>, ExportError> {
+    let prepared = prepare(project, runtime_dir, font_policy)?;
+    let shared_files = shared_runtime_files(&prepared);
+    let shared_bytes = shared_files.iter().map(|(_, bytes)| bytes.len()).sum();
+    let shared_gzip = shared_files.iter().map(|(_, bytes)| gzip_len(bytes)).sum();
+    SizeLevel::all(runtime_url)
+        .into_iter()
+        .map(|level| {
+            let package = assemble(project, &prepared, &level)?;
+            let shared = matches!(level, SizeLevel::Shared(_));
+            Ok(measure(
+                level,
+                &package,
+                shared.then_some((shared_bytes, shared_gzip)),
+            ))
+        })
+        .collect()
+}
+
+/// Publish the runtime folder that Shared-level projects load from `--runtime-url`. Publish it
+/// again from each NeoFlash build: projects check that they were published against the same one.
+pub fn export_shared_runtime(
+    output_dir: &Path,
+    runtime_dir: &Path,
+) -> Result<PathBuf, ExportError> {
+    let (bindings, wasm) = read_runtime(runtime_dir)?;
+    let prepared_id = shared_runtime_id(&bindings, &wasm);
+    let mut files = shared_runtime_files_from(&bindings, &wasm, &prepared_id);
+    files.push((
+        "README.txt".into(),
+        format!(
+            "NeoFlash shared HTML5 runtime {prepared_id}\n\nHost this folder once over HTTP(S) and publish projects at the Shared size level with its URL.\nEvery project checks that it was published against this exact runtime build.\n"
+        )
+        .into_bytes(),
+    ));
+    write_package(output_dir, &files, "shared runtime", "runtime")?;
+    Ok(output_dir.to_path_buf())
+}
+
+/// The compiled project and runtime files every size level starts from.
+struct Prepared {
+    program: neoflash_script::ProjectProgram,
+    scripts: Vec<CompiledScript>,
+    published: Project,
+    scenes: Vec<SceneRange>,
+    fonts: FontBundle,
+    warnings: Vec<String>,
+    bindings: String,
+    wasm: Vec<u8>,
+    runtime_id: String,
+}
+
+/// An assembled package: files in write order (index.html last) and what went into them.
+struct Package {
+    files: Vec<(String, Vec<u8>)>,
+    level: SizeLevel,
+    omitted: Vec<&'static str>,
+    wasm_bytes: usize,
+    runtime_js_bytes: usize,
+    /// Scripts, content, resources and fonts inside `bundle.js`, each compressed on its own.
+    embedded: Vec<SizePart>,
+}
+
+fn read_runtime(runtime_dir: &Path) -> Result<(String, Vec<u8>), ExportError> {
+    let bindings_path = runtime_dir.join(BINDINGS_FILE);
+    let wasm_path = runtime_dir.join(WASM_FILE);
+    let bindings = fs::read_to_string(&bindings_path)
+        .map_err(|_| ExportError::MissingRuntime(bindings_path.display().to_string()))?;
+    if !bindings.contains("NeoFlashWasm") {
+        return Err(ExportError::MissingRuntime(
+            "bindings must use --target no-modules --no-modules-global NeoFlashWasm".into(),
+        ));
+    }
+    let wasm = fs::read(&wasm_path)
+        .map_err(|_| ExportError::MissingRuntime(wasm_path.display().to_string()))?;
+    if !wasm.starts_with(b"\0asm") {
+        return Err(ExportError::MissingRuntime(
+            "invalid WebAssembly header".into(),
+        ));
+    }
+    Ok((bindings, wasm))
+}
+
+fn shared_runtime_id(bindings: &str, wasm: &[u8]) -> String {
+    let mut parts: Vec<&[u8]> = vec![bindings.as_bytes(), wasm, HOST.as_bytes()];
+    parts.extend(HOST_MODULES.iter().map(|(_, source)| source.as_bytes()));
+    publish::runtime_id(&parts)
+}
+
+fn prepare(
+    project: &Project,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+) -> Result<Prepared, ExportError> {
     let issues = neoflash_core::validate(project);
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
@@ -934,141 +1103,386 @@ pub fn export_project_with_policy(
     // and its own frame; flattening keeps every script source unchanged.
     let scripts = compile_scripts(project, &program)?;
     let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
-    let bindings_path = runtime_dir.join("neoflash_web.js");
-    let wasm_path = runtime_dir.join("neoflash_web_bg.wasm");
-    let bindings = fs::read_to_string(&bindings_path)
-        .map_err(|_| ExportError::MissingRuntime(bindings_path.display().to_string()))?;
-    if !bindings.contains("NeoFlashWasm") {
-        return Err(ExportError::MissingRuntime(
-            "bindings must use --target no-modules --no-modules-global NeoFlashWasm".into(),
-        ));
-    }
-    let wasm = fs::read(&wasm_path)
-        .map_err(|_| ExportError::MissingRuntime(wasm_path.display().to_string()))?;
-    if !wasm.starts_with(b"\0asm") {
-        return Err(ExportError::MissingRuntime(
-            "invalid WebAssembly header".into(),
-        ));
-    }
-    let warnings = export_warnings(project);
-    let (size_report, load_summary) =
-        build_size_report_and_summary(project, Some(wasm.len()), Some(bindings.len()))?;
+    let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
-    let font_bundle = apply_font_policy(&mut published, font_policy);
-    let font_css = font_bundle.css_rules.clone();
-    let bundle = Bundle {
-        project: &published,
-        scenes,
+    let fonts = apply_font_policy(&mut published, font_policy);
+    let runtime_id = shared_runtime_id(&bindings, &wasm);
+    Ok(Prepared {
+        program,
         scripts,
-        program: ProgramBundle {
-            code: &program.code,
-            class_names: &program.class_names,
+        published,
+        scenes,
+        fonts,
+        warnings: export_warnings(project),
+        bindings,
+        wasm,
+        runtime_id,
+    })
+}
+
+fn assemble(
+    project: &Project,
+    prepared: &Prepared,
+    level: &SizeLevel,
+) -> Result<Package, ExportError> {
+    let shared_url = match level {
+        SizeLevel::Shared(url) => {
+            Some(publish::validate_runtime_url(url).map_err(ExportError::Options)?)
+        }
+        _ => None,
+    };
+    let omitted = if *level == SizeLevel::Compact {
+        let sources = HOST_MODULES.iter().copied().collect();
+        publish::omitted_modules(project, &sources)
+    } else {
+        Default::default()
+    };
+    let modules: Vec<(&str, &str)> = HOST_MODULES
+        .iter()
+        .copied()
+        .filter(|(file, _)| !omitted.contains_key(file))
+        .collect();
+    let stripped;
+    let wasm: &[u8] = if *level == SizeLevel::Compact {
+        let words = publish::referenced_words(
+            modules
+                .iter()
+                .map(|(_, source)| *source)
+                .chain([HOST, prepared.program.code.as_str()])
+                .chain(prepared.scripts.iter().map(|script| script.code.as_str())),
+        );
+        stripped = publish::strip_wasm(&prepared.wasm, &prepared.bindings, &words)
+            .map_err(ExportError::MissingRuntime)?;
+        &stripped
+    } else {
+        &prepared.wasm
+    };
+    let runtime_js_bytes = if shared_url.is_some() {
+        0
+    } else {
+        prepared.bindings.len()
+            + HOST.len()
+            + modules
+                .iter()
+                .map(|(_, source)| source.len())
+                .sum::<usize>()
+    };
+    let figures = RuntimeFigures {
+        wasm_bytes: if shared_url.is_some() { 0 } else { wasm.len() },
+        wasm_inline: level.wasm_inline(),
+        runtime_js_bytes,
+    };
+    let (size_report, load_summary) =
+        size_report_from(project, &prepared.program, &prepared.scripts, Some(figures))?;
+    let omitted_titles: Vec<&'static str> = omitted
+        .values()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut warnings = prepared.warnings.clone();
+    warnings.extend(level_tradeoffs(level, &omitted_titles));
+    // Without scripts or classes the compiled prelude has nothing to run; the runtime supplies
+    // its built-in class lookup instead.
+    let scriptless = publish::script_corpus(project).trim().is_empty()
+        && prepared.program.class_names.is_empty();
+    let ships_program = !(scriptless && level.trims_content());
+    let program = ships_program.then(|| ProgramBundle {
+        code: &prepared.program.code,
+        class_names: &prepared.program.class_names,
+    });
+    let bundle = Bundle {
+        project: &prepared.published,
+        scenes: prepared.scenes.clone(),
+        scripts: prepared.scripts.iter().collect(),
+        program,
+        wasm: level.wasm_inline().then(|| STANDARD.encode(wasm)),
+        wasm_url: match (level, &shared_url) {
+            (SizeLevel::Full, _) => None,
+            (_, Some(url)) => Some(format!("{url}/{WASM_FILE}")),
+            _ => Some(WASM_FILE.to_owned()),
         },
-        wasm: STANDARD.encode(wasm),
+        runtime_id: shared_url.as_ref().map(|_| prepared.runtime_id.clone()),
+        publish: PublishInfo {
+            level: level.name(),
+            omitted_modules: omitted_titles.clone(),
+        },
         warnings: warnings.clone(),
         load_summary,
         size_report,
-        fonts: font_bundle,
+        fonts: &prepared.fonts,
     };
     let bundle_js = format!(
         "globalThis.NeoFlashBundle = {};\n",
         serde_json::to_string(&bundle)?
     );
     let title = html_escape(&project.name);
-    let html = html_document(&title, &font_css);
-    let marker =
-        serde_json::json!({"generator":"NeoFlash", "format_version":1, "project":project.name});
+    let runtime_src = |file: &str| match &shared_url {
+        Some(url) => html_escape(&format!("{url}/{file}")),
+        None => file.to_owned(),
+    };
+    let mut scripts = Vec::new();
+    if shared_url.is_some() {
+        scripts.push(runtime_src(RUNTIME_ID_FILE));
+    }
+    scripts.push(runtime_src(BINDINGS_FILE));
+    scripts.push("bundle.js".to_owned());
+    scripts.extend(modules.iter().map(|(file, _)| runtime_src(file)));
+    scripts.push(runtime_src("runtime.js"));
+    let html = html_document(&title, &prepared.fonts.css_rules, &scripts);
     let readme = format!(
-        "{} — NeoFlash HTML5 export\n\nOpen index.html in a modern browser, or upload this entire folder to static hosting.\nThe player and embedded project data need no plugins, CDN, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\nThe shared Rust evaluator and project resources are embedded in bundle.js.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
+        "{} — NeoFlash HTML5 export\n\n{}\nThe player and embedded project data need no plugins, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
         project.name,
-        if warnings.is_empty() {
-            "No publishing warnings.".into()
-        } else {
-            warnings.join("\n")
-        }
+        match level {
+            SizeLevel::Full => "Open index.html in a modern browser, or upload this entire folder to static hosting.\nThe shared Rust evaluator and project resources are embedded in bundle.js.".to_owned(),
+            SizeLevel::Balanced | SizeLevel::Compact => format!("Upload this entire folder to static hosting and open index.html over HTTP(S).\nThe shared Rust evaluator is {WASM_FILE}; project resources are embedded in bundle.js."),
+            SizeLevel::Shared(_) => format!("Upload this folder to static hosting. The runtime loads from {}.\nProject resources are embedded in bundle.js.", shared_url.as_deref().unwrap_or_default()),
+        },
+        warnings.join("\n")
     );
 
-    if output_dir.exists() && fs::read_dir(output_dir)?.next().is_some() {
-        let owned = fs::read_to_string(output_dir.join(MARKER))
-            .ok()
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .is_some_and(|marker| {
-                marker["generator"] == "NeoFlash" && marker["format_version"] == 1
-            });
-        if !owned {
-            return Err(ExportError::Destination(output_dir.display().to_string()));
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    if shared_url.is_none() {
+        files.push((BINDINGS_FILE.into(), prepared.bindings.clone().into_bytes()));
+        files.push(("runtime.js".into(), HOST.as_bytes().to_vec()));
+        for (file, source) in &modules {
+            files.push(((*file).into(), source.as_bytes().to_vec()));
+        }
+        files.push((NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()));
+        if !level.wasm_inline() {
+            files.push((WASM_FILE.into(), wasm.to_vec()));
         }
     }
+    files.push(("bundle.js".into(), bundle_js.into_bytes()));
+    files.push(("README.txt".into(), readme.into_bytes()));
+    files.push(("index.html".into(), html.into_bytes()));
+
+    let resources: String = prepared
+        .published
+        .resources
+        .iter()
+        .map(|resource| resource.data_base64.as_ref())
+        .collect();
+    let project_json = serde_json::to_string(&prepared.published)?;
+    let content_bytes = project_json.len().saturating_sub(resources.len());
+    let script_text: String = ships_program
+        .then_some(prepared.program.code.as_str())
+        .into_iter()
+        .chain(prepared.scripts.iter().map(|script| script.code.as_str()))
+        .collect();
+    let fonts_json = serde_json::to_string(&prepared.fonts)?;
+    let embedded = vec![
+        SizePart {
+            kind: "scripts",
+            bytes: script_text.len(),
+            gzip_bytes: gzip_len(script_text.as_bytes()),
+        },
+        SizePart {
+            kind: "content",
+            bytes: content_bytes,
+            gzip_bytes: gzip_len(project_json.as_bytes())
+                .saturating_sub(gzip_len(resources.as_bytes())),
+        },
+        SizePart {
+            kind: "resources",
+            bytes: resources.len(),
+            gzip_bytes: gzip_len(resources.as_bytes()),
+        },
+        SizePart {
+            kind: "fonts",
+            bytes: fonts_json.len(),
+            gzip_bytes: gzip_len(fonts_json.as_bytes()),
+        },
+    ];
+    Ok(Package {
+        files,
+        level: level.clone(),
+        omitted: omitted.keys().copied().collect(),
+        wasm_bytes: if shared_url.is_some() {
+            0
+        } else if level.wasm_inline() {
+            wasm.len().div_ceil(3) * 4
+        } else {
+            wasm.len()
+        },
+        runtime_js_bytes,
+        embedded,
+    })
+}
+
+/// What a size level gives up, in words for the publish dialog and the package README.
+fn level_tradeoffs(level: &SizeLevel, omitted: &[&str]) -> Vec<String> {
+    let serve = "Serve the folder over HTTP(S): browsers do not load a separate WebAssembly file from a page opened from disk.";
+    match level {
+        SizeLevel::Full => Vec::new(),
+        SizeLevel::Balanced => vec![serve.into()],
+        SizeLevel::Compact if omitted.is_empty() => vec![serve.into()],
+        SizeLevel::Compact => vec![
+            serve.into(),
+            format!(
+                "Left out because the project's scripts never name them: {}. A script that builds such a class name at run time cannot reach it; publish at the Balanced level if one does.",
+                omitted.join("; ")
+            ),
+        ],
+        SizeLevel::Shared(url) => vec![format!(
+            "The runtime loads from {url}: publish it there with the same NeoFlash build, and visitors need network access to it."
+        )],
+    }
+}
+
+fn shared_runtime_files(prepared: &Prepared) -> Vec<(String, Vec<u8>)> {
+    shared_runtime_files_from(&prepared.bindings, &prepared.wasm, &prepared.runtime_id)
+}
+
+fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
+    let mut files = vec![
+        (
+            RUNTIME_ID_FILE.to_owned(),
+            format!("globalThis.NeoFlashRuntimeId = \"{id}\";\n").into_bytes(),
+        ),
+        (BINDINGS_FILE.into(), bindings.as_bytes().to_vec()),
+        ("runtime.js".into(), HOST.as_bytes().to_vec()),
+        (WASM_FILE.into(), wasm.to_vec()),
+        (NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()),
+    ];
+    files.extend(
+        HOST_MODULES
+            .iter()
+            .map(|(file, source)| ((*file).to_owned(), source.as_bytes().to_vec())),
+    );
+    files
+}
+
+fn measure(level: SizeLevel, package: &Package, shared: Option<(usize, usize)>) -> SizeEstimate {
+    let gzip: Vec<usize> = package
+        .files
+        .iter()
+        .map(|(_, bytes)| gzip_len(bytes))
+        .collect();
+    let bytes: usize = package.files.iter().map(|(_, bytes)| bytes.len()).sum();
+    let gzip_bytes: usize = gzip.iter().sum();
+    let file_gzip = |names: &dyn Fn(&str) -> bool| -> usize {
+        package
+            .files
+            .iter()
+            .zip(&gzip)
+            .filter(|((name, _), _)| names(name))
+            .map(|(_, size)| *size)
+            .sum()
+    };
+    let wasm_gzip = if package.level.wasm_inline() {
+        package
+            .files
+            .iter()
+            .find(|(name, _)| name == "bundle.js")
+            .and_then(|(_, bundle)| {
+                let text = std::str::from_utf8(bundle).ok()?;
+                let start = text.find("\"wasm\":\"")? + 8;
+                let end = start + text[start..].find('"')?;
+                Some(gzip_len(&text.as_bytes()[start..end]))
+            })
+            .unwrap_or_default()
+    } else {
+        file_gzip(&|name| name == WASM_FILE)
+    };
+    let runtime_js_gzip =
+        file_gzip(&|name| name.ends_with(".js") && name != "bundle.js" && name != RUNTIME_ID_FILE);
+    let mut parts = vec![
+        SizePart {
+            kind: "wasm",
+            bytes: package.wasm_bytes,
+            gzip_bytes: wasm_gzip,
+        },
+        SizePart {
+            kind: "runtime_js",
+            bytes: package.runtime_js_bytes,
+            gzip_bytes: runtime_js_gzip,
+        },
+    ];
+    parts.extend(package.embedded.iter().cloned());
+    let counted: usize = parts.iter().map(|part| part.bytes).sum();
+    let counted_gzip: usize = parts.iter().map(|part| part.gzip_bytes).sum();
+    parts.push(SizePart {
+        kind: "page",
+        bytes: bytes.saturating_sub(counted),
+        gzip_bytes: gzip_bytes.saturating_sub(counted_gzip),
+    });
+    let omitted_titles: BTreeSet<&str> = publish::FAMILIES
+        .iter()
+        .filter(|family| package.omitted.contains(&family.file))
+        .map(|family| family.title)
+        .collect();
+    let omitted_list: Vec<&str> = omitted_titles.iter().copied().collect();
+    SizeEstimate {
+        tradeoffs: level_tradeoffs(&level, &omitted_list),
+        level,
+        files: package.files.len(),
+        bytes,
+        gzip_bytes,
+        parts,
+        shared_runtime_bytes: shared.map(|(bytes, _)| bytes),
+        shared_runtime_gzip_bytes: shared.map(|(_, gzip)| gzip),
+        omitted_modules: package
+            .omitted
+            .iter()
+            .map(|file| (*file).to_owned())
+            .collect(),
+    }
+}
+
+/// Writes generated files (index.html last) into a NeoFlash-owned folder and removes files an
+/// earlier export there generated that this one no longer has.
+fn write_package(
+    output_dir: &Path,
+    files: &[(String, Vec<u8>)],
+    name: &str,
+    kind: &str,
+) -> Result<PathBuf, ExportError> {
+    let mut previous_files = Vec::new();
+    if output_dir.exists() && fs::read_dir(output_dir)?.next().is_some() {
+        let marker = fs::read_to_string(output_dir.join(MARKER))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .filter(|marker| marker["generator"] == "NeoFlash" && marker["format_version"] == 1)
+            .ok_or_else(|| ExportError::Destination(output_dir.display().to_string()))?;
+        previous_files = marker["files"]
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
     fs::create_dir_all(output_dir)?;
+    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    let marker = serde_json::json!({
+        "generator": "NeoFlash",
+        "format_version": 1,
+        "kind": kind,
+        "project": name,
+        "files": names,
+    });
     // Prepare all data before writing. Replace only generated files, with index written last.
-    for (name, contents) in [
-        ("neoflash_web.js", bindings.as_str()),
-        ("runtime.js", HOST),
-        ("dom-layout.js", DOM_LAYOUT),
-        ("path.js", PATH_GEOMETRY),
-        ("accessibility.js", ACCESSIBILITY),
-        ("preview.js", PREVIEW),
-        ("events.js", EVENTS),
-        ("stage.js", STAGE),
-        ("legacy-input.js", LEGACY_INPUT),
-        ("geom.js", GEOMETRY),
-        ("geom3d.js", GEOMETRY_3D),
-        ("as2-strings.js", AS2_STRINGS),
-        ("as2-platform.js", AS2_PLATFORM),
-        ("as2-object.js", AS2_OBJECT),
-        ("as2-transitions.js", AS2_TRANSITIONS),
-        ("as2-depth-manager.js", AS2_DEPTH_MANAGER),
-        ("as2-print.js", AS2_PRINT),
-        ("as2-boxing.js", AS2_BOXING),
-        ("as2-capture.js", AS2_CAPTURE),
-        ("as2-connections.js", AS2_CONNECTIONS),
-        ("as2-stage.js", AS2_STAGE),
-        ("as2-media.js", AS2_MEDIA),
-        ("as2-services.js", AS2_SERVICES),
-        ("as2-locale.js", AS2_LOCALE),
-        ("as2-files.js", AS2_FILES),
-        ("as2-network.js", AS2_NETWORK),
-        ("as2-text.js", AS2_TEXT),
-        ("as2-data.js", AS2_DATA),
-        ("as2-binding.js", AS2_BINDING),
-        ("as3-strings.js", AS3_STRINGS),
-        ("as3-fte-3d.js", AS3_FTE_3D),
-        ("easing.js", SCRIPT_EASING),
-        ("math.js", SCRIPT_MATH),
-        ("date.js", SCRIPT_DATE),
-        ("number-format.js", SCRIPT_NUMBER_FORMAT),
-        ("broadcaster.js", SCRIPT_BROADCASTER),
-        ("THIRD_PARTY_NOTICES.txt", ALGORITHM_NOTICES),
-        ("timers.js", TIMERS),
-        ("byte-array.js", BYTE_ARRAY),
-        ("net.js", NET),
-        ("external.js", EXTERNAL),
-        ("bitmap.js", BITMAP),
-        ("text.js", TEXT),
-        ("text-input.js", TEXT_INPUT),
-        ("filters.js", FILTERS),
-        ("audio-formats.js", AUDIO_FORMATS),
-        ("audio.js", AUDIO),
-        ("video.js", VIDEO),
-        ("xml.js", XML),
-        ("loader.js", LOADER),
-        ("amf.js", AMF),
-        ("storage.js", STORAGE),
-        ("air.js", AIR),
-        ("as3-net-sys.js", AS3_NET_SYS),
-        ("as3-media-events.js", AS3_MEDIA_EVENTS),
-        ("display.js", DISPLAY),
-        ("bundle.js", bundle_js.as_str()),
-        ("README.txt", readme.as_str()),
-    ] {
-        atomic_write(&output_dir.join(name), contents.as_bytes())?;
+    let (last, rest) = files
+        .split_last()
+        .expect("a package always has an index file");
+    for (file, bytes) in rest {
+        atomic_write(&output_dir.join(file), bytes)?;
     }
     atomic_write(
         &output_dir.join(MARKER),
         serde_json::to_string_pretty(&marker)?.as_bytes(),
     )?;
-    atomic_write(&output_dir.join("index.html"), html.as_bytes())?;
-    Ok(output_dir.join("index.html"))
+    atomic_write(&output_dir.join(&last.0), &last.1)?;
+    for stale in previous_files {
+        let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
+        if plain && !names.contains(&stale.as_str()) {
+            let _ = fs::remove_file(output_dir.join(stale));
+        }
+    }
+    Ok(output_dir.join(&last.0))
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -1086,7 +1500,11 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn html_document(title: &str, font_css: &str) -> String {
+fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
+    let script_tags: String = scripts
+        .iter()
+        .map(|src| format!("  <script defer src=\"{src}\"></script>\n"))
+        .collect();
     let font_rules = if font_css.is_empty() {
         String::new()
     } else {
@@ -1129,63 +1547,7 @@ fn html_document(title: &str, font_css: &str) -> String {
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}
     @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}{font_rules}
   </style>
-  <script defer src="neoflash_web.js"></script>
-  <script defer src="bundle.js"></script>
-  <script defer src="path.js"></script>
-  <script defer src="accessibility.js"></script>
-  <script defer src="preview.js"></script>
-  <script defer src="events.js"></script>
-  <script defer src="stage.js"></script>
-  <script defer src="legacy-input.js"></script>
-  <script defer src="geom.js"></script>
-  <script defer src="geom3d.js"></script>
-  <script defer src="as2-strings.js"></script>
-  <script defer src="as2-platform.js"></script>
-  <script defer src="as2-object.js"></script>
-  <script defer src="as2-transitions.js"></script>
-  <script defer src="as2-depth-manager.js"></script>
-  <script defer src="as2-print.js"></script>
-  <script defer src="as2-boxing.js"></script>
-  <script defer src="as2-capture.js"></script>
-  <script defer src="as2-connections.js"></script>
-  <script defer src="as2-stage.js"></script>
-  <script defer src="as2-media.js"></script>
-  <script defer src="as2-services.js"></script>
-  <script defer src="as2-locale.js"></script>
-  <script defer src="as2-files.js"></script>
-  <script defer src="as2-network.js"></script>
-  <script defer src="as2-text.js"></script>
-  <script defer src="as2-data.js"></script>
-  <script defer src="as2-binding.js"></script>
-  <script defer src="as3-strings.js"></script>
-  <script defer src="as3-fte-3d.js"></script>
-  <script defer src="easing.js"></script>
-  <script defer src="math.js"></script>
-  <script defer src="date.js"></script>
-  <script defer src="number-format.js"></script>
-  <script defer src="broadcaster.js"></script>
-  <script defer src="timers.js"></script>
-  <script defer src="byte-array.js"></script>
-  <script defer src="net.js"></script>
-  <script defer src="external.js"></script>
-  <script defer src="bitmap.js"></script>
-  <script defer src="text.js"></script>
-  <script defer src="text-input.js"></script>
-  <script defer src="filters.js"></script>
-  <script defer src="audio-formats.js"></script>
-  <script defer src="audio.js"></script>
-  <script defer src="video.js"></script>
-  <script defer src="xml.js"></script>
-  <script defer src="loader.js"></script>
-  <script defer src="amf.js"></script>
-  <script defer src="storage.js"></script>
-  <script defer src="air.js"></script>
-  <script defer src="as3-net-sys.js"></script>
-  <script defer src="as3-media-events.js"></script>
-  <script defer src="display.js"></script>
-  <script defer src="dom-layout.js"></script>
-  <script defer src="runtime.js"></script>
-</head>
+{script_tags}</head>
 <body>
   <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
   <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="load-info"></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
@@ -1306,6 +1668,145 @@ mod tests {
                 .unwrap()
                 .contains("isPointInStroke")
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn size_levels_change_delivery_and_leave_out_only_unnamed_families() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+        let banner = Project::blank();
+        let out = dir.join("out");
+        let publish = |project: &Project, size: SizeLevel| {
+            let options = PublishOptions {
+                fonts: FontExportPolicy::Embed,
+                size,
+            };
+            export_project_with_options(project, &out, &rt, &options).unwrap();
+            let bundle = fs::read_to_string(out.join("bundle.js")).unwrap();
+            let html = fs::read_to_string(out.join("index.html")).unwrap();
+            (bundle, html)
+        };
+
+        let (bundle, _) = publish(&banner, SizeLevel::Full);
+        assert!(bundle.contains("\"wasm\":\"AGFzbQEAAAA=\"") && !out.join(WASM_FILE).exists());
+
+        let (bundle, _) = publish(&banner, SizeLevel::Balanced);
+        assert!(
+            bundle.contains("\"wasm_url\":\"neoflash_web_bg.wasm\"")
+                && !bundle.contains("\"wasm\":")
+        );
+        assert!(out.join(WASM_FILE).exists() && out.join("air.js").exists());
+
+        // A banner without scripts drops every script family but keeps sound and video transport.
+        let (bundle, html) = publish(&banner, SizeLevel::Compact);
+        for gone in [
+            "air.js",
+            "as3-fte-3d.js",
+            "as2-object.js",
+            "xml.js",
+            "timers.js",
+        ] {
+            assert!(
+                !out.join(gone).exists() && !html.contains(gone),
+                "{gone} left out"
+            );
+        }
+        for kept in [
+            "net.js",
+            "byte-array.js",
+            "audio.js",
+            "display.js",
+            "runtime.js",
+            WASM_FILE,
+        ] {
+            assert!(out.join(kept).exists(), "{kept} kept");
+        }
+        assert!(
+            !bundle.contains("\"program\":"),
+            "a project without scripts ships no prelude"
+        );
+        assert!(bundle.contains("\"level\":\"compact\"") && bundle.contains("AIR desktop APIs"));
+
+        let mut fte = Project::blank();
+        let root = fte.root.clone();
+        fte.symbol_mut(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source:
+                    "import flash.text.engine.ElementFormat;\ntrace(new ElementFormat().fontSize);"
+                        .into(),
+            },
+        });
+        publish(&fte, SizeLevel::Compact);
+        assert!(out.join("as3-fte-3d.js").exists() && out.join("xml.js").exists());
+        assert!(!out.join("air.js").exists() && !out.join("as3-net-sys.js").exists());
+
+        let (bundle, html) = publish(
+            &banner,
+            SizeLevel::Shared("https://cdn.example.com/nf/".into()),
+        );
+        let mut files: Vec<_> = fs::read_dir(&out)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            ["README.txt", "bundle.js", "index.html", MARKER],
+            "stale runtime files are removed"
+        );
+        assert!(html.contains("src=\"https://cdn.example.com/nf/runtime-id.js\""));
+        assert!(
+            html.contains("src=\"bundle.js\"")
+                && html.contains("src=\"https://cdn.example.com/nf/air.js\"")
+        );
+        assert!(
+            bundle.contains("\"wasm_url\":\"https://cdn.example.com/nf/neoflash_web_bg.wasm\"")
+        );
+        assert!(bundle.contains("\"runtime_id\":\""));
+
+        let shared = dir.join("shared");
+        export_shared_runtime(&shared, &rt).unwrap();
+        let id = fs::read_to_string(shared.join(RUNTIME_ID_FILE)).unwrap();
+        let bundle_id = bundle
+            .split("\"runtime_id\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        assert!(
+            id.contains(bundle_id)
+                && shared.join(WASM_FILE).exists()
+                && shared.join("air.js").exists()
+        );
+
+        let estimates = estimate_publish_sizes(
+            &banner,
+            &rt,
+            FontExportPolicy::Embed,
+            "https://cdn.example.com/nf",
+        )
+        .unwrap();
+        let names: Vec<_> = estimates.iter().map(|e| e.level.name()).collect();
+        assert_eq!(names, ["full", "balanced", "compact", "shared"]);
+        assert!(estimates[2].bytes < estimates[1].bytes && estimates[3].bytes < estimates[2].bytes);
+        assert!(estimates[3].shared_runtime_bytes.unwrap() > estimates[1].bytes / 2);
+        for estimate in &estimates {
+            assert_eq!(
+                estimate.parts.iter().map(|p| p.bytes).sum::<usize>(),
+                estimate.bytes
+            );
+            assert!(estimate.gzip_bytes < estimate.bytes);
+        }
+        assert!(estimates[2].omitted_modules.contains(&"air.js".to_owned()));
+        assert!(estimates[0].tradeoffs.is_empty() && !estimates[1].tradeoffs.is_empty());
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
