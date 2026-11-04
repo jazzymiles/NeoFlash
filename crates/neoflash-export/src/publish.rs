@@ -62,8 +62,9 @@ impl SizeLevel {
             "balanced" => Ok(SizeLevel::Balanced),
             "compact" => Ok(SizeLevel::Compact),
             "shared" => runtime_url
-                .map(|url| SizeLevel::Shared(url.to_owned()))
-                .ok_or_else(|| "--size-level shared requires --runtime-url".into()),
+                .ok_or_else(|| "--size-level shared requires --runtime-url".to_owned())
+                .and_then(validate_runtime_url)
+                .map(SizeLevel::Shared),
             other => Err(format!(
                 "Unknown size level '{other}'. Use full, balanced, compact or shared."
             )),
@@ -73,24 +74,77 @@ impl SizeLevel {
 
 /// Options for [`crate::export_project_with_options`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PublishOptions {
     pub fonts: crate::FontExportPolicy,
     pub size: SizeLevel,
 }
 
-/// Accepts absolute http(s) URLs and relative paths; refuses other schemes.
-pub(crate) fn validate_runtime_url(url: &str) -> Result<String, String> {
-    let trimmed = url.trim().trim_end_matches('/');
-    let scheme = trimmed.split_once(':').map(|(scheme, _)| scheme);
-    let relative = scheme.is_none_or(|scheme| scheme.contains('/'));
-    if trimmed.is_empty()
-        || !(relative || trimmed.starts_with("https://") || trimmed.starts_with("http://"))
-    {
-        return Err(format!(
-            "Shared runtime URL '{url}' must be an http(s) URL or a relative path."
-        ));
+impl PublishOptions {
+    /// Validate before compilation or filesystem writes. The returned options carry the same
+    /// normalized URL used by publication and estimates; other settings are preserved.
+    pub fn validated(&self) -> Result<Self, String> {
+        Ok(Self {
+            fonts: self.fonts,
+            size: match &self.size {
+                SizeLevel::Shared(url) => SizeLevel::Shared(validate_runtime_url(url)?),
+                level => level.clone(),
+            },
+        })
     }
-    Ok(trimmed.to_owned())
+}
+
+/// Accept an HTTP(S) directory URL or a relative/root-relative directory path.
+/// Query strings, fragments and credentials do not describe a runtime directory: appending
+/// filenames to them would silently load a different URL. No network access is performed here.
+pub fn validate_runtime_url(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    let invalid = || {
+        "Shared runtime URL must be an HTTP(S) directory URL or a relative directory path, without credentials, whitespace, backslashes, query strings or fragments.".to_owned()
+    };
+    if value.is_empty()
+        || value.chars().any(char::is_whitespace)
+        || value.chars().any(char::is_control)
+        || value.contains(['\\', '?', '#'])
+    {
+        return Err(invalid());
+    }
+    let parsed = match url::Url::parse(value) {
+        Ok(parsed) => {
+            if !matches!(parsed.scheme(), "http" | "https")
+                || parsed.host_str().is_none()
+                || !value
+                    .to_ascii_lowercase()
+                    .starts_with(&format!("{}://", parsed.scheme()))
+                || value
+                    .get(parsed.scheme().len() + 3..)
+                    .is_none_or(|authority| authority.starts_with('/'))
+            {
+                return Err(invalid());
+            }
+            parsed
+        }
+        Err(url::ParseError::RelativeUrlWithoutBase) => {
+            // A scheme-relative URL depends on the page's scheme and is not a directory path.
+            if value.starts_with("//") {
+                return Err(invalid());
+            }
+            let base = url::Url::parse("https://neoflash.invalid/").expect("static URL");
+            base.join(value).map_err(|_| invalid())?
+        }
+        Err(_) => return Err(invalid()),
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(invalid());
+    }
+    // Keep relative paths relative; preserve '/' so the runtime may live at the host root.
+    if value == "/" {
+        Ok(value.into())
+    } else if url::Url::parse(value).is_ok() {
+        Ok(parsed.as_str().trim_end_matches('/').to_owned())
+    } else {
+        Ok(value.trim_end_matches('/').to_owned())
+    }
 }
 
 /// An ActionScript 3 family large enough to leave out when the project never names it.
@@ -503,9 +557,52 @@ mod tests {
             validate_runtime_url("https://cdn.example.com/neoflash/1/").unwrap(),
             "https://cdn.example.com/neoflash/1"
         );
-        assert!(validate_runtime_url("../runtime").is_ok());
-        assert!(validate_runtime_url("javascript:alert(1)").is_err());
-        assert!(validate_runtime_url("file:///tmp/x").is_err());
-        assert!(validate_runtime_url("  ").is_err());
+        for (input, expected) in [
+            (" ../runtime/ ", "../runtime"),
+            ("/runtime/", "/runtime"),
+            ("/", "/"),
+            ("./runtime-v1", "./runtime-v1"),
+            (
+                "HTTPS://CDN.EXAMPLE.COM:443/runtime/",
+                "https://cdn.example.com/runtime",
+            ),
+            (
+                "http://localhost:8080/runtime",
+                "http://localhost:8080/runtime",
+            ),
+            ("https://[::1]/runtime", "https://[::1]/runtime"),
+        ] {
+            assert_eq!(validate_runtime_url(input).unwrap(), expected);
+        }
+        for invalid in [
+            "javascript:alert(1)",
+            "file:///tmp/x",
+            "  ",
+            "https://",
+            "http:///runtime",
+            "https:runtime",
+            "//example.com/runtime",
+            "https://example.com:bad/runtime",
+            "https://user:password@example.com/runtime",
+            "../runtime?version=1",
+            "runtime#fragment",
+            "runtime with spaces",
+            "../run\\time",
+            "run\ntime",
+        ] {
+            assert!(
+                validate_runtime_url(invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+        let options = PublishOptions {
+            fonts: crate::FontExportPolicy::Device,
+            size: SizeLevel::Shared(" ../runtime/ ".into()),
+        }
+        .validated()
+        .unwrap();
+        assert_eq!(options.fonts, crate::FontExportPolicy::Device);
+        assert_eq!(options.size, SizeLevel::Shared("../runtime".into()));
+        assert!(SizeLevel::parse("shared", Some("javascript:alert(1)")).is_err());
     }
 }

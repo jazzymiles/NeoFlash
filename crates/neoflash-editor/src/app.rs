@@ -116,6 +116,7 @@ pub struct Editor {
     pub vector: crate::vector::VectorState,
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
+    pub(crate) publish_controller: crate::publish_controller::PublishController,
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
     pub(crate) timeline_motion: crate::timeline_motion::MotionState,
@@ -335,6 +336,7 @@ impl Editor {
             vector: crate::vector::VectorState::default(),
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
+            publish_controller: Default::default(),
             detached: crate::detached::DetachedState::default(),
             stage_view: Default::default(),
             timeline_motion: Default::default(),
@@ -1365,21 +1367,33 @@ impl Editor {
         output: &std::path::Path,
         runtime_dir: &std::path::Path,
     ) -> bool {
+        let settings = self.workspace.publish.clone();
+        self.publish_html5_with_settings(output, runtime_dir, &settings)
+    }
+
+    /// Publish the same draft used by the estimate without committing workspace defaults.
+    pub(crate) fn publish_html5_with_settings(
+        &mut self,
+        output: &std::path::Path,
+        runtime_dir: &std::path::Path,
+        settings: &crate::workspace::PublishPrefs,
+    ) -> bool {
         self.finish_edits();
         let warnings = neoflash_export::export_warnings(&self.project);
-        if self.workspace.publish.warnings_as_errors && !warnings.is_empty() {
-            for warning in &warnings {
-                self.message(warning.clone());
+        let options = match settings.export_options(&self.project) {
+            Ok(options) => options,
+            Err(error) => {
+                self.message(format!("Publish failed: {error}"));
+                self.show_panel(PanelId::Output);
+                return false;
             }
-            self.message(format!(
-                "Publish failed: {} warning(s) treated as errors ({})",
-                warnings.len(),
-                warnings.join("; ")
-            ));
-            self.show_panel(PanelId::Output);
-            return false;
-        }
-        match neoflash_export::export_project(&self.project, output, runtime_dir) {
+        };
+        match neoflash_export::export_project_with_options(
+            &self.project,
+            output,
+            runtime_dir,
+            &options,
+        ) {
             Ok(index) => {
                 self.message(format!("HTML5 exported: {}", index.display()));
                 let project_snapshot = self.project.clone();
@@ -2381,6 +2395,7 @@ impl eframe::App for Editor {
         self.symbol_creation_dialog(ctx);
         self.detached_panels(ctx);
         self.planned_panels(ctx);
+        self.update_publish_estimate(ctx);
         crate::native_windows::configure_panels();
         let name = self
             .path

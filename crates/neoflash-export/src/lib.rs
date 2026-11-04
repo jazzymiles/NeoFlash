@@ -3,7 +3,9 @@
 pub mod fonts;
 pub mod publish;
 pub use fonts::*;
-pub use publish::{PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len};
+pub use publish::{
+    PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};
@@ -1016,6 +1018,7 @@ pub fn export_project_with_options(
     runtime_dir: &Path,
     options: &PublishOptions,
 ) -> Result<PathBuf, ExportError> {
+    let options = options.validated().map_err(ExportError::Options)?;
     let prepared = prepare(project, runtime_dir, options.fonts)?;
     let package = assemble(project, &prepared, &options.size)?;
     write_package(output_dir, &package.files, &project.name, "project")
@@ -1029,22 +1032,104 @@ pub fn estimate_publish_sizes(
     font_policy: FontExportPolicy,
     runtime_url: &str,
 ) -> Result<Vec<SizeEstimate>, ExportError> {
-    let prepared = prepare(project, runtime_dir, font_policy)?;
-    let shared_files = shared_runtime_files(&prepared);
-    let shared_bytes = shared_files.iter().map(|(_, bytes)| bytes.len()).sum();
-    let shared_gzip = shared_files.iter().map(|(_, bytes)| gzip_len(bytes)).sum();
-    SizeLevel::all(runtime_url)
-        .into_iter()
-        .map(|level| {
-            let package = assemble(project, &prepared, &level)?;
-            let shared = matches!(level, SizeLevel::Shared(_));
-            Ok(measure(
-                level,
-                &package,
-                shared.then_some((shared_bytes, shared_gzip)),
-            ))
+    Ok(estimate_publish_levels_cancellable(
+        project,
+        runtime_dir,
+        font_policy,
+        &SizeLevel::all(runtime_url),
+        || false,
+    )?
+    .expect("uncancelled estimate"))
+}
+
+/// Measure the exact options used by a publication, without writing any output files.
+pub fn estimate_publish_options(
+    project: &Project,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+) -> Result<SizeEstimate, ExportError> {
+    let options = options.validated().map_err(ExportError::Options)?;
+    Ok(estimate_publish_levels_cancellable(
+        project,
+        runtime_dir,
+        options.fonts,
+        &[options.size],
+        || false,
+    )?
+    .expect("uncancelled estimate")
+    .remove(0))
+}
+
+/// Measure requested levels in order, sharing preparation, without writing output files.
+/// `None` means cancelled, never a partial result. Cancellation is cooperative between
+/// preparation, package assembly and individual file compression; those operations finish
+/// before cancellation is observed. Call from a worker when keeping the UI responsive.
+pub fn estimate_publish_levels_cancellable(
+    project: &Project,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+    levels: &[SizeLevel],
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Option<Vec<SizeEstimate>>, ExportError> {
+    if cancelled() {
+        return Ok(None);
+    }
+    let levels = levels
+        .iter()
+        .map(|size| {
+            PublishOptions {
+                fonts: font_policy,
+                size: size.clone(),
+            }
+            .validated()
+            .map(|options| options.size)
+            .map_err(ExportError::Options)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if levels.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    let prepared = prepare(project, runtime_dir, font_policy)?;
+    if cancelled() {
+        return Ok(None);
+    }
+    let mut shared_weight = None;
+    let mut estimates = Vec::with_capacity(levels.len());
+    for level in levels {
+        if cancelled() {
+            return Ok(None);
+        }
+        let shared = if matches!(level, SizeLevel::Shared(_)) {
+            if shared_weight.is_none() {
+                let files = shared_runtime_package_files(
+                    &prepared.bindings,
+                    &prepared.wasm,
+                    &prepared.runtime_id,
+                );
+                let marker = package_marker(&files, "shared runtime", "runtime")?;
+                let mut bytes = marker.len();
+                let mut gzip = gzip_len(&marker);
+                for (_, file) in &files {
+                    if cancelled() {
+                        return Ok(None);
+                    }
+                    bytes += file.len();
+                    gzip += gzip_len(file);
+                }
+                shared_weight = Some((bytes, gzip));
+            }
+            shared_weight
+        } else {
+            None
+        };
+        let package = assemble(project, &prepared, &level)?;
+        let Some(estimate) = measure(level, &package, &project.name, shared, &mut cancelled)?
+        else {
+            return Ok(None);
+        };
+        estimates.push(estimate);
+    }
+    Ok((!cancelled()).then_some(estimates))
 }
 
 /// Publish the runtime folder that Shared-level projects load from `--runtime-url`. Publish it
@@ -1055,14 +1140,7 @@ pub fn export_shared_runtime(
 ) -> Result<PathBuf, ExportError> {
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let prepared_id = shared_runtime_id(&bindings, &wasm);
-    let mut files = shared_runtime_files_from(&bindings, &wasm, &prepared_id);
-    files.push((
-        "README.txt".into(),
-        format!(
-            "NeoFlash shared HTML5 runtime {prepared_id}\n\nHost this folder once over HTTP(S) and publish projects at the Shared size level with its URL.\nEvery project checks that it was published against this exact runtime build.\n"
-        )
-        .into_bytes(),
-    ));
+    let files = shared_runtime_package_files(&bindings, &wasm, &prepared_id);
     write_package(output_dir, &files, "shared runtime", "runtime")?;
     Ok(output_dir.to_path_buf())
 }
@@ -1243,7 +1321,7 @@ fn assemble(
         wasm: level.wasm_inline().then(|| STANDARD.encode(wasm)),
         wasm_url: match (level, &shared_url) {
             (SizeLevel::Full, _) => None,
-            (_, Some(url)) => Some(format!("{url}/{WASM_FILE}")),
+            (_, Some(url)) => Some(format!("{}/{WASM_FILE}", url.trim_end_matches('/'))),
             _ => Some(WASM_FILE.to_owned()),
         },
         runtime_id: shared_url.as_ref().map(|_| prepared.runtime_id.clone()),
@@ -1262,7 +1340,7 @@ fn assemble(
     );
     let title = html_escape(&project.name);
     let runtime_src = |file: &str| match &shared_url {
-        Some(url) => html_escape(&format!("{url}/{file}")),
+        Some(url) => html_escape(&format!("{}/{file}", url.trim_end_matches('/'))),
         None => file.to_owned(),
     };
     let mut scripts = Vec::new();
@@ -1368,14 +1446,25 @@ fn level_tradeoffs(level: &SizeLevel, omitted: &[&str]) -> Vec<String> {
                 omitted.join("; ")
             ),
         ],
-        SizeLevel::Shared(url) => vec![format!(
-            "The runtime loads from {url}: publish it there with the same NeoFlash build, and visitors need network access to it."
-        )],
+        SizeLevel::Shared(url) => vec![
+            serve.into(),
+            format!(
+                "The runtime loads from {url}: publish it there with the same NeoFlash build, and visitors need network access to it. Cross-origin runtime hosts must allow CORS for WebAssembly."
+            ),
+        ],
     }
 }
 
-fn shared_runtime_files(prepared: &Prepared) -> Vec<(String, Vec<u8>)> {
-    shared_runtime_files_from(&prepared.bindings, &prepared.wasm, &prepared.runtime_id)
+fn shared_runtime_package_files(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
+    let mut files = shared_runtime_files_from(bindings, wasm, id);
+    files.push((
+        "README.txt".into(),
+        format!(
+            "NeoFlash shared HTML5 runtime {id}\n\nHost this folder once over HTTP(S) and publish projects at the Shared size level with its URL.\nEvery project checks that it was published against this exact runtime build.\n"
+        )
+        .into_bytes(),
+    ));
+    files
 }
 
 fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
@@ -1397,14 +1486,28 @@ fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(Stri
     files
 }
 
-fn measure(level: SizeLevel, package: &Package, shared: Option<(usize, usize)>) -> SizeEstimate {
-    let gzip: Vec<usize> = package
+fn measure(
+    level: SizeLevel,
+    package: &Package,
+    name: &str,
+    shared: Option<(usize, usize)>,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<Option<SizeEstimate>, ExportError> {
+    let marker = package_marker(&package.files, name, "project")?;
+    let mut gzip = Vec::with_capacity(package.files.len());
+    for (_, bytes) in &package.files {
+        if cancelled() {
+            return Ok(None);
+        }
+        gzip.push(gzip_len(bytes));
+    }
+    let bytes: usize = package
         .files
         .iter()
-        .map(|(_, bytes)| gzip_len(bytes))
-        .collect();
-    let bytes: usize = package.files.iter().map(|(_, bytes)| bytes.len()).sum();
-    let gzip_bytes: usize = gzip.iter().sum();
+        .map(|(_, bytes)| bytes.len())
+        .sum::<usize>()
+        + marker.len();
+    let gzip_bytes: usize = gzip.iter().sum::<usize>() + gzip_len(&marker);
     let file_gzip = |names: &dyn Fn(&str) -> bool| -> usize {
         package
             .files
@@ -1457,10 +1560,10 @@ fn measure(level: SizeLevel, package: &Package, shared: Option<(usize, usize)>) 
         .map(|family| family.title)
         .collect();
     let omitted_list: Vec<&str> = omitted_titles.iter().copied().collect();
-    SizeEstimate {
+    Ok((!cancelled()).then_some(SizeEstimate {
         tradeoffs: level_tradeoffs(&level, &omitted_list),
         level,
-        files: package.files.len(),
+        files: package.files.len() + 1,
         bytes,
         gzip_bytes,
         parts,
@@ -1471,7 +1574,23 @@ fn measure(level: SizeLevel, package: &Package, shared: Option<(usize, usize)>) 
             .iter()
             .map(|file| (*file).to_owned())
             .collect(),
-    }
+    }))
+}
+
+fn package_marker(
+    files: &[(String, Vec<u8>)],
+    name: &str,
+    kind: &str,
+) -> Result<Vec<u8>, ExportError> {
+    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "generator": "NeoFlash",
+        "format_version": 1,
+        "kind": kind,
+        "project": name,
+        "files": names,
+    }))?
+    .into_bytes())
 }
 
 /// Writes generated files (index.html last) into a NeoFlash-owned folder and removes files an
@@ -1501,13 +1620,7 @@ fn write_package(
     }
     fs::create_dir_all(output_dir)?;
     let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
-    let marker = serde_json::json!({
-        "generator": "NeoFlash",
-        "format_version": 1,
-        "kind": kind,
-        "project": name,
-        "files": names,
-    });
+    let marker = package_marker(files, name, kind)?;
     // Prepare all data before writing. Replace only generated files, with index written last.
     let (last, rest) = files
         .split_last()
@@ -1515,10 +1628,7 @@ fn write_package(
     for (file, bytes) in rest {
         atomic_write(&output_dir.join(file), bytes)?;
     }
-    atomic_write(
-        &output_dir.join(MARKER),
-        serde_json::to_string_pretty(&marker)?.as_bytes(),
-    )?;
+    atomic_write(&output_dir.join(MARKER), &marker)?;
     atomic_write(&output_dir.join(&last.0), &last.1)?;
     for stale in previous_files {
         let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
@@ -1842,7 +1952,30 @@ mod tests {
         assert_eq!(names, ["full", "balanced", "compact", "shared"]);
         assert!(estimates[2].bytes < estimates[1].bytes && estimates[3].bytes < estimates[2].bytes);
         assert!(estimates[3].shared_runtime_bytes.unwrap() > estimates[1].bytes / 2);
+        let totals = |folder: &Path| {
+            fs::read_dir(folder)
+                .unwrap()
+                .map(|entry| {
+                    let data = fs::read(entry.unwrap().path()).unwrap();
+                    (1usize, data.len(), gzip_len(&data))
+                })
+                .fold((0, 0, 0), |sum, item| {
+                    (sum.0 + item.0, sum.1 + item.1, sum.2 + item.2)
+                })
+        };
+        let shared_totals = totals(&shared);
+        assert_eq!(estimates[3].shared_runtime_bytes, Some(shared_totals.1));
+        assert_eq!(
+            estimates[3].shared_runtime_gzip_bytes,
+            Some(shared_totals.2)
+        );
         for estimate in &estimates {
+            publish(&banner, estimate.level.clone());
+            assert_eq!(
+                totals(&out),
+                (estimate.files, estimate.bytes, estimate.gzip_bytes)
+            );
+
             assert_eq!(
                 estimate.parts.iter().map(|p| p.bytes).sum::<usize>(),
                 estimate.bytes
@@ -1851,8 +1984,91 @@ mod tests {
         }
         assert!(estimates[2].omitted_modules.contains(&"air.js".to_owned()));
         assert!(estimates[0].tradeoffs.is_empty() && !estimates[1].tradeoffs.is_empty());
+        assert_eq!(
+            estimate_publish_options(
+                &banner,
+                &rt,
+                &PublishOptions {
+                    fonts: FontExportPolicy::Embed,
+                    size: SizeLevel::Shared(" https://cdn.example.com/nf/ ".into()),
+                }
+            )
+            .unwrap(),
+            estimates[3],
+            "selected normalized options measure exactly what publication writes"
+        );
+        let (root_bundle, root_html) = publish(&banner, SizeLevel::Shared("/".into()));
+        assert!(root_html.contains("src=\"/runtime-id.js\""));
+        assert!(root_bundle.contains("\"wasm_url\":\"/neoflash_web_bg.wasm\""));
+        // Rebuilding the runtime must change the identity expected by Shared publications.
+        fs::write(rt.join(BINDINGS_FILE), "var NeoFlashWasm; // rebuilt").unwrap();
+        let (rebuilt, _) = publish(&banner, SizeLevel::Shared("../runtime".into()));
+        assert!(!rebuilt.contains(&format!("\"runtime_id\":\"{bundle_id}\"")));
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn estimates_cancel_and_invalid_options_fail_before_runtime_io() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        let project = Project::blank();
+        let invalid = PublishOptions {
+            fonts: FontExportPolicy::Embed,
+            size: SizeLevel::Shared("https://".into()),
+        };
+        assert!(matches!(
+            export_project_with_options(&project, &dir.join("out"), &rt, &invalid),
+            Err(ExportError::Options(_))
+        ));
+        assert!(matches!(
+            estimate_publish_options(&project, &rt, &invalid),
+            Err(ExportError::Options(_))
+        ));
+        assert!(!dir.join("out").exists());
+        assert!(
+            estimate_publish_levels_cancellable(
+                &project,
+                &rt,
+                FontExportPolicy::Embed,
+                &[SizeLevel::Full],
+                || true
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(
+            estimate_publish_levels_cancellable(
+                &project,
+                &rt,
+                FontExportPolicy::Embed,
+                &[],
+                || false
+            )
+            .unwrap(),
+            Some(vec![])
+        );
+        runtime(&rt);
+        let mut checks = 0;
+        assert!(
+            estimate_publish_levels_cancellable(
+                &project,
+                &rt,
+                FontExportPolicy::Embed,
+                &[SizeLevel::Full, SizeLevel::Compact],
+                || {
+                    checks += 1;
+                    checks >= 6
+                }
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(
+            checks, 6,
+            "cancellation stops compression without publishing a partial result"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn multiple_scenes_publish_one_main_timeline_with_scene_ranges() {
         let dir = temp();

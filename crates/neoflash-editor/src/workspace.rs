@@ -1830,6 +1830,8 @@ impl Default for ClipboardPrefs {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PublishPrefs {
+    /// Persisted HTML5 delivery and font policy; Full/Embed preserves older preferences.
+    pub options: neoflash_export::PublishOptions,
     /// Publish into this folder instead of asking each time.
     pub output_folder: Option<String>,
     pub html_wrapper: bool,
@@ -1843,6 +1845,7 @@ pub struct PublishPrefs {
 impl Default for PublishPrefs {
     fn default() -> Self {
         Self {
+            options: neoflash_export::PublishOptions::default(),
             output_folder: None,
             html_wrapper: true,
             assets_folder: true,

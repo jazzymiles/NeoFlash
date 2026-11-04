@@ -794,7 +794,10 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   OK · Publish.
 - Data: `neoflash_export::export_project_with_options(project, output_dir, runtime_dir, &PublishOptions { fonts, size })`
   publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL); `estimate_publish_sizes` returns per-level
-  files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032). **NEW** `PublishSettings`
+  files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032).
+  Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
+  using the same parameters; stale project/options/runtime results are discarded. No size controls are exposed yet.
+  **NEW** `PublishSettings`
   stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target; others must
   stay disabled.
 - Acceptance: settings persist in the file; Loop off makes the exported movie stop at the end; trace stripped when

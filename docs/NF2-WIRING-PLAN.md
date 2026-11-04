@@ -309,6 +309,9 @@ content. Shape hints are §7.4.
 - Registry: `editor-paint-effects`.
 
 **W1.10 · Publish settings (DL-03, Preferences ▸ Publish)** — E-15
+- Available: workspace `PublishPrefs.options` feeds Publish/publish-on-save; draft publication and cancellable
+  background estimates reuse exporter options and validation. R-032 still gates the size selector, breakdown and
+  computing states; the existing dialog remains a preview. Document-stored profiles below remain future work.
 - UI: dialog from `planned_dialogs::publish_settings`; non-HTML5 targets stay disabled with hint; Properties ▸
   Publish button may then open settings (label stays "Publish HTML5…" unless the design changes it).
 - Engine: NEW `Project.publish: PublishSettings { loop, autoplay, scale_mode, include_trace, minify, strict,

@@ -1550,8 +1550,8 @@
       "category": "web",
       "title": "Self-contained HTML5 publishing",
       "status": "partial",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip.",
-      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and Shared need HTTP(S) hosting. Compact cannot see class names that scripts build at run time. The editor publishes at Full until Publish settings gains the size scale (NF2 request R-032).",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences.",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full remains the editor default; its size selector/weight display awaits R-032, and document-stored profiles are not implemented.",
       "items": [
         {
           "id": "self-contained",
@@ -1604,7 +1604,9 @@
         "crates/neoflash-export/src/publish.rs",
         "docs/decisions/0038-publish-size-levels.md",
         "scripts/build-web.sh",
-        "README.md"
+        "README.md",
+        "crates/neoflash-editor/src/publish_controller.rs",
+        "crates/neoflash-editor/src/publish_controller_tests.rs"
       ]
     },
     {

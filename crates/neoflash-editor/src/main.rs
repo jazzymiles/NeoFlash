@@ -17,6 +17,7 @@ mod paint_controls;
 mod panels;
 pub(crate) use panels::library;
 mod preview;
+mod publish_controller;
 mod recovery;
 mod resources;
 mod script_api;
