@@ -1,7 +1,10 @@
 //! Symbol authoring and the compact, frame-preserving timeline timing controls.
 use crate::{app::Editor, paint_controls::property_row};
 use eframe::egui;
-use neoflash_core::{ElementKind, Id, InstancePlayback, SymbolKind, new_id};
+use neoflash_core::{
+    ElementKind, Id, InstancePlayback, LayerRole, SymbolKind, layer_effectively_locked,
+    layer_effectively_visible, new_id, sample_layer_in,
+};
 use std::collections::HashSet;
 
 pub(crate) const BUTTON_STATES: [&str; 4] = ["Up", "Over", "Down", "Hit"];
@@ -167,20 +170,21 @@ impl Editor {
                 })
                 .response
         });
-        if mode != 0 {
-            let mut displayed = first.saturating_add(1).min(count);
-            let field = property_row(ui, "First frame", |ui| {
-                ui.add_sized(
-                    [76., 22.],
-                    egui::DragValue::new(&mut displayed)
-                        .range(1..=count)
-                        .update_while_editing(false),
-                )
-            });
-            first = displayed - 1;
-            if field.changed() {
-                control = Some(field.id);
+        let mut displayed = first.saturating_add(1).min(count);
+        let field = property_row(ui, "First frame", |ui| {
+            ui.add_sized(
+                [76., 22.],
+                egui::DragValue::new(&mut displayed)
+                    .range(1..=count)
+                    .update_while_editing(false),
+            )
+        });
+        first = displayed - 1;
+        if field.changed() {
+            if mode == 0 && first > 0 {
+                mode = 1;
             }
+            control = Some(field.id);
         }
         *playback = match mode {
             0 => InstancePlayback::Independent,
@@ -194,6 +198,81 @@ impl Editor {
             control.get_or_insert(response.id);
         }
         control
+    }
+
+    /// Set the 1-based `First frame` (`1..=frame_count`) on all editable selected `Graphic` or
+    /// `MovieClip` instances at the current frame in one Undo step. If an `Independent` MovieClip
+    /// is given a `First frame > 1`, switches it to `LoopFrom(first_frame - 1)` so its start offset
+    /// takes effect on the timeline.
+    #[cfg(test)]
+    pub(crate) fn set_selected_instance_first_frame(&mut self, first_frame: u32) -> bool {
+        let targets: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter_map(|(target, element)| {
+                if !self.target_editable(&target) {
+                    return None;
+                }
+                let ElementKind::Instance {
+                    symbol_id,
+                    playback,
+                } = &element.kind
+                else {
+                    return None;
+                };
+                let sym = self.project.symbol(symbol_id)?;
+                if sym.kind == SymbolKind::Button {
+                    return None;
+                }
+                let max_first = sym.timeline.frame_count.max(1).saturating_sub(1);
+                let first = first_frame.saturating_sub(1).min(max_first);
+                let next = match *playback {
+                    InstancePlayback::Independent if first == 0 => InstancePlayback::Independent,
+                    InstancePlayback::Independent
+                    | InstancePlayback::Loop
+                    | InstancePlayback::LoopFrom(_) => {
+                        if first == 0 {
+                            InstancePlayback::Loop
+                        } else {
+                            InstancePlayback::LoopFrom(first)
+                        }
+                    }
+                    InstancePlayback::PlayOnce | InstancePlayback::PlayOnceFrom(_) => {
+                        if first == 0 {
+                            InstancePlayback::PlayOnce
+                        } else {
+                            InstancePlayback::PlayOnceFrom(first)
+                        }
+                    }
+                    InstancePlayback::SingleFrame(_) => InstancePlayback::SingleFrame(first),
+                };
+                (next != *playback).then_some((target, next))
+            })
+            .collect();
+        if targets.is_empty() {
+            return false;
+        }
+        self.finish_edits();
+        self.transact_named("Set instance first frame", |s| {
+            for (target, next_playback) in targets {
+                s.ensure_key_for(&target.layer, false);
+                let frame = s.frame;
+                if let Some(layer) = s
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                    && let Some(element) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                    && let ElementKind::Instance { playback, .. } = &mut element.kind
+                {
+                    *playback = next_playback;
+                }
+            }
+        });
+        true
     }
 
     /// Duplicate a non-scene Library symbol with fresh symbol, layer, element and group IDs,
@@ -379,6 +458,163 @@ impl Editor {
                         adapt_swapped_playback(*playback, old_kind, target_kind, target_frames);
                     *symbol_id = target_symbol_id.to_owned();
                 }
+            }
+        });
+        true
+    }
+
+    /// Whether `layer_index` on the active timeline is editable and contains at least one symbol
+    /// instance (at the playhead or across its keyframes) that can be replaced with
+    /// `target_symbol_id` without introducing a cyclic symbol reference.
+    pub(crate) fn can_swap_layer_symbol(&self, layer_index: usize, target_symbol_id: &str) -> bool {
+        if self.project.is_scene(target_symbol_id)
+            || self.project.symbol(target_symbol_id).is_none()
+        {
+            return false;
+        }
+        if crate::app::reaches(
+            &self.project,
+            target_symbol_id,
+            self.symbol_id(),
+            &mut HashSet::new(),
+        ) {
+            return false;
+        }
+        let timeline = &self.symbol().timeline;
+        let Some(layer) = timeline.layers.get(layer_index) else {
+            return false;
+        };
+        if layer.properties.role == LayerRole::Folder
+            || layer_effectively_locked(timeline, layer)
+            || !layer_effectively_visible(timeline, layer)
+        {
+            return false;
+        }
+        let sampled = sample_layer_in(timeline, layer, self.frame);
+        let has_at_frame = sampled.iter().any(|el| {
+            matches!(
+                &el.kind,
+                ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id
+            )
+        });
+        if has_at_frame {
+            return true;
+        }
+        layer.keyframes.iter().flat_map(|k| &k.elements).any(|el| {
+            matches!(
+                &el.kind,
+                ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id
+            )
+        })
+    }
+
+    /// AE-style symbol replacement on `layer_index` (or the current selection when `layer_index ==
+    /// self.layer` and swappable instances are explicitly selected): replaces the symbol instance(s)
+    /// on the layer across their keyframe track while preserving transform, instance name, scripts,
+    /// filters, blend mode and compatible playback settings. One Undo step.
+    pub(crate) fn swap_layer_or_selected_symbol(
+        &mut self,
+        layer_index: usize,
+        target_symbol_id: &str,
+    ) -> bool {
+        if layer_index == self.layer && self.can_swap_instance_symbol(target_symbol_id) {
+            return self.swap_instance_symbol(target_symbol_id);
+        }
+        if self.project.is_scene(target_symbol_id) {
+            return false;
+        }
+        let Some((target_kind, target_frames)) = self
+            .project
+            .symbol(target_symbol_id)
+            .map(|s| (s.kind, s.timeline.frame_count.max(1)))
+        else {
+            return false;
+        };
+        if crate::app::reaches(
+            &self.project,
+            target_symbol_id,
+            self.symbol_id(),
+            &mut HashSet::new(),
+        ) {
+            self.message("Cannot swap to this symbol: it would create a recursive symbol.");
+            return false;
+        }
+        if !self.can_swap_layer_symbol(layer_index, target_symbol_id) {
+            return false;
+        }
+        let (layer_id, target_element_ids, ensure_at_playhead) = {
+            let timeline = &self.symbol().timeline;
+            let layer = &timeline.layers[layer_index];
+            let sampled_ids: HashSet<Id> = sample_layer_in(timeline, layer, self.frame)
+                .into_iter()
+                .filter_map(|el| match &el.kind {
+                    ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id => {
+                        Some(el.id)
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !sampled_ids.is_empty() {
+                (layer.id.clone(), sampled_ids, true)
+            } else {
+                let all_ids: HashSet<Id> = layer
+                    .keyframes
+                    .iter()
+                    .flat_map(|k| &k.elements)
+                    .filter_map(|el| match &el.kind {
+                        ElementKind::Instance { symbol_id, .. }
+                            if symbol_id != target_symbol_id =>
+                        {
+                            Some(el.id.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                (layer.id.clone(), all_ids, false)
+            }
+        };
+        if target_element_ids.is_empty() {
+            return false;
+        }
+        let symbol_kinds: std::collections::HashMap<Id, SymbolKind> = self
+            .project
+            .symbols
+            .iter()
+            .map(|s| (s.id.clone(), s.kind))
+            .collect();
+        self.finish_edits();
+        self.transact_named("Swap symbol", |s| {
+            if ensure_at_playhead {
+                s.ensure_key_for(&layer_id, false);
+            }
+            if let Some(layer) = s
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == layer_id)
+            {
+                for key in &mut layer.keyframes {
+                    for element in &mut key.elements {
+                        if target_element_ids.contains(&element.id)
+                            && let ElementKind::Instance {
+                                symbol_id,
+                                playback,
+                            } = &mut element.kind
+                            && symbol_id != target_symbol_id
+                        {
+                            let old_kind = symbol_kinds.get(symbol_id).copied();
+                            *playback = adapt_swapped_playback(
+                                *playback,
+                                old_kind,
+                                target_kind,
+                                target_frames,
+                            );
+                            *symbol_id = target_symbol_id.to_owned();
+                        }
+                    }
+                }
+                layer.normalize_motion_keys();
             }
         });
         true

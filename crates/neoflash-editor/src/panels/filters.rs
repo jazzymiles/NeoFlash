@@ -259,6 +259,9 @@ impl Editor {
     }
 
     pub(crate) fn set_selected_blend_mode(&mut self, blend_mode: BlendMode) -> bool {
+        if self.selection.is_empty() {
+            return self.set_layer_blend_mode(self.layer, blend_mode);
+        }
         self.mutate_selected_display(None, |element| element.blend_mode = blend_mode)
     }
 
@@ -450,7 +453,16 @@ impl Editor {
 
         let mut visible = sampled.as_ref().is_none_or(|e| e.visible);
         let mut cache_as_bitmap = sampled.as_ref().is_some_and(|e| e.cache_as_bitmap);
-        let blend_mode = sampled.as_ref().map_or(BlendMode::Normal, |e| e.blend_mode);
+        let blend_mode = sampled
+            .as_ref()
+            .map_or_else(|| self.layer_blend_mode(self.layer), |e| e.blend_mode);
+        let layer_blend_editable = self.selection.is_empty()
+            && self
+                .symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .is_some_and(|l| l.properties.role != LayerRole::Guide);
 
         let half = (ui.available_width() - space::S2).max(40.0) / 2.0;
 
@@ -462,20 +474,22 @@ impl Editor {
         let mut remove_clicked = false;
         let mut filter_edit: Option<(usize, FilterSpec, Option<egui::Id>)> = None;
 
-        ui.add_enabled_ui_semantic(editable, |ui| {
+        ui.add_enabled_ui_semantic(editable || layer_blend_editable, |ui| {
             c::SectionHeader::new("Display")
                 .id_salt("filters-mc-display")
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.add(c::Switch::new(&mut visible, "Visible")).changed() {
-                            next_visible = Some(visible);
-                        }
-                        if ui
-                            .add(c::Checkbox::new(&mut cache_as_bitmap, "Cache as bitmap"))
-                            .changed()
-                        {
-                            next_cache = Some(cache_as_bitmap);
-                        }
+                    ui.add_enabled_ui_semantic(editable, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.add(c::Switch::new(&mut visible, "Visible")).changed() {
+                                next_visible = Some(visible);
+                            }
+                            if ui
+                                .add(c::Checkbox::new(&mut cache_as_bitmap, "Cache as bitmap"))
+                                .changed()
+                            {
+                                next_cache = Some(cache_as_bitmap);
+                            }
+                        });
                     });
                     ui.horizontal(|ui| {
                         let blend_label = format!("Blending: {}", blend_mode.label());
@@ -495,32 +509,35 @@ impl Editor {
                                     }
                                 }
                             });
-                        let render_label = if cache_as_bitmap {
-                            "Render: Export as bitmap"
-                        } else {
-                            "Render: Original"
-                        };
-                        c::Select::new("filters-render", render_label)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (cached, label) in
-                                    [(false, "Original"), (true, "Export as bitmap")]
-                                {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(label)
-                                                .checked(cache_as_bitmap == cached),
-                                        )
-                                        .clicked()
+                        ui.add_enabled_ui_semantic(editable, |ui| {
+                            let render_label = if cache_as_bitmap {
+                                "Render: Export as bitmap"
+                            } else {
+                                "Render: Original"
+                            };
+                            c::Select::new("filters-render", render_label)
+                                .width(half)
+                                .show(ui, |ui| {
+                                    for (cached, label) in
+                                        [(false, "Original"), (true, "Export as bitmap")]
                                     {
-                                        next_cache = Some(cached);
-                                        ui.close();
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(label)
+                                                    .checked(cache_as_bitmap == cached),
+                                            )
+                                            .clicked()
+                                        {
+                                            next_cache = Some(cached);
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
+                                });
+                        });
                     });
                 });
-
+        });
+        ui.add_enabled_ui_semantic(editable, |ui| {
             c::SectionHeader::new("Filters")
                 .id_salt("filters-mc-filters")
                 .show(ui, |ui| {

@@ -95,6 +95,42 @@ pub fn layer_effectively_locked(timeline: &Timeline, layer: &Layer) -> bool {
     }
     true
 }
+
+pub fn layer_effective_blend_mode(timeline: &Timeline, layer: &Layer) -> BlendMode {
+    let mut current = Some(layer);
+    for _ in 0..=timeline.layers.len() {
+        let Some(node) = current else {
+            return BlendMode::Normal;
+        };
+        if !node.properties.blend_mode.is_normal() {
+            return node.properties.blend_mode;
+        }
+        current = node
+            .properties
+            .parent
+            .as_ref()
+            .and_then(|id| timeline.layers.iter().find(|l| &l.id == id));
+    }
+    BlendMode::Normal
+}
+
+pub fn layer_effectively_synced(timeline: &Timeline, layer: &Layer) -> bool {
+    let mut current = Some(layer);
+    for _ in 0..=timeline.layers.len() {
+        let Some(node) = current else {
+            return false;
+        };
+        if node.properties.sync_timeline {
+            return true;
+        }
+        current = node
+            .properties
+            .parent
+            .as_ref()
+            .and_then(|id| timeline.layers.iter().find(|l| &l.id == id));
+    }
+    false
+}
 impl AuthoredScene {
     pub fn contains_point(&self, path: &[Id], point: [f64; 2]) -> bool {
         let Some(draw) = self

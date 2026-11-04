@@ -472,7 +472,8 @@ impl Editor {
                             if response.double_clicked() {
                                 action = Some(Action::EditSymbol(symbol.id.clone()));
                             }
-                            let can_swap = self.can_swap_instance_symbol(&symbol.id);
+                            let can_swap = self.can_swap_instance_symbol(&symbol.id)
+                                || self.can_swap_layer_symbol(self.layer, &symbol.id);
                             nf::context_menu(&response, |ui| {
                                 if ui.add(nf::MenuItem::new("Edit symbol")).clicked() {
                                     action = Some(Action::EditSymbol(symbol.id.clone()));
@@ -534,7 +535,7 @@ impl Editor {
                     self.duplicate_symbol(&id);
                 }
                 Action::SwapSymbol(id) => {
-                    self.swap_instance_symbol(&id);
+                    self.swap_layer_or_selected_symbol(self.layer, &id);
                 }
                 Action::DeleteSymbol(id) => {
                     if matches!(
@@ -642,12 +643,13 @@ impl Editor {
             }
             if ui
                 .add_enabled(
-                    self.can_swap_instance_symbol(&symbol.id),
+                    self.can_swap_instance_symbol(&symbol.id)
+                        || self.can_swap_layer_symbol(self.layer, &symbol.id),
                     nf::MenuItem::new("Swap symbol"),
                 )
                 .clicked()
             {
-                self.swap_instance_symbol(&symbol.id);
+                self.swap_layer_or_selected_symbol(self.layer, &symbol.id);
                 ui.close();
             }
             if ui.add(nf::MenuItem::new("Symbol properties…")).clicked() {

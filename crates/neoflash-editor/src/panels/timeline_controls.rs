@@ -660,6 +660,23 @@ impl Editor {
         {
             view.snap_playhead = !view.snap_playhead;
         }
+        let can_sync_layer = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .is_some_and(|l| l.properties.role != LayerRole::Guide);
+        let synced = self.layer_sync_timeline(self.layer);
+        if ui
+            .add_enabled(
+                can_sync_layer,
+                MenuItem::new("Sync layer to timeline").checked(synced),
+            )
+            .clicked()
+        {
+            self.set_layer_sync_timeline(self.layer, !synced);
+            ui.close();
+        }
         nf::menu_separator(ui);
         ui.add_enabled(false, MenuItem::new("Help").shortcut("F1"))
             .on_disabled_hover_text(NOT_AVAILABLE);

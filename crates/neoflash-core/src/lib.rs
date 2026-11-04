@@ -64,8 +64,8 @@ mod xml;
 
 pub use authored_layers::{
     AuthoredDraw, AuthoredScene, evaluate_scene, evaluate_scene_with_buttons,
-    layer_effective_outline_color, layer_effectively_locked, layer_effectively_visible,
-    layer_outline_color,
+    layer_effective_blend_mode, layer_effective_outline_color, layer_effectively_locked,
+    layer_effectively_synced, layer_effectively_visible, layer_outline_color,
 };
 pub use authored_playback::AuthoredPlayback;
 pub use authoring_geometry::{
@@ -77,7 +77,7 @@ pub use clipboard::{
 pub use evaluate::{
     DrawItem, GuidePath, affine_multiply, easing, effective_property_ease, evaluate,
     guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints, motion_span,
-    property_value, sample_layer, sample_layer_in, transform_matrix,
+    placement_start, property_value, sample_layer, sample_layer_in, transform_matrix,
 };
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,

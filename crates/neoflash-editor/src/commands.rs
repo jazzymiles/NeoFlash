@@ -833,6 +833,22 @@ const S_F8: &[Shortcut] = &[Shortcut::none(Key::F8)];
 const S_CMD_B: &[Shortcut] = &[Shortcut::cmd(Key::B)];
 const S_SHIFT_CMD_D: &[Shortcut] = &[Shortcut::shift_cmd(Key::D)];
 const S_SHIFT_F6: &[Shortcut] = &[Shortcut::shift(Key::F6)];
+const S_ARRANGE_FRONT: &[Shortcut] = &[
+    Shortcut::shift_cmd(Key::ArrowUp),
+    Shortcut::shift_cmd(Key::CloseBracket),
+];
+const S_ARRANGE_FWD: &[Shortcut] = &[
+    Shortcut::cmd(Key::ArrowUp),
+    Shortcut::cmd(Key::CloseBracket),
+];
+const S_ARRANGE_BWD: &[Shortcut] = &[
+    Shortcut::cmd(Key::ArrowDown),
+    Shortcut::cmd(Key::OpenBracket),
+];
+const S_ARRANGE_BACK: &[Shortcut] = &[
+    Shortcut::shift_cmd(Key::ArrowDown),
+    Shortcut::shift_cmd(Key::OpenBracket),
+];
 const S_CMD_G: &[Shortcut] = &[Shortcut::cmd(Key::G)];
 const S_SHIFT_CMD_G: &[Shortcut] = &[Shortcut::shift_cmd(Key::G)];
 
@@ -1529,32 +1545,32 @@ impl CommandId {
                 id: "modify.arrange.front",
                 category: C::Modify,
                 title: "Modify ▸ Arrange ▸ Bring to front",
-                keywords: "",
-                defaults: &[],
+                keywords: "depth z-order stack",
+                defaults: S_ARRANGE_FRONT,
                 allow_when_typing: false,
             },
             Self::ModifyArrangeForward => CommandMeta {
                 id: "modify.arrange.forward",
                 category: C::Modify,
                 title: "Modify ▸ Arrange ▸ Bring forward",
-                keywords: "",
-                defaults: &[],
+                keywords: "depth z-order stack",
+                defaults: S_ARRANGE_FWD,
                 allow_when_typing: false,
             },
             Self::ModifyArrangeBackward => CommandMeta {
                 id: "modify.arrange.backward",
                 category: C::Modify,
                 title: "Modify ▸ Arrange ▸ Send backward",
-                keywords: "",
-                defaults: &[],
+                keywords: "depth z-order stack",
+                defaults: S_ARRANGE_BWD,
                 allow_when_typing: false,
             },
             Self::ModifyArrangeBack => CommandMeta {
                 id: "modify.arrange.back",
                 category: C::Modify,
                 title: "Modify ▸ Arrange ▸ Send to back",
-                keywords: "",
-                defaults: &[],
+                keywords: "depth z-order stack",
+                defaults: S_ARRANGE_BACK,
                 allow_when_typing: false,
             },
             Self::ModifyGroup => CommandMeta {

@@ -393,6 +393,70 @@ impl Editor {
         }
     }
 
+    pub(crate) fn layer_blend_mode(&self, layer_index: usize) -> BlendMode {
+        self.symbol()
+            .timeline
+            .layers
+            .get(layer_index)
+            .map_or(BlendMode::Normal, |l| l.properties.blend_mode)
+    }
+
+    pub(crate) fn set_layer_blend_mode(
+        &mut self,
+        layer_index: usize,
+        blend_mode: BlendMode,
+    ) -> bool {
+        let Some(layer) = self.symbol().timeline.layers.get(layer_index) else {
+            return false;
+        };
+        if layer.properties.role == LayerRole::Guide {
+            return false;
+        }
+        if layer.properties.blend_mode == blend_mode {
+            return true;
+        }
+        self.finish_edits();
+        self.transact(|editor| {
+            if let Some(layer) = editor.symbol_mut().timeline.layers.get_mut(layer_index) {
+                layer.properties.blend_mode = blend_mode;
+            }
+            if !blend_mode.is_normal() {
+                editor.project.format_version = editor.project.format_version.max(8);
+            }
+        });
+        true
+    }
+
+    pub(crate) fn layer_sync_timeline(&self, layer_index: usize) -> bool {
+        self.symbol()
+            .timeline
+            .layers
+            .get(layer_index)
+            .is_some_and(|l| l.properties.sync_timeline)
+    }
+
+    pub(crate) fn set_layer_sync_timeline(&mut self, layer_index: usize, sync: bool) -> bool {
+        let Some(layer) = self.symbol().timeline.layers.get(layer_index) else {
+            return false;
+        };
+        if layer.properties.role == LayerRole::Guide {
+            return false;
+        }
+        if layer.properties.sync_timeline == sync {
+            return true;
+        }
+        self.finish_edits();
+        self.transact(|editor| {
+            if let Some(layer) = editor.symbol_mut().timeline.layers.get_mut(layer_index) {
+                layer.properties.sync_timeline = sync;
+            }
+            if sync {
+                editor.project.format_version = editor.project.format_version.max(8);
+            }
+        });
+        true
+    }
+
     /// Scenes in play order with their names; a document without scenes has one.
     pub(crate) fn scene_list(&self) -> Vec<(Id, String)> {
         self.project

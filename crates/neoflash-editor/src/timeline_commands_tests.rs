@@ -1236,3 +1236,163 @@ fn multi_layer_paste_auto_creates_layers_and_shape_hints_swatches_bitmap_paste_a
     assert!(!editor.check_external_modification());
     assert!(!editor.reload_external_modification(&ctx));
 }
+
+#[test]
+fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. Layer blend mode via timeline command and via Filters panel when no object is selected.
+    let before_blend = editor.project.clone();
+    editor.clear_selection();
+    assert_eq!(editor.layer_blend_mode(0), BlendMode::Normal);
+    assert!(editor.set_layer_blend_mode(0, BlendMode::Multiply));
+    assert_eq!(editor.layer_blend_mode(0), BlendMode::Multiply);
+    assert_eq!(editor.project.format_version, 8);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_blend);
+
+    editor.clear_selection();
+    editor.set_selected_blend_mode(BlendMode::Screen);
+    assert_eq!(editor.layer_blend_mode(0), BlendMode::Screen);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_blend);
+
+    // 2. Layer timeline-sync (`sync_timeline`) toggle with Undo and format-8 validation.
+    let before_sync = editor.project.clone();
+    assert!(!editor.layer_sync_timeline(0));
+    assert!(editor.set_layer_sync_timeline(0, true));
+    assert!(editor.layer_sync_timeline(0));
+    assert_eq!(editor.project.format_version, 8);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_sync);
+
+    // 3. `set_selected_instance_first_frame` on a MovieClip and Graphic instance, plus AE-style
+    // `swap_layer_or_selected_symbol` when the layer is selected (even with empty object selection).
+    let make_mc_symbol = |id: &str, name: &str, frames: u32| Symbol {
+        id: id.into(),
+        name: name.into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: frames,
+            layers: vec![Layer {
+                id: format!("{id}-layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: format!("{id}-rect"),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 30.0,
+                            height: 30.0,
+                            fill: [200, 100, 50, 255],
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        },
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                properties: Default::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    editor
+        .project
+        .symbols
+        .push(make_mc_symbol("sym-a", "HeroA", 12));
+    editor
+        .project
+        .symbols
+        .push(make_mc_symbol("sym-b", "HeroB", 8));
+    editor.symbol_mut().timeline.frame_count = 10;
+    editor.symbol_mut().timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            tween: Some(Easing::Linear),
+            elements: vec![Element {
+                id: "hero-inst".into(),
+                name: "hero".into(),
+                transform: Transform {
+                    x: 25.0,
+                    y: 40.0,
+                    ..Default::default()
+                },
+                blend_mode: BlendMode::Overlay,
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-a".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 9,
+            elements: vec![Element {
+                id: "hero-inst".into(),
+                name: "hero".into(),
+                transform: Transform {
+                    x: 125.0,
+                    y: 40.0,
+                    ..Default::default()
+                },
+                blend_mode: BlendMode::Overlay,
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-a".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    ];
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+
+    // Setting `First frame` to 7 (1-based) on the MovieClip instance switches playback to LoopFrom(6).
+    let before_first = editor.project.clone();
+    editor.frame = 0;
+    editor.select_single_id("hero-inst".into());
+    assert!(editor.set_selected_instance_first_frame(7));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Instance {
+            symbol_id: "sym-a".into(),
+            playback: InstancePlayback::LoopFrom(6),
+        }
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_first);
+
+    // AE-style Alt-drag replacement on the selected layer (with no stage object selected) swaps
+    // the instance symbol across all keyframes of that layer in one Undo step.
+    let before_swap = editor.project.clone();
+    editor.clear_selection();
+    editor.layer = 0;
+    editor.frame = 0;
+    assert!(editor.can_swap_layer_symbol(0, "sym-b"));
+    assert!(!editor.can_swap_layer_symbol(0, "sym-a"));
+    assert!(editor.swap_layer_or_selected_symbol(0, "sym-b"));
+    for kf in &editor.symbol().timeline.layers[0].keyframes {
+        assert_eq!(
+            kf.elements[0].kind,
+            ElementKind::Instance {
+                symbol_id: "sym-b".into(),
+                playback: InstancePlayback::Independent,
+            }
+        );
+        assert_eq!(kf.elements[0].name, "hero");
+        assert_eq!(kf.elements[0].blend_mode, BlendMode::Overlay);
+    }
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_swap);
+}

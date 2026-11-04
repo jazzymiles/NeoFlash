@@ -1145,7 +1145,7 @@ pub fn guide_polyline(guide: &Layer, frame: u32) -> Option<GuidePath> {
 /// Earliest key in the current continuous placement span (stable IDs survive keys, and
 /// `sync_symbols` motion spans chain continuously across consecutive keyframes of the same
 /// graphic symbol).
-pub(crate) fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
+pub fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     let mut keys: Vec<_> = layer
         .keyframes
         .iter()
@@ -1299,6 +1299,8 @@ impl Walker<'_> {
             {
                 continue;
             }
+            let layer_blend = layer_effective_blend_mode(&symbol.timeline, layer);
+            let synced_layer = layer_effectively_synced(&symbol.timeline, layer);
             for mut e in sample_layer_in(&symbol.timeline, layer, frame) {
                 if self.result.nodes.len() >= MAX_NODES {
                     return;
@@ -1343,6 +1345,11 @@ impl Walker<'_> {
                     .with_alpha(e.transform.alpha)
                     .then(inherited.color_transform);
                 let effective_visible = inherited.visible && visible;
+                let blend_mode = if e.blend_mode.is_normal() {
+                    layer_blend
+                } else {
+                    e.blend_mode
+                };
                 let mut node = Node {
                     path: path.clone(),
                     name: e.name.clone(),
@@ -1356,7 +1363,7 @@ impl Walker<'_> {
                     alpha: opacity,
                     visible,
                     effective_visible,
-                    blend_mode: e.blend_mode,
+                    blend_mode,
                     cache_as_bitmap: e.cache_as_bitmap,
                     filters: e.filters.clone(),
                     kind: None,
@@ -1370,9 +1377,23 @@ impl Walker<'_> {
                         continue;
                     };
                     let count = child.timeline.frame_count.max(1);
-                    let age = frame.saturating_sub(placement_start(layer, frame, &e.id));
+                    let age = if synced_layer {
+                        frame
+                    } else {
+                        frame.saturating_sub(placement_start(layer, frame, &e.id))
+                    };
                     let child_frame = if child.kind == SymbolKind::Button {
                         button_frame.min(2).min(count - 1)
+                    } else if synced_layer {
+                        match playback {
+                            InstancePlayback::Independent | InstancePlayback::Loop => age % count,
+                            InstancePlayback::LoopFrom(start) => age.saturating_add(*start) % count,
+                            InstancePlayback::PlayOnce => age.min(count - 1),
+                            InstancePlayback::PlayOnceFrom(start) => {
+                                age.saturating_add(*start).min(count - 1)
+                            }
+                            InstancePlayback::SingleFrame(f) => (*f).min(count - 1),
+                        }
                     } else {
                         match playback {
                             InstancePlayback::Independent => {
@@ -1390,6 +1411,7 @@ impl Walker<'_> {
                     node.symbol_id = Some(child.id.clone());
                     node.frame = child_frame;
                     node.independent = child.kind != SymbolKind::Button
+                        && !synced_layer
                         && matches!(playback, InstancePlayback::Independent);
                     self.result.nodes.push(node);
                     // Invisible clips still exist and advance their timelines.

@@ -1444,3 +1444,122 @@ fn editable_motion_curve_reverse_and_cross_document_clipboard_preserve_poses() {
     let pose = sample_layer(&imported.timeline.layers[0], 10)[0].transform;
     assert!((pose.x - 50.).abs() < 0.05 && (pose.y - 75.).abs() < 0.05);
 }
+
+#[test]
+fn layer_blend_mode_and_timeline_sync_crop_evaluate_and_roundtrip() {
+    use neoflash_core::{
+        BlendMode, InstancePlayback, Player, Symbol, SymbolKind, evaluate,
+        layer_effective_blend_mode, layer_effectively_synced,
+    };
+
+    // 1. Layer blend mode inheritance (element Normal -> layer -> folder) and element override.
+    let mut folder = layer("folder", vec![]);
+    folder.properties.role = LayerRole::Folder;
+    folder.properties.blend_mode = BlendMode::Overlay;
+
+    let mut inherited_child = layer(
+        "child-normal",
+        vec![key(0, vec![rect("in-folder", 10.0, 0.0)])],
+    );
+    inherited_child.properties.parent = Some("folder".into());
+
+    let mut explicit_elem = rect("explicit-screen", 20.0, 0.0);
+    explicit_elem.blend_mode = BlendMode::Screen;
+    let mut multiply_layer = layer(
+        "multiply-layer",
+        vec![key(0, vec![rect("inherit-mul", 0.0, 0.0), explicit_elem])],
+    );
+    multiply_layer.properties.blend_mode = BlendMode::Multiply;
+
+    let mut proj = project(10, vec![folder, inherited_child, multiply_layer]);
+    proj.upgrade_format_for_features();
+    assert_eq!(proj.format_version, 8);
+    proj.validate().unwrap();
+
+    let tl = &proj.symbols[0].timeline;
+    assert_eq!(
+        layer_effective_blend_mode(tl, &tl.layers[1]),
+        BlendMode::Overlay
+    );
+    assert_eq!(
+        layer_effective_blend_mode(tl, &tl.layers[2]),
+        BlendMode::Multiply
+    );
+
+    let player = Player::new(&proj);
+    let nodes = player.display_nodes(&proj);
+    let by_id = |id: &str| {
+        nodes
+            .iter()
+            .find(|node| node.path.last().map(|s| s.as_str()) == Some(id))
+            .expect("evaluated display node must exist")
+    };
+    assert_eq!(by_id("in-folder").blend_mode, BlendMode::Overlay);
+    assert_eq!(by_id("inherit-mul").blend_mode, BlendMode::Multiply);
+    assert_eq!(by_id("explicit-screen").blend_mode, BlendMode::Screen);
+
+    // 2. Timeline-synchronized layer crop (`sync_timeline`): frames 0..6 (1..6) are empty and the
+    // MovieClip appears at frame 6 (1-based frame 7) -> evaluates at its own frame 6 (1-based 7).
+    let child_keyframes = (0..10)
+        .map(|f| key(f, vec![rect("child-dot", f64::from(f) * 10.0, 0.0)]))
+        .collect();
+    let child_sym = Symbol {
+        id: "child-mc".into(),
+        name: "ChildMC".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 10,
+            layers: vec![layer("child-layer", child_keyframes)],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    proj.symbols.push(child_sym);
+
+    let mc_instance = Element {
+        kind: ElementKind::Instance {
+            symbol_id: "child-mc".into(),
+            playback: InstancePlayback::Independent,
+        },
+        ..rect("cropped-mc", 0.0, 0.0)
+    };
+    let mut cropped_layer = layer("cropped", vec![key(0, vec![]), key(6, vec![mc_instance])]);
+    proj.symbols[0].timeline.layers.push(cropped_layer.clone());
+
+    // Without sync_timeline, at parent frame 6 (1-based frame 7) the MovieClip starts at frame 0 (x = 0).
+    let unsynced_draws = evaluate(&proj, &proj.root, 6);
+    let unsynced_dot = unsynced_draws
+        .iter()
+        .find(|d| d.element_id == "child-dot")
+        .unwrap();
+    assert!((unsynced_dot.transform[4] - 0.0).abs() < 1e-6);
+
+    // With sync_timeline = true, at parent frame 6 (1-based frame 7) the MovieClip evaluates at frame 6 (x = 60).
+    cropped_layer.properties.sync_timeline = true;
+    *proj.symbols[0].timeline.layers.last_mut().unwrap() = cropped_layer;
+    assert!(layer_effectively_synced(
+        &proj.symbols[0].timeline,
+        proj.symbols[0].timeline.layers.last().unwrap()
+    ));
+    let synced_draws_f6 = evaluate(&proj, &proj.root, 6);
+    let synced_dot_f6 = synced_draws_f6
+        .iter()
+        .find(|d| d.element_id == "child-dot")
+        .unwrap();
+    assert!((synced_dot_f6.transform[4] - 60.0).abs() < 1e-6);
+
+    let synced_draws_f8 = evaluate(&proj, &proj.root, 8);
+    let synced_dot_f8 = synced_draws_f8
+        .iter()
+        .find(|d| d.element_id == "child-dot")
+        .unwrap();
+    assert!((synced_dot_f8.transform[4] - 80.0).abs() < 1e-6);
+
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+    let reloaded = Project::from_json(&proj.to_json().unwrap()).unwrap();
+    assert_eq!(reloaded, proj);
+}

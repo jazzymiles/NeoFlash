@@ -498,16 +498,21 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
 
-**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` works; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
-- Done: selecting an instance on Stage and choosing `Swap symbol` on a Library symbol (row context menu or ⋯ menu)
-  replaces `ElementKind::Instance.symbol_id` while preserving transform, instance name, scripts, accessibility and
-  compatible playback settings (`authoring_symbols.rs::swap_instance_symbol`, cycle-safe, one Undo).
+**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` and AE-style `⌥`-drag replacement work; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
+- Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and choosing `Swap symbol` on a
+  Library symbol (row context menu or ⋯ menu), or holding `⌥` (`Alt`) while dragging a symbol from Library onto the Stage
+  or Timeline layer row/frame span, replaces `ElementKind::Instance.symbol_id` across the layer/instance while preserving
+  transform, instance name, scripts, filters, blend mode, accessibility and compatible playback settings
+  (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo).
 - Swap…: Properties `Swap…` button + picker dialog/popover and stage context menu `Swap symbol…` wait for R-012.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
-**PR-07 · Graphic — thumbnail strip** — partial (Looping and first frame work via `instance_playback_ui`)
-- Purpose: clickable thumbnail strip to pick the first frame. Depends on: editor (thumbnails as TL-10).
+**PR-07 · Graphic / Movie clip — First frame ("Start from") & thumbnail strip** — partial (Looping and `First frame` `1..=count` work via `instance_playback_ui` for both `Graphic` and `MovieClip` instances; layer-level `Sync layer to timeline` crops leading empty frames synchronously; clickable thumbnail strip remains open)
+- Purpose: `First frame` (`1..=frame_count`) in Properties sets the starting child frame (`LoopFrom` / `PlayOnceFrom` /
+  `SingleFrame`), and `Sync layer to timeline` (`LayerProperties.sync_timeline` in format 8) locks child timeline frames
+  to the parent frame index when leading frames on the layer are empty; clickable thumbnail strip to pick the first frame.
+  Depends on: editor (thumbnails as TL-10).
 
 **PR-08 · Properties — Sound (frame)** — `panels/properties_sound.rs` · partial
 - Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets + Custom, `Envelope…` opening the modal `Edit envelope` dialog (`panels/edit_envelope.rs`, DL-09; format-7 `SoundEffect::Custom` + `FrameSound.envelope`), Sync, Repeat/Loop + count, file info, Play (native preview), and `Sound properties…` opening the modal `Sound properties` dialog (`panels/sound_properties.rs`, DL-08). Real decoded peaks are shared with the timeline; Edit envelope waveform/trim UI still awaits R-016.
@@ -881,5 +886,5 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
-| Layer | — (Add classic motion guide, Guide / Mask toggles work) | — |
+| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
 | Stage object | Edit in new window, Swap symbol… and Duplicate symbol… remain disabled. Working: Edit in place, Create motion tween, Show in library, Distribute to layers ⇧⌘D | PR-06, LI-01 |

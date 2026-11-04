@@ -559,6 +559,44 @@ impl Editor {
                 let time = (seconds_row > 0.).then(|| format!("{:.2}s", self.frame as f64 / self.project.fps.max(1) as f64));
                 tl::paint_playhead(&ui.painter_at(full.expand2(Vec2::new(0., 1.))), &ctx, full, ruler, &geo, geo.frame_x(self.frame + 1), self.frame + 1, time.as_deref());
             }
+            if let Some(crate::library::LibraryDrag::Symbol(sym_id)) = self.library_panel.drag.clone() {
+                let alt = ctx.input(|i| i.modifiers.alt);
+                if alt
+                    && let Some(pos) = pointer
+                    && (rows.inner_rect.contains(pos) || grid_clip.contains(pos))
+                {
+                    let row_idx = ((pos.y - grid_rect.top()) / row_height).floor().max(0.) as usize;
+                    let target_layer_idx = layer_indices.get(row_idx).copied().unwrap_or(self.layer);
+                    if self.can_swap_layer_symbol(target_layer_idx, &sym_id) {
+                        let highlight = Rect::from_min_max(
+                            Pos2::new(
+                                rows.inner_rect.left(),
+                                grid_rect.top() + row_idx as f32 * row_height,
+                            ),
+                            Pos2::new(
+                                rows.inner_rect.right(),
+                                grid_rect.top() + (row_idx + 1) as f32 * row_height,
+                            ),
+                        )
+                        .intersect(rows.inner_rect);
+                        ui.painter_at(rows.inner_rect).rect_stroke(
+                            highlight.shrink(1.),
+                            2.,
+                            egui::Stroke::new(2.0_f32, ui.visuals().selection.stroke.color),
+                            egui::StrokeKind::Inside,
+                        );
+                        ctx.set_cursor_icon(egui::CursorIcon::Copy);
+                        if !down {
+                            self.library_panel.drag = None;
+                            self.layer = target_layer_idx;
+                            self.swap_layer_or_selected_symbol(target_layer_idx, &sym_id);
+                        }
+                    }
+                }
+                if !down {
+                    self.library_panel.drag = None;
+                }
+            }
         });
         if let Some((layer, before)) = commit_reorder {
             self.reorder_timeline_layer_visual(&layer, before.as_deref());

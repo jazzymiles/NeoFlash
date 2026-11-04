@@ -136,11 +136,27 @@ impl Editor {
         if down {
             return;
         }
-        let payload = self.library_panel.drag.take().unwrap();
+        let alt = ctx.input(|input| input.modifiers.alt);
         if !hit {
+            if !(alt
+                && matches!(
+                    self.library_panel.drag,
+                    Some(crate::library::LibraryDrag::Symbol(_))
+                ))
+            {
+                self.library_panel.drag = None;
+            }
             return;
         }
+        let payload = self.library_panel.drag.take().unwrap();
         self.cancel_selection_gesture();
+        if alt
+            && let crate::library::LibraryDrag::Symbol(ref id) = payload
+            && (self.can_swap_instance_symbol(id) || self.can_swap_layer_symbol(self.layer, id))
+        {
+            self.swap_layer_or_selected_symbol(self.layer, id);
+            return;
+        }
         let point = Some([
             (position.x - origin.x) as f64 / self.zoom as f64,
             (position.y - origin.y) as f64 / self.zoom as f64,

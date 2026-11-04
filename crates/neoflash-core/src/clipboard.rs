@@ -151,10 +151,13 @@ impl ClipboardPayload {
             .symbols
             .iter()
             .flat_map(|symbol| &symbol.timeline.layers)
-            .flat_map(|layer| &layer.keyframes)
-            .any(|key| {
-                key.motion_path.is_some()
-                    || (key.snap_to_guide && key.tween_kind == TweenKind::Classic)
+            .any(|layer| {
+                !layer.properties.blend_mode.is_normal()
+                    || layer.properties.sync_timeline
+                    || layer.keyframes.iter().any(|key| {
+                        key.motion_path.is_some()
+                            || (key.snap_to_guide && key.tween_kind == TweenKind::Classic)
+                    })
             })
         {
             return 8;

@@ -570,8 +570,7 @@ impl Editor {
         self.apply_modified(changes, None);
     }
 
-    pub(crate) fn arrange_selection(&mut self, direction: Arrange) {
-        self.finish_edits();
+    pub(crate) fn can_arrange_selection(&self, direction: Option<Arrange>) -> bool {
         let targets: HashSet<_> = self
             .selection
             .targets
@@ -580,14 +579,188 @@ impl Editor {
             .cloned()
             .collect();
         if targets.is_empty() {
+            return false;
+        }
+        let frame = self.frame;
+        let timeline = &self.symbol().timeline;
+        let layer_ids: HashSet<_> = targets.iter().map(|t| t.layer.as_str()).collect();
+        for layer_id in layer_ids {
+            let Some(layer) = timeline.layers.iter().find(|l| l.id == layer_id) else {
+                continue;
+            };
+            let elements = sample_layer_in(timeline, layer, frame);
+            if elements.len() < 2 {
+                continue;
+            }
+            match direction {
+                Some(dir) => {
+                    if Self::reordered_layer_elements(
+                        &elements,
+                        &layer.properties.groups,
+                        &targets,
+                        layer_id,
+                        dir,
+                    )
+                    .is_some()
+                    {
+                        return true;
+                    }
+                }
+                None => {
+                    if [
+                        Arrange::Front,
+                        Arrange::Forward,
+                        Arrange::Backward,
+                        Arrange::Back,
+                    ]
+                    .into_iter()
+                    .any(|dir| {
+                        Self::reordered_layer_elements(
+                            &elements,
+                            &layer.properties.groups,
+                            &targets,
+                            layer_id,
+                            dir,
+                        )
+                        .is_some()
+                    }) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn reordered_layer_elements(
+        elements: &[Element],
+        groups: &[AuthoringGroup],
+        targets: &HashSet<SelectionTarget>,
+        layer_id: &str,
+        direction: Arrange,
+    ) -> Option<Vec<Element>> {
+        if elements.len() < 2 {
+            return None;
+        }
+        let mut selected_ids: HashSet<&str> = elements
+            .iter()
+            .filter(|e| {
+                targets.contains(&SelectionTarget {
+                    layer: layer_id.to_owned(),
+                    element: e.id.clone(),
+                })
+            })
+            .map(|e| e.id.as_str())
+            .collect();
+        if selected_ids.is_empty() {
+            return None;
+        }
+        // Any selected member of an authoring group moves its whole group as an atomic depth unit.
+        for group in groups {
+            if group
+                .members
+                .iter()
+                .any(|m| selected_ids.contains(m.as_str()))
+            {
+                for member in &group.members {
+                    selected_ids.insert(member.as_str());
+                }
+            }
+        }
+        let mut units: Vec<(bool, Vec<Element>)> = Vec::with_capacity(elements.len());
+        let mut consumed: HashSet<&str> = HashSet::new();
+        for element in elements {
+            if !consumed.insert(element.id.as_str()) {
+                continue;
+            }
+            if let Some(group) = groups
+                .iter()
+                .find(|g| g.members.iter().any(|m| m == &element.id))
+            {
+                let group_set: HashSet<&str> = group.members.iter().map(String::as_str).collect();
+                let mut unit = Vec::with_capacity(group.members.len());
+                for item in elements {
+                    if group_set.contains(item.id.as_str()) {
+                        consumed.insert(item.id.as_str());
+                        unit.push(item.clone());
+                    }
+                }
+                let is_sel = selected_ids.contains(element.id.as_str());
+                units.push((is_sel, unit));
+            } else {
+                let is_sel = selected_ids.contains(element.id.as_str());
+                units.push((is_sel, vec![element.clone()]));
+            }
+        }
+        if units.len() < 2 {
+            return None;
+        }
+        match direction {
+            Arrange::Front => units.sort_by_key(|(sel, _)| *sel),
+            Arrange::Back => units.sort_by_key(|(sel, _)| !*sel),
+            Arrange::Forward => {
+                for index in (0..units.len().saturating_sub(1)).rev() {
+                    if units[index].0 && !units[index + 1].0 {
+                        units.swap(index, index + 1);
+                    }
+                }
+            }
+            Arrange::Backward => {
+                for index in 1..units.len() {
+                    if units[index].0 && !units[index - 1].0 {
+                        units.swap(index, index - 1);
+                    }
+                }
+            }
+        }
+        let reordered: Vec<Element> = units.into_iter().flat_map(|(_, u)| u).collect();
+        let changed = reordered
+            .iter()
+            .zip(elements.iter())
+            .any(|(a, b)| a.id != b.id);
+        changed.then_some(reordered)
+    }
+
+    pub(crate) fn arrange_selection(&mut self, direction: Arrange) {
+        self.finish_edits();
+        if !self.can_arrange_selection(Some(direction)) {
             return;
         }
+        let targets: HashSet<_> = self
+            .selection
+            .targets
+            .iter()
+            .filter(|t| self.target_editable(t))
+            .cloned()
+            .collect();
         self.playing = false;
         self.transact(|editor| {
-            let layers: HashSet<_> = targets.iter().map(|t| t.layer.clone()).collect();
+            let mut layers: Vec<_> = targets.iter().map(|t| t.layer.clone()).collect();
+            layers.sort();
+            layers.dedup();
             for layer_id in layers {
-                editor.ensure_key_for(&layer_id, false);
                 let frame = editor.frame;
+                let can_reorder = editor
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|l| l.id == layer_id)
+                    .is_some_and(|layer| {
+                        let sampled = sample_layer_in(&editor.symbol().timeline, layer, frame);
+                        Self::reordered_layer_elements(
+                            &sampled,
+                            &layer.properties.groups,
+                            &targets,
+                            &layer_id,
+                            direction,
+                        )
+                        .is_some()
+                    });
+                if !can_reorder {
+                    continue;
+                }
+                editor.ensure_key_for(&layer_id, false);
                 let layer = editor
                     .symbol_mut()
                     .timeline
@@ -595,30 +768,12 @@ impl Editor {
                     .iter_mut()
                     .find(|l| l.id == layer_id)
                     .unwrap();
+                let groups = layer.properties.groups.clone();
                 let elements = &mut layer.key_at_mut(frame).unwrap().elements;
-                let selected = |e: &Element| {
-                    targets.contains(&SelectionTarget {
-                        layer: layer_id.clone(),
-                        element: e.id.clone(),
-                    })
-                };
-                match direction {
-                    Arrange::Front => elements.sort_by_key(|e| selected(e)),
-                    Arrange::Back => elements.sort_by_key(|e| !selected(e)),
-                    Arrange::Forward => {
-                        for index in (0..elements.len().saturating_sub(1)).rev() {
-                            if selected(&elements[index]) && !selected(&elements[index + 1]) {
-                                elements.swap(index, index + 1);
-                            }
-                        }
-                    }
-                    Arrange::Backward => {
-                        for index in 1..elements.len() {
-                            if selected(&elements[index]) && !selected(&elements[index - 1]) {
-                                elements.swap(index, index - 1);
-                            }
-                        }
-                    }
+                if let Some(reordered) = Self::reordered_layer_elements(
+                    elements, &groups, &targets, &layer_id, direction,
+                ) {
+                    *elements = reordered;
                 }
             }
         });
@@ -1580,15 +1735,15 @@ impl Editor {
     /// Arrange ▸ (Modify and the stage object menu).
     pub(crate) fn arrange_menu(&mut self, ui: &mut egui::Ui) {
         use crate::commands::CommandId as C;
-        let selected = !self.selection.is_empty();
-        crate::ui_icons::menu_popup(ui, "Arrange", "Bring Forward", "", |ui| {
+        crate::ui_icons::menu_popup(ui, "Arrange", "Bring Forward", "⇧⌘↑", |ui| {
             for (label, cmd_id, direction) in [
                 ("Bring to front", C::ModifyArrangeFront, Arrange::Front),
                 ("Bring forward", C::ModifyArrangeForward, Arrange::Forward),
                 ("Send backward", C::ModifyArrangeBackward, Arrange::Backward),
                 ("Send to back", C::ModifyArrangeBack, Arrange::Back),
             ] {
-                if crate::ui_icons::menu_item_enabled(ui, selected, label, &self.sc(cmd_id))
+                let enabled = self.can_arrange_selection(Some(direction));
+                if crate::ui_icons::menu_item_enabled(ui, enabled, label, &self.sc(cmd_id))
                     .clicked()
                 {
                     self.arrange_selection(direction);
@@ -3702,5 +3857,148 @@ pub(crate) fn update_gradient_for_color_edit(
         for stop in &mut paint.stops {
             stop.color[3] = after[3];
         }
+    }
+}
+
+#[cfg(test)]
+mod arrange_tests {
+    use super::*;
+    use crate::commands::{CommandId, effective_shortcuts, primary_shortcut_label};
+    use crate::selection::SelectionTarget;
+    use crate::workspace::ShortcutPrefs;
+
+    fn make_rect(id: &str, x: f64) -> Element {
+        Element {
+            id: id.into(),
+            name: id.into(),
+            transform: Transform {
+                x,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [200, 80, 80, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        }
+    }
+
+    fn layer_element_ids(editor: &Editor) -> Vec<String> {
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .map(|e| e.id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn arrange_selection_reorders_layer_depth_respects_groups_and_binds_default_shortcuts() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+            make_rect("back", 0.0),
+            make_rect("mid", 30.0),
+            make_rect("front", 60.0),
+        ];
+        editor.project.validate().unwrap();
+
+        // 1. Default shortcuts for Modify ▸ Arrange must be bound to ⇧⌘↑/⌘↑/⌘↓/⇧⌘↓ and ⇧⌘]/⌘]/⌘[/⇧⌘[.
+        let prefs = ShortcutPrefs::default();
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyArrangeFront),
+            "⇧⌘↑"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyArrangeForward),
+            "⌘↑"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyArrangeBackward),
+            "⌘↓"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyArrangeBack),
+            "⇧⌘↓"
+        );
+        assert_eq!(
+            effective_shortcuts(&prefs, CommandId::ModifyArrangeFront).len(),
+            2
+        );
+        assert_eq!(
+            effective_shortcuts(&prefs, CommandId::ModifyArrangeForward).len(),
+            2
+        );
+        assert_eq!(
+            effective_shortcuts(&prefs, CommandId::ModifyArrangeBackward).len(),
+            2
+        );
+        assert_eq!(
+            effective_shortcuts(&prefs, CommandId::ModifyArrangeBack).len(),
+            2
+        );
+
+        // 2. Boundary no-op checks: "back" cannot move further back; "front" cannot move further forward.
+        editor.selection.targets = vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "back".into(),
+        }];
+        assert!(!editor.can_arrange_selection(Some(Arrange::Backward)));
+        assert!(!editor.can_arrange_selection(Some(Arrange::Back)));
+        assert!(editor.can_arrange_selection(Some(Arrange::Forward)));
+        assert!(editor.can_arrange_selection(Some(Arrange::Front)));
+
+        // 3. Step "back" forward once -> [mid, back, front], then to front -> [mid, front, back].
+        editor.arrange_selection(Arrange::Forward);
+        assert_eq!(layer_element_ids(&editor), vec!["mid", "back", "front"]);
+        editor.arrange_selection(Arrange::Front);
+        assert_eq!(layer_element_ids(&editor), vec!["mid", "front", "back"]);
+        assert!(!editor.can_arrange_selection(Some(Arrange::Forward)));
+        assert!(!editor.can_arrange_selection(Some(Arrange::Front)));
+
+        // Step "back" backward once -> [mid, back, front], then to back -> [back, mid, front].
+        editor.arrange_selection(Arrange::Backward);
+        assert_eq!(layer_element_ids(&editor), vec!["mid", "back", "front"]);
+        editor.arrange_selection(Arrange::Back);
+        assert_eq!(layer_element_ids(&editor), vec!["back", "mid", "front"]);
+
+        // Undo restores the previous step cleanly.
+        editor.undo();
+        assert_eq!(layer_element_ids(&editor), vec!["mid", "back", "front"]);
+        editor.redo();
+        assert_eq!(layer_element_ids(&editor), vec!["back", "mid", "front"]);
+
+        // 4. Authoring group on the same layer is treated as an atomic depth unit:
+        // stepping "back" forward jumps past the entire group [mid, front] without splitting it.
+        editor.symbol_mut().timeline.layers[0].properties.groups = vec![AuthoringGroup {
+            id: "grp-1".into(),
+            name: "Group 1".into(),
+            members: vec!["mid".into(), "front".into()],
+        }];
+        editor.project.format_version = editor.project.format_version.max(4);
+        editor.project.validate().unwrap();
+
+        editor.selection.targets = vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "back".into(),
+        }];
+        editor.arrange_selection(Arrange::Forward);
+        assert_eq!(
+            layer_element_ids(&editor),
+            vec!["mid", "front", "back"],
+            "Bring forward must step past an entire authoring group without splitting its members"
+        );
+        editor.project.validate().unwrap();
+
+        editor.arrange_selection(Arrange::Backward);
+        assert_eq!(
+            layer_element_ids(&editor),
+            vec!["back", "mid", "front"],
+            "Send backward must step behind an entire authoring group without splitting its members"
+        );
+        editor.project.validate().unwrap();
     }
 }

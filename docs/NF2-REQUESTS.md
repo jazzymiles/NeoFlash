@@ -465,3 +465,43 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** v2.2 outlines `panels-tools-flyout-groups.txt`, `panels-brushes-pencil-panels.txt`, `panels-canvas-brush-pencil.txt`, `panels-commands-panel-dialog.txt`, `panels-dialog-customize-tools-panel.txt`; corresponding Dark/Light exports; current `neoflash-ui` components and `panels/planned_*.rs`.
 - **Proposal (optional):** supply the approved bodies unchanged with response/state APIs, then bind existing tools and draft-only Customize Add/Remove/reorder/Restore/Cancel/OK behavior. Keep unsupported artistic/pattern brushes explicit. Trace bitmap stays under R-022; selection-box contrast stays under R-011.
 - **Answer:**
+
+### R-039 · Intra-layer object depth arrangement controls and default shortcut confirmation
+- **Status:** open
+- **Requested by / for:** implementation track (`gemini`) · MN-05 / T-041 (`Modify ▸ Arrange`: Bring to front, Bring forward, Send backward, Send to back)
+- **Where:** `panels/align.rs` / `panels/properties.rs` / `panels/transform.rs`, stage object context menu (`stage.rs`), `authoring_modify.rs::arrange_menu`, and `commands.rs` (`ModifyArrangeFront`, `ModifyArrangeForward`, `ModifyArrangeBackward`, `ModifyArrangeBack`).
+- **Need:** (1) Dedicated NF2 icon buttons or panel section for intra-layer object z-order / depth arrangement (`Bring to front`, `Bring forward`, `Send backward`, `Send to back`) in `Align`, `Transform`, or `Properties` when multiple objects sit on the same layer, plus four 16 px arrange icons and a stage object context-menu `Arrange ▸` submenu placement; and (2) design-track confirmation of the primary vs. secondary default keyboard shortcuts (`⇧⌘↑` / `⌘↑` / `⌘↓` / `⇧⌘↓` from Flash CS4 vs. `⇧⌘]` / `⌘]` / `⌘[` / `⇧⌘[` from modern macOS tools).
+- **Why:** Engine and menu support (`Modify ▸ Arrange`, group-atomic depth stepping, boundary no-op disabling, held-frame keyframing, and both `⇧⌘↑`/`⌘↑`/`⌘↓`/`⇧⌘↓` + `⇧⌘]`/`⌘]`/`⌘[`/`⇧⌘[` chords in `commands.rs`) are implemented and tested, but there are no visible 1-click Arrange buttons in any docked panel (`Align`, `Transform`, or `Properties`), and the locked panel layouts and stage object context menu cannot be modified without design approval.
+- **Checked:** `interface/design-system/docs/data/outline/panels-menus.txt`, `panels-panel-align-transform-info.txt`, `panels-properties-panel-all-variants.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` §8 (`Modify ▸ Arrange`).
+- **Proposal (optional):** Add a 4-button `Arrange` row (`IconButton` 24×24 with `bring-to-front`, `bring-forward`, `send-backward`, `send-to-back` icons) to the `Align` or `Transform` panel, add `Arrange ▸` to the stage object context menu, and keep `⇧⌘↑` / `⌘↑` / `⌘↓` / `⇧⌘↓` as primary menu labels with `⇧⌘]` / `⌘]` / `⌘[` / `⇧⌘[` as secondary chords.
+- **Answer:**
+
+### R-040 · Layer blend modes (AE / Animate CC style) in Layer Properties, Frame Properties and Timeline layer rows
+- **Status:** open
+- **Requested by / for:** implementation track (`gemini`) · T-036 (`LayerProperties.blend_mode`)
+- **Where:** `panels/layer_properties.rs` (`Layer properties` modal dialog), `panels/properties.rs` (Frame / Layer context when no stage object is selected), and `panels/timeline.rs` (`LayerRow` header column).
+- **Need:** Approved NF2 placement for `LayerProperties.blend_mode` (`Blending` select with all 14 Flash blend modes `Normal`..`Erase`): (1) a `Blending` row in the `Layer properties` modal dialog (`panels-dialog-layer-properties.txt`), (2) whether `Properties` (when inspecting a frame/layer with no stage selection) should also show the layer `Blending` select alongside `Window ▸ Filters`, and (3) an optional compact badge or mode indicator on `LayerRow` when a layer uses a non-`Normal` blend mode.
+- **Why:** `LayerProperties.blend_mode` (format 8) and folder-inherited `layer_effective_blend_mode` are implemented in `neoflash-core` and wired today in the layer right-click menu (`Blending: <mode>` submenu), `Folder and mask…` dialog, and `Window ▸ Filters` (`Blending` select when no stage object is selected), while `panels/layer_properties.rs`, `panels/properties.rs`, and `LayerRow` are governed by the locked NF2 outlines.
+- **Checked:** `interface/design-system/docs/data/outline/panels-dialog-layer-properties.txt`, `panels-properties-panel-all-variants.txt`, `interface-timeline-states-legend.txt`, `panels/layer_properties.rs`, `panels/filters.rs`.
+- **Proposal (optional):** Add a `Blending` `c::Select` row to `Layer properties` below `Outline color` and a subtle pill/badge on `LayerRow` when `blend_mode != BlendMode::Normal`.
+- **Answer:**
+
+### R-041 · AE-style Option-drag (Alt-drag) symbol replacement visual feedback, target highlight and cursor
+- **Status:** open
+- **Requested by / for:** implementation track (`gemini`) · PR-06 / T-037 (`swap_layer_or_selected_symbol` on `⌥`-drag from Library)
+- **Where:** `graphic_import.rs::stage_library_drop`, `panels/timeline.rs` (`timeline_contents` layer row & span drop target), and `neoflash-ui` cursors/overlays.
+- **Need:** Approved NF2 visual feedback when holding `⌥` (`Alt`) while dragging a symbol from `Library` over the Stage or over a Timeline layer row / frame span to replace its symbol: (1) target highlight style on the Stage instance / Timeline layer row (currently uses the 2 px accent selection stroke and `CursorIcon::Copy`), and (2) whether an inline floating chip/tooltip (e.g. `"Replace with <Symbol>"` or a dedicated swap cursor) should appear during `⌥`-drag.
+- **Why:** `swap_layer_or_selected_symbol` (replacing the symbol on the selected instance or active/hovered layer across its keyframes in one Undo step while preserving transform, instance name, scripts, filters, and blend mode) is implemented and works on `⌥`-drop onto both Stage and Timeline, plus via `Library ▸ Swap symbol` when a layer is selected; any custom NF2 badge, ghost chip, or cursor requires design-track approval.
+- **Checked:** `interface/design-system/docs/data/outline/panels-panel-library.txt`, `interface-timeline-states-legend.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-06.
+- **Proposal (optional):** Keep the 2 px accent outline on the hovered Timeline layer row / Stage target and add a compact `NF2/Tooltip` chip `"Replace symbol: <target>"` next to the cursor while `⌥` is held.
+- **Answer:**
+
+### R-042 · Timeline-synchronized layer crop (`Sync layer to timeline`) and MovieClip/Graphic `First frame` ("Start from") controls
+- **Status:** open
+- **Requested by / for:** implementation track (`gemini`) · PR-07 / T-038 (`LayerProperties.sync_timeline` and instance `First frame`)
+- **Where:** `authoring_symbols.rs::instance_playback_ui` (`Properties` symbol playback section), `panels/layer_properties.rs`, `layer_controls.rs`, and `panels/timeline_controls.rs` (`timeline_frame_view_menu` `⋯` dropdown).
+- **Need:** Design review and UX confirmation after human testing for: (1) exposing `First frame` (`1..=frame_count`, Flash "Start from") in `Properties` for both `Graphic` and `MovieClip` instances (and whether `MovieClip` instances should show a dedicated `"Start from frame"` label or the shared `Playback` + `First frame` rows), (2) placement of the layer-level `Sync layer to timeline` (`LayerProperties.sync_timeline`) checkbox in the Timeline `⋯` dropdown, layer context menu, and `Layer properties` dialog, and (3) whether a synced layer whose early frames (`1..6`) are blank should display a distinct span marker/crop indicator on the timeline grid at the frame (`7`) where the symbol enters at its synchronized frame `7`.
+- **Why:** Both mechanisms are implemented and ready for human UX testing (`First frame` in `instance_playback_ui` and `Sync layer to timeline` in the layer context menu, `Folder and mask…`, and Timeline `⋯` menu, backed by `LayerProperties.sync_timeline` in format 8), but the user flagged this workflow as needing human testing and NF2 design confirmation for its permanent controls and visual indicators.
+- **Checked:** `interface/design-system/docs/data/outline/panels-properties-panel-all-variants.txt`, `panels-dialog-layer-properties.txt`, `interface-timeline-states-legend.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-07.
+- **Proposal (optional):** Retain `First frame` (`1..=count`) in `Properties` for `Graphic` and `MovieClip`, keep `Sync layer to timeline` as a checked `MenuItem` in the layer context menu and Timeline `⋯` menu (plus a checkbox in `Layer properties`), and optionally show a small crop/sync tick on the leading keyframe of a synced layer span.
+- **Answer:**

@@ -234,6 +234,15 @@ pub struct LayerProperties {
     /// classic tweens on this layer. The guide itself is never published artwork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion_guide: Option<Id>,
+    /// Layer-level blend mode (AE / Animate CC style). Elements on this layer with
+    /// `BlendMode::Normal` inherit the layer's blend mode during evaluation.
+    #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+    pub blend_mode: BlendMode,
+    /// When enabled, symbol instances on this layer synchronize their internal timeline to the
+    /// parent timeline frame (`0`-based `frame` + `First frame` offset) rather than resetting at
+    /// each placement span start — matching After Effects layer cropping / trim behavior.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sync_timeline: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,14 +330,19 @@ impl Project {
         }
     }
 
-    /// Editable spatial motion curves and classic guide endpoint snapping (format 8).
+    /// Editable spatial motion curves, classic guide endpoint snapping, layer blend modes and
+    /// timeline-synchronized layers (format 8).
     pub fn uses_format_8(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
-            .flat_map(|l| &l.keyframes)
-            .any(|k| {
-                k.motion_path.is_some() || (k.snap_to_guide && k.tween_kind == TweenKind::Classic)
+            .any(|l| {
+                !l.properties.blend_mode.is_normal()
+                    || l.properties.sync_timeline
+                    || l.keyframes.iter().any(|k| {
+                        k.motion_path.is_some()
+                            || (k.snap_to_guide && k.tween_kind == TweenKind::Classic)
+                    })
             })
     }
 

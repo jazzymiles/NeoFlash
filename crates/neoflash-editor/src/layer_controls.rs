@@ -878,6 +878,30 @@ impl Editor {
         if menu_toggle(ui, &mut masking, "Show masking", "").changed() {
             self.set_layer_masking(&ctx, masking);
         }
+        let non_guide = layer.properties.role != LayerRole::Guide;
+        let mut sync_timeline = layer.properties.sync_timeline;
+        if ui
+            .add_enabled_ui(non_guide, |ui| {
+                menu_toggle(ui, &mut sync_timeline, "Sync layer to timeline", "")
+            })
+            .inner
+            .changed()
+        {
+            self.set_layer_sync_timeline(index, sync_timeline);
+            ui.close();
+        }
+        ui.add_enabled_ui_semantic(non_guide, |ui| {
+            let blend_label = format!("Blending: {}", layer.properties.blend_mode.label());
+            crate::ui_icons::menu_submenu(ui, &blend_label, |ui| {
+                for mode in BlendMode::ALL {
+                    let mut checked = layer.properties.blend_mode == mode;
+                    if menu_toggle(ui, &mut checked, mode.label(), "").changed() {
+                        self.set_layer_blend_mode(index, mode);
+                        ui.close();
+                    }
+                }
+            });
+        });
         nf::menu_separator(ui);
         action!("Insert folder", self.insert_layer_folder(index));
         if menu_item_enabled(ui, folder, "Delete folder", "").clicked() {
@@ -1008,6 +1032,23 @@ impl Editor {
                 &mut draft.properties.outline,
                 "Outline / transparent authoring view",
             );
+            if layer.properties.role != LayerRole::Guide {
+                ui.checkbox(
+                    &mut draft.properties.sync_timeline,
+                    "Sync layer to timeline",
+                );
+                egui::ComboBox::from_id_salt("layer-blend-mode")
+                    .selected_text(format!("Blending: {}", draft.properties.blend_mode.label()))
+                    .show_ui(ui, |ui| {
+                        for mode in BlendMode::ALL {
+                            ui.selectable_value(
+                                &mut draft.properties.blend_mode,
+                                mode,
+                                mode.label(),
+                            );
+                        }
+                    });
+            }
             egui::ComboBox::from_id_salt("layer-folder")
                 .selected_text(
                     draft

@@ -86,7 +86,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_8() && project.format_version < 8 {
         add(
             "format_version".into(),
-            "editable motion paths and classic guide endpoint snapping require document version 8"
+            "editable motion paths, classic guide endpoint snapping, layer blend modes and timeline-synced layers require document version 8"
                 .into(),
         );
     }
