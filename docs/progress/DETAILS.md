@@ -140,7 +140,7 @@ Authoring tools: stage, vectors, text, selection and library.
 
 `editor-clipboard` · **Closed**
 
-- Working: Copy, cut and paste objects
+- Working: Copy, cut and paste objects through keyboard or menu
 - Working: Paste in Place
 - Working: Paste with dependent symbols, timelines and scripts
 - Working: Transfer linked symbols with their project sources
@@ -148,7 +148,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Ordinary text paste in text editors
 - Working: Paste images from the system clipboard
 
-**Scope:** Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.
+**Scope:** Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Native key/paste input is applied once per payload, including interleaved input and custom shortcuts, with one Undo for each paste. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.
 
 **Limitations:** Native acceptance of the new linked-source/resource transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Frame clipboard and native image clipboard are separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.
 

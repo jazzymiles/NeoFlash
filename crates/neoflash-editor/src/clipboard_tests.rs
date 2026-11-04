@@ -2,6 +2,7 @@
 use crate::{
     app::{Editor, Pending},
     clipboard::ClipboardCommand,
+    commands::{CommandId, Shortcut},
     tests::{primary_button, rectangle_stage},
 };
 use eframe::egui::{self, Event, Key, Modifiers, Pos2};
@@ -207,6 +208,9 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
         ("unpaired-shift-on-release", false),
         ("dedicated-paste", false),
         ("nonadjacent-key", false),
+        ("payload-before-key", false),
+        ("adjacent-custom", true),
+        ("nonadjacent-custom", false),
     ] {
         let (mut editor, ctx) = fixture();
         let text = copy_objects(&mut editor, &ctx);
@@ -246,6 +250,21 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
                 events.insert(1, Event::PointerMoved(Pos2::ZERO));
                 Modifiers::NONE
             }
+            "payload-before-key" => {
+                events.push(key(Key::V, true, Modifiers::COMMAND | Modifiers::SHIFT));
+                Modifiers::NONE
+            }
+            "adjacent-custom" | "nonadjacent-custom" => {
+                editor.workspace.shortcuts.set_shortcuts(
+                    CommandId::EditPasteInPlace,
+                    vec![Shortcut::new(Modifiers::COMMAND, Key::F8)],
+                );
+                events.insert(0, key(Key::F8, true, Modifiers::COMMAND));
+                if variant == "nonadjacent-custom" {
+                    events.insert(1, Event::PointerMoved(Pos2::ZERO));
+                }
+                Modifiers::NONE
+            }
             _ => {
                 events.insert(0, key(Key::V, true, Modifiers::COMMAND));
                 Modifiers::COMMAND
@@ -270,6 +289,50 @@ fn native_paste_modes_and_combined_key_event_apply_exactly_once() {
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(count(&editor), 1);
+        assert!(!editor.history.can_undo());
+    }
+}
+
+#[test]
+fn clipboard_routing_preserves_bare_shortcuts_and_unrelated_input() {
+    for with_payload in [false, true] {
+        let (mut editor, ctx) = fixture();
+        editor.workspace.shortcuts.set_shortcuts(
+            CommandId::EditPaste,
+            vec![Shortcut::new(Modifiers::COMMAND, Key::F8)],
+        );
+        let press = key(Key::F8, true, Modifiers::COMMAND);
+        let unrelated = vec![
+            Event::PointerMoved(Pos2::new(70., 80.)),
+            key(Key::F8, false, Modifiers::NONE),
+            key(Key::ArrowRight, true, Modifiers::NONE),
+        ];
+        let mut events = vec![press.clone()];
+        events.extend(unrelated.clone());
+        if with_payload {
+            events.push(Event::Paste("external text".into()));
+        }
+        let before = editor.project.clone();
+        let _ = ctx.run(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.clipboard_events(ctx);
+                let mut expected = unrelated.clone();
+                if !with_payload {
+                    expected.insert(0, press.clone());
+                }
+                assert_eq!(ctx.input(|input| input.events.clone()), expected);
+                assert_eq!(
+                    editor.take_command_shortcut(ctx, CommandId::EditPaste),
+                    !with_payload,
+                    "only a shortcut without a native payload needs a clipboard read"
+                );
+            },
+        );
+        assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());
     }
 }
@@ -317,21 +380,30 @@ fn multiple_paste_pairs_and_repeat_each_keep_their_own_mode_and_one_undo() {
 
 #[test]
 fn paired_shortcut_text_paste_inserts_once_without_object_or_tool_side_effects() {
-    for modifiers in [Modifiers::COMMAND, Modifiers::COMMAND | Modifiers::SHIFT] {
+    for (modifiers, interleaved) in [
+        (Modifiers::COMMAND, false),
+        (Modifiers::COMMAND | Modifiers::SHIFT, false),
+        (Modifiers::COMMAND, true),
+        (Modifiers::COMMAND | Modifiers::SHIFT, true),
+    ] {
         let (mut editor, ctx) = fixture();
         let before = editor.project.clone();
         let before_tool = editor.tool;
         let mut text = "replace this".to_owned();
         focus_and_select_text(&mut editor, &ctx, &mut text);
+        let mut events = vec![
+            key(Key::V, true, modifiers),
+            Event::Paste("first\nλ".into()),
+            key(Key::V, false, Modifiers::NONE),
+        ];
+        if interleaved {
+            events.insert(1, Event::PointerMoved(Pos2::ZERO));
+        }
         frame(
             &mut editor,
             &ctx,
             0.4,
-            vec![
-                key(Key::V, true, modifiers),
-                Event::Paste("first\nλ".into()),
-                key(Key::V, false, Modifiers::NONE),
-            ],
+            events,
             Modifiers::NONE,
             Some(&mut text),
         );

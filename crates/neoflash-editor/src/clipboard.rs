@@ -516,6 +516,16 @@ impl Editor {
         true
     }
     pub(crate) fn request_clipboard(&mut self, ctx: &egui::Context, command: ClipboardCommand) {
+        // Headless input tests must inject clipboard contents instead of reading
+        // unrelated user data or letting an empty OS clipboard hide double dispatch.
+        #[cfg(test)]
+        assert!(
+            !matches!(
+                command,
+                ClipboardCommand::Paste | ClipboardCommand::PasteInPlace
+            ),
+            "headless Paste reached the OS clipboard; inject request_clipboard_with instead"
+        );
         if matches!(
             command,
             ClipboardCommand::Paste | ClipboardCommand::PasteInPlace
@@ -643,13 +653,14 @@ impl Editor {
                 self.message("Clipboard command canceled: the editing target changed.");
             }
         }
+        let has_paste_payload = events.iter().any(|event| matches!(event, Event::Paste(_)));
         let mut retained = Vec::with_capacity(events.len());
         for (index, event) in events.iter().enumerate() {
-            if paste_shortcut_mode(self, event).is_some()
-                && matches!(events.get(index + 1), Some(Event::Paste(_)))
-            {
-                // Consume transport metadata before shortcut/TextEdit routing.
-                // The payload itself is still delivered exactly once below.
+            if has_paste_payload && paste_shortcut_mode(self, event).is_some() {
+                // Native payloads are authoritative for this batch. A separated
+                // press must not trigger another OS read after payload delivery.
+                // Only an adjacent press supplies the mode below; a shortcut
+                // without any payload still reaches ordinary command routing.
                 continue;
             }
             if !matches!(event, Event::Copy | Event::Cut | Event::Paste(_)) {

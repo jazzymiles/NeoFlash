@@ -444,12 +444,12 @@
       "category": "editor",
       "title": "Object clipboard",
       "status": "implemented",
-      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.",
+      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot and reject conflicting sources before mutation. Native key/paste input is applied once per payload, including interleaved input and custom shortcuts, with one Undo for each paste. Text editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection.",
       "limitations": "Native acceptance of the new linked-source/resource transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Frame clipboard and native image clipboard are separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "items": [
         {
           "id": "copy-cut-paste",
-          "title": "Copy, cut and paste objects",
+          "title": "Copy, cut and paste objects through keyboard or menu",
           "status": "working"
         },
         {

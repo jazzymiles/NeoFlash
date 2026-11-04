@@ -553,6 +553,28 @@ fn layer_properties_modal_cancel_roles_outline_height_and_undo() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 
+    // Keeping the generated default must not create a stored override or an Undo step.
+    editor.open_layer_properties(&ctx, 0);
+    let default_outline = layer_properties_draft(&ctx).unwrap().outline_color;
+    edit_layer_properties_draft(&ctx, |d| d.outline_color = default_outline);
+    editor.confirm_layer_properties(&ctx).unwrap();
+    assert!(!has_layer_properties_dialog(&ctx));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.outline_color,
+        None
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    editor.project.validate().unwrap();
+
+    // The default depends on the generated layer ID, so a fixed palette colour can equal it.
+    // Change one channel to guarantee a distinct override regardless of test order.
+    let custom_outline = [
+        default_outline.r().wrapping_add(1),
+        default_outline.g(),
+        default_outline.b(),
+    ];
+
     // Edit layer 0: rename, hide, lock, link as Guided, set outline colour + outline mode + 200% height.
     editor.open_layer_properties(&ctx, 0);
     edit_layer_properties_draft(&ctx, |d| {
@@ -560,7 +582,8 @@ fn layer_properties_modal_cancel_roles_outline_height_and_undo() {
         d.visible = false;
         d.locked = true;
         d.kind = LayerTypeChoice::Guided;
-        d.outline_color = egui::Color32::from_rgb(212, 95, 193);
+        d.outline_color =
+            egui::Color32::from_rgb(custom_outline[0], custom_outline[1], custom_outline[2]);
         d.outline = true;
         d.height = LayerHeightChoice::Preview200;
     });
@@ -572,7 +595,7 @@ fn layer_properties_modal_cancel_roles_outline_height_and_undo() {
     assert!(l0.locked);
     assert_eq!(l0.properties.role, LayerRole::Normal);
     assert_eq!(l0.properties.motion_guide.as_deref(), Some("guide-layer"));
-    assert_eq!(l0.properties.outline_color, Some([212, 95, 193]));
+    assert_eq!(l0.properties.outline_color, Some(custom_outline));
     assert!(l0.properties.outline);
     assert!(editor.project.format_version >= 6);
     assert_ne!(editor.workspace.timeline.preview, FramePreview::Off);
