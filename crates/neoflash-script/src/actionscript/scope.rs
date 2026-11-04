@@ -863,7 +863,7 @@ impl<'a> Analysis<'a> {
             || super::is_as2_legacy_instanceof_type(&name)
     }
 }
-fn expressions(stmt: &Stmt) -> Vec<&Expr> {
+pub(super) fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt.unlocated() {
         Stmt::Expr(e) | Stmt::DefaultXmlNamespace(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
@@ -890,7 +890,7 @@ fn expressions(stmt: &Stmt) -> Vec<&Expr> {
         _ => vec![],
     }
 }
-fn statements(stmt: &Stmt) -> Vec<&Stmt> {
+pub(super) fn statements(stmt: &Stmt) -> Vec<&Stmt> {
     match stmt.unlocated() {
         Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
         Stmt::If(_, _, _) => {
@@ -922,7 +922,7 @@ fn statements(stmt: &Stmt) -> Vec<&Stmt> {
         _ => vec![],
     }
 }
-fn children(expr: &Expr) -> Vec<&Expr> {
+pub(super) fn children(expr: &Expr) -> Vec<&Expr> {
     match expr {
         Expr::Member(v, _)
         | Expr::Unary(_, v)

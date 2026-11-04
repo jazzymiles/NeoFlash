@@ -12,6 +12,7 @@ neoflash-script.workspace = true
 neoflash-export.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+libc = "0.2"
 eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "persistence"] }
 rfd = "0.17.2"
 font-kit = "0.14.3"

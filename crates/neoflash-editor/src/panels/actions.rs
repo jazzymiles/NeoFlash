@@ -288,6 +288,12 @@ impl Editor {
             for group in CODE_TOOLS {
                 for (icon, label, command) in group {
                     let Some(command) = command else {
+                        if *label == "Debug options" {
+                            if ui.add(nf::IconButton::new(*icon, label)).clicked() {
+                                self.open_debug_options(ui.ctx());
+                            }
+                            continue;
+                        }
                         let button = ui.add_enabled(false, nf::IconButton::new(*icon, label));
                         nf::not_available(button, label);
                         continue;

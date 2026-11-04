@@ -221,7 +221,11 @@ impl Editor {
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
-        show_planned_panels(ctx);
+        if self.debugger.active() {
+            show_planned_panels_with(ctx, Some(&mut |ui| self.debugger_contents(ui)));
+        } else {
+            show_planned_panels(ctx);
+        }
     }
 }
 
@@ -260,6 +264,13 @@ fn open_from_env(ctx: &egui::Context) {
 
 /// Draw every open preview (free function so tests can run it without an editor).
 pub(crate) fn show_planned_panels(ctx: &egui::Context) {
+    show_planned_panels_with(ctx, None);
+}
+
+fn show_planned_panels_with(
+    ctx: &egui::Context,
+    mut debugger: Option<&mut dyn FnMut(&mut Ui) -> bool>,
+) {
     let mut state = planned_state(ctx);
     if state.open.is_empty() {
         return;
@@ -267,7 +278,7 @@ pub(crate) fn show_planned_panels(ctx: &egui::Context) {
     let mut closed = Vec::new();
     let open = state.open.clone();
     for (i, (panel, pos)) in open.into_iter().enumerate() {
-        let (close, new_pos) = preview_window(ctx, panel, pos, &mut state);
+        let (close, new_pos) = preview_window(ctx, panel, pos, &mut state, &mut debugger);
         state.open[i].1 = new_pos;
         if close {
             closed.push(panel);
@@ -290,6 +301,7 @@ fn preview_window(
     panel: PlannedPanel,
     pos: egui::Pos2,
     state: &mut PlannedState,
+    debugger: &mut Option<&mut dyn FnMut(&mut Ui) -> bool>,
 ) -> (bool, egui::Pos2) {
     let nf = neoflash_ui::palette(ctx);
     let mut close = false;
@@ -384,9 +396,15 @@ fn preview_window(
                     .inner_margin(egui::Margin::same(pad as i8))
                     .show(ui, |ui| {
                         ui.set_width(width - 2.0 * pad);
-                        banner(ui);
-                        ui.add_space(space::S1);
-                        close |= body(ui, panel, state);
+                        if panel == PlannedPanel::Debugger && debugger.is_some() {
+                            if let Some(draw) = debugger {
+                                close |= draw(ui);
+                            }
+                        } else {
+                            banner(ui);
+                            ui.add_space(space::S1);
+                            close |= body(ui, panel, state);
+                        }
                     });
             });
         });

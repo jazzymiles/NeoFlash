@@ -81,6 +81,7 @@ pub struct Editor {
     pub script_event: ObjectEvent,
     pub selected_source: Option<String>,
     pub code_feedback: Option<crate::sources::CodeFeedback>,
+    pub(crate) debugger: crate::debugger::Debugger,
     pub(crate) actions_ui: crate::panels::actions_sidebar::ActionsUi,
     pub status: String,
     pub output: Vec<String>,
@@ -304,6 +305,7 @@ impl Editor {
             tablet_input: crate::tablet_input::TabletInput::default(),
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             selected_source: None, code_feedback: None, actions_ui: Default::default(),
+            debugger: Default::default(),
             status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
@@ -1231,6 +1233,10 @@ impl Editor {
     }
     pub fn export(&mut self, test: bool) {
         if test {
+            if self.debugger.active() {
+                self.debug_command(crate::debugger_protocol::DebugCommand::Restart);
+                return;
+            }
             let output = std::env::temp_dir()
                 .join("neoflash-preview")
                 .join(std::process::id().to_string());
@@ -2180,6 +2186,7 @@ impl eframe::App for Editor {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_debugger(ctx);
         let native_quit = crate::native_quit::take_requested();
         if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

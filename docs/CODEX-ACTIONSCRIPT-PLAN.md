@@ -6,12 +6,16 @@ declarations with a cheaper pipeline. AGENTS.md still applies; the NF2 design lo
 
 ## Current tooling boundary
 
-The implementation status below the plan has advanced beyond its original baseline. Diagnostics now preserve
-severity/code/range/path/fixes; Actions consumes warnings and unique safe ⌘. fixes. The shared compiler API index
-and compiler-token declaration/function-scope service supply hints. Source positions are carried through compilation
-instead of inferred from matching identifiers. Full semantic type-flow analysis, the diagnostic peek/fix selector and
-a connected pause/step debugger remain incomplete. See [current Actions behavior](NF2-ACTIONS-EDITOR.md); do not
-reimplement the existing warning, module, inference or source-map APIs from the historical checklist.
+Diagnostics preserve severity/code/range/path/fixes; Actions consumes warnings and unique safe ⌘. fixes.
+Compiler-token declarations and advisory AST flow supply current-project hints for assignments, scopes, compatible
+branch joins and known signatures. Source positions are carried through compilation instead of inferred from
+matching identifiers. The native debugger connects to an owned Chromium Test Movie through a private inherited
+pipe for breakpoints, actual pause/step, mapped stacks, read-only scope values and Restart.
+
+Complete semantic checking, diagnostic peek/multiple-fix selection, expression watches, deep/editable inspection
+and exact shared-handler occurrence identity remain incomplete. AS locations retain statement-start precision.
+See [current Actions behavior](NF2-ACTIONS-EDITOR.md); do not reimplement delivered warning, module, inference,
+source-map or debugger APIs from the historical checklist below.
 
 ## Historical baseline (2026-11-01)
 

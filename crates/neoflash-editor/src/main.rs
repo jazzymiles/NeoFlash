@@ -6,6 +6,12 @@ mod bitmaps;
 mod clipboard;
 mod code_tools;
 mod commands;
+mod debugger;
+#[cfg(test)]
+mod debugger_browser_tests;
+mod debugger_protocol;
+mod debugger_sources;
+mod debugger_transport;
 mod detached;
 mod dock_grid;
 mod document_sessions;
@@ -103,6 +109,9 @@ fn main() -> eframe::Result {
                 .with_inner_size(fixed.unwrap_or([1440.0, 960.0]))
                 .with_min_inner_size([1024.0, 720.0]),
             persist_window: fixed.is_none(),
+            // Native acceptance must not replace the user's saved workspace.
+            persistence_path: std::env::var_os("NEOFLASH_SCREENSHOT")
+                .map(|path| std::path::PathBuf::from(path).with_extension("state.ron")),
             ..Default::default()
         },
         Box::new(|cc| Ok(Box::new(app::Editor::new(cc)))),

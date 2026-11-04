@@ -30,15 +30,17 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 ### R-033 · Actions diagnostic peek, fix selection and debugger connection states
 - **Status:** open
 - **Requested by / for:** implementation track · AC-03/AC-08 (Actions tooling)
-- **Where:** `sources.rs::script_workspace`, Actions Debug options, planned Debugger panels
-- **Need:** NF2 components/states for the error peek and source-range underline; selection among several quick fixes;
-  debugger disconnected/unsupported states and binding of breakpoint/call-stack/locals views to a live session.
-- **Why:** structured severity/code/range/fixes and exact handler source maps are available. Existing controls can
-  display warnings and apply a unique safe ⌘. fix, but cannot present choices or claim a connected debugger.
+- **Where:** `sources.rs::script_workspace`, Actions Debug options, Debugger panel
+- **Need:** NF2 components/states for error peek and source-range underline; selection among several quick fixes;
+  richer debugger disconnected/unsupported/error states and the remaining inspection affordances.
+- **Why:** structured diagnostics, unique safe ⌘. fixes and a real Chromium debug protocol now work. Existing
+  approved controls show the live call stack, scope values and breakpoints. Fix choices, peek/range presentation,
+  expression watches and deeper variable inspection remain unimplemented. Missing visual states need design;
+  the existing Watch table alone does not implement expression evaluation.
 - **Checked:** `panels-panel-actions-floating.txt` Error peek / "Quick fix ⌘." / overview ruler; `docs-code-editor.txt`;
   `neoflash-ui/src/components/code.rs`; `docs/NF2-ACTIONS-EDITOR.md`.
-- **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify the peek/range and
-  debugger connection states before implementation. Debug protocol remains engine work, independent of this request.
+- **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify missing peek/range
+  and debugger states. Existing live debugger bindings retain the current NF2 composition.
 
 
 ### R-001 · Ruler pointer-position marker

@@ -32,6 +32,7 @@ pub struct SourceSymbol {
 #[derive(Clone, Debug)]
 pub struct SourceClass {
     pub qualified: String,
+    pub is_interface: bool,
     pub parent: Option<String>,
     body: Range<usize>,
 }
@@ -212,10 +213,48 @@ impl Analysis {
         })
     }
     pub(crate) fn imports(&self) -> Vec<String> {
-        (0..self.tokens.len())
-            .filter(|&i| self.text(i) == "import")
-            .map(|i| self.qualified(i + 1).0)
+        self.import_statements()
+            .into_iter()
+            .map(|(name, _)| name)
             .collect()
+    }
+    pub(crate) fn import_statements(&self) -> Vec<(String, Range<usize>)> {
+        let mut imports = Vec::new();
+        for i in 0..self.tokens.len() {
+            if self.text(i) != "import" || (i > 0 && self.text(i - 1) == ".") {
+                continue;
+            }
+            let mut j = i + 1;
+            let mut name = String::new();
+            while j < self.tokens.len()
+                && (is_ident(self.text(j)) || matches!(self.text(j), "." | "*"))
+            {
+                if j > i + 1
+                    && self.source[self.tokens[j - 1].range.end..self.tokens[j].range.start]
+                        .contains('\n')
+                {
+                    break;
+                }
+                name.push_str(self.text(j));
+                j += 1;
+            }
+            if !name.is_empty() {
+                let end = if self.text(j) == ";" {
+                    self.tokens[j].range.end
+                } else {
+                    self.tokens[j - 1].range.end
+                };
+                imports.push((name, self.tokens[i].range.start..end));
+            }
+        }
+        imports
+    }
+    pub(crate) fn package_name(&self) -> String {
+        self.tokens
+            .iter()
+            .position(|token| token.text == "package")
+            .map(|i| self.qualified(i + 1).0)
+            .unwrap_or_default()
     }
     /// Conservative direct identifier.member uses only. Literal-heavy expression syntax is left
     /// to the full parser, so lints never mistake regexp/XML payload for an API reference.
@@ -324,6 +363,7 @@ impl Analysis {
             }
             let end = pairs[open].map_or(len, |j| self.tokens[j].range.end);
             self.classes.push(SourceClass {
+                is_interface: self.text(i) == "interface",
                 qualified,
                 parent,
                 body: self.tokens[open].range.start..end,

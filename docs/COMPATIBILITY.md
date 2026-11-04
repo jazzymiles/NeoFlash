@@ -79,14 +79,21 @@ Adapted algorithms keep their pinned sources and licences in the `*-PROVENANCE.m
 The standalone handler API remains `neoflash_script::compile(&Script) -> Result<String, Vec<Diagnostic>>`. Publication first calls `compile_project(&Project)`, then `compile_with_program(&Script, &ProjectProgram)` for handlers. Diagnostics retain source language, one-based Unicode start/end positions, byte span, severity, optional code,
 source path and safe quick fixes. Actions and Compiler errors preserve file attribution and warning severity.
 ActionScript syntax recovery collects independent top-level statement errors; it never publishes recovered code.
-The shared language service uses compiler tokens and declaration scopes for hints, multiline members and read-only
-symbol/hover/definition data; complete semantic type-flow analysis remains outside this tooling profile.
+The shared language service combines compiler-token declarations with advisory ActionScript AST type flow for
+assignments, scopes, compatible branch joins and known function/class signatures. Hints and selected AS3 nominal
+mismatch warnings share current project context. Unknown/dynamic values remain conservative. This is not complete
+semantic checking and does not alter code generation or compilation success; hover/definition data remains read-only.
 
 Test Movie consumes emitted source maps for handlers, class methods and JS/TS modules. ActionScript positions are
 statement starts, including multiline expressions; JS/TS positions come from source tokens/AST. Include origins and
 Unicode columns are retained; generated helpers remain unmapped. Identical handler text shares a source identity
 with all authored locations recorded, so an exact frame/object occurrence is not inferred. The browser emits mapped
-trace/error events, but native editor pause/continue/step and a return channel remain unavailable.
+trace/error events. Actions Debug options connects the native editor to an owned Chrome/Chromium Test Movie
+through a private inherited pipe and isolated temporary profile. Authored breakpoints, real Pause/Continue,
+Step in/over/out, mapped call stacks, read-only scope values and Restart work within these mapping limits.
+Generated instructions have bounded step continuation; unresolved locations remain generated. Expression watches,
+property expansion, variable editing and exact shared-handler occurrence identity remain unavailable.
+See [Actions tooling](NF2-ACTIONS-EDITOR.md#56-source-maps-and-test-movie) for setup and controls.
 
 ## Project source and class profile
 

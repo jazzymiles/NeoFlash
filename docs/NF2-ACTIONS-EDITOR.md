@@ -16,7 +16,8 @@ are still waiting for the engine. Design rules: [DESIGN-SYSTEM.md](DESIGN-SYSTEM
 | Toolbar › Apply block comment / Apply line comment / Remove comment | **working** | `/* … */` around the selection (or the caret line); `// ` at the block's indentation; removal of either. |
 | Toolbar › Show toolbox sidebar | **working** | Toggles the sidebar. The sidebar also hides itself when the panel is narrower than 640 pt. |
 | Gutter markers, compiler messages, problem count | **working** | Errors and warnings retain severity, code, Unicode source range and source path. Silent live check runs 0.6 s after editing; explicit **Check** writes to Output. Project diagnostics navigate to their own file. |
-| Toolbar › Debug options, Collapse between braces, Expand all; Script assist | disabled, "Not available yet" | Need debugger/source maps, code folding, structured editing (plan §4). |
+| Toolbar › Debug options | **working** | Starts Test Movie in an owned Chromium session and opens Debugger; while that session runs, requests a real execution pause. |
+| Toolbar › Collapse between braces, Expand all; Script assist | disabled, "Not available yet" | Need code folding and structured editing. |
 | Quick fix ⌘. | **partial** | Applies one unambiguous safe fix at the caret line through normal Undo; multiple choices are reported in Output until the NF2 selector is available. |
 | Error peek, range squiggles, overview ruler, pinned script tabs | not shown | Await NF2 components (R-033). |
 
@@ -92,6 +93,10 @@ built-in members through `extends`.
 | `scripts/check.sh` | Runs `editor-api-index.py --check` after the design lock. |
 | `crates/neoflash-script/assets/actionscript-api.json` | Generated asset. Never edit by hand. |
 | `crates/neoflash-script/src/language_service.rs` (re-exported by editor `script_api.rs`) | Index loading; `HintContext` (receiver resolution, inheritance, hints); project-class scan; toolbox folders, own members, search; AS3 `missing_import`. Unit tests at the bottom. |
+| `crates/neoflash-script/src/actionscript/semantic.rs` | Advisory AST flow and conservative nominal mismatch warnings. |
+| `crates/neoflash-editor/src/debugger_protocol.rs` | CDP state, verified source locations, execution control and read-only inspection. |
+| `crates/neoflash-editor/src/debugger_transport.rs`, `debugger_sources.rs` | Owned private pipe/process lifecycle and existing export metadata. |
+| `crates/neoflash-editor/src/debugger.rs`, `panels/debugger.rs` | Document/session lifecycle and existing NF2 controls. |
 | `crates/neoflash-editor/src/code_tools.rs` | `CodeCommand` and pure text commands: `apply`, `line_comment`, `block_comment`, `uncomment`, `auto_format`. Unit tests at the bottom. |
 | `crates/neoflash-editor/src/panels/actions_sidebar.rs` | `ActionsUi` (non-document panel state), sidebar drawing, toolbox rows, Script navigator, `ScriptLocation` + `open_script_location`, `toolbox_insertion`. |
 | `crates/neoflash-editor/src/panels/actions.rs` | Toolbar: `CODE_TOOLS` table (command or `None` = planned), sidebar toggle; sidebar/main split in `actions_body`. |
@@ -121,6 +126,12 @@ one normal Undo step and works the same for frame scripts, object scripts and pr
   in Project files, the class declared by the open file.
 - Named stage instances of the current timeline (all keyframes), with their kinds.
 - Project classes of the same dialect family (AS3, or AS2/AS1).
+
+ActionScript hints also use read-only flow facts from the compiler AST: assignments, function scopes, compatible
+branch joins and known return signatures update the receiver at the caret. Unknown values, dynamic lookup and
+uncertain control flow discard unsupported assumptions. Project signatures, stage instances and the current class
+participate in cache invalidation. Conservative AS3 nominal type mismatches produce advisory warnings; these facts
+do not change generated code or determine whether compilation succeeds.
 
 `hints(source, caret, explicit)`:
 
@@ -172,11 +183,40 @@ AS maps identify the containing statement start (a multiline expression uses tha
 positions. Include files retain their own source identity. Generated helper lines remain unmapped.
 
 Identical handler text is compiled once as `Shared script N`, with every authored location stored in the bundle.
-The dispatch packet does not yet identify the exact occurrence. Browser `neoflash-script-message` events expose the
-mapped payload; there is no connection back to the native editor and no real pause/continue/step protocol. The older
-debug instrumentation API records notifications and does not make the disabled Debug options control functional.
+The dispatch packet does not yet identify the exact occurrence. Browser `neoflash-script-message` events continue
+to expose mapped errors and trace output.
+
+**Debug options** launches a separate Chrome/Chromium process with an isolated temporary profile and a private
+inherited DevTools pipe. It opens no network debugging port and does not attach to an existing browser. Install
+Chrome/Chromium, or set `NEOFLASH_DEBUG_BROWSER` to its executable. Test Movie retains Full offline export.
+
+Execution initially pauses at an available authored statement. The existing Debugger panel provides Continue (F8),
+Step over (F10), Step in (F11), Step out (⇧F11), Stop, the call stack, read-only Variables and Breakpoints.
+Toggle breakpoint uses the current Actions caret line (⌘B while Debugger is open); Remove all clears the session's
+breakpoints. Use Debug options again to pause a running session. Test Movie (⌘↵) restarts an active debug session
+with its breakpoints. Editing or switching documents retires the session and clears stale source bindings.
+Debug state and breakpoints are not saved in the document.
+
+The debugger verifies the generated Function body before applying source locations and installs authored
+breakpoints before initial execution. A breakpoint that Chrome can place only on a different authored line remains
+unresolved. Stepping skips host/helper code and continues through unmapped compiler instructions for at most 64
+native steps; if that bound is reached, it retains the actual generated pause without inventing a source position.
+
+Variables shows available scope bindings as primitive values or object summaries. Inspection does not invoke
+getters, evaluate expressions or expand arbitrary objects. Watch expressions, variable editing, a full object tree
+and exact attribution of shared handler occurrences remain unavailable. An AS multiline expression still points
+to its statement start.
 
 ## 6. Tests
+
+- `semantic_context` and AST semantic tests — assignments, branch joins, signatures, conservative unknowns and
+  project-context invalidation without code-generation changes.
+- `debugger_protocol::tests`, `debugger_transport::tests`, `debugger::tests` — session epochs, bounded inspection,
+  generated-step limits, owned-process cleanup and document-change invalidation.
+- Opt-in `debugger_browser_tests::real_browser_breakpoint_step_locals_restart_and_disconnect` — real exported
+  AS2/JS breakpoints, all three steps, locals, timer suspension during Pause, Resume, Restart and cleanup. Requires
+  built HTML5 runtime and installed Chromium; `NEOFLASH_TEST_BROWSER_HEADED=1` selects a normal window instead
+  of the default headless browser.
 
 - `sources::integration_tests` — real Actions warning display, ⌘. for frame/object/project sources, one Undo,
   document validation and cross-file diagnostic navigation.
@@ -210,9 +250,10 @@ adding Error peek / overview ruler / folding UI. Missing UI goes to `docs/NF2-RE
 
 ## 8. Known limits
 
-- Analysis uses the compiler lexer for declarations, function scopes, multiline members, typed parameters/returns and
-  bounded receiver inference. It does not provide full semantic/type-flow analysis, dynamic `with` lookup or complete
-  E4X/cast/generic inference. Hover and definition data are read-only compiler APIs; no new editor UI is implied.
+- ActionScript combines compiler-token declarations with bounded, advisory AST type flow. It is not a complete
+  language/type checker: dynamic `with` lookup, uncertain branches/calls and analysis-budget exhaustion yield unknown
+  types; complete E4X/cast/generic inference remains unsupported. Hover/definition data remains a read-only API;
+  no new navigation UI is implied.
 - The Preferences › Code editor switch and delay control automatic code hints; explicit hints remain available.
 - Auto-format does not wrap, align or reflow, and keeps lines inside multi-line comments, strings and XML literals.
 - Live check compiles the whole project; on very large projects it may need to move off the UI thread.

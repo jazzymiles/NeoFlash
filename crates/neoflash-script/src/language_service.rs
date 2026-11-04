@@ -12,6 +12,7 @@
 //! script means. Unknown receivers simply produce no hints.
 pub use crate::actionscript::analysis::{Analysis, SourceClass, SourceSymbol, SymbolKind};
 use crate::actionscript::analysis::{RegionKind, regions};
+pub use crate::actionscript::semantic::SemanticAnalysis;
 use neoflash_core::{ElementKind, Project, Script, ScriptLanguage, SourceUnit};
 use serde::Deserialize;
 use std::cell::RefCell;
@@ -22,6 +23,7 @@ use std::sync::{Arc, OnceLock};
 // completions, so an unchanged file cannot retain stale symbols from another project file.
 thread_local! {
     static ANALYSES: RefCell<VecDeque<(ScriptLanguage, Arc<Analysis>)>> = const { RefCell::new(VecDeque::new()) };
+    static SEMANTICS: RefCell<VecDeque<(String, Arc<SemanticAnalysis>)>> = const { RefCell::new(VecDeque::new()) };
 }
 
 fn cached_analysis(language: ScriptLanguage, source: &str) -> Arc<Analysis> {
@@ -54,6 +56,8 @@ fn cached_analysis(language: ScriptLanguage, source: &str) -> Arc<Analysis> {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ClassInfo {
+    #[serde(default)]
+    pub kind: String,
     #[serde(default)]
     pub parents: Vec<String>,
     /// `subset`, `partial`, or `members` (class itself unaudited, some members ready).
@@ -192,6 +196,8 @@ pub fn class_support(api: &LanguageApi, class: &str) -> &'static str {
 #[derive(Clone, Debug)]
 pub struct ProjectClass {
     pub qualified: String,
+    pub is_interface: bool,
+    pub imports: Vec<String>,
     pub parent: Option<String>,
     pub members: Vec<Member>,
 }
@@ -210,6 +216,8 @@ pub fn scan_class(unit: &SourceUnit) -> Option<ProjectClass> {
     let class = analysis.classes().first()?;
     let mut names = HashSet::new();
     Some(ProjectClass {
+        is_interface: class.is_interface,
+        imports: analysis.imports(),
         qualified: class.qualified.clone(),
         parent: class.parent.clone(),
         members: analysis
@@ -230,7 +238,16 @@ pub fn scan_class(unit: &SourceUnit) -> Option<ProjectClass> {
                     "property"
                 }
                 .into(),
-                ty: s.ty.clone(),
+                // Mutable class fields without an annotation have no stable signature type.
+                ty: if s.kind == SymbolKind::Property
+                    && !unit.source[s.range.end..]
+                        .trim_start()
+                        .starts_with([':', '('])
+                {
+                    String::new()
+                } else {
+                    s.ty.clone()
+                },
                 is_static: s.is_static,
                 params: s.params.clone(),
                 group: None,
@@ -391,7 +408,7 @@ impl<'a> HintContext<'a> {
                 match project
                     .parent
                     .as_deref()
-                    .and_then(|p| self.resolve_class(p))
+                    .and_then(|p| crate::actionscript::semantic::project_type(self, project, p))
                 {
                     Some(parent) => {
                         chain.push(parent.clone());
@@ -512,6 +529,46 @@ impl<'a> HintContext<'a> {
         cached_analysis(self.language, source)
     }
 
+    /// Read-only AST type flow. It never changes compilation success or generated code.
+    pub fn semantic_analysis(&self, source: &str) -> Arc<SemanticAnalysis> {
+        // Source facts depend on the project signatures, current class and stage instances.
+        // Exact keys avoid stale completions when another file changes without an editor edit.
+        let key = format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            self.language, self.this_class, self.project, self.instances
+        );
+        SEMANTICS.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if let Some(index) = cache
+                .iter()
+                .position(|(old, analysis)| old == &key && analysis.source() == source)
+            {
+                let entry = cache.remove(index).expect("located semantic snapshot");
+                let result = Arc::clone(&entry.1);
+                cache.push_front(entry);
+                return result;
+            }
+            let analysis = Arc::new(crate::actionscript::semantic::analyze(self, source));
+            if source.len() <= 1_048_576 && key.len() + source.len() <= 2_097_152 {
+                cache.push_front((key, Arc::clone(&analysis)));
+                while cache.len() > 4
+                    || cache
+                        .iter()
+                        .map(|(key, a)| key.len() + a.source().len())
+                        .sum::<usize>()
+                        > 2_097_152
+                {
+                    cache.pop_back();
+                }
+            }
+            analysis
+        })
+    }
+
+    pub(crate) fn flow_lineage(&self, class: &str) -> Vec<String> {
+        self.lineage(class)
+    }
+
     fn value_type(&self, ty: &str, indexed: bool) -> Option<String> {
         let ty = if indexed {
             ty.strip_prefix("Vector.<")?.strip_suffix('>')?
@@ -524,13 +581,19 @@ impl<'a> HintContext<'a> {
     /// Resolve a member/call chain. Unknown/dynamic values deliberately have no guessed type.
     #[cfg(test)]
     fn receiver_type(&self, chain: &[&str], source: &str, caret: usize) -> Option<String> {
-        self.receiver_type_in(chain, &self.analyze(source), caret)
+        self.receiver_type_in(
+            chain,
+            &self.analyze(source),
+            &self.semantic_analysis(source),
+            caret,
+        )
     }
 
     fn receiver_type_in(
         &self,
         chain: &[&str],
         analysis: &Analysis,
+        semantic: &SemanticAnalysis,
         caret: usize,
     ) -> Option<String> {
         let source = analysis.source();
@@ -549,11 +612,27 @@ impl<'a> HintContext<'a> {
             )
         };
         let (name, call, indexed) = segment(first);
+        // The receiver/callee is evaluated before its arguments and any callback effects.
+        // Query its entry state; the state after create(args) may correctly invalidate create.
+        let receiver_start = caret.saturating_sub(
+            chain.iter().map(|part| part.chars().count()).sum::<usize>() + chain.len(),
+        );
         let mut current = match name.as_str() {
             "this" => self.this_class.clone(),
             "super" => self.lineage(&self.this_class).get(1)?.clone(),
             name => {
-                if let Some(local) = analysis.resolve(name, caret) {
+                if semantic.has_binding(name, receiver_start) {
+                    let ty = if call {
+                        semantic.return_type(name, receiver_start)
+                    } else {
+                        semantic.type_at(name, receiver_start)
+                    }?;
+                    self.value_type(&ty, indexed)?
+                } else if let Some(local) = analysis.resolve(name, caret) {
+                    if semantic.is_analyzed(caret) {
+                        return None;
+                    }
+
                     // A local shadows a stage/class name even when its type is unknown.
                     if call && local.kind != SymbolKind::Function {
                         return None;
@@ -565,7 +644,8 @@ impl<'a> HintContext<'a> {
                             .members(&self.this_class, false)
                             .into_iter()
                             .find(|m| m.name == name && m.callable())?;
-                        self.value_type(&member.ty, indexed)
+                        crate::actionscript::semantic::member_type(self, &member, &member.ty)
+                            .and_then(|ty| self.value_type(&ty, indexed))
                     })?
                 } else {
                     self.comment_hint_type(source, name, caret)
@@ -588,7 +668,8 @@ impl<'a> HintContext<'a> {
                                 .members(&self.this_class, false)
                                 .into_iter()
                                 .find(|m| m.name == name)?;
-                            self.value_type(&member.ty, indexed)
+                            crate::actionscript::semantic::member_type(self, &member, &member.ty)
+                                .and_then(|ty| self.value_type(&ty, indexed))
                         })?
                 }
             }
@@ -603,7 +684,8 @@ impl<'a> HintContext<'a> {
                 .into_iter()
                 .find(|m| m.name == name && (!call || m.callable()));
             current = if let Some(member) = member {
-                self.value_type(&member.ty, indexed)?
+                crate::actionscript::semantic::member_type(self, &member, &member.ty)
+                    .and_then(|ty| self.value_type(&ty, indexed))?
             } else {
                 if call || class != self.this_class {
                     return None;
@@ -666,7 +748,8 @@ impl<'a> HintContext<'a> {
             }
             chain.reverse();
             let chain: Vec<&str> = chain.iter().map(String::as_str).collect();
-            let receiver = self.receiver_type_in(&chain, analysis, start)?;
+            let semantic = self.semantic_analysis(source);
+            let receiver = self.receiver_type_in(&chain, analysis, &semantic, start)?;
             candidates = match receiver.strip_prefix("static:") {
                 Some(class) => self.members(class, true),
                 None => self.members(&receiver, false),
@@ -679,12 +762,17 @@ impl<'a> HintContext<'a> {
                 // Type annotation: classes only.
                 candidates.extend(self.class_members());
             } else {
+                let semantic = self.semantic_analysis(source);
                 candidates.extend(analysis.visible_symbols(caret).into_iter().map(|symbol| {
                     Member {
                         owner: String::new(),
                         name: symbol.name.clone(),
                         kind: "local".into(),
-                        ty: symbol.ty.clone(),
+                        ty: if semantic.has_binding(&symbol.name, caret) {
+                            semantic.type_at(&symbol.name, caret).unwrap_or_default()
+                        } else {
+                            symbol.ty.clone()
+                        },
                         is_static: false,
                         params: symbol.params.clone(),
                         group: None,

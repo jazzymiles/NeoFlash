@@ -89,7 +89,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | absent | editor | P2 |
 | AC-01 | Actions toolbar: auto-format | Actions | partial (re-indent only) | yes | P2 |
 | AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | done | yes | P2 |
-| AC-03 | Actions toolbar: debug options | Actions | disabled | yes | P3 |
+| AC-03 | Actions toolbar: debug options | Actions | partial | yes | P3 |
 | AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | disabled | editor | P2 |
 | AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | done | UI-only | P1 |
 | AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | done | yes | P2 |
@@ -100,7 +100,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-01 | Ease panel | Planned panel | done | editor | P1 |
 | PP-02 | Motion editor | Planned panel | partial | yes | P2 |
 | PP-03 | Properties — Motion tween | Planned panel | done | yes | P2 (= PR-10) |
-| PP-04 | Debugger | Planned panel | preview | yes | P3 |
+| PP-04 | Debugger | Planned panel | partial | yes | P3 |
 | PP-05 | Project | Planned panel | done | editor | P2 |
 | PP-06 | Code snippets | Planned panel | preview | editor | P2 |
 | PP-07 | Compiler errors | Planned panel | preview | editor (+small) | P1 |
@@ -596,8 +596,8 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
 | AC-01 | Auto-format | Reformat the current script (indent, braces, spacing) per language; one Undo; refuses on parse error with the error shown. | Needs a formatter per language: JS/TS via the existing oxc stack in `neoflash-script` (verify printer availability); AS2/AS3 needs a pretty-printer on the AS parser. | Formatting is idempotent; comments preserved. |
-| AC-02 | Show code hint | Popover with members for the identifier before the caret (`Menu Item` + type on the right); ⌃Space; delay from Preferences ▸ Code editor. | Shared compiler language service: catalogue index plus compiler-token declaration/function-scope analysis; bounded inference, not full type-flow analysis. | `this.` lists MovieClip members supported by the runtime; unsupported ones are not offered as working. |
-| AC-03 | Debug options | Toggle breakpoint on line, remove all, start debugging (→ PP-04). | Debugger (PP-04). | Breakpoint set from the gutter appears in Debugger ▸ Breakpoints. |
+| AC-02 | Show code hint | Popover with members for the identifier before the caret (`Menu Item` + type on the right); ⌃Space; delay from Preferences ▸ Code editor. | Shared compiler language service: catalogue/declaration context plus advisory AST flow for assignments, scopes, branch joins and known signatures; incomplete/dynamic cases remain conservative. | `this.` lists MovieClip members supported by the runtime; unsupported ones are not offered as working. |
+| AC-03 | Debug options | Starts debugging; requests Pause in a running session (→ PP-04). | Connected Chromium debugger (PP-04). | Debugger Toggle breakpoint uses the current Actions caret line; Remove all clears the list. Gutter breakpoint interaction remains pending. |
 | AC-04 | Collapse between braces / expand all | Folding ranges in the code editor with ▸/▾ gutter markers. | Brace matching on the token stream (`components::code::tokens`). Editor only. | Folded code keeps text and Undo intact. |
 | AC-05 | Block comment / line comment / uncomment | Toggle `/* */` or `//` over the selection/line; one Undo. | Editor only (language comment syntax is identical for AS/JS/TS). | Round-trip comment → uncomment restores the exact text. |
 | AC-06 | Toolbox sidebar + Script navigator | Left sidebar: toolbox search + tree (Top level, Language elements, packages); navigator (current selection, scenes, symbol definitions with scripts). Double-click inserts. | Catalogue data (as AC-02); navigator from `Timeline.scripts`, `Element.scripts`, `Project.sources`. | Navigator jumps to every script in the document. |
@@ -651,14 +651,21 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 
 **PP-03 · Properties — Motion tween** = PR-10.
 
-**PP-04 · Debugger** — `planned_panels::debugger`
-- Controls: Continue, Step over F10, Step in F11, Step out ⇧F11, Stop, Toggle breakpoint ⌘B, Remove all breakpoints;
-  state badge; Call stack; Variables tree (changed values marked); Watch expressions (errors as values); Breakpoints
-  list with checkboxes.
-- Data: breakpoints are editor/project prefs (**NEW**); runtime state from an instrumented script runtime.
-- Depends on: engine (debug protocol between HTML5 runtime and editor; source maps; `web-project-toolchain` limit
-  "debugger/source maps"). Acceptance: a breakpoint in a frame script pauses Test Movie; Variables shows `this`
-  properties; Continue resumes.
+**PP-04 · Debugger** — partial (`panels/debugger.rs`, existing NF2 composition)
+- Connected: Actions Debug options launches an owned Chromium Test Movie and pauses at an authored statement;
+  clicking it while running requests Pause. Continue F8, Step over F10, Step in F11, Step out ⇧F11, Stop,
+  caret-line Toggle breakpoint ⌘B, Remove all, call-frame selection and read-only Variables use the live VM.
+  Test Movie ⌘↵ restarts the active session.
+- Data: editor-session breakpoints and VM state, never serialized document data. Source edits/document switches
+  invalidate the session; Restart preserves breakpoints while discarding old frame/object/request IDs.
+- Transport: isolated temporary Chromium profile and private inherited CDP pipe; no network debugging listener
+  or attachment to unrelated browser targets. Existing compiler maps provide authored positions.
+- Limits: statement-start AS mapping, grouped identical handlers, generated-frame fallback, bounded stack/locals
+  and helper stepping. Variables provides primitive values/object summaries without invoking getters. Watch
+  expressions, editable/deep object inspection, change highlighting and a breakpoint gutter remain pending;
+  missing visual states stay with R-033.
+- Acceptance: real exported AS2/JS scenarios verify breakpoints, all three steps, locals, a timer that freezes during
+  Pause and advances after Continue, Restart and owned-process cleanup. This does not imply full Flash VM semantics.
 
 **PP-05 · Project** — done (`panels/project.rs`, `Window ▸ Project`)
 - Done: project selector, Find file filter, hierarchical `src` (`Project.sources` + virtual folders), `assets`
@@ -860,7 +867,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
 | Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup | Bitmap and Symbol submenus disabled; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
-| Window | Real authoring panels, built-in workspaces/reset, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger and Planned panels are previews; named workspaces and multiple documents remain planned |
+| Window | Real authoring panels, built-in workspaces/reset, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits; named workspaces and multiple documents remain planned |
 | Help | Open example, About NeoFlash | Documentation/F1 target is unresolved |
 
 Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight menus,

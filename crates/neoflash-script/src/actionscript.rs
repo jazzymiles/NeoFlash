@@ -1,6 +1,7 @@
 //! A tokenizing/recursive-descent + Pratt frontend, not a text substitution pass.
 pub(crate) mod analysis;
 mod includes;
+pub(crate) mod semantic;
 
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};

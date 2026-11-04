@@ -52,6 +52,7 @@ impl Editor {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         script.source.hash(&mut hash);
         std::mem::discriminant(&script.language).hash(&mut hash);
+        self.project.root.hash(&mut hash);
         self.project.document_class.hash(&mut hash);
         for unit in &self.project.sources {
             unit.id.hash(&mut hash);
@@ -59,10 +60,44 @@ impl Editor {
             unit.source.hash(&mut hash);
             std::mem::discriminant(&unit.language).hash(&mut hash);
         }
+        // Includes are compilation inputs even when the visible source has not changed.
+        // Binary media contents do not affect the language service or compiler diagnostics.
+        for resource in &self.project.resources {
+            resource.id.hash(&mut hash);
+            resource.path.hash(&mut hash);
+            if resource.path.ends_with(".as") {
+                resource.data_base64.hash(&mut hash);
+            }
+        }
         for symbol in &self.project.symbols {
             symbol.id.hash(&mut hash);
+            std::mem::discriminant(&symbol.kind).hash(&mut hash);
             symbol.class_name.hash(&mut hash);
             symbol.linkage_id.hash(&mut hash);
+            for entry in &symbol.timeline.scripts {
+                entry.frame.hash(&mut hash);
+                std::mem::discriminant(&entry.script.language).hash(&mut hash);
+                entry.script.source.hash(&mut hash);
+            }
+            for element in symbol
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|layer| &layer.keyframes)
+                .flat_map(|key| &key.elements)
+            {
+                element.id.hash(&mut hash);
+                element.name.hash(&mut hash);
+                std::mem::discriminant(&element.kind).hash(&mut hash);
+                if let neoflash_core::ElementKind::Instance { symbol_id, .. } = &element.kind {
+                    symbol_id.hash(&mut hash);
+                }
+                for entry in &element.scripts {
+                    std::mem::discriminant(&entry.event).hash(&mut hash);
+                    std::mem::discriminant(&entry.script.language).hash(&mut hash);
+                    entry.script.source.hash(&mut hash);
+                }
+            }
         }
         hash.finish()
     }
@@ -103,6 +138,15 @@ impl Editor {
                 .iter()
                 .map(|warning| warning.to_diagnostic_with_source(&script.source)),
         );
+        if let Some(context) = self.hint_context(script.language) {
+            diagnostics.extend(
+                context
+                    .semantic_analysis(&script.source)
+                    .diagnostics()
+                    .iter()
+                    .cloned(),
+            );
+        }
         self.record_code_check(script, diagnostics, announce);
     }
 
@@ -121,6 +165,19 @@ impl Editor {
                     .iter()
                     .map(|warning| warning.to_diagnostic_with_source(&script.source)),
             );
+            if let Some(context) = self.source_hint_context(unit) {
+                diagnostics.extend(
+                    context
+                        .semantic_analysis(&script.source)
+                        .diagnostics()
+                        .iter()
+                        .cloned()
+                        .map(|mut diagnostic| {
+                            diagnostic.path = Some(unit.path.clone());
+                            diagnostic
+                        }),
+                );
+            }
         }
         if let Some(unit) = self
             .project
@@ -445,6 +502,14 @@ impl Editor {
     /// Code-hint resolver for the open script: `this` follows the edited timeline/object (or the
     /// class of the open project file) and named stage instances of the current timeline.
     fn hint_context(&self, language: ScriptLanguage) -> Option<HintContext<'static>> {
+        if self.script_target == ScriptTarget::Source {
+            return self
+                .project
+                .sources
+                .iter()
+                .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
+                .and_then(|unit| self.source_hint_context(unit));
+        }
         let kind_of =
             |element: &neoflash_core::Element| ThisKind::of_element(&self.project, &element.kind);
         let this_kind = match self.script_target {
@@ -462,22 +527,51 @@ impl Editor {
             .filter(|element| !element.name.is_empty() && seen.insert(element.name.clone()))
             .map(|element| (element.name.clone(), kind_of(element)))
             .collect();
-        let context =
-            HintContext::new(&self.project, language, this_kind)?.with_instances(instances);
-        if self.script_target != ScriptTarget::Source {
-            return Some(context);
+        Some(HintContext::new(&self.project, language, this_kind)?.with_instances(instances))
+    }
+
+    fn source_hint_context(&self, unit: &SourceUnit) -> Option<HintContext<'static>> {
+        let context = HintContext::new(&self.project, unit.language, ThisKind::MovieClip)?;
+        let class = crate::script_api::scan_class(unit).map(|class| class.qualified);
+        // An unrelated project class does not acquire the current timeline's named instances.
+        // Linked/document classes see their own timelines; conflicting instance kinds stay unknown.
+        let mut instances = std::collections::BTreeMap::<String, Option<ThisKind>>::new();
+        if let Some(class) = &class {
+            for symbol in self.project.symbols.iter().filter(|symbol| {
+                symbol.class_name.as_ref() == Some(class)
+                    || (symbol.id == self.project.root
+                        && self.project.document_class.as_ref() == Some(class))
+            }) {
+                for element in symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|layer| &layer.keyframes)
+                    .flat_map(|key| &key.elements)
+                    .filter(|element| !element.name.is_empty())
+                {
+                    let kind = ThisKind::of_element(&self.project, &element.kind);
+                    instances
+                        .entry(element.name.clone())
+                        .and_modify(|current| {
+                            if *current != Some(kind) {
+                                *current = None;
+                            }
+                        })
+                        .or_insert(Some(kind));
+                }
+            }
         }
-        let class = self
-            .project
-            .sources
-            .iter()
-            .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
-            .and_then(crate::script_api::scan_class)
-            .map(|class| class.qualified);
-        Some(match class {
-            Some(class) => context.with_this_class(class),
-            None => context,
-        })
+        Some(
+            context
+                .with_this_class(class.unwrap_or_default())
+                .with_instances(
+                    instances
+                        .into_iter()
+                        .filter_map(|(name, kind)| kind.map(|kind| (name, kind)))
+                        .collect(),
+                ),
+        )
     }
 
     /// Check the open script ~0.6 s after the last edit, silently, so markers and the problem count
@@ -1662,5 +1756,196 @@ mod integration_tests {
         );
         assert!(!editor.history.can_undo());
         editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn actions_flow_feedback_is_advisory_scoped_and_tracks_dependencies() {
+        let ctx = egui::Context::default();
+        let text = "function consume(point:Point):void { trace(point.x); }\nvar wrong:Rectangle = new Rectangle(0,0,10,10);\nconsume(wrong);";
+        let script = Script {
+            language: ScriptLanguage::ActionScript3,
+            source: text.into(),
+        };
+        let mut project = Project::blank();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: script.clone(),
+        });
+        let mut editor = Editor::from_project(&ctx, project);
+        let original = editor.project.clone();
+        // Exercise the same debounce used by the visible Actions editor, including its delayed run.
+        for (time, changed) in [(1., true), (1.7, false)] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let mut response = ui.label("analysis");
+                        if changed {
+                            response.mark_changed();
+                        }
+                        editor.live_check(
+                            ctx,
+                            editor.actions_editor_id(),
+                            &response,
+                            text,
+                            script.language,
+                        );
+                    });
+                },
+            );
+        }
+        let feedback = editor.current_feedback(&script).unwrap();
+        assert!(
+            feedback.success,
+            "advisory checking must not redefine compiler support: {:?}",
+            feedback.diagnostics
+        );
+        let diagnostic = feedback
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code.as_deref() == Some("flow-argument-type"))
+            .expect("Actions live checks consume semantic analysis");
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
+        assert_eq!(diagnostic.line, 3);
+        assert!(diagnostic.path.is_none());
+        assert!(
+            diagnostic.fixes.is_empty(),
+            "type-flow advice must not rewrite intentional coercions"
+        );
+        assert_eq!(editor.project, original);
+        assert!(!editor.history.can_undo());
+
+        let context = editor.hint_context(script.language).unwrap();
+        let reassigned = "var value = new Point(); value = new Rectangle(); value.";
+        let hints = context
+            .hints(reassigned, reassigned.chars().count(), true)
+            .expect("incomplete member access keeps preceding flow facts");
+        assert!(hints.items.iter().any(|hint| hint.label == "bottomRight"));
+        assert!(!hints.items.iter().any(|hint| hint.label == "length"));
+        let joined = "var value = new Point(); if (condition) { value = new Rectangle(); } value.";
+        let hints = context.hints(joined, joined.chars().count(), true);
+        assert!(
+            hints.is_none_or(|hints| hints
+                .items
+                .iter()
+                .all(|hint| hint.label != "bottomRight" && hint.label != "length")),
+            "a branch join cannot retain one branch's concrete type"
+        );
+
+        for (language, source) in [
+            (
+                ScriptLanguage::ActionScript2,
+                "import flash.geom.Point; import flash.geom.Rectangle; function consume(point:Point):Void {} var wrong:Rectangle = new Rectangle(); consume(wrong);",
+            ),
+            (
+                ScriptLanguage::ActionScript3,
+                "function consume(value:Number):Number { return '4'; } consume('3');",
+            ),
+            (
+                ScriptLanguage::ActionScript3,
+                "function consume(point:Point):void {} var dynamicValue:* = {}; consume(dynamicValue);",
+            ),
+        ] {
+            let current = Script {
+                language,
+                source: source.into(),
+            };
+            editor.check_action_source(&current, false);
+            let feedback = editor.current_feedback(&current).unwrap();
+            assert!(feedback.success, "{}: {:?}", source, feedback.diagnostics);
+            assert!(
+                !feedback.diagnostics.iter().any(|d| d
+                    .code
+                    .as_deref()
+                    .is_some_and(|code| code.starts_with("flow-"))),
+                "intentional coercion/dynamic flow: {:?}",
+                feedback.diagnostics
+            );
+        }
+
+        let included = Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "#include \"logic.as\"\ntrace(value);".into(),
+        };
+        editor.project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "logic",
+                "logic.as",
+                "text/plain",
+                b"var value = 1;",
+            )
+            .unwrap(),
+        );
+        editor.check_action_source(&included, false);
+        assert!(editor.current_feedback(&included).unwrap().success);
+        editor.project.resources[0] = neoflash_core::ResourceUnit::from_bytes(
+            "logic",
+            "logic.as",
+            "text/plain",
+            b"var value = ;",
+        )
+        .unwrap();
+        assert!(
+            editor.current_feedback(&included).is_none(),
+            "include edits invalidate cached acceptance"
+        );
+        editor.check_action_source(&included, false);
+        assert!(!editor.current_feedback(&included).unwrap().success);
+
+        editor.project.resources.clear();
+        let class_text = "package { import flash.geom.Point; import flash.geom.Rectangle; public class Helper { public function consume(point:Point):void {} public function run():void { consume(new Rectangle()); } } }";
+        editor.project.sources.push(SourceUnit {
+            id: "helper-flow".into(),
+            path: "Helper.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: class_text.into(),
+        });
+        editor.project.enable_program();
+        editor.script_target = ScriptTarget::Source;
+        editor.selected_source = Some("helper-flow".into());
+        editor.check_project_sources(false);
+        let diagnostic = editor
+            .code_feedback
+            .as_ref()
+            .unwrap()
+            .diagnostics
+            .iter()
+            .find(|d| d.code.as_deref() == Some("flow-argument-type"))
+            .expect("project source semantic diagnostics are collected");
+        assert_eq!(diagnostic.path.as_deref(), Some("Helper.as"));
+        assert!(editor.diagnostic_is_current(diagnostic));
+
+        // Unrelated timeline instances are not implicit fields of a helper class.
+        let stage_element = Element {
+            id: "named-flow-instance".into(),
+            name: "stageOnly".into(),
+            ..Element::default()
+        };
+        editor.project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(stage_element);
+        let context = editor.hint_context(ScriptLanguage::ActionScript3).unwrap();
+        let hints = context
+            .hints(class_text, class_text.chars().count(), true)
+            .unwrap();
+        assert!(!hints.items.iter().any(|hint| hint.label == "stageOnly"));
+        let before = editor.code_fingerprint(&script);
+        editor.project.symbols[0].timeline.layers[0].keyframes[0].elements[0].name =
+            "renamed".into();
+        assert_ne!(before, editor.code_fingerprint(&script));
+        let before = editor.code_fingerprint(&script);
+        editor.project.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+            .scripts
+            .push(neoflash_core::ObjectScript {
+                event: neoflash_core::ObjectEvent::Load,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "#initclip\nvar initialized = true;\n#endinitclip".into(),
+                },
+            });
+        assert_ne!(before, editor.code_fingerprint(&script));
     }
 }

@@ -799,7 +799,7 @@ fn nf2_actions_panel_reports_caret_planned_tools_and_jumps_to_diagnostics() {
     // Working code tools are enabled; planned ones stay disabled, never working-looking fakes.
     assert_eq!(has("Auto-format"), Some(false));
     assert_eq!(has("Apply line comment"), Some(false));
-    assert_eq!(has("Debug options"), Some(true));
+    assert_eq!(has("Debug options"), Some(false));
     assert_eq!(has("Collapse between braces"), Some(true));
     assert_eq!(has("Script assist"), Some(true));
     // The sidebar shows the toolbox and Script navigator.
