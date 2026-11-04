@@ -72,7 +72,8 @@ pub use clipboard::{
 };
 pub use evaluate::{
     DrawItem, GuidePath, affine_multiply, easing, effective_property_ease, evaluate,
-    guide_polyline, motion_span, property_value, sample_layer, sample_layer_in, transform_matrix,
+    guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints, motion_span,
+    property_value, sample_layer, sample_layer_in, transform_matrix,
 };
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,

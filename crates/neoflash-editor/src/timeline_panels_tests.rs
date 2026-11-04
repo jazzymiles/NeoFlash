@@ -561,3 +561,118 @@ fn motion_editor_reveals_and_edits_skew_property_track() {
     assert_eq!(editor.project, after_edit);
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
+    use crate::tests::primary_button;
+    for theme in [neoflash_ui::Theme::Dark, neoflash_ui::Theme::Light] {
+        for guided in [false, true] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            ctx.set_fonts(neoflash_ui::typography::font_definitions());
+            neoflash_ui::theme::install(&ctx, theme);
+            let mut project = classic_editor().project;
+            if guided {
+                let mut guide = project.symbols[0].timeline.layers[0].clone();
+                guide.id = "guide".into();
+                guide.properties.role = LayerRole::Guide;
+                guide.keyframes = vec![Keyframe {
+                    elements: vec![element(
+                        "guide-path",
+                        ElementKind::Path {
+                            commands: vec![
+                                PathCommand::MoveTo { x: 0., y: 20. },
+                                PathCommand::LineTo { x: 100., y: 120. },
+                            ],
+                            fill_rule: Default::default(),
+                            fill: [0, 0, 0, 0],
+                            stroke: [0, 0, 0, 255],
+                            stroke_width: 1.,
+                        },
+                        0.,
+                    )],
+                    ..Default::default()
+                }];
+                project.symbols[0].timeline.layers[0]
+                    .properties
+                    .motion_guide = Some(guide.id.clone());
+                project.symbols[0].timeline.layers.push(guide);
+            }
+            project.upgrade_format_for_features();
+            project.validate().unwrap();
+            let mut editor = Editor::from_project(&ctx, project);
+            editor.frame = 3;
+            editor.select_frame_range(FrameRange {
+                layers: vec![editor.symbol().timeline.layers[0].id.clone()],
+                start: 3,
+                end: 3,
+            });
+            let before = editor.project.clone();
+            let mut time = 0.;
+            let mut render = |editor: &mut Editor, events| {
+                time += 0.1;
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1000., 1000.),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.set_width(380.);
+                            editor.properties(ui, ctx);
+                        });
+                    },
+                )
+            };
+            for label in ["Orient to path", "Snap to motion guide"] {
+                let output = render(&mut editor, vec![]);
+                let node = &output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find(|(_, node)| node.label() == Some(label))
+                    .unwrap()
+                    .1;
+                assert_eq!(node.is_disabled(), !guided, "{label}, guided={guided}");
+                let bounds = node.bounds().unwrap();
+                let at = egui::pos2(
+                    ((bounds.x0 + bounds.x1) / 2.) as f32,
+                    ((bounds.y0 + bounds.y1) / 2.) as f32,
+                );
+                render(
+                    &mut editor,
+                    vec![egui::Event::PointerMoved(at), primary_button(at, true)],
+                );
+                render(&mut editor, vec![primary_button(at, false)]);
+                render(&mut editor, vec![]);
+                editor.finish_edits();
+                let key = start_key(&editor);
+                assert_eq!(
+                    if label == "Orient to path" {
+                        key.orient_to_path
+                    } else {
+                        key.snap_to_guide
+                    },
+                    guided,
+                    "{label} bound to document"
+                );
+                editor.project.validate().unwrap();
+                if guided {
+                    editor.undo();
+                }
+                assert_eq!(
+                    editor.project, before,
+                    "{label}: disabled is pure / enabled is one Undo"
+                );
+            }
+        }
+    }
+}

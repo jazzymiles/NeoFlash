@@ -275,6 +275,7 @@ impl Editor {
                     if let Some(span) = &motion { self.motion_tween_properties(ui, span); } else {
                     inspector_section(ui, "Tween", |ui| {
                         ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
+                            let guided = timeline.layers[layer].properties.motion_guide.is_some();
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
                                 let mut options = vec![
                                     (None, "No tween"),
@@ -288,6 +289,23 @@ impl Editor {
                                 options.push((if let Some(curve @ Easing::CubicBezier { .. }) = key.tween { Some(curve) } else { Some(Easing::CubicBezier { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1. }) }, "Custom curve"));
                                 options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
+                                if key.tween.is_some() && key.tween_kind == TweenKind::Classic {
+                                    ui.add_enabled_ui(false, |ui| {
+                                        ui.horizontal(|ui| {
+                                            let half = (ui.available_width() - space::S2) / 2.;
+                                            let mut turns = 0.;
+                                            ui.add(nf::Field::new(&mut turns, "Rotate").prefix("Rotate").unit("×").stepper().width(half)).on_disabled_hover_text("Not available yet");
+                                            nf::Select::new("classic-direction", "Direction: Auto").width(half).show(ui, |_| {});
+                                        });
+                                    }).response.on_disabled_hover_text("Not available yet");
+                                    changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path")).on_disabled_hover_text("Needs a motion guide layer"));
+                                    changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide")).on_disabled_hover_text("Needs a motion guide layer"));
+                                    let mut sync = false;
+                                    ui.add_enabled(false, nf::Checkbox::new(&mut sync, "Sync graphic symbols")).on_disabled_hover_text("Not available yet");
+                                    let mut scale = true;
+                                    ui.add_enabled(false, nf::Checkbox::new(&mut scale, "Scale")).on_disabled_hover_text("Not available yet");
+                                }
+
                                 // Y may overshoot (Back) or undershoot; the document allows |y| ≤ 100, x stays in 0–1.
                                 if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
                                     for (labels, values) in [(["X1","Y1"],[&mut *x1,&mut *y1]),(["X2","Y2"],[&mut *x2,&mut *y2])] {
@@ -343,7 +361,7 @@ impl Editor {
                         timeline.frame_count=draft.frame_count.max(min);
                         if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
                             target.name=draft.layers[layer].name.clone();
-                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; }
+                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; key.orient_to_path=changed.orient_to_path; key.snap_to_guide=changed.snap_to_guide; }
                             if matches!(draft.layers[layer].key_at(frame).and_then(|k| k.tween), Some(Easing::Flash { .. })) { self.project.format_version = self.project.format_version.max(5); }
                         }
                     }

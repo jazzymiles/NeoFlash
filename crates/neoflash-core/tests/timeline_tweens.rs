@@ -159,6 +159,17 @@ fn classic_tween_follows_its_motion_guide() {
             .len(),
         1
     );
+    let mut snapped = project.clone();
+    snapped.symbols[0].timeline.layers[0].keyframes[0].snap_to_guide = true;
+    snapped.symbols[0].timeline.layers[0].normalize_motion_keys();
+    snapped.format_version = 7;
+    assert!(snapped.validate().is_err());
+    snapped.upgrade_format_for_features();
+    assert_eq!(snapped.format_version, 8);
+    snapped.validate().unwrap();
+    assert!(snapped.symbols[0].timeline.layers[0].keyframes[0].snap_to_guide);
+    assert_eq!(position(&snapped, 0), (0., 0.));
+    assert_eq!(position(&snapped, 5), (100., 0.));
 }
 
 #[test]
@@ -1215,4 +1226,221 @@ fn nonlinear_motion_tween_subdivision_and_shape_hints_and_swatches_roundtrip() {
     assert_eq!(swatch_proj.custom_swatches(), palette);
     swatch_proj.set_custom_swatches(&[]);
     assert!(swatch_proj.custom_swatches().is_empty());
+}
+
+fn curved_motion_project() -> Project {
+    let mut start = key(
+        0,
+        vec![rect("curve-box", 0., 0.), rect("follower", 30., 15.)],
+    );
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    start.motion_path = Some(vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::CubicTo {
+            cx1: 0.,
+            cy1: 100.,
+            cx2: 100.,
+            cy2: 100.,
+            x: 100.,
+            y: 0.,
+        },
+    ]);
+    let mut end = key(
+        20,
+        vec![rect("curve-box", 100., 0.), rect("follower", 130., 15.)],
+    );
+    end.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    let mut result = project(21, vec![layer("curve-motion", vec![start, end])]);
+    result.upgrade_format_for_features();
+    result
+}
+
+#[test]
+fn editable_motion_curve_arc_length_tracks_orientation_and_old_document_loading() {
+    let mut project = curved_motion_project();
+    project.validate().unwrap();
+    assert_eq!(project.format_version, 8);
+    let timeline = &project.symbols[0].timeline;
+    let middle = sample_layer(&timeline.layers[0], 10);
+    assert!((middle[0].transform.x - 50.).abs() < 0.05);
+    assert!((middle[0].transform.y - 75.).abs() < 0.05);
+    assert!((middle[1].transform.x - middle[0].transform.x - 30.).abs() < 1e-9);
+    assert!((middle[1].transform.y - middle[0].transform.y - 15.).abs() < 1e-9);
+    // Equal time portions cover equal distances, rather than equal cubic parameters.
+    let commands = timeline.layers[0].keyframes[0]
+        .motion_path
+        .as_ref()
+        .unwrap();
+    let path = neoflash_core::motion_path_polyline(commands).unwrap();
+    for frame in [5, 10, 15] {
+        let pose = sample_layer(&timeline.layers[0], frame)[0].transform;
+        let distance = path.nearest([pose.x, pose.y]);
+        assert!((distance / path.length() - f64::from(frame) / 20.).abs() < 0.001);
+    }
+    assert_eq!(position(&project, 20), (100., 0.));
+    let reloaded = Project::from_json(&project.to_json().unwrap()).unwrap();
+    assert_eq!(reloaded, project);
+
+    project.symbols[0].timeline.layers[0].keyframes[0].orient_to_path = true;
+    let oriented = sample_layer(&project.symbols[0].timeline.layers[0], 10)[0].transform;
+    assert!(
+        oriented.rotation < -80. && oriented.rotation > -100.,
+        "{oriented:?}"
+    );
+    // Different temporal X/Y eases retain their independent track clocks.
+    project.symbols[0].timeline.layers[0].keyframes[0].property_eases =
+        vec![(TweenProperty::X, Easing::EaseIn)];
+    let independently_eased = sample_layer(&project.symbols[0].timeline.layers[0], 10)[0].transform;
+    assert!(independently_eased.x < 25.);
+    assert!((independently_eased.y - 75.).abs() < 0.05);
+
+    let old = Project::blank();
+    let old_json = old.to_json().unwrap();
+    assert!(!old_json.contains("motion_path"));
+    assert_eq!(Project::from_json(&old_json).unwrap(), old);
+    assert!(!old.uses_format_8());
+}
+
+#[test]
+fn editable_motion_curve_validation_keys_and_range_edits() {
+    use neoflash_core::{FrameRange, TimelineEdit, edit_frames};
+    let project = curved_motion_project();
+    let mut invalid = project.clone();
+    invalid.format_version = 7;
+    assert!(invalid.validate().is_err());
+    for commands in [
+        vec![],
+        vec![PathCommand::MoveTo { x: 0., y: 0. }, PathCommand::Close],
+        vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::LineTo { x: f64::NAN, y: 0. },
+        ],
+    ] {
+        let mut invalid = project.clone();
+        invalid.symbols[0].timeline.layers[0].keyframes[0].motion_path = Some(commands);
+        assert!(invalid.validate().is_err());
+    }
+    let mut invalid = project.clone();
+    invalid.symbols[0].timeline.layers[0].keyframes[0].tween_kind = TweenKind::Classic;
+    assert!(invalid.validate().is_err());
+    invalid.symbols[0].timeline.layers[0].normalize_motion_keys();
+    assert!(
+        invalid.symbols[0].timeline.layers[0].keyframes[0]
+            .motion_path
+            .is_none()
+    );
+
+    // Inserting a position key sampled from the curve preserves its geometry and timing.
+    let mut keyed = project.clone();
+    let elements = sample_layer(&keyed.symbols[0].timeline.layers[0], 10);
+    let mut midpoint = key(10, elements);
+    midpoint.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    keyed.symbols[0].timeline.layers[0].keyframes.push(midpoint);
+    keyed.symbols[0].timeline.layers[0].normalize_motion_keys();
+    keyed.validate().unwrap();
+    for frame in 0..21 {
+        let before = position(&project, frame);
+        let after = position(&keyed, frame);
+        assert!((before.0 - after.0).abs() < 0.05 && (before.1 - after.1).abs() < 0.05);
+    }
+
+    // Range cuts use the existing exact-frame bake fallback for spatial curves.
+    let mut cut = project.clone();
+    let root = cut.root.clone();
+    edit_frames(
+        &mut cut,
+        &root,
+        TimelineEdit::Delete {
+            range: FrameRange {
+                layers: vec!["curve-motion".into()],
+                start: 7,
+                end: 9,
+            },
+            include_scripts: false,
+        },
+    )
+    .unwrap();
+    cut.validate().unwrap();
+    for frame in 0..18 {
+        let before = position(&project, if frame >= 7 { frame + 3 } else { frame });
+        let after = position(&cut, frame);
+        assert!((before.0 - after.0).abs() < 1e-8 && (before.1 - after.1).abs() < 1e-8);
+    }
+}
+
+#[test]
+fn editable_motion_curve_reverse_and_cross_document_clipboard_preserve_poses() {
+    use neoflash_core::{
+        ClipboardPayload, FrameRange, InstancePlayback, TimelineEdit, edit_frames,
+    };
+    let project = curved_motion_project();
+    let mut reversed = project.clone();
+    let root = reversed.root.clone();
+    edit_frames(
+        &mut reversed,
+        &root,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["curve-motion".into()],
+                start: 0,
+                end: 20,
+            },
+        },
+    )
+    .unwrap();
+    reversed.validate().unwrap();
+    for frame in 0..21 {
+        let before = position(&project, 20 - frame);
+        let after = position(&reversed, frame);
+        assert!((before.0 - after.0).abs() < 1e-8 && (before.1 - after.1).abs() < 1e-8);
+    }
+
+    let mut source = Project::blank();
+    let mut symbol = project.symbols[0].clone();
+    symbol.id = "curved-symbol".into();
+    let placement = Element {
+        kind: ElementKind::Instance {
+            symbol_id: symbol.id.clone(),
+            playback: InstancePlayback::Independent,
+        },
+        ..rect("curved-instance", 0., 0.)
+    };
+    source.symbols.push(symbol);
+    source.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(placement.clone());
+    source.upgrade_format_for_features();
+    let clip =
+        ClipboardPayload::capture(&source, vec![placement], "curve-source", [0., 0.]).unwrap();
+    let clip = ClipboardPayload::from_text(&clip.to_text().unwrap())
+        .unwrap()
+        .unwrap();
+    let destination = Project::blank();
+    let result = clip
+        .paste_into(
+            &destination,
+            "different-session",
+            &destination.root,
+            &destination.symbols[0].timeline.layers[0].id,
+            0,
+            [0., 0.],
+        )
+        .unwrap();
+    result.project.validate().unwrap();
+    assert_eq!(result.project.format_version, 8);
+    let imported = result
+        .project
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol
+                .timeline
+                .layers
+                .iter()
+                .any(|layer| layer.keyframes.iter().any(|key| key.motion_path.is_some()))
+        })
+        .unwrap();
+    let pose = sample_layer(&imported.timeline.layers[0], 10)[0].transform;
+    assert!((pose.x - 50.).abs() < 0.05 && (pose.y - 75.).abs() < 0.05);
 }

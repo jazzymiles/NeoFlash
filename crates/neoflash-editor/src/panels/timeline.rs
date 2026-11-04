@@ -698,7 +698,19 @@ impl Editor {
                     continue;
                 }
                 if let Some(kind) = kind {
-                    tl::paint_span(&rp, &ctx, geo.span(row, start + 1, next), kind, tinted);
+                    let span = geo.span(row, start + 1, next);
+                    // Sound's Static background is identical; omit the gallery-only decoration.
+                    tl::paint_span(
+                        &rp,
+                        &ctx,
+                        span,
+                        if kind == SpanType::Sound {
+                            SpanType::Static
+                        } else {
+                            kind
+                        },
+                        tinted,
+                    );
                 }
             }
             tl::paint_grid_lines(&rp, &ctx, row, &geo, p.timeline_grid);
@@ -726,6 +738,22 @@ impl Editor {
                     {
                         self.paint_span_thumbnail(&rp, layer, start, thumb);
                     }
+                }
+            }
+            // Decode-free peak lookup after selection/preview fills, so selected sounds remain legible.
+            for &(start, next, kind) in &spans {
+                if kind == Some(SpanType::Sound)
+                    && next >= first
+                    && start <= last
+                    && let Some(sound) = layer.key_at(start).and_then(|key| key.sound.as_ref())
+                {
+                    self.timeline_audio.paint_waveform(
+                        &self.project,
+                        sound,
+                        &rp,
+                        geo.span(row, start + 1, next),
+                        f64::from(cell) * f64::from(self.project.fps),
+                    );
                 }
             }
             let on_selection =
@@ -910,7 +938,10 @@ impl Editor {
             self.paste_motion();
             ui.close();
         }
-        Self::unavailable_item(ui, "Paste motion special…", "");
+        if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion special…", "").clicked() {
+            self.open_paste_motion_special();
+            ui.close();
+        }
         nf::menu_separator(ui);
         if menu_item_enabled(
             ui,

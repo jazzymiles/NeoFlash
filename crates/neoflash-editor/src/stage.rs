@@ -584,6 +584,8 @@ impl Editor {
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
                 let origin = if nested { page.center() } else { page.min };
                 self.stage_view_input(ui, rect, origin);
+                self.shape_hint_input(ui, rect, page, origin);
+                self.motion_curve_input(ui, rect, origin);
                 self.motion_path_input(ui, rect, origin);
                 self.stage_file_drop(ui, rect, origin);
                 self.stage_library_drop(ui, rect, origin);
@@ -691,6 +693,7 @@ impl Editor {
                     StrokeKind::Outside,
                 );
                 self.paint_motion_path(&p, origin);
+                self.paint_shape_hints(&p, origin);
                 self.paint_stage_guides(&p, rect, origin);
                 if !simple_button_consumed {
                     let extended_tool =
@@ -970,6 +973,8 @@ impl Editor {
             || self.playing
             || self.stage_view.guide_pointer
             || self.timeline_motion.drag.is_some()
+            || self.timeline_motion.curve_drag.is_some()
+            || self.timeline_shape_hints.drag.is_some()
         {
             self.clear_simple_button_state();
             return false;

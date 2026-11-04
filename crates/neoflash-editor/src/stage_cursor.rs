@@ -78,9 +78,12 @@ impl Editor {
             return;
         };
         // Motion path key points sit above every tool's hover target.
-        if self.timeline_motion.drag.is_some() {
+        if self.timeline_motion.curve_drag.is_some() || self.timeline_motion.curve_hover.is_some() {
+            cursor = nf::ARROW_RESHAPE_CURVE;
+        } else if self.timeline_motion.drag.is_some() || self.timeline_shape_hints.drag.is_some() {
             cursor = nf::HAND_CLOSED;
-        } else if self.timeline_motion.hover.is_some() {
+        } else if self.timeline_motion.hover.is_some() || self.timeline_shape_hints.hover.is_some()
+        {
             cursor = nf::HAND_OPEN;
         }
         let Some(pos) = ctx.pointer_hover_pos() else {

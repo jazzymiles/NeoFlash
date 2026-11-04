@@ -9,7 +9,7 @@ use neoflash_core::*;
 use rodio::Source as _;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 /// Longest decoded preview of one resource: ten minutes of 48 kHz stereo.
@@ -173,7 +173,164 @@ impl Drop for Voice {
     }
 }
 
-type WaveformCache = HashMap<(Id, usize), (usize, Result<Arc<WaveformPeaks>, String>)>;
+type DecodedResult = Result<Arc<DecodedSound>, String>;
+type DecodedCache = HashMap<Id, (Arc<str>, DecodedResult)>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum WaveformResolution {
+    Buckets(usize),
+    /// The exact timeline zoom (screen points per second), before the duration is known.
+    Zoom(u64),
+}
+
+type WaveformKey = (Id, WaveformResolution);
+type PeakResult = Result<Arc<WaveformPeaks>, String>;
+
+struct CachedWaveform {
+    /// Keep the allocation alive: a naked address can be reused after Replace/Undo.
+    source: Arc<str>,
+    result: Option<PeakResult>,
+}
+
+type WaveformCache = HashMap<WaveformKey, CachedWaveform>;
+
+struct WaveformJob {
+    unit: ResourceUnit,
+    resolution: WaveformResolution,
+    decoded: Option<DecodedResult>,
+    ctx: eframe::egui::Context,
+}
+
+struct WaveformReady {
+    key: WaveformKey,
+    source: Arc<str>,
+    decoded: DecodedResult,
+    peaks: PeakResult,
+}
+
+/// One lazy worker serializes decoding across zooms. Dropping the editor closes its channel;
+/// it never joins a decoding thread on the UI thread, and late results cannot mutate a document.
+struct WaveformWorker {
+    requests: mpsc::Sender<WaveformJob>,
+    results: mpsc::Receiver<WaveformReady>,
+}
+
+impl WaveformWorker {
+    fn new() -> Result<Self, String> {
+        let (requests, jobs) = mpsc::channel::<WaveformJob>();
+        let (results_tx, results) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("neoflash-waveform".into())
+            .spawn(move || {
+                let mut decoded = DecodedCache::new();
+                while let Ok(job) = jobs.recv() {
+                    let source = job.unit.data_base64.clone();
+                    let sound = match decoded.get(&job.unit.id) {
+                        Some((cached, result)) if Arc::ptr_eq(cached, &source) => result.clone(),
+                        _ => {
+                            let result = job
+                                .decoded
+                                .unwrap_or_else(|| decode(&job.unit).map(Arc::new));
+                            decoded.insert(job.unit.id.clone(), (source.clone(), result.clone()));
+                            result
+                        }
+                    };
+                    let peaks = sound.as_ref().map_err(Clone::clone).and_then(|sound| {
+                        let buckets = match job.resolution {
+                            WaveformResolution::Buckets(buckets) => buckets,
+                            WaveformResolution::Zoom(zoom) => {
+                                (sound.duration() * f64::from_bits(zoom)).ceil() as usize
+                            }
+                        }
+                        .clamp(1, MAX_WAVEFORM_BUCKETS);
+                        sample_waveform_peaks(&sound.samples, sound.channels, sound.rate, buckets)
+                            .map(Arc::new)
+                            .ok_or_else(|| format!("{}: no waveform samples", job.unit.path))
+                    });
+                    if results_tx
+                        .send(WaveformReady {
+                            key: (job.unit.id, job.resolution),
+                            source,
+                            decoded: sound,
+                            peaks,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                    job.ctx.request_repaint();
+                }
+            })
+            .map_err(|error| format!("Cannot start audio waveform worker: {error}"))?;
+        Ok(Self { requests, results })
+    }
+}
+
+/// Re-express cached source peaks at the visible span columns. Only peak lookup/remapping happens
+/// here; PCM decoding and peak reduction are always on the worker. Time starts at the span key,
+/// not the scrolled viewport, and repeats respect the same trim/loop window as VoiceSource.
+pub(crate) fn visible_waveform_columns(
+    peaks: &WaveformPeaks,
+    sound: &FrameSound,
+    seconds_per_column: f64,
+    offset: f64,
+    columns: usize,
+) -> Vec<Vec<(f32, f32)>> {
+    let start = sound.in_point.unwrap_or(0.).clamp(0., peaks.duration);
+    let end = sound
+        .out_point
+        .unwrap_or(peaks.duration)
+        .clamp(start, peaks.duration);
+    let length = end - start;
+    let total = if sound.loop_forever {
+        f64::INFINITY
+    } else {
+        length * f64::from(sound.loops.max(1))
+    };
+    let source_bucket = peaks.duration / peaks.buckets().max(1) as f64;
+    let sample_range = |lane: &[[f32; 2]], from: f64, to: f64| {
+        let a = ((from / source_bucket).floor() as usize).min(lane.len());
+        let b = ((to / source_bucket).ceil() as usize).min(lane.len());
+        lane[a..b]
+            .iter()
+            .fold((0.0_f32, 0.0_f32), |(lo, hi), &[a, b]| {
+                (lo.min(a), hi.max(b))
+            })
+    };
+    let lane_columns = |lane: &[[f32; 2]]| {
+        (0..columns)
+            .map(|column| {
+                let time = offset + column as f64 * seconds_per_column;
+                if sound.sync == SoundSync::Stop
+                    || length <= 0.
+                    || time >= total
+                    || seconds_per_column <= 0.
+                {
+                    return (0., 0.);
+                }
+                let width = seconds_per_column.min(total - time);
+                // A column covering a whole loop sees every source peak, without iterating 10,000 loops.
+                if width >= length {
+                    return sample_range(lane, start, end);
+                }
+                let phase = time.rem_euclid(length);
+                let first_end = (phase + width).min(length);
+                let (mut lo, mut hi) = sample_range(lane, start + phase, start + first_end);
+                if phase + width > length {
+                    let (a, b) = sample_range(lane, start, start + phase + width - length);
+                    lo = lo.min(a);
+                    hi = hi.max(b);
+                }
+                (lo, hi)
+            })
+            .collect()
+    };
+    let mut lanes = vec![lane_columns(&peaks.left)];
+    if !peaks.right.is_empty() {
+        lanes.push(lane_columns(&peaks.right));
+    }
+    lanes
+}
 
 /// Editor audio: the output device (opened on first use), decoded resources and voices.
 pub(crate) struct TimelineAudio {
@@ -182,9 +339,9 @@ pub(crate) struct TimelineAudio {
     native: bool,
     output: Option<rodio::OutputStream>,
     failure: Option<String>,
-    decoded: HashMap<Id, (usize, Result<Arc<DecodedSound>, String>)>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    decoded: DecodedCache,
     waveforms: WaveformCache,
+    waveform_worker: Option<WaveformWorker>,
     voices: Vec<Voice>,
     preview: Option<u64>,
     auditioning_headless: bool,
@@ -204,6 +361,7 @@ impl Default for TimelineAudio {
             failure: None,
             decoded: HashMap::new(),
             waveforms: HashMap::new(),
+            waveform_worker: None,
             voices: vec![],
             preview: None,
             auditioning_headless: false,
@@ -225,46 +383,178 @@ impl TimelineAudio {
             .iter()
             .find(|unit| unit.id == resource)
             .ok_or_else(|| format!("sound resource {resource} is missing"))?;
-        let identity = Arc::as_ptr(&unit.data_base64).cast::<u8>() as usize;
+        self.collect_waveforms(project);
         if let Some((cached, result)) = self.decoded.get(resource)
-            && *cached == identity
+            && Arc::ptr_eq(cached, &unit.data_base64)
         {
             return result.clone();
         }
         let result = decode(unit).map(Arc::new);
-        self.decoded
-            .insert(resource.to_owned(), (identity, result.clone()));
+        self.decoded.insert(
+            resource.to_owned(),
+            (unit.data_base64.clone(), result.clone()),
+        );
         result
     }
 
-    /// Amplitude envelope peaks of `resource` across `buckets` columns (MP3 or WAV), cached until
-    /// the resource bytes change.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn waveform_peaks(
+    fn collect_waveforms(&mut self, project: &Project) {
+        let Some(worker) = &self.waveform_worker else {
+            return;
+        };
+        while let Ok(ready) = worker.results.try_recv() {
+            if !project
+                .resources
+                .iter()
+                .any(|unit| unit.id == ready.key.0 && Arc::ptr_eq(&unit.data_base64, &ready.source))
+            {
+                continue;
+            }
+            self.decoded
+                .insert(ready.key.0.clone(), (ready.source.clone(), ready.decoded));
+            if let Some(cached) = self.waveforms.get_mut(&ready.key)
+                && Arc::ptr_eq(&cached.source, &ready.source)
+            {
+                cached.result = Some(ready.peaks);
+            }
+        }
+    }
+
+    fn request_waveform(
         &mut self,
         project: &Project,
         resource: &str,
-        buckets: usize,
-    ) -> Result<Arc<WaveformPeaks>, String> {
-        let buckets = buckets.clamp(1, MAX_WAVEFORM_BUCKETS);
+        resolution: WaveformResolution,
+        ctx: &eframe::egui::Context,
+    ) -> Result<Option<Arc<WaveformPeaks>>, String> {
+        self.collect_waveforms(project);
         let unit = project
             .resources
             .iter()
             .find(|unit| unit.id == resource)
             .ok_or_else(|| format!("sound resource {resource} is missing"))?;
-        let identity = Arc::as_ptr(&unit.data_base64).cast::<u8>() as usize;
-        let key = (resource.to_owned(), buckets);
-        if let Some((cached, result)) = self.waveforms.get(&key)
-            && *cached == identity
+        let key = (resource.to_owned(), resolution);
+        if let Some(cached) = self.waveforms.get(&key)
+            && Arc::ptr_eq(&cached.source, &unit.data_base64)
         {
-            return result.clone();
+            return cached.result.clone().transpose();
         }
-        let sound = self.decoded(project, resource)?;
-        let result = sample_waveform_peaks(&sound.samples, sound.channels, sound.rate, buckets)
-            .map(Arc::new)
-            .ok_or_else(|| format!("{}: no waveform samples", unit.path));
-        self.waveforms.insert(key, (identity, result.clone()));
-        result
+        // Replace invalidates every zoom. Bound zoom variants retained during continuous zooming.
+        self.waveforms.retain(|(id, _), cached| {
+            id != resource || Arc::ptr_eq(&cached.source, &unit.data_base64)
+        });
+        if self
+            .waveforms
+            .keys()
+            .filter(|(id, _)| id == resource)
+            .count()
+            >= 8
+        {
+            self.waveforms
+                .retain(|(id, _), cached| id != resource || cached.result.is_none());
+        }
+        if self.waveform_worker.is_none() {
+            self.waveform_worker = Some(WaveformWorker::new()?);
+        }
+        let decoded = self
+            .decoded
+            .get(resource)
+            .filter(|(source, _)| Arc::ptr_eq(source, &unit.data_base64))
+            .map(|(_, sound)| sound.clone());
+        self.waveform_worker
+            .as_ref()
+            .unwrap()
+            .requests
+            .send(WaveformJob {
+                unit: unit.clone(),
+                resolution,
+                decoded,
+                ctx: ctx.clone(),
+            })
+            .map_err(|_| "Audio waveform worker stopped".to_owned())?;
+        self.waveforms.insert(
+            key,
+            CachedWaveform {
+                source: unit.data_base64.clone(),
+                result: None,
+            },
+        );
+        Ok(None)
+    }
+
+    /// Nonblocking peaks for an overview (Properties) or a test. None means still queued/decoding;
+    /// the worker requests a repaint once ready, and errors are cached like successful results.
+    pub(crate) fn waveform_peaks(
+        &mut self,
+        project: &Project,
+        resource: &str,
+        buckets: usize,
+        ctx: &eframe::egui::Context,
+    ) -> Result<Option<Arc<WaveformPeaks>>, String> {
+        self.request_waveform(
+            project,
+            resource,
+            WaveformResolution::Buckets(buckets.clamp(1, MAX_WAVEFORM_BUCKETS)),
+            ctx,
+        )
+    }
+
+    /// Cached decoded metadata for passive UI inspection. Waveform requests populate this cache;
+    /// unlike explicit Play/Test, inspecting or scrubbing a sound never decodes on the UI thread.
+    pub(crate) fn decoded_if_ready(
+        &mut self,
+        project: &Project,
+        resource: &str,
+    ) -> Option<DecodedResult> {
+        self.collect_waveforms(project);
+        let unit = project.resources.iter().find(|unit| unit.id == resource)?;
+        self.decoded
+            .get(resource)
+            .filter(|(source, _)| Arc::ptr_eq(source, &unit.data_base64))
+            .map(|(_, result)| result.clone())
+    }
+
+    /// Draw the visible columns only. Sound's decorative gallery waveform is deliberately omitted:
+    /// Static is the same NF2 span background, and the approved decoded-peaks painter supplies ink.
+    pub(crate) fn paint_waveform(
+        &mut self,
+        project: &Project,
+        sound: &FrameSound,
+        painter: &eframe::egui::Painter,
+        rect: eframe::egui::Rect,
+        points_per_second: f64,
+    ) {
+        let visible = rect.intersect(painter.clip_rect());
+        if visible.width() <= 0. || points_per_second <= 0. {
+            return;
+        }
+        let ctx = painter.ctx();
+        let peaks = if sound.sync == SoundSync::Stop {
+            None
+        } else {
+            self.request_waveform(
+                project,
+                &sound.resource,
+                WaveformResolution::Zoom(points_per_second.to_bits()),
+                ctx,
+            )
+            .ok()
+            .flatten()
+        };
+        let lanes = peaks.map_or_else(Vec::new, |peaks| {
+            visible_waveform_columns(
+                &peaks,
+                sound,
+                1. / points_per_second,
+                f64::from(visible.left() - rect.left()) / points_per_second,
+                visible.width().ceil() as usize,
+            )
+        });
+        let channels: Vec<_> = lanes.iter().map(Vec::as_slice).collect();
+        let visible = eframe::egui::Rect::from_min_max(
+            eframe::egui::pos2(visible.left(), rect.top()),
+            eframe::egui::pos2(visible.right(), rect.bottom()),
+        );
+        neoflash_ui::components::timeline::paint_sound_peaks(painter, ctx, visible, &channels);
     }
 
     fn mixer(&mut self) -> Option<&rodio::mixer::Mixer> {

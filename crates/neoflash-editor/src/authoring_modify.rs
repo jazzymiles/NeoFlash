@@ -1417,9 +1417,23 @@ impl Editor {
                 ui.close();
             }
             neoflash_ui::components::menu_separator(ui);
-            for label in ["Bitmap", "Symbol", "Shape"] {
+            for label in ["Bitmap", "Symbol"] {
                 Self::unavailable_submenu(ui, label);
             }
+            menu_popup(ui, "Shape", "Add shape hint", "⇧⌘H", |ui| {
+                if menu_item_enabled(ui, self.can_add_shape_hint(), "Add shape hint", "⇧⌘H")
+                    .clicked()
+                {
+                    self.add_shape_hint();
+                    ui.close();
+                }
+                if menu_item_enabled(ui, self.can_remove_shape_hints(), "Remove all hints", "")
+                    .clicked()
+                {
+                    self.remove_all_shape_hints();
+                    ui.close();
+                }
+            });
             let can_combine = self.can_combine_objects();
             menu_popup(ui, "Combine objects", "Intersect", "", |ui| {
                 if menu_item_enabled(ui, can_combine, "Union", "").clicked() {

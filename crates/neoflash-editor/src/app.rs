@@ -118,6 +118,7 @@ pub struct Editor {
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
     pub(crate) timeline_motion: crate::timeline_motion::MotionState,
+    pub(crate) timeline_shape_hints: crate::timeline_shape_hints::ShapeHintsState,
     pub(crate) timeline_thumbnails: crate::timeline_preview::ThumbnailCache,
     /// Native preview of timeline sounds (Control ▸ Mute sounds).
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
@@ -240,6 +241,17 @@ impl Editor {
                 s.select_all();
             }
         }
+        if std::env::var("NEOFLASH_SCREENSHOT_SELECT").as_deref() == Ok("motion") {
+            s.set_tool(Tool::Select);
+            if let Some(layer) = s.symbol().timeline.layers.get(s.layer)
+                && let Some(element) = sample_layer_in(&s.symbol().timeline, layer, s.frame).first()
+            {
+                s.set_selection(vec![crate::selection::SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: element.id.clone(),
+                }]);
+            }
+        }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_PANELS=swatches,info,history,project` reveals real panels.
         if let Ok(list) = std::env::var("NEOFLASH_SCREENSHOT_PANELS") {
             for raw in list.split(',') {
@@ -266,6 +278,10 @@ impl Editor {
             Ok("document_settings") => s.open_document_settings(),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
+            Ok("paste_motion_special") => {
+                s.copy_motion();
+                s.open_paste_motion_special();
+            }
             _ => {}
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` opens Preferences on that page.
@@ -319,6 +335,7 @@ impl Editor {
             detached: crate::detached::DetachedState::default(),
             stage_view: Default::default(),
             timeline_motion: Default::default(),
+            timeline_shape_hints: Default::default(),
             timeline_thumbnails: Default::default(),
             timeline_audio: Default::default(),
             recovery: Default::default(),
@@ -587,6 +604,7 @@ impl Editor {
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
         self.symbol_conversion.is_some()
+            || self.timeline_motion.paste_special_open
             || self.document_settings.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
@@ -1553,6 +1571,9 @@ impl Editor {
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 let captured = self.object_gesture.is_some()
+                    || self.timeline_motion.drag.is_some()
+                    || self.timeline_motion.curve_drag.is_some()
+                    || self.timeline_shape_hints.drag.is_some()
                     || self.authoring_tools.is_drawing()
                     || self.shape_draft.is_some()
                     || self.vector.point_drag.is_some()
@@ -1875,10 +1896,15 @@ impl Editor {
             Modifiers::ALT,
             Modifiers::NONE,
         );
+        if ctx.input_mut(|i| i.consume_key(alt | cmd, Key::H)) {
+            self.toggle_shape_hints();
+        }
+        if ctx.input_mut(|i| i.consume_key(shift | cmd, Key::H)) {
+            self.add_shape_hint();
+        }
         for (m, key) in [
             (cmd, Key::P),
             (cmd | shift, Key::W),
-            (alt | cmd, Key::H),
             (alt | cmd, Key::K),
             (none, Key::F1),
         ] {
@@ -1991,6 +2017,7 @@ impl Editor {
         self.preferences_dialog(ctx);
         self.find_replace_dialog(ctx);
         self.edit_envelope_dialog(ctx);
+        self.paste_motion_special_dialog(ctx);
         self.sound_properties_dialog(ctx);
         self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);

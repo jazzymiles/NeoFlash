@@ -223,3 +223,40 @@ test('WASM evaluates Bounce/Elastic/per-property motion eases and emits custom s
   assert.ok(item.transform[5]>150,`Y should follow Bounce (>150 at t=0.5), got ${item.transform[5]}`);
   player.free();
 });
+
+test('WASM format 8 curves retain arc-length motion, orientation and authored shape hints',async()=>{
+  await ready;
+  const doc={format_version:8,name:'Editable timeline paths',width:320,height:240,fps:24,
+    background:[255,255,255,255],root:'root',symbols:[{id:'root',name:'Scene',kind:'movie_clip',
+    timeline:{frame_count:21,scripts:[],layers:[{id:'motion',name:'Motion',visible:true,locked:false,
+      keyframes:[{...key(0,[shape(0)],'','linear'),tween_kind:'motion',orient_to_path:true,
+        motion_path:[{op:'move_to',x:0,y:0},{op:'cubic_to',cx1:0,cy1:100,cx2:100,cy2:100,x:100,y:0}]},
+        {...key(20,[shape(100)]),keyed_properties:['x','y']},
+      ]}]}}]};
+  const player=new wasm.WebPlayer(JSON.stringify(doc));
+  player.control('[]','goto_and_stop',10);
+  const midpoint=JSON.parse(player.scene_json())[0].transform;
+  assert.ok(Math.abs(midpoint[4]-50)<0.05,`curve midpoint x: ${midpoint[4]}`);
+  assert.ok(Math.abs(midpoint[5]-75)<0.05,`curve midpoint y: ${midpoint[5]}`);
+  assert.ok(Math.abs(midpoint[0])<0.2 && midpoint[1]<-0.9,'orientation turns with the curve tangent');
+  player.control('[]','goto_and_stop',20);
+  assert.deepEqual(JSON.parse(player.scene_json())[0].transform.slice(4),[100,0]);
+  player.free();
+  const wrongVersion=structuredClone(doc);wrongVersion.format_version=7;
+  assert.throws(()=>new wasm.WebPlayer(JSON.stringify(wrongVersion)),/version 8/);
+
+  const polygon={...shape(0),scripts:[],kind:{type:'path',fill_rule:'nonzero',fill:[220,0,0,255],stroke:[0,0,0,0],stroke_width:0,
+    commands:[{op:'move_to',x:0,y:0},{op:'line_to',x:100,y:0},{op:'line_to',x:100,y:100},{op:'line_to',x:0,y:100},{op:'close'}]}};
+  const morph=structuredClone(doc);morph.format_version=7;
+  morph.symbols[0].timeline.layers[0].keyframes=[{...key(0,[polygon],'','linear'),tween_kind:'shape',
+    shape_hints:[{label:'a',start_uv:[0,0],end_uv:[1,1]}]},key(20,[polygon])];
+  const hinted=new wasm.WebPlayer(JSON.stringify(morph));hinted.control('[]','goto_and_stop',10);
+  const commands=JSON.parse(hinted.scene_json())[0].kind.commands;
+  assert.ok(commands.some(c=>Math.abs(c.x-50)<1e-6 && Math.abs(c.y-50)<1e-6),
+    'the authored correspondence pulls the top-left vertex to the opposite corner midpoint');
+  hinted.free();
+  delete morph.symbols[0].timeline.layers[0].keyframes[0].shape_hints;
+  const unhinted=new wasm.WebPlayer(JSON.stringify(morph));unhinted.control('[]','goto_and_stop',10);
+  assert.notDeepEqual(JSON.parse(unhinted.scene_json())[0].kind.commands,commands);
+  unhinted.free();
+});

@@ -308,7 +308,7 @@ impl Project {
         }
     }
 
-    /// Raise the format version after an edit that uses a format 6 or 7 feature.
+    /// Raise the format version after an edit that uses a newer document feature.
     pub fn upgrade_format_for_features(&mut self) {
         if self.uses_format_6() {
             self.format_version = self.format_version.max(6);
@@ -316,6 +316,20 @@ impl Project {
         if self.uses_format_7() {
             self.format_version = self.format_version.max(7);
         }
+        if self.uses_format_8() {
+            self.format_version = self.format_version.max(8);
+        }
+    }
+
+    /// Editable spatial motion curves and classic guide endpoint snapping (format 8).
+    pub fn uses_format_8(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .any(|k| {
+                k.motion_path.is_some() || (k.snap_to_guide && k.tween_kind == TweenKind::Classic)
+            })
     }
 
     /// Document features introduced with format 7 (parametric Rectangle/Oval options, custom
@@ -391,11 +405,17 @@ pub struct Keyframe {
     /// Per-property easing overrides on a motion tween start keyframe (document version 7).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub property_eases: Vec<(TweenProperty, Easing)>,
+    /// Open spatial curve of a motion span, in timeline coordinates (format 8).
+    /// The first element supplies the reference position; other elements keep their own
+    /// track offsets. MoveTo followed by LineTo/CubicTo; position keys control timing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_path: Option<Vec<PathCommand>>,
     /// Keep nested graphic symbol animations synchronized across this motion tween span
     /// (document version 7).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sync_symbols: bool,
-    /// Snap this motion tween's path to its layer's motion guide (document version 7).
+    /// Snap this tween's path to its layer's motion guide (motion: version 7;
+    /// classic endpoint snapping: version 8).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub snap_to_guide: bool,
     /// Timeline sound started (or stopped) when the playhead enters this keyframe
@@ -1336,11 +1356,15 @@ impl Layer {
                 in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
                 if !in_motion {
                     key.property_eases.clear();
+                    key.motion_path = None;
                     key.sync_symbols = false;
-                    key.snap_to_guide = false;
+                    if !(key.tween.is_some() && key.tween_kind == TweenKind::Classic) {
+                        key.snap_to_guide = false;
+                    }
                 }
             } else {
                 key.property_eases.clear();
+                key.motion_path = None;
                 key.sync_symbols = false;
                 key.snap_to_guide = false;
             }

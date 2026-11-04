@@ -393,17 +393,24 @@ fn waveform_peaks_cache_and_frame_sound_trim_playback_window() {
     editor.set_frame_sound(Some("beep".into()));
     let with_sound = editor.project.clone();
 
-    let peaks = editor
-        .timeline_audio
-        .waveform_peaks(&editor.project, "beep", 16)
-        .unwrap();
+    let ctx = egui::Context::default();
+    assert!(
+        editor
+            .timeline_audio
+            .waveform_peaks(&editor.project, "beep", 16, &ctx)
+            .unwrap()
+            .is_none(),
+        "first request is nonblocking"
+    );
+    let peaks = wait_for_waveform(&mut editor, &ctx, "beep", 16);
     assert_eq!(peaks.buckets(), 16);
     assert_eq!((peaks.sample_rate, peaks.channels), (8000, 1));
     assert!((peaks.duration - 0.5).abs() < 1e-9);
     assert!(peaks.peak_amplitude(0, 0) > 0.1);
     let cached = editor
         .timeline_audio
-        .waveform_peaks(&editor.project, "beep", 16)
+        .waveform_peaks(&editor.project, "beep", 16, &ctx)
+        .unwrap()
         .unwrap();
     assert!(std::sync::Arc::ptr_eq(&peaks, &cached));
 
@@ -433,4 +440,156 @@ fn waveform_peaks_cache_and_frame_sound_trim_playback_window() {
 
     editor.undo();
     assert_eq!(editor.project, with_sound);
+}
+
+/// Wait only in tests; the live UI receives a repaint from the worker.
+fn wait_for_waveform(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    resource: &str,
+    buckets: usize,
+) -> std::sync::Arc<WaveformPeaks> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(peaks) = editor
+            .timeline_audio
+            .waveform_peaks(&editor.project, resource, buckets, ctx)
+            .unwrap()
+        {
+            return peaks;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "audio worker did not finish"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn waveform_worker_reuses_decode_across_zoom_and_invalidates_replaced_bytes() {
+    let mut editor = editor();
+    let ctx = egui::Context::default();
+    let first = wait_for_waveform(&mut editor, &ctx, "beep", 16);
+    let decoded = editor
+        .timeline_audio
+        .decoded_if_ready(&editor.project, "beep")
+        .unwrap()
+        .unwrap();
+    let zoom = wait_for_waveform(&mut editor, &ctx, "beep", 32);
+    assert_eq!(zoom.buckets(), 32);
+    let reused = editor
+        .timeline_audio
+        .decoded_if_ready(&editor.project, "beep")
+        .unwrap()
+        .unwrap();
+    assert!(
+        std::sync::Arc::ptr_eq(&decoded, &reused),
+        "zoom reuses decoded PCM"
+    );
+
+    // A pending request for old bytes must not overwrite a replacement or an Undo source.
+    editor
+        .timeline_audio
+        .waveform_peaks(&editor.project, "beep", 64, &ctx)
+        .unwrap();
+    let old_unit = editor.project.resources[0].clone();
+    editor.project.resources[0] =
+        ResourceUnit::from_bytes("beep", "audio/beep.wav", "audio/wav", &wav(800)).unwrap();
+    assert!(
+        editor
+            .timeline_audio
+            .decoded_if_ready(&editor.project, "beep")
+            .is_none()
+    );
+    assert!(
+        editor
+            .timeline_audio
+            .waveform_peaks(&editor.project, "beep", 16, &ctx)
+            .unwrap()
+            .is_none()
+    );
+    let replacement = wait_for_waveform(&mut editor, &ctx, "beep", 16);
+    assert!((replacement.duration - 0.1).abs() < 1e-9);
+    assert!(!std::sync::Arc::ptr_eq(&first, &replacement));
+    editor.project.resources[0] = old_unit;
+    let restored = wait_for_waveform(&mut editor, &ctx, "beep", 16);
+    assert!((restored.duration - 0.5).abs() < 1e-9);
+
+    editor.project.resources[0] =
+        ResourceUnit::from_bytes("beep", "audio/bad.wav", "audio/wav", b"not a wave").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match editor
+            .timeline_audio
+            .waveform_peaks(&editor.project, "beep", 16, &ctx)
+        {
+            Err(error) => {
+                assert!(error.contains("bad.wav"));
+                break;
+            }
+            Ok(None) => {}
+            Ok(Some(_)) => panic!("stale waveform for invalid replacement"),
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(
+        editor
+            .timeline_audio
+            .waveform_peaks(&editor.project, "beep", 16, &ctx)
+            .is_err(),
+        "decode failures stay cached"
+    );
+}
+
+#[test]
+fn waveform_visible_columns_follow_stereo_trim_loops_scroll_and_silence() {
+    use crate::timeline_sound::visible_waveform_columns;
+    let peaks = sample_waveform_peaks(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], 2, 4, 4).unwrap();
+    let mut sound = FrameSound::new("sound");
+    sound.in_point = Some(0.25);
+    sound.out_point = Some(0.75);
+    sound.loops = 2;
+    let full = visible_waveform_columns(&peaks, &sound, 0.25, 0., 6);
+    assert_eq!(
+        full[0],
+        [
+            (0., 0.3),
+            (0., 0.5),
+            (0., 0.3),
+            (0., 0.5),
+            (0., 0.),
+            (0., 0.)
+        ]
+    );
+    assert_eq!(
+        full[1],
+        [
+            (0., 0.4),
+            (0., 0.6),
+            (0., 0.4),
+            (0., 0.6),
+            (0., 0.),
+            (0., 0.)
+        ]
+    );
+    let scrolled = visible_waveform_columns(&peaks, &sound, 0.25, 0.5, 4);
+    assert_eq!(scrolled[0], full[0][2..]);
+    assert_eq!(scrolled[1], full[1][2..]);
+    sound.loop_forever = true;
+    assert_eq!(
+        visible_waveform_columns(&peaks, &sound, 0.25, 20., 2)[0],
+        [(0., 0.3), (0., 0.5)]
+    );
+    assert_eq!(
+        visible_waveform_columns(&peaks, &sound, 1., 0.375, 1)[1],
+        [(0., 0.6)],
+        "wide columns aggregate every repeated peak"
+    );
+    sound.sync = SoundSync::Stop;
+    assert_eq!(
+        visible_waveform_columns(&peaks, &sound, 0.25, 0., 2)[0],
+        [(0., 0.), (0., 0.)]
+    );
 }

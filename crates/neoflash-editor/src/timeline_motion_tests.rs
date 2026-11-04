@@ -520,3 +520,442 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
     editor.undo();
     assert_eq!(editor.project, before_snap);
 }
+
+fn sampled_element(timeline: &Timeline, layer: usize, id: &str, frame: u32) -> Element {
+    sample_layer_in(timeline, &timeline.layers[layer], frame)
+        .into_iter()
+        .find(|element| element.id == id)
+        .unwrap()
+}
+
+#[test]
+fn paste_motion_special_preserves_unticked_animation_and_other_objects_across_both_boundaries() {
+    use crate::timeline_motion::PasteMotionOptions;
+    let mut editor = motion_editor();
+    {
+        let timeline = &mut editor.project.symbols[0].timeline;
+        timeline.frame_count = 60;
+        timeline.layers[0]
+            .keyframes
+            .push(key(30, vec![instance("star", "clip", 100., 60.)]));
+        let mut start = key(
+            0,
+            vec![
+                instance("other", "clip", 50., 20.),
+                instance("bystander", "clip", 10., 30.),
+            ],
+        );
+        start.tween = Some(Easing::EaseInOut);
+        let mut end = start.clone();
+        end.frame = 50;
+        end.tween = None;
+        end.label = "Destination label".into();
+        end.elements[0].transform = Transform {
+            x: 150.,
+            y: 300.,
+            scale_x: 2.,
+            scale_y: 3.,
+            rotation: 120.,
+            skew: 10.,
+            alpha: 0.3,
+            ..Transform::default()
+        };
+        end.elements[1].transform.x = 160.;
+        timeline.layers[1].keyframes = vec![start, end];
+    }
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+    editor.layer = 0;
+    editor.frame = 0;
+    editor.copy_motion();
+    editor.layer = 1;
+    editor.frame = 5;
+    select(&mut editor, "still", "other");
+    let before = editor.project.clone();
+    let baseline = &before.symbols[0].timeline;
+    let target_x = sampled_element(baseline, 1, "other", 5).transform.x;
+    let mut options = PasteMotionOptions {
+        properties: [false; 9],
+        ..Default::default()
+    };
+    options.properties[0] = true;
+    options.properties[8] = true;
+    editor.paste_motion_special(&options);
+    editor.project.validate().unwrap();
+    for frame in 0..60 {
+        let mut wanted = sampled_element(baseline, 1, "other", frame);
+        if (5..35).contains(&frame) {
+            wanted.transform.x =
+                target_x + sampled_element(baseline, 0, "star", frame - 5).transform.x;
+        }
+        assert_eq!(
+            sampled_element(&editor.symbol().timeline, 1, "other", frame),
+            wanted,
+            "chosen X only, frame {frame}"
+        );
+        assert_eq!(
+            sampled_element(&editor.symbol().timeline, 1, "bystander", frame),
+            sampled_element(baseline, 1, "bystander", frame),
+            "other object, frame {frame}"
+        );
+    }
+    assert_eq!(
+        editor.symbol().timeline.layers[1].key_at(50).unwrap().label,
+        "Destination label"
+    );
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo restores editable target spans"
+    );
+}
+
+fn styled_paste_editor() -> Editor {
+    let mut editor = motion_editor();
+    let timeline = &mut editor.project.symbols[0].timeline;
+    let mut start = key(0, vec![instance("star", "clip", 0., 0.)]);
+    start.tween = Some(Easing::EaseIn);
+    start.elements[0].transform = Transform {
+        scale_x: 2.,
+        scale_y: 3.,
+        rotation: 20.,
+        skew: 5.,
+        alpha: 0.6,
+        color_transform: ColorTransform {
+            multipliers: [0.6, 1., 1., 1.],
+            offsets: [0.; 4],
+        },
+        ..Transform::default()
+    };
+    start.elements[0].filters = vec![FilterSpec::Blur {
+        blur_x: 6.,
+        blur_y: 4.,
+        quality: 1,
+    }];
+    start.elements[0].blend_mode = BlendMode::Multiply;
+    let mut end = start.clone();
+    end.frame = 8;
+    end.tween = None;
+    end.elements[0].transform = Transform {
+        x: 80.,
+        y: 40.,
+        scale_x: 4.,
+        scale_y: 6.,
+        rotation: 80.,
+        skew: 15.,
+        alpha: 0.2,
+        color_transform: ColorTransform {
+            multipliers: [0.2, 1., 1., 1.],
+            offsets: [0.; 4],
+        },
+        ..Transform::default()
+    };
+    timeline.layers[0].keyframes = vec![start, end];
+    let target = &mut timeline.layers[1].keyframes[0].elements[0];
+    target.transform = Transform {
+        x: 50.,
+        y: 50.,
+        scale_x: 10.,
+        scale_y: 20.,
+        rotation: 100.,
+        skew: 25.,
+        alpha: 0.9,
+        ..Transform::default()
+    };
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+    editor.layer = 0;
+    editor.frame = 0;
+    editor.copy_motion();
+    editor.layer = 1;
+    editor.frame = 4;
+    select(&mut editor, "still", "other");
+    editor
+}
+
+#[test]
+fn paste_motion_special_scale_rotation_overrides_colour_filters_blend_and_ease() {
+    use crate::timeline_motion::PasteMotionOptions;
+    for preserve in [false, true] {
+        let mut editor = styled_paste_editor();
+        let before = editor.project.clone();
+        let options = PasteMotionOptions {
+            properties: [false, false, true, true, true, false, true, true, true],
+            preserve_scale: preserve,
+            preserve_rotation: preserve,
+        };
+        editor.paste_motion_special(&options);
+        editor.project.validate().unwrap();
+        for offset in 0..=8 {
+            let copied = sampled_element(&before.symbols[0].timeline, 0, "star", offset);
+            let actual = sampled_element(&editor.symbol().timeline, 1, "other", 4 + offset);
+            assert_eq!(
+                (
+                    actual.transform.x,
+                    actual.transform.y,
+                    actual.transform.alpha
+                ),
+                (50., 50., 0.9)
+            );
+            assert_eq!(actual.transform.color_transform, ColorTransform::default());
+            assert_eq!(actual.filters, copied.filters);
+            assert_eq!(actual.blend_mode, copied.blend_mode);
+            assert_eq!(
+                actual.transform.scale_x,
+                if preserve {
+                    10. * copied.transform.scale_x / 2.
+                } else {
+                    copied.transform.scale_x
+                }
+            );
+            assert_eq!(
+                actual.transform.scale_y,
+                if preserve {
+                    20. * copied.transform.scale_y / 3.
+                } else {
+                    copied.transform.scale_y
+                }
+            );
+            assert_eq!(
+                actual.transform.rotation,
+                if preserve {
+                    100. + copied.transform.rotation - 20.
+                } else {
+                    copied.transform.rotation
+                }
+            );
+            assert_eq!(
+                actual.transform.skew,
+                if preserve {
+                    25. + copied.transform.skew - 5.
+                } else {
+                    copied.transform.skew
+                }
+            );
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+        // Colour alone includes opacity and channel transform; Ease off defaults the still target to Linear.
+        let mut colour = PasteMotionOptions {
+            properties: [false; 9],
+            ..Default::default()
+        };
+        colour.properties[5] = true;
+        editor.paste_motion_special(&colour);
+        editor.project.validate().unwrap();
+        let mid = sampled_element(&editor.symbol().timeline, 1, "other", 8);
+        assert!((mid.transform.alpha - 0.4).abs() < 1e-9);
+        assert!((mid.transform.color_transform.multipliers[0] - 0.4).abs() < 1e-9);
+        assert_eq!(mid.filters, Vec::<FilterSpec>::new());
+        assert_eq!(mid.blend_mode, BlendMode::Normal);
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+
+    let mut editor = styled_paste_editor();
+    let mut end = editor.project.symbols[0].timeline.layers[1].keyframes[0].clone();
+    end.frame = 20;
+    end.elements[0].transform.x = 200.;
+    editor.project.symbols[0].timeline.layers[1].keyframes[0].tween = Some(Easing::Linear);
+    editor.project.symbols[0].timeline.layers[1]
+        .keyframes
+        .push(end);
+    let before = editor.project.clone();
+    let mut ease = PasteMotionOptions {
+        properties: [false; 9],
+        ..Default::default()
+    };
+    ease.properties[8] = true;
+    editor.paste_motion_special(&ease);
+    editor.project.validate().unwrap();
+    let actual = &editor.symbol().timeline.layers[1];
+    assert_eq!(actual.keyframes.len(), 2, "Ease only retains authored keys");
+    assert_eq!(actual.keyframes[0].tween, Some(Easing::EaseIn));
+    assert_eq!(
+        actual.keyframes[0].elements,
+        before.symbols[0].timeline.layers[1].keyframes[0].elements
+    );
+    assert_eq!(
+        actual.keyframes[1],
+        before.symbols[0].timeline.layers[1].keyframes[1]
+    );
+    assert!(position(&editor, 1, "other", 10).0 < 125.);
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn paste_motion_special_dialog_none_cancel_enter_and_session_choices() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    let mut editor = styled_paste_editor();
+    let before = editor.project.clone();
+    let mut time = 0.;
+    let mut render = |editor: &mut Editor, events| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000., 800.),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| editor.paste_motion_special_dialog(ctx),
+        )
+    };
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    editor.open_paste_motion_special();
+    // The first modal pass measures its body; centering uses those dimensions on the next pass.
+    render(&mut editor, vec![]);
+    let output = render(&mut editor, vec![]);
+    let bounds = output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, n)| n.label() == Some("Select none"))
+        .and_then(|(_, n)| n.bounds())
+        .unwrap();
+    let at = egui::pos2(
+        ((bounds.x0 + bounds.x1) / 2.) as f32,
+        ((bounds.y0 + bounds.y1) / 2.) as f32,
+    );
+    render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(at),
+            crate::tests::primary_button(at, true),
+        ],
+    );
+    render(&mut editor, vec![crate::tests::primary_button(at, false)]);
+    let output = render(&mut editor, vec![]);
+    assert!(!editor.timeline_motion.paste_options.any());
+    assert!(
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("Paste"))
+            .unwrap()
+            .1
+            .is_disabled()
+    );
+    render(&mut editor, vec![key(egui::Key::Enter)]);
+    assert!(
+        editor.timeline_motion.paste_special_open,
+        "Enter cannot paste an empty choice"
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    render(&mut editor, vec![key(egui::Key::Escape)]);
+    assert!(!editor.timeline_motion.paste_special_open);
+    editor.open_paste_motion_special();
+    assert!(
+        !editor.timeline_motion.paste_options.any(),
+        "choices persist within the session"
+    );
+    editor.timeline_motion.paste_options.properties[0] = true;
+    render(&mut editor, vec![]);
+    render(&mut editor, vec![key(egui::Key::Enter)]);
+    assert!(!editor.timeline_motion.paste_special_open);
+    editor.project.validate().unwrap();
+    assert_ne!(editor.project, before);
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn paste_curved_motion_between_group_members_preserves_other_objects_and_undo() {
+    for (source_group, target_group) in [(false, true), (true, false), (true, true)] {
+        let mut editor = motion_editor();
+        let keys = &mut editor.project.symbols[0].timeline.layers[0].keyframes;
+        if source_group {
+            for key in keys.iter_mut() {
+                let (x, y) = match key.frame {
+                    0 => (-20., 10.),
+                    10 => (180., 10.),
+                    _ => (180., 110.),
+                };
+                key.elements.insert(0, instance("reference", "clip", x, y));
+            }
+        }
+        keys[0].motion_path = Some(if source_group {
+            vec![
+                PathCommand::MoveTo { x: -20., y: 10. },
+                PathCommand::CubicTo {
+                    cx1: 0.,
+                    cy1: 150.,
+                    cx2: 140.,
+                    cy2: 150.,
+                    x: 180.,
+                    y: 60.,
+                },
+                PathCommand::LineTo { x: 180., y: 110. },
+            ]
+        } else {
+            vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::CubicTo {
+                    cx1: 0.,
+                    cy1: 100.,
+                    cx2: 80.,
+                    cy2: 100.,
+                    x: 100.,
+                    y: 30.,
+                },
+                PathCommand::LineTo { x: 100., y: 60. },
+            ]
+        });
+        keys[0].orient_to_path = true;
+        keys[0].tween = Some(Easing::EaseIn);
+        if target_group {
+            editor.project.symbols[0].timeline.layers[1].keyframes[0]
+                .elements
+                .insert(0, instance("stationary", "clip", -40., 5.));
+        }
+        editor.project.upgrade_format_for_features();
+        editor.project.validate().unwrap();
+        editor.layer = 0;
+        editor.frame = 0;
+        select(&mut editor, "moving", "star");
+        editor.copy_motion();
+        editor.layer = 1;
+        select(&mut editor, "still", "other");
+        let before = editor.project.clone();
+        let source_origin = position(&editor, 0, "star", 0);
+        editor.paste_motion();
+        editor.project.validate().unwrap();
+        assert!(
+            editor.symbol().timeline.layers[1].keyframes[0]
+                .motion_path
+                .is_none()
+        );
+        for frame in 0..30 {
+            let source = position(&editor, 0, "star", frame);
+            let target = position(&editor, 1, "other", frame);
+            assert!((target.0 - (50. + source.0 - source_origin.0)).abs() < 1e-7);
+            assert!((target.1 - (50. + source.1 - source_origin.1)).abs() < 1e-7);
+            if target_group {
+                assert_eq!(position(&editor, 1, "stationary", frame), (-40., 5.));
+            }
+        }
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}

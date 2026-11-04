@@ -103,6 +103,7 @@ impl Editor {
     pub(crate) fn commit_history(&mut self) -> bool {
         self.history
             .commit_with(&mut self.project, |before, project| {
+                crate::timeline_motion_curve::rebase_motion_paths(before, project);
                 record_motion_property_keys(before, project);
                 project.prune_motion_guides();
                 project.upgrade_format_for_features();
@@ -683,33 +684,18 @@ impl Editor {
         });
     }
 
-    /// Add a shape hint (`Modify ▸ Shape ▸ Add Shape Hint`, `a`..=`z`) on the active shape tween start keyframe.
-    #[allow(dead_code)]
+    /// Add a shape hint to the active shape span, including its ending keyframe.
     pub(crate) fn add_shape_hint(&mut self) -> Option<char> {
         self.finish_edits();
+        if !self.can_add_shape_hint() {
+            self.message(
+                "Shape hints require a shape tween with artwork and at most 26 hints (a–z).",
+            );
+            return None;
+        }
+        let (key_idx, _) = self.shape_hint_span()?;
         let layer_idx = self.layer;
-        let frame = self.frame;
-        let layer = self.symbol().timeline.layers.get(layer_idx)?;
-        let key_idx = layer.keyframes.iter().position(|k| {
-            k.frame <= frame && {
-                let next_f = layer
-                    .keyframes
-                    .iter()
-                    .find(|n| n.frame > k.frame)
-                    .map(|n| n.frame)
-                    .unwrap_or(self.symbol().timeline.frame_count);
-                frame < next_f
-            }
-        })?;
-        let key = &layer.keyframes[key_idx];
-        if key.tween.is_none() || key.tween_kind != TweenKind::Shape {
-            self.message("Shape hints require an active shape tween span.");
-            return None;
-        }
-        if key.shape_hints.len() >= ShapeHint::MAX_HINTS {
-            self.message("A shape tween can have at most 26 shape hints (a–z).");
-            return None;
-        }
+        let key = &self.symbol().timeline.layers[layer_idx].keyframes[key_idx];
         let label = ('a'..='z').find(|&ch| !key.shape_hints.iter().any(|h| h.label == ch))?;
         let step = (key.shape_hints.len() as f64 + 1.0) / 27.0;
         let hint = ShapeHint {
@@ -718,54 +704,31 @@ impl Editor {
             end_uv: [step, 0.5],
         };
         self.transact_named("Add shape hint", |editor| {
-            if let Some(k) = editor
-                .symbol_mut()
-                .timeline
-                .layers
-                .get_mut(layer_idx)
-                .and_then(|l| l.keyframes.get_mut(key_idx))
-            {
-                k.shape_hints.push(hint);
-            }
+            editor.symbol_mut().timeline.layers[layer_idx].keyframes[key_idx]
+                .shape_hints
+                .push(hint);
         });
+        self.timeline_shape_hints.show = true;
         Some(label)
     }
 
-    /// Remove all shape hints from the active shape tween start keyframe (`Modify ▸ Shape ▸ Remove All Hints`).
-    #[allow(dead_code)]
+    /// Remove both endpoints of every hint on the current shape span in one Undo step.
     pub(crate) fn remove_shape_hints(&mut self) -> bool {
         self.finish_edits();
+        let Some((key_idx, _)) = self.shape_hint_span() else {
+            return false;
+        };
         let layer_idx = self.layer;
-        let frame = self.frame;
-        let Some(layer) = self.symbol().timeline.layers.get(layer_idx) else {
-            return false;
-        };
-        let Some(key_idx) = layer.keyframes.iter().position(|k| {
-            k.frame <= frame && {
-                let next_f = layer
-                    .keyframes
-                    .iter()
-                    .find(|n| n.frame > k.frame)
-                    .map(|n| n.frame)
-                    .unwrap_or(self.symbol().timeline.frame_count);
-                frame < next_f
-            }
-        }) else {
-            return false;
-        };
-        if layer.keyframes[key_idx].shape_hints.is_empty() {
+        if self.symbol().timeline.layers[layer_idx].keyframes[key_idx]
+            .shape_hints
+            .is_empty()
+        {
             return false;
         }
         self.transact_named("Remove shape hints", |editor| {
-            if let Some(k) = editor
-                .symbol_mut()
-                .timeline
-                .layers
-                .get_mut(layer_idx)
-                .and_then(|l| l.keyframes.get_mut(key_idx))
-            {
-                k.shape_hints.clear();
-            }
+            editor.symbol_mut().timeline.layers[layer_idx].keyframes[key_idx]
+                .shape_hints
+                .clear();
         });
         true
     }

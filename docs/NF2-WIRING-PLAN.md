@@ -331,7 +331,7 @@ and Play all scenes are done in the editor (W0.1); the shared `AuthoredPlayback`
 in format 7), moving ◆ keys horizontally in time in the Motion editor, Orient to path for motion tweens, Show path /
 Show frame dots (`TimelineView`), Sync graphic symbols (`Keyframe.sync_symbols`), Snap to motion guide
 (`Keyframe.snap_to_guide`), motion path on the stage, Motion editor (`panels/motion_editor.rs`), Properties — Motion
-tween (`panels/motion_tween.rs`), Copy / Paste motion. Open (§7.4): Bézier path editing (R-008 resolved), Paste motion special (R-006 resolved).
+tween (`panels/motion_tween.rs`), Copy / Paste motion and Paste motion special; Bézier segment/handle editing uses the approved R-008 painter. Add property in Motion editor remains open.
 Registry: `animation-motion-tween`, `animation-easing`.
 
 **W2.2 · Ease presets Bounce/Elastic + per-property curves (PP-01 rest)** — E-02 — **done** (§7.4 rows 1–2).
@@ -340,8 +340,7 @@ Registry: `animation-motion-tween`, `animation-easing`.
 Easing select, and `panels/motion_editor.rs` per-track `Ease` column. Registry: `animation-easing`.
 
 **W2.3 · Motion guides (TL-01, TL-13, DL-16 Guided)** — E-11 — **done** (§7) including the `Guided` type in the Layer
-properties modal dialog (`panels/layer_properties.rs`), except the Orient / Snap controls for guided classic tweens
-(design request needed; §7.4 row 5). Registry: `editor-layer-organization`.
+properties modal dialog (`panels/layer_properties.rs`) and classic Tween Orient / Snap controls (R-007). Registry: `editor-layer-organization`.
 
 **W2.4 · Scenes (TL-03, PP-08, ST-08, Insert ▸ Scene, Control ▸ Test scene / Play all scenes)** — E-16 — **done** (§7).
 `Project.scenes`, Scene select, Insert ▸ Scene, Scene panel, Play all scenes, `Control ▸ Test scene` (`⌥⌘↵`),
@@ -454,7 +453,7 @@ tests; Phase 3 last.
 
 Read this before touching the timeline. AGENTS.md › "Timeline engine" is the short version of §7.1–§7.3.
 
-### 7.1 Document model (formats 6–7, `crates/neoflash-core/src/model.rs`)
+### 7.1 Document model (formats 6–8, `crates/neoflash-core/src/model.rs`)
 
 | Field | Meaning |
 | --- | --- |
@@ -462,18 +461,20 @@ Read this before touching the timeline. AGENTS.md › "Timeline engine" is the s
 | `Keyframe.tween_kind: TweenKind` | `Classic` (default, omitted in JSON) interpolates poses of elements with the same ID; `Shape` morphs the layer's shapes; `Motion` = motion tween with property tracks. |
 | `Keyframe.keyed_properties: Option<Vec<TweenProperty>>` | `Some` marks a ◆ property keyframe inside a motion span. It stores a full pose, but only the listed properties (`X`, `Y`, `ScaleX`, `ScaleY`, `Rotation`, `Skew`, `Alpha`, `Color`) are keys. `None` = an ordinary keyframe that starts a new span. |
 | `Keyframe.property_eases: Vec<(TweenProperty, Easing)>` | Optional per-property ease overrides on a motion span's start keyframe (format 7); tracks without an override use `Keyframe.tween`. |
+| `Keyframe.motion_path: Option<Vec<PathCommand>>` | Format-8 open MoveTo + LineTo/CubicTo spatial curve on a motion start key. Arc length is sampled at eased X/Y track times; the first element anchors the path. |
+| `Keyframe.shape_hints: Vec<ShapeHint>` | Existing format-7 `{ label, start_uv, end_uv }` correspondence pairs; at most 26 labels a–z. |
 | `Keyframe.orient_to_path: bool` | Turn the tweened object with the path tangent. Evaluated for guided classic tweens (`sample_layer_in`, guide tangent) and motion tweens (`sample_motion`, X/Y track direction). |
 | `Keyframe.sync_symbols: bool` | Continuous Graphic symbol playback across a motion span and chained `sync_symbols` spans (format 7; `evaluate::placement_start` + `sync_layer_symbols`). |
-| `Keyframe.snap_to_guide: bool` | Snap a guided motion span's path endpoints to the linked guide stroke endpoints (format 7). |
+| `Keyframe.snap_to_guide: bool` | Snap a guided span's path endpoints to the linked guide stroke endpoints (motion: format 7; classic: format 8). |
 | `Keyframe.sound: Option<FrameSound>` | Frame sound: `resource` (an `audio/*` `ResourceUnit`), `sync` (`Event`/`Start`/`Stop`/`Stream`), `loops` (1–10 000), `loop_forever`, `effect` (Flash preset envelope or format-7 `SoundEffect::Custom`), `envelope: Option<Vec<[f64; 3]>>` (format-7 stereo `[position, left, right]` points, up to 8). A layer whose keys hold sounds and no artwork is shown as a Sound layer (derived, not stored). |
 | `LayerProperties.motion_guide: Option<Id>` | A `Normal` layer guided by a `LayerRole::Guide` layer of the same timeline. The guide's first stroke is the path. |
 | `Project.scenes: Vec<Id>` | Scene timelines in play order (MovieClip symbol IDs). Empty = one scene, `root`; otherwise `scenes[0] == root`. Scene symbols are not library items and are never instantiated. |
 | `Timeline.guides: Vec<Guide>` | Ruler guides (authoring only, stripped from HTML5). See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). |
 
-`Project::uses_format_6()` and `Project::uses_format_7()` detect these features; `upgrade_format_for_features()` raises
-`format_version` to 6 or 7 as needed; validation (`validation.rs`) accepts versions 1–7, rejects format-6/7 features in
-older versions, ◆ keys outside a motion span, `property_eases` / `sync_symbols` / `snap_to_guide` outside a motion span
-start key (or duplicate/unsorted entries), custom sound envelopes outside `1..=8` sorted finite `[0..=1]` stereo points,
+`Project::uses_format_6()`, `uses_format_7()` and `uses_format_8()` detect these features; `upgrade_format_for_features()` raises
+`format_version` to 6, 7 or 8 as needed; validation (`validation.rs`) accepts versions 1–8, rejects format-6/7/8 features in
+older versions, ◆ keys outside a motion span, `property_eases` outside a motion span start key or duplicate properties,
+invalid spatial paths and path placement, custom sound envelopes outside `1..=8` sorted finite `[0..=1]` stereo points,
 motion guides that do not point to a guide layer, scene lists whose first entry is not `root`, duplicate or
 non-MovieClip scenes, instances of scene symbols and frame sounds without an audio resource. Every new field is
 `#[serde(default, skip_serializing_if = …)]`, so documents that do not use it serialize as before.
@@ -526,8 +527,8 @@ sound collision or shortened Stream span is rejected before editing (`layer_cont
 ### 7.4 Remaining timeline work (task cards)
 
 Each row is one delivery unless grouped. Do not change visuals (§1); file a request when the design is missing. Every
-model change follows §1.7: serde default, one format bump per batch (current format is **7**: `uses_format_7` sits beside
-`uses_format_6`), validation, an old-document load test.
+model change follows §1.7: serde default, one format bump per batch (current format is **8**: `uses_format_8` sits beside
+`uses_format_6` and `uses_format_7`), validation, an old-document load test.
 
 | # | Work (spec) | Files to touch | Model change | Tests to add | Acceptance |
 | --- | --- | --- | --- | --- | --- |
@@ -535,15 +536,15 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 2 | ~~Per-property eases (PP-01 Property select, PP-02 Ease column, E-02/E-10)~~ | Done: format-7 `Keyframe.property_eases: Vec<(TweenProperty, Easing)>` on motion span start keyframes, `evaluate::sample_motion` per-track ease lookup, `panels/ease.rs` `Property` select + `One curve for all` and `panels/motion_editor.rs` per-track `Ease` column (`timeline_tweens.rs`, `timeline_panels_tests.rs`). | | | |
 | 3 | ~~Move keys in time in the Motion editor (PP-02)~~ | Done: `Editor::move_motion_key` + horizontal ◆ key dragging on `panels/motion_editor.rs` lanes retimes a single property's keyframe with `normalize_motion_keys` and one Undo step (`timeline_panels_tests.rs`). | | | |
 | 4 | ~~Orient to path for motion tweens~~ | Done: `sample_motion` turns the object with its X/Y track direction (test `motion_tween_orient_to_path_turns_with_the_direction_of_travel`). | | | |
-| 5 | Orient / Snap controls for guided classic tweens (TL-01, PR-10) | `panels/properties.rs` Tween section | none (`orient_to_path` exists; `Editor::set_orient_to_path` accepts any tweened span) | editor test toggling the control | Design ready (R-007 resolved): Rotate × + Direction row, then Orient to path / Snap to motion guide / Sync graphic symbols / Scale checkboxes; Orient and Snap enabled only on guided layers |
+| 5 | ~~Classic Orient / Snap controls~~ | Done: approved R-007 rows in frame Properties; flags enable only with a motion guide, one Undo (`timeline_panels_tests.rs`). Rotate/Direction, Sync and Scale remain disabled where unsupported. | | | |
 | 6 | ~~Show path / Show frame dots (PR-10)~~ | Done: `TimelineView { show_motion_path, show_motion_frame_dots }` in `workspace.rs` (default `true`), enabled checkboxes in `panels/motion_tween.rs` and conditional painting/hit-testing in `timeline_motion.rs` (`timeline_panels_tests.rs`, `timeline_motion_tests.rs`). | | | |
 | 7 | ~~Sync graphic symbols and Snap to motion guide options (PR-10)~~ | Done: format-7 `Keyframe.sync_symbols` (chained continuous Graphic playback in `evaluate::placement_start` + `sync_layer_symbols`) and `Keyframe.snap_to_guide` (guide endpoint snapping in `evaluate::sample_layer_in` + `snap_motion_span_to_guide`), enabled in `panels/motion_tween.rs` (`timeline_tweens.rs`, `timeline_motion_tests.rs`). | | | |
-| 8 | Paste motion special (MN-02, R-006) | after the design answer: new dialog, `timeline_motion.rs` (`paste_motion` with options) | none | `timeline_motion_tests.rs`: only the chosen properties change, one Undo | Design ready (R-006 resolved): dialog composed of existing NF2 components |
-| 9 | Bézier motion path editing (TL-05) | `timeline_motion.rs`, `evaluate.rs::sample_motion` (position along the path by arc length) | NEW `Keyframe.motion_path: Option<Vec<PathCommand>>` on the span start key; format 7 | core: position follows a curved path; editor: bending is one Undo | Dragging the path between keys bends it; handles use `canvas::paint_motion_handle` (R-008 resolved) |
-| 10 | Shape hints (TL-04, View ▸ Show shape hints ⌥⌘H, Modify ▸ Shape ▸ Add shape hint) | `model.rs`, `shape_tween.rs` (pin correspondence), `menu.rs`, `authoring_modify.rs`, stage overlay | NEW `Keyframe.shape_hints: Vec<ShapeHint { id, start: [f64; 2], end: [f64; 2] }>` on the start key; format 7 | core: hints pin the morph; editor: add/move/remove hint, one Undo | Markers use `canvas::paint_shape_hint` (R-009 resolved); hints change the in-between frames as in Flash |
+| 8 | ~~Paste motion special~~ | Done: R-006 dialog, property selection and relative scale/rotation options; unticked animation and surrounding content preserved by materializing affected spans, Ease-only keeps keys (`timeline_motion_tests.rs`). | | | |
+| 9 | ~~Bézier motion path editing~~ | Done: format-8 `motion_path`, shared arc-length sampler, segment bending, mirrored handles / Option corner gestures and Undo (`timeline_tweens.rs`, `timeline_motion_curve_tests.rs`, `wasm.test.cjs`). Range cuts/reverse bake curves. | | | |
+| 10 | ~~Shape hints~~ | Done: existing format-7 model wired to R-009 markers on current-layer endpoint keys; add/drag/offstage remove, Show shape hints and shortcuts (`timeline_shape_hints_tests.rs`). | | | |
 | 11 | ~~Edit envelope (DL-09)~~ | Done: format-7 `SoundEffect::Custom` + `FrameSound.envelope: Option<Vec<[f64; 3]>>` (`1..=8` stereo `[position, left, right]` points), modal `panels/edit_envelope.rs` (`EnvelopeLane`, time/frames unit, zoom, presets, Play/Stop, one Undo), native rodio preview and WASM/Web Audio scheduling (`timeline_sound.rs`, `web/tests/wasm.test.cjs`, `timeline_sound_tests.rs`). | | | |
 | 12 | ~~Sound properties (DL-08)~~ | Done: modal `panels/sound_properties.rs` opened from `Properties ▸ Sound ▸ Sound properties…` and Library audio menus for name, decoded audio stats, `Test`/`Stop` audition, `Update` and `Import…` byte replacement in one Undo step; export compression rows stay disabled with their hint (`panel_tests.rs`). | | | |
-| 13 | Decoded waveform peaks in Sound spans (TL-07, TL-13) | editor `timeline_sound.rs` (decode peaks once per resource), `panels/timeline.rs` | none | editor test: peaks cached per resource, not per repaint | Spans paint real peaks with `timeline::paint_sound_peaks` over `paint_span(SpanType::Sound)` (R-010 resolved) |
+| 13 | ~~Decoded waveform peaks~~ | Done: background decode/reduction, resource/zoom cache and real mono/stereo timeline/Sound Properties peaks (`timeline_sound_tests.rs`); scrubbing reuses cache. | | | |
 | 14 | ~~Legacy FLA frame sounds (`fla_frame_sound`, `fla_media_not_imported`)~~ | Done for PCM (`audio/wav`) and MP3 (`audio/mpeg`) streams + `CPicFrame` Event/Start/Stop/Stream sync, repeat/loop-forever and preset effects (`neoflash-import/src/legacy/{media,convert}.rs`, `tests/batch_import_capabilities.rs`); ADPCM/GSM/Nellymoser and custom multi-point envelopes/trim points keep located warnings. | | | |
 | 15 | ~~Edit multiple frames, rest (TL-08)~~ | Done: cross-keyframe selection (`selection.rs`, `stage_selection.rs`, including objects existing only on other keyframes in `onion_range`) and move/scale/rotate/skew across every keyframe in range in one Undo step (`timeline_commands.rs`, `timeline_commands_tests.rs`). Group requires current-keyframe members and diagnoses other-frame-only selections without mutation. | | | |
 | 16 | ~~Control ▸ Test scene ⌥⌘↵ (MN-01, E-16)~~ | Done: `Editor::test_scene_project` / `test_scene` (`app.rs`, `panels/menu.rs` `Control ▸ Test scene` and `⌥⌘↵`) exports and opens a single-scene clone rooted at `current_scene()` (`panel_tests.rs`). | | | |

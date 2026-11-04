@@ -51,6 +51,7 @@ mod menu;
 mod motion_editor;
 mod motion_tween;
 pub(crate) mod movie_explorer;
+mod paste_motion;
 pub(crate) mod planned;
 mod planned_color;
 mod planned_dialogs;

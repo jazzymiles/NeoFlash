@@ -4,7 +4,7 @@ Open-source authoring environment inspired by classic Macromedia/Adobe Flash, bu
 
 **Status: development preview, 0.1.0.** The authoring environment, timeline engine, vector toolset (including Object and Merge Drawing modes and boolean Combine Objects operations), ActionScript 1/2/3 and TypeScript/JavaScript compiler and runtime, portable HTML5/DOM export, and FLA (Flash 3–CS6), XFL, SWF and SWC import are working across the audited scope below. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The editor supports nested timelines, keyframes, classic, shape (with shape hints) and motion tweens, motion guides, scenes, timeline sounds with envelopes and trim windows, Object and Merge Drawing modes, boolean shape operations, filters and blend modes, frame/object scripts, embedded and system fonts, and standalone HTML5 or XFL export. The authoring workspace includes vector and alpha mask layers, guide and folder layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks with saved layouts, Movie Explorer, Find and Replace, Code Snippets, and a searchable Library with folders and previews. ActionScript 1/2/3 and JavaScript/TypeScript coverage is audited below; runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
+The editor supports nested timelines, keyframes, classic, shape (with shape hints) and motion tweens with editable Bézier paths and selective motion paste, motion guides, scenes, timeline sounds with decoded waveforms, envelopes and trim windows, Object and Merge Drawing modes, boolean shape operations, filters and blend modes, frame/object scripts, embedded and system fonts, and standalone HTML5 or XFL export. The authoring workspace includes vector and alpha mask layers, guide and folder layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks with saved layouts, Movie Explorer, Find and Replace, Code Snippets, and a searchable Library with folders and previews. ActionScript 1/2/3 and JavaScript/TypeScript coverage is audited below; runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 <!-- progress:start -->
 ## Where we are
@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 107 of 121 | 1 | 13 | 6 / 6 / 0 |
-| Timelines and animation | 72 of 75 | 1 | 2 | 7 / 3 / 0 |
+| Editor and graphics | 108 of 122 | 1 | 13 | 6 / 6 / 0 |
+| Timelines and animation | 73 of 76 | 1 | 2 | 7 / 3 / 0 |
 | HTML5 and interactivity | 80 of 81 | 0 | 1 | 11 / 1 / 0 |
 | Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 359 of 395 | 8 | 28 | 36 / 17 / 1 |
+| **All areas** | 361 of 397 | 8 | 28 | 36 / 17 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

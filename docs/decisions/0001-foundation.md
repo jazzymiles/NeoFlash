@@ -12,6 +12,8 @@ Use a Rust workspace with independent core, script, import, desktop, WebAssembly
 
 Keep generated files out of source control. Do not nest versioned project copies. Keep user-provided legacy files local unless publication rights and intent are separately established.
 
+Format evolution remains additive: optional fields are omitted when unused and feature detection upgrades the document only when needed. Spatial motion curves use format 8 (`Keyframe.motion_path`); their arc-length evaluation stays in Rust for native/HTML5 consistency. Range edits and XFL export may sample curves into frame poses, an explicit editable-geometry boundary.
+
 ## Consequences
 
 The first browser renderer is Canvas and is not yet sufficient for semantic responsive websites. Installed fonts are not automatically transferable to visitors. Full AS2/AS3 and binary FLA compatibility are separate large engineering tracks. A thin JS host is necessary for browser APIs and project JS/TS, despite Rust being the implementation language of the editor/core/compiler/exporter.

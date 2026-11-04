@@ -868,7 +868,7 @@
       "category": "editor",
       "title": "Layer organization",
       "status": "partial",
-      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Modify ▸ Timeline ▸ Distribute to layers (⇧⌘D) distributes multi-selected elements and authoring groups onto individual named layers at the current frame while inheriting folder/mask/guide relationships in one Undo step. The modal Layer properties dialog (Modify ▸ Timeline ▸ Layer properties…, layer menu Properties… and double-click on a layer icon) edits Name, Show/Lock, Type (Normal, Guide, Guided ↔ motion_guide, Mask, Masked ↔ mask and Folder), outline color + outlines toggle and row height in one Undo step. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published. Copying a guide with its guided layers relinks them to the copied guide. Layer merge preserves frame sound commands and guided poses.",
+      "scope": "Compact left-aligned layer names with row dividers and inline rename. Layer context menus provide visibility/locks, insert/delete, document-local copy/cut/paste/duplicate, merge and layer/group-to-symbol conversion. Modify ▸ Timeline ▸ Distribute to layers (⇧⌘D) distributes multi-selected elements and authoring groups onto individual named layers at the current frame while inheriting folder/mask/guide relationships in one Undo step. The modal Layer properties dialog (Modify ▸ Timeline ▸ Layer properties…, layer menu Properties… and double-click on a layer icon) edits Name, Show/Lock, Type (Normal, Guide, Guided ↔ motion_guide, Mask, Masked ↔ mask and Folder), outline color + outlines toggle and row height in one Undo step. Folders support child grouping, collapse, inherited visibility/locks and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published. Copying a guide with its guided layers relinks them to the copied guide. Layer merge preserves frame sound commands and guided poses. Classic Tween Properties enables Orient to path and Snap to motion guide on guided layers.",
       "limitations": "Orient to path turns guided objects in the editor and HTML5 but has no classic Tween Properties control yet; Armature layers, arbitrary multi-row selection and drag-to-reparent remain unfinished. Reordering preserves existing parent/mask IDs. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys. A merge that would collide sound commands or shorten a Stream span is rejected before editing.",
       "items": [
         {
@@ -935,6 +935,11 @@
           "id": "drag-reparent",
           "title": "Drag layers into folders",
           "status": "planned"
+        },
+        {
+          "id": "classic-snap-to-guide",
+          "title": "Snap classic tween endpoints to a motion guide",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1091,8 +1096,8 @@
       "category": "animation",
       "title": "Pose interpolation",
       "status": "partial",
-      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color/filter properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with either its own per-property ease (`Keyframe.property_eases` in format 7) or the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The selected motion-tweened instance shows its path on the stage with a dot per frame and ◆ key points (toggled via Show path / Show frame dots in workspace prefs); dragging a point moves that key (keys X and Y) with one Undo. The Motion editor shows each property track over the span (including X, Y, Scale X, Scale Y, Rotation Z, Skew and Color effect / Opacity), edits per-property eases, moves ◆ keys horizontally in time or vertically by value (one Undo per drag), adds or removes one property's ◆ key at the playhead and jumps between keys; Properties — Motion tween edits the span ease, rotation turns and direction, Orient to path, the path box, Show path / Show frame dots, Sync graphic symbols (`Keyframe.sync_symbols` in format 7) and Snap to motion guide (`Keyframe.snap_to_guide` in format 7). Copy motion records the classic or motion tween (including per-property eases) under the playhead; Paste motion animates the selected object the same way relative to its own pose.",
-      "limitations": "Paste motion special has no dialog design yet (R-006). The path is edited only at its key points (no Bézier path editing), and Add property in the Motion editor remains open.",
+      "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color/filter properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) target one symbol instance or text block: editing it inside the span creates a ◆ property keyframe that keys exactly the changed properties, F6 keys all of them, and each property interpolates on its own track with either its own per-property ease (`Keyframe.property_eases` in format 7) or the span ease. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The selected motion-tweened instance shows its path on the stage with a dot per frame and ◆ key points (toggled via Show path / Show frame dots in workspace prefs); dragging a point moves that key (keys X and Y) with one Undo. The Motion editor shows each property track over the span (including X, Y, Scale X, Scale Y, Rotation Z, Skew and Color effect / Opacity), edits per-property eases, moves ◆ keys horizontally in time or vertically by value (one Undo per drag), adds or removes one property's ◆ key at the playhead and jumps between keys; Properties — Motion tween edits the span ease, rotation turns and direction, Orient to path, the path box, Show path / Show frame dots, Sync graphic symbols (`Keyframe.sync_symbols` in format 7) and Snap to motion guide (`Keyframe.snap_to_guide` in format 7). Copy motion records the classic or motion tween (including per-property eases) under the playhead; Paste motion animates the selected object the same way relative to its own pose. Paste motion special chooses position, scale, rotation/skew, colour, filters, blend and ease, with relative scale/rotation overrides. Dragging a motion segment bends it; handles mirror by default, Option-drag breaks tangents and Option-click toggles corner/smooth. Curves use format-8 motion_path and shared Rust arc-length sampling.",
+      "limitations": "Selective paste materializes affected source/destination spans at integer frames to preserve unticked animation and surrounding content; Ease-only retains keys. Curved Copy/Paste between multi-object spans samples property keys to preserve unrelated artwork. Range cuts/reverse and XFL export bake curved motion into poses. Linked motion guides remain edited as guide artwork. Add property in the Motion editor remains open. In multi-object spans with independent relative movement, Bézier handles are edited through the first object; other objects retain position-key editing. Changing a multi-object curve reference can materialize poses to preserve surviving animation.",
       "items": [
         {
           "id": "identity-matching",
@@ -1131,7 +1136,7 @@
         },
         {
           "id": "motion-path-stage",
-          "title": "Editable motion path on the stage",
+          "title": "Edit motion paths and Bézier handles on the stage",
           "status": "working"
         },
         {
@@ -1142,7 +1147,7 @@
         {
           "id": "paste-motion-special",
           "title": "Paste motion special (choose properties)",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "motion-editor",
@@ -1158,6 +1163,11 @@
           "id": "orient-to-path",
           "title": "Orient to path",
           "status": "working"
+        },
+        {
+          "id": "motion-add-property",
+          "title": "Add another property track in the Motion editor",
+          "status": "planned"
         }
       ],
       "evidence": [
@@ -1166,7 +1176,9 @@
         "crates/neoflash-core/tests/core.rs",
         "crates/neoflash-core/tests/timeline_tweens.rs",
         "crates/neoflash-editor/src/timeline_commands_tests.rs",
-        "crates/neoflash-editor/src/timeline_motion_tests.rs"
+        "crates/neoflash-editor/src/timeline_motion_tests.rs",
+        "crates/neoflash-editor/src/timeline_motion_curve_tests.rs",
+        "web/tests/wasm.test.cjs"
       ]
     },
     {
@@ -1292,8 +1304,8 @@
       "category": "animation",
       "title": "Shape morphing",
       "status": "implemented",
-      "scope": "Shape tweens are a span kind (green) created from the Timeline controls, frame menu and Insert menu. Shapes pair by identity, then by order; rectangles, ovals and paths morph in parent space. Matching command structure interpolates exactly; different contours are resampled by arc length with start-point alignment, biased by authored `ShapeHint`s (`Modify ▸ Shape ▸ Add Shape Hint` `⇧⌘H` and `Remove All Hints`). Fills, strokes and compatible gradients interpolate. Unpaired shapes and contours shrink or grow from their centre. Evaluation is shared by the editor and HTML5.",
-      "limitations": "Contours pair by index, so very different contour counts or holes can morph unnaturally. Symbols, text and bitmaps on a shape-tweened layer hold still. Gradients of different kind or stop count switch at the midpoint.",
+      "scope": "Shape tweens are a span kind (green) created from the Timeline controls, frame menu and Insert menu. Shapes pair by identity, then by order; rectangles, ovals and paths morph in parent space. Matching command structure interpolates exactly; different contours are resampled by arc length with start-point alignment, biased by authored `ShapeHint`s (`Modify ▸ Shape ▸ Add Shape Hint` `⇧⌘H` and `Remove All Hints`). Fills, strokes and compatible gradients interpolate. Unpaired shapes and contours shrink or grow from their centre. Evaluation is shared by the editor and HTML5. View ▸ Show shape hints (⌥⌘H) controls the a–z markers; ⇧⌘H adds one, dragging snaps it to the first contour and dropping offstage removes it, with one Undo. Markers appear only on current-layer tween endpoint keys.",
+      "limitations": "Contours pair by index, so very different contour counts or holes can morph unnaturally. Symbols, text and bitmaps on a shape-tweened layer hold still. Gradients of different kind or stop count switch at the midpoint. Hint markers use normalized bounds of the first paired contour; the same correspondence applies to paired contours. Placement states are derived from the stored endpoints.",
       "items": [
         {
           "id": "matching-topology",
@@ -1307,7 +1319,7 @@
         },
         {
           "id": "shape-hints",
-          "title": "Shape hints",
+          "title": "Add, drag and remove shape hints on start/end keyframes",
           "status": "working"
         },
         {
@@ -1326,7 +1338,9 @@
         "crates/neoflash-core/tests/paths.rs",
         "README.md",
         "crates/neoflash-core/src/shape_tween.rs",
-        "crates/neoflash-editor/src/timeline_commands_tests.rs"
+        "crates/neoflash-editor/src/timeline_commands_tests.rs",
+        "crates/neoflash-editor/src/timeline_shape_hints_tests.rs",
+        "web/tests/wasm.test.cjs"
       ]
     },
     {
@@ -1464,8 +1478,8 @@
       "category": "animation",
       "title": "Audio and video synchronization",
       "status": "partial",
-      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, Test/Stop audition and Update/Import byte replacement in one Undo), coordinated stream stops and seeks; timeline video.",
-      "limitations": "Timeline video, Sound properties audio re-encoding at publish and timeline/envelope UI slots for decoded waveform backdrops and draggable trim handles (NF2 requests R-010, R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
+      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, Test/Stop audition and Update/Import byte replacement in one Undo), coordinated stream stops and seeks; timeline video. Timeline and Sound Properties spans paint decoded mono/stereo peaks from a background worker, reused by resource and zoom; scrolling, trim and repeat use cached data.",
+      "limitations": "Timeline video, Sound properties audio re-encoding at publish and Edit envelope waveform backdrops and draggable trim handles (NF2 request R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
       "items": [
         {
           "id": "timeline-audio",

@@ -751,6 +751,15 @@ fn motion_pose(
         let time = start.frame as f64 + easing(progress, ease) * length;
         interpolate_motion_property(&mut transform, start, properties, element, property, time);
     }
+    apply_motion_curve(
+        &mut transform,
+        start,
+        properties,
+        start.frame as f64
+            + easing(progress, effective_property_ease(start, TweenProperty::X)) * length,
+        start.frame as f64
+            + easing(progress, effective_property_ease(start, TweenProperty::Y)) * length,
+    );
     transform
 }
 
@@ -761,11 +770,145 @@ fn motion_pose_at_time(
     element: &Element,
     time: f64,
 ) -> Transform {
+    let mut transform = motion_pose_at_time_linear(start, properties, element, time);
+    apply_motion_curve(&mut transform, start, properties, time, time);
+    transform
+}
+
+fn motion_pose_at_time_linear(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+    time: f64,
+) -> Transform {
     let mut transform = element.transform;
     for property in TweenProperty::ALL {
         interpolate_motion_property(&mut transform, start, properties, element, property, time);
     }
     transform
+}
+
+/// Position-track waypoints without a spatial curve or temporal easing. These are the
+/// authoring anchors used to construct a motion path; non-position ◆ keys add no anchors.
+pub fn motion_path_waypoints(layer: &Layer, frame: u32, element_id: &str) -> Vec<(u32, [f64; 2])> {
+    let Some((start, properties, _)) = motion_span(layer, frame) else {
+        return vec![];
+    };
+    let Some(element) = start
+        .elements
+        .iter()
+        .find(|element| element.id == element_id)
+    else {
+        return vec![];
+    };
+    position_waypoints(start, &properties, element)
+}
+
+fn position_waypoints(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+) -> Vec<(u32, [f64; 2])> {
+    let mut points = vec![(start.frame, [element.transform.x, element.transform.y])];
+    for key in properties {
+        if key.keyed_properties.as_ref().is_some_and(|keys| {
+            keys.contains(&TweenProperty::X) || keys.contains(&TweenProperty::Y)
+        }) {
+            let pose = motion_pose_at_time_linear(start, properties, element, key.frame as f64);
+            points.push((key.frame, [pose.x, pose.y]));
+        }
+    }
+    points
+}
+
+/// Flatten one open spatial motion path, with cumulative arc lengths shared by editor and
+/// runtime. Invalid or excessively complex paths return `None`, never a truncated curve.
+pub fn motion_path_polyline(commands: &[PathCommand]) -> Option<GuidePath> {
+    let contour = crate::geometry::flatten_path(
+        commands,
+        crate::FlattenOptions {
+            tolerance: 0.05,
+            ..Default::default()
+        },
+    )
+    .ok()?
+    .into_iter()
+    .next()?;
+    if contour.closed || contour.points.len() < 2 {
+        return None;
+    }
+    Some(GuidePath::from_points(contour.points))
+}
+
+/// One line or cubic segment as an arc-length sampler, useful for motion-handle hit tests.
+pub fn motion_path_segment(start: [f64; 2], command: PathCommand) -> Option<GuidePath> {
+    motion_path_polyline(&[
+        PathCommand::MoveTo {
+            x: start[0],
+            y: start[1],
+        },
+        command,
+    ])
+}
+
+fn apply_motion_curve(
+    transform: &mut Transform,
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    x_time: f64,
+    y_time: f64,
+) {
+    let Some(commands) = &start.motion_path else {
+        return;
+    };
+    let Some(reference) = start.elements.first() else {
+        return;
+    };
+    let points = position_waypoints(start, properties, reference);
+    if points.len() < 2 {
+        return;
+    }
+    let Some(path) = motion_path_polyline(commands) else {
+        return;
+    };
+    // Initially one segment ends at each position key. If authoring inserts or removes a
+    // key later, project it onto the retained curve so the editable geometry is not lost.
+    let mut lengths = vec![0.];
+    if commands.len() == points.len() {
+        let mut previous = match commands[0] {
+            PathCommand::MoveTo { x, y } => [x, y],
+            _ => return,
+        };
+        for command in &commands[1..] {
+            let Some(segment) = motion_path_segment(previous, *command) else {
+                return;
+            };
+            lengths.push(lengths.last().unwrap() + segment.length());
+            previous = segment.point_at(segment.length());
+        }
+    } else {
+        lengths.extend(
+            points[1..points.len() - 1]
+                .iter()
+                .map(|(_, p)| path.nearest(*p)),
+        );
+        lengths.push(path.length());
+    }
+    let point_at_time = |time: f64| {
+        let i = points
+            .partition_point(|(frame, _)| (*frame as f64) <= time)
+            .saturating_sub(1);
+        if i + 1 >= points.len() {
+            return path.point_at(path.length());
+        }
+        let fraction =
+            ((time - points[i].0 as f64) / (points[i + 1].0 - points[i].0) as f64).clamp(0., 1.);
+        path.point_at(lerp(lengths[i], lengths[i + 1], fraction))
+    };
+    let base_x = motion_pose_at_time_linear(start, properties, reference, x_time).x;
+    let base_y = motion_pose_at_time_linear(start, properties, reference, y_time).y;
+    transform.x += point_at_time(x_time)[0] - base_x;
+    transform.y += point_at_time(y_time)[1] - base_y;
 }
 
 /// Sample a layer within its timeline: classic tweens (and motion tweens with
@@ -856,8 +999,16 @@ pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<El
         ) else {
             continue;
         };
-        let s0 = path.nearest([a.transform.x, a.transform.y]);
-        let s1 = path.nearest([b.transform.x, b.transform.y]);
+        let s0 = if key.snap_to_guide {
+            0.
+        } else {
+            path.nearest([a.transform.x, a.transform.y])
+        };
+        let s1 = if key.snap_to_guide {
+            path.length()
+        } else {
+            path.nearest([b.transform.x, b.transform.y])
+        };
         let s = lerp(s0, s1, t);
         let [x, y] = path.point_at(s);
         element.transform.x = x;
@@ -879,6 +1030,18 @@ pub struct GuidePath {
 }
 
 impl GuidePath {
+    fn from_points(points: Vec<[f64; 2]>) -> Self {
+        let mut lengths = vec![0.];
+        for pair in points.windows(2) {
+            let distance = (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
+            lengths.push(lengths.last().unwrap() + distance);
+        }
+        Self { points, lengths }
+    }
+
+    pub fn points(&self) -> &[[f64; 2]] {
+        &self.points
+    }
     pub fn length(&self) -> f64 {
         self.lengths.last().copied().unwrap_or(0.)
     }

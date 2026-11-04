@@ -622,6 +622,10 @@ impl Editor {
             self.frame_command_item(ui, label, &sc, cmd);
         }
         nf::menu_separator(ui);
+        if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion special…", "").clicked() {
+            self.open_paste_motion_special();
+            ui.close();
+        }
         let sel_all_sc = self.sc(C::EditTimelineSelectAllFrames);
         self.frame_command_item(ui, "Select all frames", &sel_all_sc, F::SelectAll);
         if menu_item_enabled(
@@ -752,7 +756,11 @@ impl Editor {
             self.open_view_settings();
             ui.close();
         }
-        Self::unavailable_item(ui, "Show shape hints", "⌥⌘H");
+        let mut show_hints = self.timeline_shape_hints.show;
+        if menu_toggle(ui, &mut show_hints, "Show shape hints", "⌥⌘H").changed() {
+            self.toggle_shape_hints();
+            ui.close();
+        }
     }
 
     /// Insert (§8).

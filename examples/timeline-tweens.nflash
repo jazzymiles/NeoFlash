@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 8,
   "name": "Timeline tweens and scenes",
   "width": 960,
   "height": 540,
@@ -103,7 +103,20 @@
                 ],
                 "tween": "linear",
                 "label": "",
-                "tween_kind": "shape"
+                "tween_kind": "shape",
+                "shape_hints": [
+                  {
+                    "label": "a",
+                    "start_uv": [
+                      0,
+                      0.5
+                    ],
+                    "end_uv": [
+                      0,
+                      0.5
+                    ]
+                  }
+                ]
               },
               {
                 "frame": 30,
@@ -175,7 +188,32 @@
                 ],
                 "tween": "linear",
                 "label": "",
-                "tween_kind": "motion"
+                "tween_kind": "motion",
+                "motion_path": [
+                  {
+                    "x": 300,
+                    "y": 140,
+                    "op": "move_to"
+                  },
+                  {
+                    "cx1": 400,
+                    "cy1": 65,
+                    "cx2": 510,
+                    "cy2": 120,
+                    "x": 600,
+                    "y": 220,
+                    "op": "cubic_to"
+                  },
+                  {
+                    "cx1": 690,
+                    "cy1": 320,
+                    "cx2": 700,
+                    "cy2": 300,
+                    "x": 600,
+                    "y": 300,
+                    "op": "cubic_to"
+                  }
+                ]
               },
               {
                 "frame": 16,

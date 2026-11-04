@@ -141,7 +141,7 @@ groups.
 ## 1. Timeline controls (`crates/neoflash-editor/src/panels/timeline_controls.rs`, `panels/timeline.rs`)
 
 **TL-01 · Add motion guide** — `timeline_layer_actions` · done
-- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Not yet: Orient / Snap controls for guided classic tweens (the classic Tween section has no slot — design request needed; wiring plan §7.4 row 5); drawing the path when the guide has no stroke is the author's step.
+- Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Classic Tween Properties exposes Orient / Snap only on guided layers (R-007); drawing the path when the guide has no stroke is the author's step.
 - Purpose: insert a classic motion guide layer above the current layer and make the current layer guided by it.
 - Behaviour: click → new layer `Guide: <name>` of type Motion Guide above the current layer; current layer indents
   under it. A stroke drawn on the guide is the path; classic tweens on guided layers follow it ("Snap to motion
@@ -174,26 +174,25 @@ groups.
   (bounded); legacy one-scene documents load unchanged.
 
 **TL-04 · Shape tween** — `timeline_frame_tools` (tween group, item 2) · done
-- Done: `Keyframe.tween_kind = Shape`; general morph in `neoflash_core::shape_tween` (different contours, rect/oval/path, gradients); diagnostic when a keyframe lacks shapes. Not yet: shape hints.
+- Done: `Keyframe.tween_kind = Shape`; general morph in `neoflash_core::shape_tween` (different contours, rect/oval/path, gradients); diagnostic when a keyframe lacks shapes. Shape hint markers are wired to the existing correspondence model (R-009).
 - Purpose: morph raw shapes between two keyframes (green span, `timeline/shape-tween`).
 - Behaviour: enabled on a keyframe whose layer holds shapes (paths, rectangles, ovals) in this and the next keyframe;
   click toggles a shape tween. Mixed content or symbols → diagnostic "Shape tweens need shapes on both keyframes".
-  Shape hints (View ▸ Show shape hints, Modify ▸ Shape ▸ Add shape hint) later.
-- Data: `Keyframe.tween_kind: TweenKind { Classic, Shape, Motion }` qualifies `Keyframe.tween`; shape hints would be
-  **NEW** (`Keyframe.shape_hints`, wiring plan §7.4 row 10).
+  Shape hints (View ▸ Show shape hints ⌥⌘H, Modify ▸ Shape ▸ Add shape hint ⇧⌘H) are draggable on endpoint keys; offstage drop removes a hint.
+- Data: `Keyframe.tween_kind: TweenKind { Classic, Shape, Motion }` qualifies `Keyframe.tween`; shape hints use existing format-7 `Keyframe.shape_hints: Vec<ShapeHint { label, start_uv, end_uv }>` (up to 26).
 - Depends on: engine — contour correspondence for differing topology (done in `shape_tween.rs`); span colour per kind.
 - Acceptance: shape tween marker renders green with arrow; paths with matching and differing topology morph; a
   keyframe without shapes produces an explanation instead of a jump.
 
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
-- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease or per-property ease overrides (`Keyframe.property_eases` in format 7, `evaluate::sample_motion`), Orient to path along the X/Y track direction, continuous Graphic symbol playback (`Keyframe.sync_symbols`), and guide endpoint snapping (`Keyframe.snap_to_guide`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005; `TimelineView { show_motion_path, show_motion_frame_dots }`) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Properties — Motion tween (PR-10) is done and Motion editor (PP-02) is partial. Not yet: Bézier path editing between keys, Paste motion special (R-006; wiring plan §7.4 rows 8–9).
+- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease or per-property ease overrides (`Keyframe.property_eases` in format 7, `evaluate::sample_motion`), Orient to path along the X/Y track direction, continuous Graphic symbol playback (`Keyframe.sync_symbols`), and guide endpoint snapping (`Keyframe.snap_to_guide`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005; `TimelineView { show_motion_path, show_motion_frame_dots }`) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Properties — Motion tween (PR-10) is done and Motion editor (PP-02) is partial. Bézier segment/handle editing and Paste motion special are available (R-006/R-008). Selective paste materializes affected spans to preserve unticked animation; range cuts/reverse bake curved paths.
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
 - Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
   later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
   Motion tween (PR-10). Non-symbol content → offer Convert to Symbol (F8) or a diagnostic.
 - Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties`, `property_eases`,
   `sync_symbols`, `snap_to_guide` (tracks are derived from them, not stored separately).
-- Depends on: engine (done for tracks, per-property eases, orient, sync and snap; Bézier path curves open).
+- Depends on: engine (done for tracks, per-property eases, orient, sync, snap and format-8 Bézier paths).
 - Acceptance: create/remove with one Undo each; ◆ markers render; X/Y/rotation/scale/alpha tracks interpolate
   independently in editor and HTML5; classic tweens unchanged.
 
@@ -208,7 +207,7 @@ groups.
 - Acceptance: enabled only inside a tween; opens Ease showing the keyframe's current curve.
 
 **TL-07 · Sound** — `timeline_frame_tools` · done
-- Done: menu of library sounds + Import sound… (MP3/WAV) sets the current span's keyframe sound (default Event) as one Undo and selects that frame so Properties shows Sound; Sound layers with Sound spans (the span painter's waveform is decorative, not decoded peaks); Event/Start/Stop/Stream in HTML5 and in editor playback (rodio). Scrubbing is silent (documented limit).
+- Done: menu of library sounds + Import sound… (MP3/WAV) sets the current span's keyframe sound (default Event) as one Undo and selects that frame so Properties shows Sound; Sound layers with Sound spans (real decoded mono/stereo peaks, cached by resource and zoom off the UI thread); Event/Start/Stop/Stream in HTML5 and in editor playback (rodio). Scrubbing is silent (documented limit).
 - Purpose: attach a library sound to the current keyframe (sound layer) and open Properties — Sound.
 - Behaviour: menu of library sounds + "Import sound…"; choosing one sets the keyframe's sound (default Sync Event).
 - Data: `Keyframe.sound: Option<FrameSound>` referencing an `audio/*` `ResourceUnit` (decision 0037).
@@ -507,7 +506,7 @@ its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exac
 - Purpose: clickable thumbnail strip to pick the first frame. Depends on: editor (thumbnails as TL-10).
 
 **PR-08 · Properties — Sound (frame)** — `panels/properties_sound.rs` · partial
-- Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets + Custom, `Envelope…` opening the modal `Edit envelope` dialog (`panels/edit_envelope.rs`, DL-09; format-7 `SoundEffect::Custom` + `FrameSound.envelope`), Sync, Repeat/Loop + count, file info, Play (native preview), and `Sound properties…` opening the modal `Sound properties` dialog (`panels/sound_properties.rs`, DL-08). Not yet: the waveform is the decorative span painter (wiring plan §7.4 row 13).
+- Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets + Custom, `Envelope…` opening the modal `Edit envelope` dialog (`panels/edit_envelope.rs`, DL-09; format-7 `SoundEffect::Custom` + `FrameSound.envelope`), Sync, Repeat/Loop + count, file info, Play (native preview), and `Sound properties…` opening the modal `Sound properties` dialog (`panels/sound_properties.rs`, DL-08). Real decoded peaks are shared with the timeline; Edit envelope waveform/trim UI still awaits R-016.
 - Controls: Label name/type; sound file select; Effect (None, Left/Right channel, Fade left→right / right→left, Fade in,
   Fade out, Custom) + Envelope… (DL-09); Sync Event / Start / Stop / Stream; Repeat / Loop + count; waveform; file info;
   Play; Sound properties… (DL-08).
@@ -851,7 +850,7 @@ unclear.
 | --- | --- | --- |
 | File | Open recent, Close, Revert, Print… (disabled); Export ▸ image / video / audio and Publish settings… ⇧F12 open planned previews | editor (recent/revert); DL-03/04–06 |
 | Edit | Find and replace ⌘F, Preferences… ⌘U, Keyboard shortcuts… (planned previews). Done: Timeline ▸ (Cut/Copy/Paste/Clear/Remove/Select all/Reverse frames, Synchronise symbols), Edit symbols ⌘E, Edit selected, Edit in place | DL-13; DL-01 |
-| View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (disabled); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
+| View | Preview mode ▸, Snapping ▸, Show shape hints ⌥⌘H (working); Pasteboard ⇧⌘W is shown checked but disabled (hiding the pasteboard is not available) | editor; ST-04 / R-003; TL-04 shape hints |
 | Insert | — (Layer, Layer folder, Motion guide, Classic / Shape / Motion tween and Scene work) | — |
 | Modify | Bitmap ▸, Symbol ▸, Shape ▸ (disabled). Done: Document… ⌘J, Combine objects ▸ (Union, Intersect, Punch, Crop), Timeline ▸ Distribute to layers ⇧⌘D, Layer properties…, Reverse frames, Synchronise symbols, Convert to (blank) keyframes | PR-06; LI-01 |
 | Control | Enable simple buttons ⌥⌘B (disabled). Done: Test scene ⌥⌘↵, Go to end, step `.` `,`, Loop playback, Play all scenes, Mute sounds ⌥⌘M | editor button preview |

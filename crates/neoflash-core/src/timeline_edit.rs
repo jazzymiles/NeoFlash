@@ -553,6 +553,7 @@ fn isolate_range_impl(
                         .is_some());
                 if (all_linear || can_subdivide_nonlinear)
                     && original.properties.motion_guide.is_none()
+                    && first_key.motion_path.is_none()
                 {
                     let mut replacement = Vec::new();
                     if first < cut_start {
@@ -1222,6 +1223,21 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 // Tweens crossing either boundary are baked; tweens inside are kept.
                 bake_touched(timeline, &mut layer, range.start, range.start, &mut budget)?;
                 bake_touched(timeline, &mut layer, last, last, &mut budget)?;
+                // Motion curves fully inside the range also need sampled poses before
+                // reversing; merely reversing their keys would replace the curve by chords.
+                let curved_spans: Vec<_> = layer
+                    .keyframes
+                    .iter()
+                    .filter(|key| key.motion_path.is_some())
+                    .filter_map(|key| {
+                        motion_span(&layer, key.frame)
+                            .map(|(_, _, end)| (key.frame, end.unwrap_or(last)))
+                    })
+                    .filter(|(start, end)| *start < last && *end > range.start)
+                    .collect();
+                for (start, end) in curved_spans {
+                    bake_touched(timeline, &mut layer, start, end, &mut budget)?;
+                }
                 let original = layer.clone();
                 for frame in [range.start, last - 1, last] {
                     split(timeline, &mut layer, frame);

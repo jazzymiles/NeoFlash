@@ -118,7 +118,28 @@ impl Editor {
                     });
                 });
                 let (span, _) = ui.allocate_exact_size(egui::vec2(w, 27.0), egui::Sense::hover());
-                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
+                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Static, true);
+                let peaks = self
+                    .timeline_audio
+                    .waveform_peaks(&self.project, &sound.resource, w.ceil() as usize, ui.ctx())
+                    .ok()
+                    .flatten();
+                let lanes = peaks.map_or_else(Vec::new, |peaks| {
+                    let start = sound.in_point.unwrap_or(0.).clamp(0., peaks.duration);
+                    let end = sound
+                        .out_point
+                        .unwrap_or(peaks.duration)
+                        .clamp(start, peaks.duration);
+                    crate::timeline_sound::visible_waveform_columns(
+                        &peaks,
+                        &sound,
+                        (end - start) / f64::from(w.max(1.)),
+                        0.,
+                        w.ceil() as usize,
+                    )
+                });
+                let channels: Vec<_> = lanes.iter().map(Vec::as_slice).collect();
+                tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &channels);
                 caption(ui, &info);
                 ui.horizontal(|ui| {
                     if ui.add(c::Button::ghost("Play").icon(i16::PLAY)).clicked() {
@@ -164,8 +185,11 @@ impl Editor {
             .find(|unit| unit.id == sound.resource)
             .map_or(0, |unit| unit.byte_len());
         let size = format!("{:.1} kB", bytes as f64 / 1000.0);
-        match self.timeline_audio.decoded(&self.project, &sound.resource) {
-            Ok(decoded) => format!(
+        match self
+            .timeline_audio
+            .decoded_if_ready(&self.project, &sound.resource)
+        {
+            Some(Ok(decoded)) => format!(
                 "{} kHz · {} · {:.1} s · {size}",
                 f64::from(decoded.rate()) / 1000.0,
                 if decoded.channels() == 1 {
@@ -175,7 +199,8 @@ impl Editor {
                 },
                 decoded.duration()
             ),
-            Err(_) => format!("Not decodable for preview · {size}"),
+            Some(Err(_)) => format!("Not decodable for preview · {size}"),
+            None => size,
         }
     }
 }

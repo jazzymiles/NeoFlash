@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=7) {
+    if !matches!(project.format_version, 1..=8) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1, 2, 3, 4, 5, 6 and 7",
+                "unsupported version {}; supported versions are 1 through 8",
                 project.format_version
             ),
         );
@@ -80,6 +80,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add(
             "format_version".into(),
             "parametric shape options, custom transformation points, Bounce/Elastic and per-property eases, motion sync/snap options, custom sound envelopes or trim points, merge-drawing shapes, and authored display filters/blending/visibility require document version 7"
+                .into(),
+        );
+    }
+    if project.uses_format_8() && project.format_version < 8 {
+        add(
+            "format_version".into(),
+            "editable motion paths and classic guide endpoint snapping require document version 8"
                 .into(),
         );
     }
@@ -522,6 +529,38 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             );
                         }
                         check_easing(ease, format!("{kp}.property_eases[{pi}]"), &mut add);
+                    }
+                }
+                if let Some(commands) = &key.motion_path {
+                    if !(key.tween.is_some()
+                        && key.tween_kind == TweenKind::Motion
+                        && key.keyed_properties.is_none()
+                        && !key.elements.is_empty())
+                    {
+                        add(
+                            format!("{kp}.motion_path"),
+                            "a motion path requires a nonempty motion tween start keyframe".into(),
+                        );
+                    }
+                    if commands.len() < 2
+                        || !matches!(commands.first(), Some(PathCommand::MoveTo { .. }))
+                        || commands[1..].iter().any(|command| {
+                            !matches!(
+                                command,
+                                PathCommand::LineTo { .. } | PathCommand::CubicTo { .. }
+                            )
+                        })
+                    {
+                        add(format!("{kp}.motion_path"),
+                            "a motion path must be one open MoveTo followed by LineTo/CubicTo segments".into());
+                    }
+                    if let Err(error) = validate_path_commands(commands) {
+                        add(format!("{kp}.motion_path"), error.to_string());
+                    } else if motion_path_polyline(commands).is_none() {
+                        add(
+                            format!("{kp}.motion_path"),
+                            "motion path exceeds the supported curve sampling limits".into(),
+                        );
                     }
                 }
                 if !key.shape_hints.is_empty() {

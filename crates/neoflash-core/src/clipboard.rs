@@ -148,6 +148,18 @@ impl ClipboardPayload {
     /// version. Inference must include top-level placements, not just symbols.
     fn document_version(&self) -> u32 {
         if self
+            .symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| {
+                key.motion_path.is_some()
+                    || (key.snap_to_guide && key.tween_kind == TweenKind::Classic)
+            })
+        {
+            return 8;
+        }
+        if self
             .elements
             .iter()
             .chain(self.symbols.iter().flat_map(symbol_elements))
@@ -815,6 +827,7 @@ fn check_budgets(payload: &ClipboardPayload) -> Result<(), ClipboardError> {
             keys = keys.saturating_add(layer.keyframes.len());
             for key in &layer.keyframes {
                 elements = elements.saturating_add(key.elements.len());
+                commands = commands.saturating_add(key.motion_path.as_ref().map_or(0, Vec::len));
             }
         }
     }

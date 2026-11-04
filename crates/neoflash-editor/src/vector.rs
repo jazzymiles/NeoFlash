@@ -840,6 +840,9 @@ impl Editor {
         }
     }
     pub(crate) fn finish_edits(&mut self) {
+        self.finish_shape_hint_drag(false);
+        self.finish_motion_curve_drag();
+        self.finish_motion_key_drag();
         self.authoring_tools.cancel();
         self.finish_property_edit();
         self.finish_selection_gesture();
@@ -861,6 +864,8 @@ impl Editor {
         self.vector = Default::default();
     }
     pub(crate) fn cancel_edits(&mut self) {
+        self.cancel_shape_hint_drag();
+        self.cancel_motion_drags();
         self.authoring_tools.cancel();
         self.finish_property_edit();
         self.cancel_selection_gesture();

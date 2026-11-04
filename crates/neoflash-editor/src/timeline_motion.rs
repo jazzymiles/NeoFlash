@@ -13,6 +13,33 @@ pub(crate) struct MotionState {
     pub drag: Option<MotionKeyDrag>,
     /// Frame of the key point under the pointer (Hover state).
     pub hover: Option<u32>,
+    pub curve_drag: Option<crate::timeline_motion_curve::CurveDrag>,
+    pub curve_hover: Option<crate::timeline_motion_curve::CurveTarget>,
+    pub curve_selected: Option<usize>,
+    pub paste_special_open: bool,
+    pub paste_options: PasteMotionOptions,
+}
+
+/// Session choices from the approved Paste motion special dialog (R-006).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PasteMotionOptions {
+    pub properties: [bool; 9],
+    pub preserve_scale: bool,
+    pub preserve_rotation: bool,
+}
+impl Default for PasteMotionOptions {
+    fn default() -> Self {
+        Self {
+            properties: [true; 9],
+            preserve_scale: false,
+            preserve_rotation: false,
+        }
+    }
+}
+impl PasteMotionOptions {
+    pub fn any(&self) -> bool {
+        self.properties.iter().any(|v| *v)
+    }
 }
 
 /// One copied tween: its kind and ease, and the poses of one object at the span keys.
@@ -28,6 +55,10 @@ pub(crate) struct MotionClip {
     keys: Vec<MotionKey>,
     /// Pose shown on the last frame of a motion span (held after it).
     hold: Transform,
+    source: Timeline,
+    source_layer: usize,
+    source_start: u32,
+    source_element: Id,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -47,7 +78,7 @@ pub(crate) struct MotionKeyDrag {
     /// Key position before the drag and pointer press, in timeline coordinates.
     start: [f64; 2],
     press: [f64; 2],
-    began: bool,
+    pub(crate) began: bool,
 }
 
 /// The motion tween path of the selected object in timeline coordinates.
@@ -182,6 +213,10 @@ impl Editor {
                 length: end - start.frame,
                 keys,
                 hold,
+                source: timeline.clone(),
+                source_layer: self.layer,
+                source_start: start.frame,
+                source_element: id,
             });
         }
         let key = layer
@@ -224,6 +259,10 @@ impl Editor {
                 },
             ],
             hold: last,
+            source: timeline.clone(),
+            source_layer: self.layer,
+            source_start: key.frame,
+            source_element: id,
         })
     }
 
@@ -258,7 +297,7 @@ impl Editor {
     /// replaced; the rest of the layer keeps its content. One Undo step.
     pub(crate) fn paste_motion(&mut self) {
         self.finish_edits();
-        let Some(clip) = self.timeline_motion.clipboard.clone() else {
+        let Some(mut clip) = self.timeline_motion.clipboard.clone() else {
             self.message("Copy motion from a tween first.");
             return;
         };
@@ -267,6 +306,51 @@ impl Editor {
             return;
         }
         let (index, id) = self.selected_object().unwrap();
+        let source_start = clip.source.layers[clip.source_layer].key_at(clip.source_start);
+        let has_curve = source_start.is_some_and(|key| key.motion_path.is_some());
+        let source_group = source_start.is_some_and(|key| key.elements.len() > 1);
+        let target_group = self.symbol().timeline.layers[index]
+            .keyframes
+            .iter()
+            .any(|key| key.elements.len() > 1);
+        if has_curve && (source_group || target_group) {
+            if clip.length > 10_000 {
+                self.message("The pasted motion exceeds the 10,000-frame timeline limit.");
+                return;
+            }
+            // A stored curve is shared by the whole span, relative to its first element.
+            // Copying one member of a group instead records that member's visible poses;
+            // otherwise the shared displacement would also move unrelated target objects.
+            let mut keys = Vec::with_capacity(clip.length as usize);
+            for offset in 0..clip.length {
+                let Some(element) = sample_layer_in(
+                    &clip.source,
+                    &clip.source.layers[clip.source_layer],
+                    clip.source_start + offset,
+                )
+                .into_iter()
+                .find(|element| element.id == clip.source_element) else {
+                    continue;
+                };
+                keys.push(MotionKey {
+                    offset,
+                    keyed: (offset > 0).then(|| TweenProperty::ALL.to_vec()),
+                    pose: element.transform,
+                });
+            }
+            if let Some(last) = keys.last() {
+                clip.hold = last.pose;
+            }
+            clip.keys = keys;
+            // The poses already contain easing and orientation; do not apply either twice.
+            clip.ease = Easing::Linear;
+            clip.property_eases.clear();
+            clip.orient_to_path = false;
+            clip.source.layers[clip.source_layer]
+                .key_at_mut(clip.source_start)
+                .unwrap()
+                .motion_path = None;
+        }
         let at = self.frame;
         let end = at + clip.length;
         self.transact(|s| {
@@ -316,6 +400,42 @@ impl Editor {
                         vec![]
                     };
                     key.orient_to_path = clip.orient_to_path;
+                    key.motion_path = clip.source.layers[clip.source_layer]
+                        .key_at(clip.source_start)
+                        .and_then(|k| k.motion_path.clone())
+                        .map(|mut path| {
+                            let first = &clip.source.layers[clip.source_layer]
+                                .key_at(clip.source_start)
+                                .unwrap()
+                                .elements[0]
+                                .transform;
+                            let delta = [target.x - first.x, target.y - first.y];
+                            for command in &mut path {
+                                match command {
+                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                                        *x += delta[0];
+                                        *y += delta[1];
+                                    }
+                                    PathCommand::CubicTo {
+                                        cx1,
+                                        cy1,
+                                        cx2,
+                                        cy2,
+                                        x,
+                                        y,
+                                    } => {
+                                        *cx1 += delta[0];
+                                        *cy1 += delta[1];
+                                        *cx2 += delta[0];
+                                        *cy2 += delta[1];
+                                        *x += delta[0];
+                                        *y += delta[1];
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            path
+                        });
                     key.keyed_properties = None;
                 } else if clip.kind == TweenKind::Motion {
                     key.tween = Some(clip.ease);
@@ -348,6 +468,218 @@ impl Editor {
             }
             layer.normalize_motion_keys();
             timeline.frame_count = timeline.frame_count.max(needed);
+        });
+    }
+
+    pub(crate) fn open_paste_motion_special(&mut self) {
+        if self.can_paste_motion() {
+            self.finish_edits();
+            self.timeline_motion.paste_special_open = true;
+        }
+    }
+
+    /// Selective paste samples both animations before changing the destination. Materialized
+    /// frames preserve every unticked animated property, other objects, labels, scripts and sounds.
+    /// This also keeps different source/target eases and guide trajectories exact at frame times.
+    pub(crate) fn paste_motion_special(&mut self, options: &PasteMotionOptions) {
+        if !options.any() || !self.can_paste_motion() {
+            return;
+        }
+        self.finish_edits();
+        let clip = self.timeline_motion.clipboard.clone().unwrap();
+        let (index, id) = self.selected_object().unwrap();
+        let at = self.frame;
+        let target_timeline = self.symbol().timeline.clone();
+        let original = &target_timeline.layers[index];
+        // Ease alone edits the existing span's timing without replacing its authored poses.
+        if !options.properties[..8].iter().any(|chosen| *chosen) {
+            let key = motion_span(original, at)
+                .map(|(start, _, _)| start)
+                .or_else(|| original.key_at(at).filter(|key| key.tween.is_some()));
+            let Some(key) = key else {
+                self.message("Select a tweened target frame to paste only its ease.");
+                return;
+            };
+            let start = key.frame;
+            self.transact_named("Paste motion special", |s| {
+                let key = s.symbol_mut().timeline.layers[index]
+                    .keyframes
+                    .iter_mut()
+                    .find(|key| key.frame == start)
+                    .unwrap();
+                key.tween = Some(clip.ease);
+                key.property_eases = if key.tween_kind == TweenKind::Motion {
+                    clip.property_eases.clone()
+                } else {
+                    vec![]
+                };
+            });
+            return;
+        }
+        let last_offset = if clip.kind == TweenKind::Motion {
+            clip.length.saturating_sub(1)
+        } else {
+            clip.length
+        };
+        let Some(paste_end) = at.checked_add(last_offset).filter(|v| *v < 10000) else {
+            self.message("The pasted motion exceeds the 10,000-frame timeline limit.");
+            return;
+        };
+        let Some(target) = sample_layer_in(&target_timeline, original, at)
+            .into_iter()
+            .find(|e| e.id == id)
+        else {
+            return;
+        };
+        let mut source = clip.source.clone();
+        // Ease unchecked uses the destination span's ease for the copied property changes.
+        if !options.properties[8] {
+            let target_key = motion_span(original, at)
+                .map(|(start, _, _)| start)
+                .or_else(|| original.key_at(at));
+            for key in &mut source.layers[clip.source_layer].keyframes {
+                if key.tween.is_some() {
+                    key.tween = Some(target_key.and_then(|k| k.tween).unwrap_or(Easing::Linear));
+                    key.property_eases = if key.tween_kind == TweenKind::Motion {
+                        target_key
+                            .map(|k| k.property_eases.clone())
+                            .unwrap_or_default()
+                    } else {
+                        vec![]
+                    };
+                }
+            }
+        }
+        // Splitting a target tween would change its easing before/after the pasted interval.
+        // Materialize just the intersected target spans as well, preserving every displayed pose
+        // (including other objects and non-cubic eases) outside the selected interval.
+        let target_span = |frame| {
+            if let Some((start, _, end)) = motion_span(original, frame) {
+                Some((start.frame, end.unwrap_or(target_timeline.frame_count)))
+            } else {
+                original
+                    .key_at(frame)
+                    .filter(|key| key.tween.is_some())
+                    .map(|key| {
+                        let end = original
+                            .keyframes
+                            .iter()
+                            .filter(|next| next.frame > key.frame)
+                            .map(|key| key.frame)
+                            .min()
+                            .unwrap_or(target_timeline.frame_count);
+                        (key.frame, end)
+                    })
+            }
+        };
+        let bake_start = target_span(at).map_or(at, |(start, _)| start);
+        let bake_end = target_span(paste_end)
+            .map_or(paste_end, |(_, end)| paste_end.max(end.saturating_sub(1)));
+        let first = clip.keys[0].pose;
+        let mut keys = Vec::new();
+        for frame in bake_start..=bake_end {
+            let mut key = original
+                .keyframes
+                .iter()
+                .find(|k| k.frame == frame)
+                .cloned()
+                .unwrap_or_else(|| sampled_key(&target_timeline, original, frame));
+            key.elements = sample_layer_in(&target_timeline, original, frame);
+            if (at..=paste_end).contains(&frame)
+                && let Some(copied) = sample_layer_in(
+                    &source,
+                    &source.layers[clip.source_layer],
+                    clip.source_start + frame - at,
+                )
+                .into_iter()
+                .find(|e| e.id == clip.source_element)
+            {
+                let mut element = key
+                    .elements
+                    .iter()
+                    .find(|e| e.id == id)
+                    .cloned()
+                    .unwrap_or_else(|| target.clone());
+                let delta = relative(&first, &copied.transform, &target.transform);
+                let p = &options.properties;
+                if p[0] {
+                    element.transform.x = delta.x;
+                }
+                if p[1] {
+                    element.transform.y = delta.y;
+                }
+                if p[2] {
+                    element.transform.scale_x = if options.preserve_scale {
+                        delta.scale_x
+                    } else {
+                        copied.transform.scale_x
+                    };
+                }
+                if p[3] {
+                    element.transform.scale_y = if options.preserve_scale {
+                        delta.scale_y
+                    } else {
+                        copied.transform.scale_y
+                    };
+                }
+                if p[4] {
+                    element.transform.rotation = if options.preserve_rotation {
+                        delta.rotation
+                    } else {
+                        copied.transform.rotation
+                    };
+                    element.transform.skew = if options.preserve_rotation {
+                        delta.skew
+                    } else {
+                        copied.transform.skew
+                    };
+                }
+                if p[5] {
+                    element.transform.alpha = copied.transform.alpha;
+                    element.transform.color_transform = copied.transform.color_transform;
+                }
+                if p[6] {
+                    element.filters = copied.filters;
+                }
+                if p[7] {
+                    element.blend_mode = copied.blend_mode;
+                }
+                if let Some(existing) = key.elements.iter_mut().find(|e| e.id == id) {
+                    *existing = element;
+                } else {
+                    key.elements.push(element);
+                }
+            }
+            key.tween = None;
+            key.tween_kind = TweenKind::Classic;
+            key.keyed_properties = None;
+            key.property_eases.clear();
+            key.orient_to_path = false;
+            key.snap_to_guide = false;
+            key.sync_symbols = false;
+            key.shape_hints.clear();
+            key.motion_path = None;
+            keys.push(key);
+        }
+        self.transact_named("Paste motion special", |s| {
+            let timeline = &mut s.symbol_mut().timeline;
+            let layer = &mut timeline.layers[index];
+            let continuation = bake_end + 1;
+            if continuation < target_timeline.frame_count
+                && !layer.keyframes.iter().any(|k| k.frame == continuation)
+            {
+                keys.push(sampled_key(&target_timeline, original, continuation));
+            }
+            layer
+                .keyframes
+                .retain(|k| k.frame < bake_start || k.frame > bake_end);
+            layer.keyframes.extend(keys);
+            layer.keyframes.sort_by_key(|k| k.frame);
+            layer.normalize_motion_keys();
+            if let Some(exposure) = &mut layer.properties.end_frame {
+                *exposure = (*exposure).max(paste_end + 1);
+            }
+            timeline.frame_count = timeline.frame_count.max(paste_end + 1);
         });
     }
 
@@ -470,6 +802,7 @@ impl Editor {
         else {
             return;
         };
+        let before = layer.clone();
         let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == drag.frame) else {
             return;
         };
@@ -484,6 +817,7 @@ impl Editor {
             element.transform.x = to[0];
             element.transform.y = to[1];
         }
+        crate::timeline_motion_curve::rebase_layer_motion_paths(&before, layer);
     }
 
     /// End the key point drag: one Undo step when it moved.
@@ -594,6 +928,7 @@ impl Editor {
                 egui::Stroke::new(1.0_f32, nf.guide),
             ));
         }
+        self.paint_motion_handles(painter, origin);
         let dragged = self.timeline_motion.drag.as_ref().map(|d| d.frame);
         for (frame, at) in &path.keys {
             let state = if dragged == Some(*frame) {
