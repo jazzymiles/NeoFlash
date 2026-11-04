@@ -28,7 +28,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 ## Open requests
 
 ### R-033 · Actions diagnostic peek, fix selection and debugger connection states
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · AC-03/AC-08 (Actions tooling)
 - **Where:** `sources.rs::script_workspace`, Actions Debug options, Debugger panel
 - **Need:** NF2 components/states for error peek and source-range underline; selection among several quick fixes;
@@ -41,7 +41,16 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `neoflash-ui/src/components/code.rs`; `docs/NF2-ACTIONS-EDITOR.md`.
 - **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify missing peek/range
   and debugger states. Existing live debugger bindings retain the current NF2 composition.
-
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-033.
+  Range: 2 pt wavy underline under the exact range, syntax/error or syntax/warning; gutter/overview marks unchanged.
+  Hover or F8 opens the existing Error peek (warning variant uses warning tokens and icon). ⌘. with one safe fix
+  applies it; with several, a Menu opens at the caret (Menu Section `N fixes for <code>`, first item highlighted,
+  ↩ shown as shortcut, separator, `Show in Compiler errors`); ↑↓ choose, ↩ apply (one Undo step), Esc closes.
+  Unsafe fixes are not listed. Debugger toolbar badge states: Connecting (Spinner + Neutral), Running (Accent),
+  Paused (Warning, as exported), Disconnected (Neutral + Secondary `Restart`), Not available (Neutral, reason),
+  Error (error line, no badge, + `Retry`). Step buttons stay visible and are drawn inactive unless Paused. Without a
+  paused frame Call stack and Variables show a tertiary hint; Watch shows an info line “Watch expressions are not
+  available yet …” instead of rows until evaluation exists. New shared piece: wavy range underline painter.
 
 ### R-001 · Ruler pointer-position marker
 - **Status:** open
@@ -206,14 +215,25 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer:**
 
 ### R-022 · Bitmap properties and Modify ▸ Bitmap ▸ Trace bitmap… modal dialogs
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · LB-04, MN-05 (Classic Flash CS4 bitmap asset inspection & vectorization)
 - **Where:** `crates/neoflash-editor/src/panels/library.rs` (bitmap item `Properties…` context menu) and `crates/neoflash-editor/src/authoring_modify.rs` (`Modify ▸ Bitmap ▸ Trace bitmap…`)
 - **Need:** (1) `Dialog / Bitmap properties` mirroring `Sound properties` (`panels/sound_properties.rs`): thumbnail preview, dimensions/format summary, `Allow smoothing` checkbox, `Compression` select (`Photo (JPEG)` with quality slider vs `Lossless (PNG/GIF)`), ActionScript linkage (`Export for ActionScript`, `Class`), and `Update` / `Import…` / `Test` / `OK` / `Cancel` buttons. (2) `Dialog / Trace bitmap` with `Color threshold`, `Minimum area` (px), `Curve fit` select (`Pixels` / `Very tight` / `Tight` / `Normal` / `Smooth` / `Very smooth`), `Corner threshold` select (`Many corners` / `Normal` / `Few corners`), and `Preview` / `OK` / `Cancel`.
 - **Why:** `Swap bitmap` and `Break apart` (bitmap fill) exist in `bitmaps.rs`, while `Sound properties` already has a locked NF2 dialog, but bitmap library items have no `Bitmap properties` dialog and vectorization (`Trace bitmap…`) has no parameter modal.
 - **Checked:** `panels/library.rs`, `bitmaps.rs`, `panels/sound_properties.rs` (`dialogs-sound-stroke.png`), `panels/planned_dialogs.rs`, and v2.2 `panels-dialog-trace-bitmap.txt`. The v2.2 export uses palette/colours/paths/corners/noise/method/fill-stroke controls rather than the requested classic threshold/area/curve/corner form; confirm the parameter mapping, defaults and preview/cancel/error behavior before implementation. No approved dialog body or tracing engine exists yet.
 - **Proposal (optional):** match the two-column header + `NF2/Dialog` layout of `Sound properties` (`dialogs-sound-stroke.png`) for `Bitmap properties`, and a 4-row `NF2/Dialog` form for `Trace bitmap`.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-022.
+  Trace bitmap: the v2.2 dialog is authoritative and unchanged. Classic mapping/defaults: Color threshold → Colours
+  2–30 (16); Minimum area → Noise 1–100 px (8 px); Curve fit → Paths Low–High (50 %); Corner threshold → Corners
+  Less–More (50 %); Mode Colour; Method Overlapping; Create Fills; Snap curves / Ignore white off. Presets:
+  [Default], Photo — high, Photo — low, Line art, Logo, Technical drawing, Classic Flash. Live preview traces the
+  downscaled preview with a Spinner line, last result dimmed; Trace shows a determinate Progress in the footer,
+  options disabled, Cancel stops with no change; result replaces the bitmap instance with a group in one Undo step;
+  errors show an error line under the preview and keep the dialog open. Engine choice and limits (proposal
+  4096 × 4096, 20 000 paths) remain engineering decisions. Bitmap properties: mirrors Sound properties — 120 × 64
+  thumbnail, name field, path and `W × H · format · depth · size`, Export: `Compression` (Photo (JPEG) / Lossless
+  (PNG/GIF)), `Quality` stepper + `Use publish quality` (JPEG only), `Allow smoothing`, result line, ActionScript:
+  `Export for ActionScript`, `Class`, disabled `Base`; Update / Import… / Test, Cancel / OK (one Undo step).
 
 ### R-023 · 9-slice scaling checkbox in Symbol properties and stage 9-slice guide overlay
 - **Status:** open
@@ -306,14 +326,26 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer:**
 
 ### R-032 · Publish size scale with weight breakdown in Publish settings
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · DL-03 (Publish settings, HTML5 target)
 - **Where:** `crates/neoflash-editor/src/panels/planned_dialogs.rs` (`publish_settings`, `Runtime` group and footer `Estimated size`)
 - **Need:** (1) a four-stop size scale in the HTML5 `Runtime` group: `Full` · `Balanced` · `Compact` · `Shared runtime`, with a selected stop, a `Custom` state when an individual option differs, and a runtime URL field shown only for `Shared runtime`. (2) a stacked weight bar under it with segments `WebAssembly`, `Runtime scripts`, `Project scripts`, `Content`, `Resources`, `Fonts`, `Page`, two totals (`on disk` and `transfer, gzip`), an optional budget line (for example 150 KB) and a computing state while the estimate runs. (3) a short trade-off line per stop (for example "Needs HTTP(S) hosting", or "Left out: AIR desktop APIs; …") and a warning style when a left-out family could matter.
 - **Why:** `neoflash_export::estimate_publish_sizes` returns each level's files, bytes, gzip bytes, per-part breakdown, trade-offs and left-out modules, and `export_project_with_options` publishes any level. The current dialog has only a static `WASM: optimised (−O3)` select and an `Estimated size` footer string, so the user cannot see or choose the trade-off.
 - **Checked:** `panels/planned_dialogs.rs › publish_settings`, `publish-misc-dialogs.png`, docs/decisions/0038-publish-size-levels.md.
 - **Proposal (optional):** replace the `WASM: optimised (−O3)` select with an NF2 segmented control, so the footer's `Estimated size` mirrors the selected stop.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-032.
+  Runtime group: NF2 Segmented control `Full · Balanced · Compact · Shared runtime` replaces the `WASM` select; `Scale`
+  moves to the Loop/Autoplay row. Under it: one trade-off line (info icon + Small secondary text), a Warning badge
+  `Left out` + family list when Compact omits families, a stacked weight bar (8 pt, 2 pt gaps, radius sm; WebAssembly
+  accent/default, Runtime scripts syntax/keyword, Project scripts syntax/function, Content layer/green, Resources
+  warning/default, Fonts syntax/type, Page text/tertiary) with a wrapped legend (swatch, Small label, Mono value in
+  on-disk bytes) and totals `On disk · Transfer (gzip) · Files`. Per-part gzip is not shown; no budget marker.
+  States: Computing = indeterminate Progress `Estimating <level>…`, totals `—`; Failed = error line + Ghost `Retry`;
+  Shared runtime = `Runtime URL` field with an error line under it, Publish/OK disabled while invalid, Ghost
+  `Export runtime folder…`; Custom = no segment selected + Neutral badge `Custom` + Ghost `Reset to <nearest>`.
+  Footer text mirrors the level (`Compact · 2.47 MB · 864 KB gzip · 7 files`, `Estimating…`, `Size unknown`).
+  Changing the level cancels and restarts the estimate; Publish uses the draft, OK saves defaults, Cancel discards;
+  Test Movie stays Full. New shared pieces for `neoflash-ui` (T-028): weight bar + legend, inline message line.
 
 ## Resolved requests
 
@@ -417,32 +449,61 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 
 ### R-034 · Paint Bucket gap closing and partial-stroke eraser controls
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · TO-07 drawing follow-ups
 - **Where:** `authoring_tools.rs::authoring_tool_options`, Tools options and Properties ▸ Tool.
 - **Need:** approved gap choices (None/Small/Medium/Large), a partial-stroke eraser choice, scope/limitation text and their placement in the existing tool options.
 - **Why:** tested engines are available, but the current Bucket area only describes closed shapes and Eraser lists Whole objects/fills/strokes. Adding entries or controls changes the locked composition. Masked partial erasing and combined fill/stroke effects are currently refused; touched curves are approximated.
 - **Checked:** `panels-panel-tools-floating.txt`, `docs-panels-tools-components.txt`, `panels-brushes-pencil-panels.txt`, `panels-tools-flyout-groups.txt`, TO-07 and the existing options body. The v2.2 Brushes/Pencil work has its own scope.
 - **Proposal (optional):** existing NF2 Select rows, retaining the current whole-object modes; the design track chooses labels, order and explanation.
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-034.
+  Properties ▸ Tool options (and the floating Tools panel options body; the narrow rail has none). Bucket: NF2
+  Select `Gap size: …` with `Don’t close gaps` (default) / `Close small gaps` / `Close medium gaps` / `Close large
+  gaps` and a tertiary note; tooltip states the rule and that bitmap flood fill is unsupported. Eraser: the Mode
+  select gains `Cut strokes` after the three Whole modes; Size unchanged; per-mode tertiary note. Nothing is
+  disabled up front: a refused gesture leaves artwork untouched and shows a Warning Toast with the reason (masked
+  layer; fill and stroke changed together; guided tween needing new keys) and an optional mode-switch action.
+  Uses existing components only.
 
 ### R-035 · Multiple open documents
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · editor workspace/document follow-ups
 - **Where:** top bar, File/Window menus and `document_sessions.rs::DocumentSession`.
 - **Need:** document switcher/tab placement, active/dirty/close states, overflow, and New/Open/Close/Quit transitions.
 - **Why:** the existing title and Unsaved badge provide no document selection or per-document close control. The session state now preserves selection/caret identity, history and independent recovery, with tested safe Close/Quit cancellation. The switcher, active/dirty states and document commands still require approved composition before this becomes a user workflow.
 - **Checked:** `interface-editor-main.txt`, `panels-menus.txt`, `shell.rs` and planned panel/dialog previews (no document-session preview).
 - **Proposal (optional):** design track chooses a tab row or Window menu list; retain the existing unsaved prompt for each affected document.
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-035.
+  Document tabs in the top bar between the menus and the workspace selector; they replace `Project title` + Unsaved
+  badge. New component `NF2/Document Tab` (`126:18291`; State Active/Inactive/Hover × Dirty): 32 pt, radius md,
+  file icon, Body Strong label, 16 pt trailing slot — dot when dirty, × on hover and on the clean active tab; width
+  96–220 pt, ending ellipsis, tooltip = full path; equal names add the folder in tertiary text. Overflow: the strip
+  scrolls and a Ghost `⌄` Icon Button opens the document list (Menu Section `Open documents`, Checked = active,
+  `— unsaved` suffix, Next ⌃⇥ / Previous ⌃⇧⇥, Close ⌘W, Close other documents, Close all ⌥⌘W); the same list is
+  appended to Window. New/Open insert after the active tab; opening an open file activates it. Close/Close all/Quit
+  visit dirty documents in tab order, activating each before the existing unsaved prompt; Cancel stops the sequence
+  on that document; a failed save shows an Error toast and stops. Last document closed: the window stays with an
+  Empty State `No document open` (Primary `New document`, Ghost `Open…`); document menus and Publish/Test Movie are
+  disabled.
 
 ### R-036 · Named workspace presets
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · editor workspace follow-ups
 - **Where:** top-bar workspace selector and `shell.rs::workspace_menu`.
 - **Need:** Save/Rename/Delete menu order and labels, name-entry/overwrite/delete states, active user-preset label and reset semantics.
 - **Why:** the current menu exposes built-in templates and Reset only. Complete preset state now preserves panel visibility, active tabs, sizes and floating/detached layout, with tested save/overwrite/rename/delete and old-layout migration. It still needs approved management controls and naming/confirmation states.
 - **Checked:** `panels-menus.txt`, `interface-editor-main.txt`, Preferences General outline and planned dialog previews (no workspace naming dialog).
 - **Proposal (optional):** existing NF2 Menu Item/Select/Dialog components after their composition is approved; built-in templates remain intact.
-
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-036.
+  The top-bar selector shows the active preset name. Menu: Menu Section `Built-in` (Classic, Animator, Designer,
+  Developer, Essentials), Menu Section `My workspaces` (Checked = active), separator, `Save workspace…`, `Update
+  “<name>”`, `Rename “<name>”…`, `Delete “<name>”…`, separator, `Reset “<name>”`. With a built-in active, Update /
+  Rename / Delete are Disabled rows. Reset restores the active preset’s saved layout (built-in: shipped layout).
+  Dialogs (440 pt, Dialog Header, `Name` field, Cancel + Primary): valid → `Save`; existing name → warning line and
+  the primary becomes `Replace`; reserved/empty/too long/32 reached → error line, primary disabled; Rename never
+  overwrites (error line, disabled). Delete: `Delete “<name>”?` with Danger `Delete`; the layout stays and the
+  selector shows `Unsaved layout`. Applying, resetting or deleting never touches the document, Undo or drafts.
+  New shared piece: inline message line (icon + Small text, warning/danger).
 
 ### R-037 · Stage-grid contrast and dense-spacing visibility
 - **Status:** resolved — Dynamic / Static modes, Dynamic by default (owner decision, 5 November 2026).
@@ -457,14 +518,26 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **References:** `docs-rulers-guides-grid.txt`, `panels-view-settings.txt`, ST-03 and `NF2-RULERS-GUIDES-GRID.md`.
 
 ### R-038 · NF2 v2.2 panel bodies and shared component APIs
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · v2.2 Tools, Commands, Brushes, Brush/Pencil properties and Customize tools
 - **Where:** `panels/tools.rs`, future panel/dialog bodies, `authoring_tools.rs` canvas feedback.
 - **Need:** approved bodies using `Tool Flyout Item` (icon/label/shortcut/active/width → response), `Brush Preset` (stroke/label/size/selected), eight `Brush Shape` variants, `Brush Cursor` (Idle/Resize/Eraser, centre/shape/size/value), sample strokes and Slider value variants. Expose the existing Tool Button corner-mark hit geometry alongside its painter. Specify unavailable/error states and tool catalogue mapping; current implementation has 19 tools versus the outline’s 30.
 - **Why:** these specialised components and new planned bodies are absent. Existing flyouts use Menu Item; changing their type or arrangement is a design change. Brush currently has round screen-sized strokes and Size 1–128, while the reference says 1–200 and cursors follow zoom: clarify whether authored size or only the cursor changes. Pencil’s global Drawing preferences are not independent Straighten/Smooth/Ink modes. Commands describes `.nfsl` document scripts, but the existing command registry only dispatches menu/shortcut actions; its execution and source/action/error contract is undefined.
 - **Checked:** v2.2 outlines `panels-tools-flyout-groups.txt`, `panels-brushes-pencil-panels.txt`, `panels-canvas-brush-pencil.txt`, `panels-commands-panel-dialog.txt`, `panels-dialog-customize-tools-panel.txt`; corresponding Dark/Light exports; current `neoflash-ui` components and `panels/planned_*.rs`.
 - **Proposal (optional):** supply the approved bodies unchanged with response/state APIs, then bind existing tools and draft-only Customize Add/Remove/reorder/Restore/Cancel/OK behavior. Keep unsupported artistic/pattern brushes explicit. Trace bitmap stays under R-022; selection-box contrast stays under R-011.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-038.
+  The exported v2.2 bodies (Tools flyout groups, Brushes & pencil, Canvas brush & pencil, Customize tools) are
+  approved unchanged; the Commands panel is not shipped until a `.nfsl` execution contract exists. Decisions: only
+  implemented tools appear on the rail, in flyouts and in Customize ▸ Available (no disabled state); Brush size
+  1–200 px in document units, the Brush Cursor follows zoom (min 4 pt, above 400 pt crosshair + value chip),
+  existing artwork unchanged; Pencil Straighten/Smooth/Ink is a per-tool mode (default Straighten) and Drawing
+  preferences set its strength; only supported brush presets are listed; Customize edits a draft (Add › appends to
+  the selected slot, ‹ Remove returns to Available, drag reorders, empty slots drop on OK, Restore default resets the
+  draft, Cancel/Esc discards, OK saves a global preference outside workspace presets). APIs for T-028:
+  `ToolFlyoutItem::new(icon,label).shortcut().active().width() → Response`, `BrushPreset::new(label,size).stroke()
+  .selected() → Response`, `BrushShape::new(kind).selected() → Response`, `brush_cursor(painter, centre, shape,
+  diameter, state, value)`, `brush_stroke_sample(...)`, `Slider::value(Field|Inline|None)`, `ToolButton::corner_hit
+  (rect) → Rect` = bottom-right 12 × 12 pt of the 32 pt button.
 
 ### R-039 · Intra-layer object depth arrangement controls and default shortcut confirmation
 - **Status:** open
