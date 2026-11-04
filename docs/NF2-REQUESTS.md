@@ -426,9 +426,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 ### R-035 · Multiple open documents
 - **Status:** open
 - **Requested by / for:** implementation track · editor workspace/document follow-ups
-- **Where:** top bar, File/Window menus and `app.rs::DocumentSession`.
+- **Where:** top bar, File/Window menus and `document_sessions.rs::DocumentSession`.
 - **Need:** document switcher/tab placement, active/dirty/close states, overflow, and New/Open/Close/Quit transitions.
-- **Why:** the existing title and Unsaved badge provide no document selection or per-document close control. Dormant session helpers omit per-document recovery/selection state and cannot safely be exposed as completed tabs.
+- **Why:** the existing title and Unsaved badge provide no document selection or per-document close control. The session state now preserves selection/caret identity, history and independent recovery, with tested safe Close/Quit cancellation. The switcher, active/dirty states and document commands still require approved composition before this becomes a user workflow.
 - **Checked:** `interface-editor-main.txt`, `panels-menus.txt`, `shell.rs` and planned panel/dialog previews (no document-session preview).
 - **Proposal (optional):** design track chooses a tab row or Window menu list; retain the existing unsaved prompt for each affected document.
 
@@ -437,7 +437,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Requested by / for:** implementation track · editor workspace follow-ups
 - **Where:** top-bar workspace selector and `shell.rs::workspace_menu`.
 - **Need:** Save/Rename/Delete menu order and labels, name-entry/overwrite/delete states, active user-preset label and reset semantics.
-- **Why:** the current menu exposes built-in templates and Reset only. The dormant named-presets map stores only DockLayout; a usable preset must also preserve panel visibility and floating/detached layout state.
+- **Why:** the current menu exposes built-in templates and Reset only. Complete preset state now preserves panel visibility, active tabs, sizes and floating/detached layout, with tested save/overwrite/rename/delete and old-layout migration. It still needs approved management controls and naming/confirmation states.
 - **Checked:** `panels-menus.txt`, `interface-editor-main.txt`, Preferences General outline and planned dialog previews (no workspace naming dialog).
 - **Proposal (optional):** existing NF2 Menu Item/Select/Dialog components after their composition is approved; built-in templates remain intact.
 

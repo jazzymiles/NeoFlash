@@ -498,7 +498,9 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
   buttons and the shortcut editor; shortcut sets as maps `id → KeyChord`; conflict detection = map inversion.
 - Autosave/recovery: periodic write of the document JSON to an app-support recovery folder (not next to the user's
   file) after N minutes of dirty state; restore prompt on launch (`platform-recovery`).
-- Tests: prefs round-trip and defaults for missing fields; shortcut conflicts; recovery file lifecycle.
+- Document-session state preserves selection/caret identity, view and Undo with independent recovery; inactive autosave, Close/Quit cancellation, failed Save/Open and conflicting recovery copies are covered. The single-document UI defers later crash copies until the current one is safe. Tabs/switching controls await R-035.
+- Named presets capture visibility, active tabs, sizes and native window layouts; old DockLayout-only records migrate, and overwrite/rename/delete are explicit state operations. Management controls await R-036.
+- Tests: prefs round-trip and defaults for missing fields; shortcut conflicts; recovery file lifecycle; `document_sessions_tests` and named-workspace scenarios in `workspace_editor_tests`.
 - Registry: `editor-workspace`, `platform-recovery`, `platform-native-macos`.
 - Updates/telemetry pages stay disabled until defined (`platform-release`, `platform-extensions`).
 

@@ -2690,16 +2690,22 @@ fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_t
     assert!(d.editor.dirty());
     assert_eq!(d.editor.path.as_deref(), Some(alpha_path.as_path()));
 
-    // Next prompt offers the older snapshot (`Untitled`); click Discard to delete `snap-b`.
+    // The next copy waits until the first recovered document is safe; it cannot replace it.
+    assert!(!d.texts().iter().any(|t| t == "Recover unsaved work?"));
+    assert!(d.editor.recovery.has_prompt());
+    assert!(rec_dir.join("snap-b.nflash").exists());
+    // Saving the restored Alpha cleans up only snap-a and then exposes the next prompt.
+    assert!(d.editor.save(false));
+    assert!(!rec_dir.join("snap-a.nflash").exists());
+    assert!(!rec_dir.join("snap-a.json").exists());
+    d.settle();
     assert!(d.texts().iter().any(|t| t == "Recover unsaved work?"));
     d.click("Discard");
     assert!(!d.editor.recovery.has_prompt());
     assert!(!rec_dir.join("snap-b.nflash").exists());
     assert!(!rec_dir.join("snap-b.json").exists());
-    // Saving the restored `Alpha.nflash` writes to `alpha_path` and cleans up `snap-a`.
-    assert!(d.editor.save(false));
-    assert!(!rec_dir.join("snap-a.nflash").exists());
-    assert!(!rec_dir.join("snap-a.json").exists());
+    assert_eq!(d.editor.project.name, "RecoveredAlpha");
+    assert!(!d.editor.dirty());
 
     let _ = std::fs::remove_dir_all(&temp_root);
 }
@@ -3041,11 +3047,12 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
         "function f() {\nstop();\n}"
     );
 
+    let unformatted = d.editor.project.clone();
     d.editor.workspace.code_editor.format_on_save = true;
     d.editor.workspace.code_editor.tab_size = 2;
     assert!(d.editor.save_to_path(temp_path.clone()));
     let _ = std::fs::remove_file(&temp_path);
-    assert_eq!(d.editor.history.undo_len(), undo_before_save);
+    assert_eq!(d.editor.history.undo_len(), undo_before_save + 1);
     assert!(!d.editor.dirty());
     assert_eq!(
         d.editor.symbol().timeline.scripts[0].script.source,
@@ -3061,6 +3068,16 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
         d.editor.project.sources[0].source,
         "package {\n  public class Main {\n  }\n}"
     );
+    let saved = d.editor.project.clone();
+    d.editor.undo();
+    assert_eq!(
+        d.editor.project, unformatted,
+        "successful save formatting is one Undo"
+    );
+    assert!(d.editor.dirty());
+    d.editor.redo();
+    assert_eq!(d.editor.project, saved);
+    assert!(!d.editor.dirty());
 }
 
 #[test]

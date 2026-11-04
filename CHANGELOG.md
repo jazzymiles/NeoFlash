@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Work protection: macOS Quit (including ⌘Q) now offers the same Save/Discard/Cancel protection as closing a document. Failed Open and cancelled or failed Save retain unsaved work and recovery files. Automatic formatting rolls back if saving fails and remains undoable after a successful save. Crash copies wait until the current recovered document is saved or closed, and unanswered recovery prompts survive quitting. Document-session and complete named-workspace state are tested foundations; their switcher and management controls still await NF2 design.
+
 - Object Paste no longer inserts twice when keyboard and native paste events arrive out of order or with intervening pointer input. Each payload keeps its own paste mode and one Undo step.
 
 - Lasso keeps the two-tone selection hatch visible after selecting artwork; selection still covers whole placements. The narrow Tools rail opens a group when its corner mark is clicked, without switching the active tool.

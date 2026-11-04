@@ -8,6 +8,244 @@ use neoflash_core::{ObjectEvent, Project};
 use std::collections::BTreeMap;
 
 #[test]
+fn named_workspace_presets_round_trip_complete_layouts_and_guard_name_changes() {
+    use crate::workspace::{
+        DockDestination, DockEdge, PanelPlacement, WindowGeometry, WorkspacePrefs,
+        WorkspacePresetError, WorkspaceTemplate,
+    };
+    #[derive(Default)]
+    struct Storage(BTreeMap<String, String>);
+    impl eframe::Storage for Storage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.into(), value);
+        }
+        fn flush(&mut self) {}
+    }
+
+    let mut prefs = WorkspacePrefs::default();
+    prefs.apply_template(WorkspaceTemplate::Developer);
+    prefs.set_panel_visible(PanelId::Library, false);
+    prefs.show_panel(PanelId::History);
+    prefs.show_panel(PanelId::Output);
+    prefs.sizes.layer_column_width = 236.;
+    prefs.dock.bottom.size = 370.;
+    let geometry = WindowGeometry {
+        outer_position: [1500., 120.],
+        inner_size: [640., 500.],
+    };
+    let window = prefs.float_group(
+        &[PanelId::Color, PanelId::Transform],
+        PanelId::Transform,
+        geometry,
+    );
+    prefs.dock_panel(
+        PanelId::Info,
+        DockDestination::FloatingSplit {
+            window,
+            group: None,
+            edge: DockEdge::Bottom,
+        },
+    );
+    prefs.show_panel(PanelId::Transform);
+    prefs.sanitize();
+    assert!(prefs.save_named_preset("  Studio α  "));
+    let saved = prefs.named_presets["Studio α"].clone();
+    assert_eq!(saved.floating.len(), 1);
+    assert_eq!(saved.detached.color.placement, PanelPlacement::Detached);
+
+    for template in WorkspaceTemplate::ALL {
+        prefs.apply_template(template);
+        assert_eq!(prefs.active_named_preset, None);
+        assert_eq!(
+            prefs.named_presets["Studio α"], saved,
+            "built-ins preserve saved layouts"
+        );
+    }
+    prefs.theme = ThemeMode::Light;
+    prefs.general.autosave_minutes = 9;
+    prefs.timeline.short_rows = true;
+    prefs.publish.output_folder = Some("unchanged".into());
+    let unchanged_publish = prefs.publish.clone();
+    assert!(prefs.apply_named_preset(" Studio α "));
+    assert_eq!(prefs.dock, saved.dock);
+    assert_eq!(prefs.panels, saved.panels);
+    assert_eq!(prefs.sizes, saved.sizes);
+    assert_eq!(prefs.detached, saved.detached);
+    assert_eq!(prefs.floating, saved.floating);
+    assert_eq!(prefs.active_bottom, saved.active_bottom);
+    assert_eq!(prefs.template, saved.template);
+    assert_eq!(prefs.theme, ThemeMode::Light);
+    assert_eq!(prefs.general.autosave_minutes, 9);
+    assert!(prefs.timeline.short_rows);
+    assert_eq!(prefs.publish, unchanged_publish);
+    assert!(prefs.is_panel_active(PanelId::Transform));
+    assert!(!prefs.is_panel_visible(PanelId::Library));
+
+    let before = prefs.clone();
+    assert_eq!(
+        prefs.store_named_preset("Studio α", false),
+        Err(WorkspacePresetError::AlreadyExists)
+    );
+    for name in ["", "   ", "bad\nname", "bad\0name"] {
+        assert_eq!(
+            prefs.store_named_preset(name, false),
+            Err(WorkspacePresetError::InvalidName)
+        );
+    }
+    assert_eq!(
+        prefs.store_named_preset(&"x".repeat(65), false),
+        Err(WorkspacePresetError::InvalidName)
+    );
+    assert_eq!(
+        prefs.store_named_preset("dEvElOpEr", false),
+        Err(WorkspacePresetError::ReservedName)
+    );
+    assert!(!prefs.apply_named_preset("missing"));
+    assert!(!prefs.delete_named_preset("missing"));
+    assert_eq!(prefs, before, "failed and cancelled operations are atomic");
+
+    prefs.set_panel_visible(PanelId::Library, true);
+    assert_eq!(
+        prefs.named_presets["Studio α"], saved,
+        "live changes never mutate the saved copy"
+    );
+    assert!(prefs.store_named_preset("Studio α", true).is_ok());
+    assert!(prefs.named_presets["Studio α"].panels.library);
+    prefs
+        .rename_named_preset("Studio α", " Drawing ", false)
+        .unwrap();
+    assert_eq!(prefs.active_named_preset.as_deref(), Some("Drawing"));
+    assert!(prefs.save_named_preset("Other"));
+    let before = prefs.clone();
+    assert_eq!(
+        prefs.rename_named_preset("Drawing", "Other", false),
+        Err(WorkspacePresetError::AlreadyExists)
+    );
+    assert_eq!(
+        prefs.rename_named_preset("missing", "New name", false),
+        Err(WorkspacePresetError::NotFound)
+    );
+    assert_eq!(prefs, before);
+    prefs.rename_named_preset("Drawing", "Other", true).unwrap();
+    assert_eq!(
+        prefs.active_named_preset, None,
+        "overwriting the active name does not relabel the current layout"
+    );
+    assert!(prefs.apply_named_preset("Other"));
+
+    for index in 1..WorkspacePrefs::MAX_NAMED_PRESETS {
+        assert!(prefs.save_named_preset(&format!("Preset {index}")));
+    }
+    assert_eq!(
+        prefs.store_named_preset("Overflow", false),
+        Err(WorkspacePresetError::LimitReached)
+    );
+    assert!(
+        prefs.store_named_preset("Other", true).is_ok(),
+        "explicit overwrite works at capacity"
+    );
+    let mut storage = Storage::default();
+    prefs.save(&mut storage);
+    assert!(
+        storage.0[PREFS_KEY].len() > 16 * 1024,
+        "full presets exceed the old load limit"
+    );
+    assert_eq!(WorkspacePrefs::load(Some(&storage)), prefs);
+    let layout = prefs.dock.clone();
+    assert!(prefs.delete_named_preset(" Other "));
+    assert_eq!(prefs.active_named_preset, None);
+    assert_eq!(
+        prefs.dock, layout,
+        "deleting a preset leaves the live arrangement intact"
+    );
+
+    let legacy = serde_json::json!({"named_presets": {
+        "Old layout": saved.dock,
+        "Classic": saved.dock,
+    }});
+    let mut migrated = WorkspacePrefs::from_json(&legacy.to_string());
+    assert!(migrated.apply_named_preset("Old layout"));
+    assert!(
+        migrated.named_presets.contains_key("Classic"),
+        "legacy reserved names remain recoverable"
+    );
+    assert_eq!(
+        migrated.panels,
+        crate::workspace::PanelVisibility::default()
+    );
+    assert!(
+        migrated.floating.is_empty(),
+        "old presets did not store native windows"
+    );
+    migrated.save(&mut storage);
+    assert_eq!(WorkspacePrefs::load(Some(&storage)), migrated);
+}
+
+#[test]
+fn applying_named_workspace_restores_window_state_without_touching_authoring() {
+    use crate::workspace::{WindowGeometry, WorkspaceTemplate};
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.select_all();
+    editor.transact(|e| e.project.name = "Unfinished authoring".into());
+    let project = editor.project.clone();
+    let selection = editor.selection.clone();
+    editor.tool = Tool::Pencil;
+    editor.frame = 6;
+    editor.zoom = 1.25;
+    let draft_id = egui::Id::new("preset-keeps-widget-draft");
+    ctx.data_mut(|data| data.insert_temp(draft_id, "unfinished text".to_owned()));
+    editor.workspace.show_panel(PanelId::Output);
+    let geometry = WindowGeometry {
+        outer_position: [240., 120.],
+        inner_size: [600., 440.],
+    };
+    editor
+        .workspace
+        .float_panel(PanelId::History, Some(geometry));
+    editor.bottom = BottomTab::Output;
+    assert!(editor.save_named_workspace("With History", false).is_ok());
+    let before_failed_save = editor.workspace.clone();
+    assert!(editor.save_named_workspace("With History", false).is_err());
+    assert_eq!(editor.workspace, before_failed_save);
+    let saved = editor.workspace.named_presets["With History"].clone();
+    editor.apply_workspace_template(&ctx, WorkspaceTemplate::Essentials);
+    editor.panels_hidden = true;
+    editor.detached.focus = Some(PanelId::Actions);
+    editor.detached.activation = 12;
+    assert!(!editor.apply_named_workspace(&ctx, "missing"));
+    assert!(editor.panels_hidden);
+    assert_eq!(editor.detached.activation, 12);
+    assert!(editor.apply_named_workspace(&ctx, "With History"));
+    assert!(!editor.panels_hidden);
+    assert_eq!(editor.detached.focus, None);
+    assert_eq!(editor.detached.activation, 0);
+    assert_eq!(editor.workspace.floating, saved.floating);
+    assert_eq!(
+        editor.workspace.detached_geometry(PanelId::History),
+        Some(geometry)
+    );
+    assert_eq!(editor.bottom, saved.active_bottom);
+    assert_eq!(editor.project, project);
+    assert_eq!(editor.selection, selection);
+    assert_eq!(editor.frame, 6);
+    assert_eq!(editor.zoom, 1.25);
+    assert_eq!(editor.tool, Tool::Pencil);
+    assert_eq!(
+        ctx.data(|data| data.get_temp::<String>(draft_id))
+            .as_deref(),
+        Some("unfinished text")
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_ne!(editor.project.name, project.name);
+    assert!(!editor.dirty());
+}
+
+#[test]
 fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     let ctx = egui::Context::default();
     let mut initial = Project::demo();

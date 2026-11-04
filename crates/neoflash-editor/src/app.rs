@@ -126,25 +126,11 @@ pub struct Editor {
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
     /// Autosave timer and crash-recovery storage (`recovery.rs`).
     pub(crate) recovery: crate::recovery::RecoveryManager,
-    /// Open document sessions for multi-document tabs (`sessions[active_session]` mirrors inactive tabs).
-    #[allow(dead_code)]
-    pub(crate) sessions: Vec<DocumentSession>,
-    #[allow(dead_code)]
+    /// Inactive document state; the active slot is None and lives in Editor.
+    pub(crate) sessions: Vec<Option<crate::document_sessions::DocumentSession>>,
     pub(crate) active_session: usize,
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-pub(crate) struct DocumentSession {
-    pub project: Project,
-    pub history: History,
-    pub path: Option<PathBuf>,
-    pub saved_project: Option<Project>,
-    pub editing: Vec<String>,
-    pub frame: u32,
-    pub layer: usize,
-    pub zoom: f32,
-    pub pan: Vec2,
+    pub(crate) close_origin: Option<usize>,
+    pub(crate) quit_approved: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,6 +141,7 @@ pub enum Pending {
     OpenPath(PathBuf),
     Import,
     CloseDocument,
+    CloseSession(usize),
     Close,
 }
 
@@ -178,6 +165,9 @@ impl Editor {
         // `NEOFLASH_OPEN=path.nflash` opens a document at launch (screenshots of real documents).
         if let Some(path) = env_open.clone() {
             s.open_path(path.into(), &cc.egui_ctx);
+        }
+        if let Err(error) = crate::native_quit::install(&cc.egui_ctx) {
+            s.message(error);
         }
         crate::native_windows::install();
         s.tablet_input = crate::tablet_input::TabletInput::install();
@@ -346,6 +336,8 @@ impl Editor {
             recovery: Default::default(),
             sessions: Vec::new(),
             active_session: 0,
+            close_origin: None,
+            quit_approved: Vec::new(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -353,113 +345,6 @@ impl Editor {
         s
     }
 
-    #[allow(dead_code)]
-    fn snapshot_current_session(&self) -> DocumentSession {
-        DocumentSession {
-            project: self.project.clone(),
-            history: self.history.clone(),
-            path: self.path.clone(),
-            saved_project: self.saved_project.clone(),
-            editing: self.editing.clone(),
-            frame: self.frame,
-            layer: self.layer,
-            zoom: self.zoom,
-            pan: self.pan,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn apply_session_snapshot(&mut self, ctx: &egui::Context, snap: DocumentSession) {
-        self.cancel_edits();
-        self.project = snap.project;
-        self.history = snap.history;
-        self.path = snap.path;
-        self.saved_project = snap.saved_project;
-        self.editing = if snap.editing.is_empty() {
-            vec![self.project.root.clone()]
-        } else {
-            snap.editing
-        };
-        self.frame = snap.frame;
-        self.layer = snap.layer;
-        self.zoom = snap.zoom;
-        self.pan = snap.pan;
-        self.clear_selection();
-        self.playing = false;
-        self.load_project_fonts(ctx);
-        self.normalize_selection();
-        self.recovery.retarget(self.path.as_deref());
-    }
-
-    /// Number of open document tabs (always at least 1).
-    #[allow(dead_code)]
-    pub(crate) fn session_count(&self) -> usize {
-        self.sessions.len().max(1)
-    }
-
-    /// Open `project` in a new document tab without closing the current document.
-    #[allow(dead_code)]
-    pub(crate) fn open_new_session_tab(
-        &mut self,
-        ctx: &egui::Context,
-        project: Project,
-        path: Option<PathBuf>,
-    ) -> usize {
-        if self.sessions.is_empty() {
-            self.sessions.push(self.snapshot_current_session());
-            self.active_session = 0;
-        } else if self.active_session < self.sessions.len() {
-            self.sessions[self.active_session] = self.snapshot_current_session();
-        }
-        let new_session = DocumentSession {
-            saved_project: Some(project.clone()),
-            editing: vec![project.root.clone()],
-            project,
-            history: History::new(self.workspace.undo_levels as usize),
-            path,
-            frame: 0,
-            layer: 0,
-            zoom: 0.75,
-            pan: Vec2::ZERO,
-        };
-        self.sessions.push(new_session.clone());
-        let new_idx = self.sessions.len() - 1;
-        self.active_session = new_idx;
-        self.apply_session_snapshot(ctx, new_session);
-        new_idx
-    }
-
-    /// Switch the active document tab to `index`.
-    #[allow(dead_code)]
-    pub(crate) fn switch_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
-        if self.sessions.is_empty() || index >= self.sessions.len() || index == self.active_session
-        {
-            return false;
-        }
-        self.sessions[self.active_session] = self.snapshot_current_session();
-        self.active_session = index;
-        let snap = self.sessions[index].clone();
-        self.apply_session_snapshot(ctx, snap);
-        true
-    }
-
-    /// Close document tab `index` (when more than one tab is open).
-    #[allow(dead_code)]
-    pub(crate) fn close_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
-        if self.sessions.len() <= 1 || index >= self.sessions.len() {
-            return false;
-        }
-        self.sessions[self.active_session] = self.snapshot_current_session();
-        self.sessions.remove(index);
-        if self.active_session >= self.sessions.len() {
-            self.active_session = self.sessions.len() - 1;
-        } else if index < self.active_session {
-            self.active_session -= 1;
-        }
-        let snap = self.sessions[self.active_session].clone();
-        self.apply_session_snapshot(ctx, snap);
-        true
-    }
     /// Apply `Preferences ▸ General ▸ On launch` when no startup document path was given.
     pub(crate) fn apply_on_launch(&mut self, ctx: &egui::Context) {
         match self.workspace.general.on_launch {
@@ -563,25 +448,7 @@ impl Editor {
             self.workspace
                 .compact_default(ctx.viewport_rect().size().into());
         }
-        self.detached = crate::detached::DetachedState::default();
-        self.bottom = self.workspace.active_bottom;
-        // Reset only the panel geometry that we own. Editor drafts, focus and
-        // unrelated egui memory are not a workspace layout preference.
-        ctx.data_mut(|data| {
-            for id in [
-                "timeline",
-                "tools",
-                "library",
-                "properties",
-                "dock-edge-top",
-                "dock-edge-bottom",
-                "dock-edge-left",
-                "dock-edge-right",
-            ] {
-                data.remove::<egui::containers::panel::PanelState>(egui::Id::new(id));
-            }
-        });
-        ctx.request_repaint();
+        self.reset_workspace_layout_state(ctx);
     }
     pub fn symbol_id(&self) -> &str {
         self.editing
@@ -608,14 +475,15 @@ impl Editor {
             || self.saved_project.as_ref() != Some(&self.project)
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
-        self.symbol_conversion.is_some()
+        self.confirm.is_some()
+            || self.symbol_conversion.is_some()
             || self.timeline_motion.paste_special_open
             || self.document_settings.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
             || self.find_replace.is_some()
             || self.confirm_revert
-            || self.recovery.has_prompt()
+            || (self.recovery.has_prompt() && (!self.dirty() || !self.sessions.is_empty()))
     }
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog()
@@ -874,6 +742,17 @@ impl Editor {
         }
     }
     pub fn request(&mut self, pending: Pending, ctx: &egui::Context) {
+        if self.confirm.is_some() {
+            return;
+        }
+        if pending == Pending::Close {
+            self.request_quit(ctx);
+            return;
+        }
+        if pending == Pending::CloseDocument && !self.sessions.is_empty() {
+            self.close_session_tab(ctx, self.active_session);
+            return;
+        }
         self.finish_edits();
         if self.dirty() {
             self.confirm = Some(pending);
@@ -882,11 +761,10 @@ impl Editor {
         }
     }
     pub fn perform(&mut self, pending: Pending, ctx: &egui::Context) {
-        self.cancel_edits();
         match pending {
             Pending::New | Pending::CloseDocument | Pending::Demo => {
                 let closed = matches!(pending, Pending::CloseDocument);
-                self.project = if matches!(pending, Pending::New | Pending::CloseDocument) {
+                let project = if matches!(pending, Pending::New | Pending::CloseDocument) {
                     let mut blank = Project::blank();
                     if let Some(mut defaults) = self.workspace.document_defaults {
                         defaults.sanitize();
@@ -900,31 +778,7 @@ impl Editor {
                 } else {
                     Project::demo()
                 };
-                self.clipboard = Default::default();
-                self.resource_panel = Default::default();
-                self.library_panel = Default::default();
-                self.project_panel = Default::default();
-                self.document_settings = None;
-                self.find_replace = None;
-                self.confirm_revert = false;
-                self.edit_envelope = None;
-                self.clear_simple_button_state();
-                self.cancel_sound_properties(ctx);
-                self.cancel_layer_properties(ctx);
-                self.close_symbols_popover(ctx);
-                self.timeline_edit = Default::default();
-                self.graphic_drop_position = None;
-                self.bitmap_textures = Default::default();
-                self.editing = vec![self.project.root.clone()];
-                self.frame = 0;
-                self.layer = 0;
-                self.clear_selection();
-                self.path = None;
-                self.clear_and_retarget_recovery();
-                self.history = History::new(self.workspace.undo_levels as usize);
-                self.saved_project = Some(self.project.clone());
-                self.playing = false;
-                self.load_project_fonts(ctx);
+                self.install_document(ctx, project, None, true);
                 if closed {
                     self.message("Document closed.");
                 }
@@ -951,11 +805,8 @@ impl Editor {
                     self.import_legacy(path, ctx);
                 }
             }
-            Pending::Close => {
-                self.clear_active_recovery();
-                self.allow_close = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
-            }
+            Pending::CloseSession(index) => self.finish_session_close(ctx, index),
+            Pending::Close => self.approve_quit_document(ctx),
         }
     }
 
@@ -992,42 +843,21 @@ impl Editor {
     }
 
     pub(crate) fn try_open_path(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
+        if let Some(index) = self.session_for_path(&path)
+            && index != self.active_session
+        {
+            return self.switch_session_tab(ctx, index);
+        }
         if Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);
         }
-        self.cancel_edits();
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
         {
             Ok(project) => {
-                self.project = project;
-                self.clipboard = Default::default();
-                self.resource_panel = Default::default();
-                self.library_panel = Default::default();
-                self.project_panel = Default::default();
-                self.document_settings = None;
-                self.find_replace = None;
-                self.confirm_revert = false;
-                self.edit_envelope = None;
-                self.clear_simple_button_state();
-                self.cancel_sound_properties(ctx);
-                self.cancel_layer_properties(ctx);
-                self.close_symbols_popover(ctx);
-                self.timeline_edit = Default::default();
-                self.graphic_drop_position = None;
-                self.bitmap_textures = Default::default();
-                self.editing = vec![self.project.root.clone()];
-                self.frame = 0;
-                self.layer = 0;
-                self.clear_selection();
                 self.workspace.general.push_recent(&path);
-                self.path = Some(path);
-                self.clear_and_retarget_recovery();
-                self.history = History::new(self.workspace.undo_levels as usize);
-                self.saved_project = Some(self.project.clone());
-                self.playing = false;
-                self.load_project_fonts(ctx);
+                self.install_document(ctx, project, Some(path), true);
                 self.message("Project opened.");
                 true
             }
@@ -1115,7 +945,6 @@ impl Editor {
     }
 
     fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
-        self.cancel_edits();
         let mut imported = false;
         match neoflash_import::inspect(&path) {
             Ok(report) => {
@@ -1130,33 +959,8 @@ impl Editor {
                 if report.can_import {
                     match neoflash_import::import_project(&path) {
                         Ok(project) => {
-                            self.project = project;
-                            self.clipboard = Default::default();
-                            self.resource_panel = Default::default();
-                            self.library_panel = Default::default();
-                            self.project_panel = Default::default();
-                            self.document_settings = None;
-                            self.find_replace = None;
-                            self.confirm_revert = false;
-                            self.edit_envelope = None;
-                            self.clear_simple_button_state();
-                            self.cancel_sound_properties(ctx);
-                            self.cancel_layer_properties(ctx);
-                            self.close_symbols_popover(ctx);
-                            self.timeline_edit = Default::default();
-                            self.graphic_drop_position = None;
-                            self.bitmap_textures = Default::default();
-                            self.editing = vec![self.project.root.clone()];
-                            self.frame = 0;
-                            self.layer = 0;
-                            self.clear_selection();
                             self.workspace.general.push_recent(&path);
-                            self.path = None;
-                            self.clear_and_retarget_recovery();
-                            self.saved_project = None;
-                            self.history = History::new(self.workspace.undo_levels as usize);
-                            self.playing = false;
-                            self.load_project_fonts(ctx);
+                            self.install_document(ctx, project, None, false);
                             let label = match report.format {
                                 neoflash_import::ImportFormat::Swf => "SWF movie",
                                 neoflash_import::ImportFormat::Swc => "SWC library",
@@ -1263,8 +1067,17 @@ impl Editor {
         path: PathBuf,
         runtime_dir: &std::path::Path,
     ) -> bool {
+        if self
+            .session_for_path(&path)
+            .is_some_and(|index| index != self.active_session)
+        {
+            self.message("Save failed: this file is already open in another document. Choose a different path.");
+            return false;
+        }
         self.finish_edits();
         if self.workspace.code_editor.format_on_save {
+            self.history
+                .begin_named(&self.project, "Format scripts on save");
             self.format_project_scripts_in_place();
         }
         let is_fla = path
@@ -1293,6 +1106,9 @@ impl Editor {
         };
         match result {
             Ok(()) => {
+                if self.workspace.code_editor.format_on_save {
+                    self.commit_history();
+                }
                 self.workspace.general.push_recent(&path);
                 self.saved_project = Some(self.project.clone());
                 self.path = Some(path);
@@ -1314,6 +1130,9 @@ impl Editor {
                 true
             }
             Err(e) => {
+                if self.workspace.code_editor.format_on_save {
+                    self.history.cancel(&mut self.project);
+                }
                 self.message(format!("Save failed: {e}"));
                 false
             }
@@ -2175,7 +1994,7 @@ impl Editor {
                 }
             }
         }
-        if let Some(pending) = self.confirm.clone() {
+        if self.confirm.is_some() {
             // 0 = Save, 1 = Discard, 2 = Cancel.
             let mut action = None;
             let name = self.project.name.clone();
@@ -2247,16 +2066,15 @@ impl Editor {
                 }
             }
             if let Some(action) = action {
-                self.confirm = None;
-                if action == 1 {
-                    self.clear_active_recovery();
-                    self.perform(pending, ctx);
-                } else if action == 0 && self.save(false) {
-                    self.perform(pending, ctx);
+                if action == 2 {
+                    self.cancel_confirmation(ctx);
+                } else if action == 1 || (action == 0 && self.save(false)) {
+                    self.continue_confirmation(ctx);
                 }
             }
         }
         if self.confirm.is_none()
+            && (!self.dirty() || !self.sessions.is_empty())
             && let Some(summary) = self
                 .recovery
                 .current_prompt_summary(crate::recovery::unix_now_secs())
@@ -2346,20 +2164,26 @@ impl eframe::App for Editor {
     }
 
     fn on_exit(&mut self) {
-        if !self.dirty() || self.allow_close {
-            self.clear_active_recovery();
+        if self.allow_close {
+            self.clear_all_session_recovery();
+        } else {
+            let protected = self.recovery.pending_ids();
+            if !self.dirty() {
+                self.clear_active_recovery();
+            }
+            for session in self.sessions.iter_mut().flatten() {
+                if !session.dirty() {
+                    let _ = session.recovery.clear_active_except(&protected);
+                }
+            }
         }
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
-            self.finish_edits();
-            if self.dirty() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.confirm = Some(Pending::Close);
-            } else {
-                self.clear_active_recovery();
-            }
+        let native_quit = crate::native_quit::take_requested();
+        if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.request_quit(ctx);
         }
         let now_secs = ctx.input(|i| i.time);
         if let Some(wait) = self.tick_autosave(now_secs, crate::recovery::unix_now_secs()) {

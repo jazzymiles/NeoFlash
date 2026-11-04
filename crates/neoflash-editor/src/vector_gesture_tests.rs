@@ -2087,4 +2087,164 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
     assert_eq!(editor.history.undo_len(), 1);
     editor.undo();
     assert_eq!(editor.project, before);
+    // A combined fill/stroke with object effects must not be split: doing so
+    // changes compositing. Refusal keeps the original identity and Undo stack.
+    for filtered in [false, true] {
+        let element = &mut editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0];
+        if filtered {
+            element.blend_mode = neoflash_core::BlendMode::Normal;
+            element.filters = vec![neoflash_core::FilterSpec::Blur {
+                blur_x: 4.,
+                blur_y: 4.,
+                quality: 1,
+            }];
+        } else {
+            element.blend_mode = neoflash_core::BlendMode::Multiply;
+        }
+        editor.project.upgrade_format_for_features();
+        let protected = editor.project.clone();
+        pen_click(
+            &mut editor,
+            &ctx,
+            if filtered { 0.9 } else { 0.7 },
+            page.min + egui::vec2(140., 170.),
+            page.min + egui::vec2(140., 225.),
+        );
+        assert_eq!(editor.project, protected);
+        assert!(!editor.history.can_undo());
+        assert!(editor.status.contains("combined fill/stroke"));
+        editor.project.validate().unwrap();
+    }
+
+    // The guided pose differs from the stored/interpolated pose. Erasing uses
+    // the displayed matrix (including orientation), while Auto keyframe off
+    // keeps the authored span-key transform and guide motion intact.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    editor.workspace.timeline_prefs.auto_keyframe = false;
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 80., y: 0. },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 30, 40, 255],
+            stroke_width: 2.,
+        },
+        100.,
+        100.,
+    );
+    let target_id = editor.selected_element().unwrap().id.clone();
+    let timeline = &mut editor.symbol_mut().timeline;
+    timeline.frame_count = 11;
+    let layer = &mut timeline.layers[0];
+    layer.properties.motion_guide = Some("eraser-guide".into());
+    layer.keyframes[0].tween = Some(neoflash_core::Easing::Linear);
+    layer.keyframes[0].orient_to_path = true;
+    let mut end = layer.keyframes[0].clone();
+    end.frame = 10;
+    end.tween = None;
+    end.elements[0].transform.x = 300.;
+    layer.keyframes.push(end);
+    timeline.layers.push(Layer {
+        id: "eraser-guide".into(),
+        name: "Guide".into(),
+        visible: true,
+        locked: true,
+        properties: neoflash_core::LayerProperties {
+            role: LayerRole::Guide,
+            ..Default::default()
+        },
+        keyframes: vec![Keyframe {
+            elements: vec![Element {
+                id: "eraser-guide-path".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 100., y: 100. },
+                        PathCommand::LineTo { x: 100., y: 200. },
+                        PathCommand::LineTo { x: 300., y: 200. },
+                        PathCommand::LineTo { x: 300., y: 100. },
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [20, 30, 40, 255],
+                    stroke_width: 1.,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    });
+    editor.frame = 5;
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    editor.set_tool(Tool::Eraser);
+    editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+    editor.authoring_tools.eraser_size = 20.;
+    let before = editor.project.clone();
+    let shown = neoflash_core::sample_layer_in(
+        &editor.symbol().timeline,
+        &editor.symbol().timeline.layers[0],
+        editor.frame,
+    );
+    assert_eq!((shown[0].transform.x, shown[0].transform.y), (200., 200.));
+    assert_eq!(shown[0].transform.rotation, -90.);
+    // Inserting a guided key cannot preserve this pose yet. Refuse instead of
+    // silently moving the artwork, then allow the existing-span edit below.
+    editor.workspace.timeline_prefs.auto_keyframe = true;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        page.min + egui::vec2(185., 160.),
+        page.min + egui::vec2(215., 160.),
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    assert!(
+        editor
+            .status
+            .contains("cannot insert a keyframe inside guided motion")
+    );
+    editor.project.validate().unwrap();
+    editor.workspace.timeline_prefs.auto_keyframe = false;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.3,
+        page.min + egui::vec2(185., 160.),
+        page.min + egui::vec2(215., 160.),
+    );
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(layer.keyframes.len(), 2, "Auto keyframe stays off");
+    let cut = &layer.keyframes[0].elements[0];
+    assert_eq!(cut.id, target_id);
+    assert_eq!(
+        cut.transform,
+        before.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform
+    );
+    let (cut_commands, _) = cut.to_path_commands().unwrap();
+    let remaining = |x| {
+        hit_test_path(
+            &cut_commands,
+            FillRule::NonZero,
+            [x, 0.],
+            false,
+            2.,
+            FlattenOptions::default(),
+        )
+        .unwrap()
+    };
+    assert!(remaining(10.));
+    assert!(!remaining(40.));
+    assert!(remaining(70.));
+    let after = neoflash_core::sample_layer_in(&editor.symbol().timeline, layer, editor.frame);
+    assert_eq!(after[0].transform, shown[0].transform);
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
 }

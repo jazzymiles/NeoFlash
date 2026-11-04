@@ -4,7 +4,7 @@
 //! with a `<stable_id>.json` metadata sidecar, never next to the user's authored file.
 use crate::app::Editor;
 use eframe::egui;
-use neoflash_core::{History, Project};
+use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::io::Write as _;
@@ -68,6 +68,39 @@ impl Default for RecoveryManager {
 }
 
 impl RecoveryManager {
+    fn tick(
+        &mut self,
+        project: &Project,
+        path: Option<&Path>,
+        dirty: bool,
+        interval: f64,
+        now: f64,
+        wall: u64,
+    ) -> Result<Option<Duration>, String> {
+        if !dirty {
+            self.reset_timer();
+            return Ok(None);
+        }
+        let anchor = self.dirty_anchor_secs.get_or_insert(now);
+        if now < *anchor {
+            *anchor = now;
+        }
+        let elapsed = now - *anchor;
+        if elapsed >= interval {
+            self.dirty_anchor_secs = Some(now);
+            let name = path
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| project.name.clone());
+            self.write_active(project, path, &name, wall)?;
+            Ok(Some(Duration::from_secs_f64(interval)))
+        } else {
+            Ok(Some(Duration::from_secs_f64(
+                (interval - elapsed).max(0.25),
+            )))
+        }
+    }
+
     /// Platform app-support recovery folder (`<eframe::storage_dir("NeoFlash")>/Recovery`).
     pub(crate) fn default_recovery_dir() -> Option<PathBuf> {
         eframe::storage_dir("NeoFlash").map(|dir| dir.join("Recovery"))
@@ -80,6 +113,22 @@ impl RecoveryManager {
     #[cfg(test)]
     pub(crate) fn active_id(&self) -> &str {
         &self.active_id
+    }
+
+    /// A fresh document owns its recovery IDs/timer; only the directory is shared.
+    pub(crate) fn for_document(&self, path: Option<&Path>) -> Self {
+        let mut recovery = Self {
+            dir: self.dir.clone(),
+            ..Self::default()
+        };
+        if path.is_some() {
+            recovery.retarget(path);
+        }
+        recovery
+    }
+
+    pub(crate) fn move_prompts_to(&mut self, other: &mut Self) {
+        other.prompts.append(&mut self.prompts);
     }
 
     /// Deterministic filename-safe ID for a saved document path (64-bit FNV-1a).
@@ -127,11 +176,25 @@ impl RecoveryManager {
 
     /// Remove all recovery files owned by the current document session.
     pub(crate) fn clear_active(&mut self) -> Vec<String> {
+        self.clear_active_except(&self.pending_ids())
+    }
+
+    pub(crate) fn pending_ids(&self) -> Vec<String> {
+        self.prompts
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect()
+    }
+
+    /// Undecided launch candidates remain protected even when a clean original closes.
+    pub(crate) fn clear_active_except(&mut self, protected: &[String]) -> Vec<String> {
         self.dirty_anchor_secs = None;
         let mut errors = Vec::new();
         if let Some(dir) = &self.dir {
             for id in &self.tracked_ids {
-                errors.extend(remove_id_files(dir, id));
+                if !protected.contains(id) {
+                    errors.extend(remove_id_files(dir, id));
+                }
             }
         }
         self.tracked_ids.clear();
@@ -315,45 +378,49 @@ impl RecoveryManager {
 }
 
 impl Editor {
-    /// Advance the autosave timer using monotonic `now_secs`; returns time until next check when
-    /// a dirty document is waiting for autosave.
+    /// Autosave active and inactive dirty documents using independent timers and IDs.
     pub(crate) fn tick_autosave(&mut self, now_secs: f64, wall_unix_secs: u64) -> Option<Duration> {
         let _ = self.check_external_modification();
-        if !self.dirty() || !self.workspace.general.autosave {
-            self.recovery.reset_timer();
+        if self.recovery.has_prompt() && (!self.dirty() || !self.sessions.is_empty()) {
             return None;
         }
-        if self.recovery.has_prompt() {
-            return None;
-        }
-        let minutes = self.workspace.general.autosave_minutes.clamp(1, 120);
-        let interval_secs = f64::from(minutes) * 60.0;
-        let anchor = self.recovery.dirty_anchor_secs.get_or_insert(now_secs);
-        if now_secs < *anchor {
-            *anchor = now_secs;
-        }
-        let elapsed = now_secs - *anchor;
-        if elapsed >= interval_secs {
-            self.recovery.dirty_anchor_secs = Some(now_secs);
-            let doc_name = self
-                .path
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .map(|n| n.to_string_lossy().into_owned())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| self.project.name.clone());
-            if let Err(err) = self.recovery.write_active(
-                &self.project,
-                self.path.as_deref(),
-                &doc_name,
+        let enabled = self.workspace.general.autosave;
+        let interval = f64::from(self.workspace.general.autosave_minutes.clamp(1, 120)) * 60.;
+        let dirty = self.dirty();
+        let mut results = vec![self.recovery.tick(
+            &self.project,
+            self.path.as_deref(),
+            enabled && dirty,
+            interval,
+            now_secs,
+            wall_unix_secs,
+        )];
+        for session in self.sessions.iter_mut().flatten() {
+            let dirty = session.dirty();
+            results.push(session.recovery.tick(
+                &session.project,
+                session.path.as_deref(),
+                enabled && dirty,
+                interval,
+                now_secs,
                 wall_unix_secs,
-            ) {
-                self.message(format!("Autosave failed: {err}"));
-            }
-            Some(Duration::from_secs_f64(interval_secs))
-        } else {
-            Some(Duration::from_secs_f64((interval_secs - elapsed).max(0.25)))
+            ));
         }
+        let mut wait = None;
+        for result in results {
+            match result {
+                Ok(Some(duration)) => {
+                    wait = Some(wait.map_or(duration, |old: Duration| old.min(duration)))
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.message(format!("Autosave failed: {error}"));
+                    let retry = Duration::from_secs_f64(interval);
+                    wait = Some(wait.map_or(retry, |old| old.min(retry)));
+                }
+            }
+        }
+        wait
     }
 
     pub(crate) fn check_recovery_on_launch(&mut self) {
@@ -375,36 +442,69 @@ impl Editor {
         }
     }
 
-    /// Restore the front crash-recovery candidate as a dirty document preserving its original path.
+    /// Single-document UI offers the next candidate after the restored document is saved/closed.
+    /// R-035's future switcher can call the explicit multi-document entry point below.
     pub(crate) fn restore_recovery_prompt(&mut self, ctx: &egui::Context) {
-        let Some(cand) = self.recovery.pop_prompt() else {
+        if self.dirty() && self.sessions.is_empty() {
+            return;
+        }
+        self.restore_recovery_document(ctx);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn restore_recovery_in_session(&mut self, ctx: &egui::Context) {
+        self.restore_recovery_document(ctx);
+    }
+
+    fn restore_recovery_document(&mut self, ctx: &egui::Context) {
+        if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
+            return;
+        }
+        let Some(cand) = self.recovery.prompts.front().cloned() else {
             return;
         };
-        self.cancel_edits();
-        self.project = cand.project;
-        self.clipboard = Default::default();
-        self.resource_panel = Default::default();
-        self.library_panel = Default::default();
-        self.project_panel = Default::default();
-        self.document_settings = None;
-        self.edit_envelope = None;
-        self.cancel_sound_properties(ctx);
-        self.cancel_layer_properties(ctx);
-        self.close_symbols_popover(ctx);
-        self.timeline_edit = Default::default();
-        self.graphic_drop_position = None;
-        self.bitmap_textures = Default::default();
-        self.editing = vec![self.project.root.clone()];
-        self.frame = 0;
-        self.layer = 0;
-        self.clear_selection();
-        self.path = cand.original_path;
-        self.saved_project = None;
-        self.history = History::new(self.workspace.undo_levels as usize);
-        self.playing = false;
-        self.load_project_fonts(ctx);
-        self.normalize_selection();
-        self.recovery.adopt_restored(&cand.id, self.path.as_deref());
+        let mut path = cand.original_path.clone();
+        // A clean loaded original can adopt its recovery; an independently edited view cannot.
+        let conflict = path
+            .as_deref()
+            .and_then(|p| self.session_for_path(p))
+            .is_some_and(|index| {
+                index != self.active_session || self.dirty() || !self.sessions.is_empty()
+            });
+        let mut independent_recovery = None;
+        if conflict {
+            path = None;
+            // Copy first under a new identity. The original open document owns the old ID;
+            // either document may autosave, Save As or close without deleting the other's copy.
+            let mut recovery = self.recovery.for_document(None);
+            if let Err(error) = recovery.write_active(
+                &cand.project,
+                None,
+                &cand.document_name,
+                cand.timestamp_unix_secs,
+            ) {
+                self.message(format!("Recovery restore failed: {error}"));
+                return;
+            }
+            independent_recovery = Some(recovery);
+        }
+        self.recovery.pop_prompt();
+        if self.dirty() || !self.sessions.is_empty() {
+            self.open_new_session_tab(ctx, cand.project, path);
+            self.saved_project = None;
+        } else {
+            // Do not delete the candidate when replacing a clean original with the same ID.
+            let mut fresh = self.recovery.for_document(None);
+            self.recovery.move_prompts_to(&mut fresh);
+            self.recovery = fresh;
+            self.install_document(ctx, cand.project, path, false);
+        }
+        if let Some(mut recovery) = independent_recovery {
+            self.recovery.move_prompts_to(&mut recovery);
+            self.recovery = recovery;
+        } else {
+            self.recovery.adopt_restored(&cand.id, self.path.as_deref());
+        }
         if let Some(path) = &self.path
             && path.exists()
         {

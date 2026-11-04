@@ -8,9 +8,11 @@ mod code_tools;
 mod commands;
 mod detached;
 mod dock_grid;
+mod document_sessions;
 mod fonts;
 mod graphic_import;
 mod layer_controls;
+mod native_quit;
 mod native_screens;
 mod native_windows;
 mod paint_controls;
@@ -48,11 +50,14 @@ mod transform_geometry;
 mod ui_icons;
 mod vector;
 mod workspace;
+mod workspace_presets;
 
 #[cfg(test)]
 mod clipboard_tests;
 #[cfg(test)]
 mod detached_tests;
+#[cfg(test)]
+mod document_sessions_tests;
 #[cfg(test)]
 mod panel_tests;
 #[cfg(test)]

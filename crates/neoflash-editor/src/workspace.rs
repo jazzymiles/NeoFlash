@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 /// v2 = NF2 layout (bottom dock with Timeline · Actions · Output · Accessibility). Layouts saved
 /// under v1 are not migrated: the NF2 default replaces them once.
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
-pub const MAX_PREFS_BYTES: usize = 16 * 1024;
+// Includes up to 32 complete user layouts, each with its own floating windows.
+pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
 const VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1486,9 +1487,126 @@ pub struct WorkspacePrefs {
     pub clipboard_prefs: ClipboardPrefs,
     pub publish: PublishPrefs,
     pub shortcuts: ShortcutPrefs,
-    /// Named user-saved workspace layout presets (`Window ▸ Workspace ▸ Save Workspace…`).
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub named_presets: std::collections::BTreeMap<String, DockLayout>,
+    /// Complete named layouts. Naming/switching controls await the approved workspace UI.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_named_presets",
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub named_presets: std::collections::BTreeMap<String, WorkspacePreset>,
+    /// The saved layout the current arrangement started from; edits do not change the saved copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_named_preset: Option<String>,
+}
+
+/// Layout-only state: excludes document data, history, clipboard and general preferences.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WorkspacePreset {
+    // Required to distinguish complete presets from the older DockLayout-only representation.
+    pub dock: DockLayout,
+    #[serde(default)]
+    pub panels: PanelVisibility,
+    #[serde(default = "default_preset_bottom")]
+    pub active_bottom: BottomTab,
+    #[serde(default)]
+    pub sizes: PanelSizes,
+    #[serde(default)]
+    pub detached: DetachedPanels,
+    #[serde(default)]
+    pub floating: Vec<FloatingDock>,
+    #[serde(default)]
+    pub template: WorkspaceTemplate,
+}
+
+fn default_preset_bottom() -> BottomTab {
+    BottomTab::Properties
+}
+
+fn deserialize_named_presets<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::BTreeMap<String, WorkspacePreset>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StoredPreset {
+        Complete(Box<WorkspacePreset>),
+        Legacy(DockLayout),
+    }
+    let stored = std::collections::BTreeMap::<String, StoredPreset>::deserialize(deserializer)?;
+    Ok(stored
+        .into_iter()
+        .map(|(name, preset)| {
+            let preset = match preset {
+                StoredPreset::Complete(preset) => *preset,
+                StoredPreset::Legacy(dock) => WorkspacePreset::capture(&WorkspacePrefs {
+                    dock,
+                    ..WorkspacePrefs::default()
+                }),
+            };
+            (name, preset)
+        })
+        .collect())
+}
+
+impl WorkspacePreset {
+    fn capture(prefs: &WorkspacePrefs) -> Self {
+        Self {
+            dock: prefs.dock.clone(),
+            panels: prefs.panels,
+            active_bottom: prefs.active_bottom,
+            sizes: prefs.sizes,
+            detached: prefs.detached,
+            floating: prefs.floating.clone(),
+            template: prefs.template,
+        }
+    }
+
+    fn apply_to(&self, prefs: &mut WorkspacePrefs) {
+        prefs.dock = self.dock.clone();
+        prefs.panels = self.panels;
+        prefs.active_bottom = self.active_bottom;
+        prefs.sizes = self.sizes;
+        prefs.detached = self.detached;
+        prefs.floating = self.floating.clone();
+        prefs.template = self.template;
+        prefs.sanitize_layout();
+    }
+
+    fn sanitize(&mut self) {
+        let mut prefs = WorkspacePrefs::default();
+        self.apply_to(&mut prefs);
+        *self = Self::capture(&prefs);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspacePresetError {
+    InvalidName,
+    ReservedName,
+    AlreadyExists,
+    NotFound,
+    LimitReached,
+}
+
+fn preset_name(name: &str) -> Result<&str, WorkspacePresetError> {
+    let name = normalized_preset_name(name)?;
+    if WorkspaceTemplate::ALL
+        .iter()
+        .any(|template| template.label().eq_ignore_ascii_case(name))
+    {
+        return Err(WorkspacePresetError::ReservedName);
+    }
+    Ok(name)
+}
+
+fn normalized_preset_name(name: &str) -> Result<&str, WorkspacePresetError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
+        return Err(WorkspacePresetError::InvalidName);
+    }
+    Ok(name)
 }
 
 /// Preferences ▸ General (besides theme, UI scale, undo levels and Shift-select).
@@ -2165,41 +2283,95 @@ impl Default for WorkspacePrefs {
             publish: PublishPrefs::default(),
             shortcuts: ShortcutPrefs::default(),
             named_presets: std::collections::BTreeMap::new(),
+            active_named_preset: None,
         }
     }
 }
 
 impl WorkspacePrefs {
-    /// Save the current `DockLayout` under `name` (up to 32 user presets).
+    pub const MAX_NAMED_PRESETS: usize = 32;
+
+    /// Create a complete layout preset; an existing name is never overwritten implicitly.
     #[allow(dead_code)]
     pub fn save_named_preset(&mut self, name: &str) -> bool {
-        let trimmed = name.trim();
-        if trimmed.is_empty() || trimmed.len() > 64 {
-            return false;
+        self.store_named_preset(name, false).is_ok()
+    }
+
+    /// `overwrite` must come from an explicit replacement choice in the naming UI.
+    #[allow(dead_code)]
+    pub fn store_named_preset(
+        &mut self,
+        name: &str,
+        overwrite: bool,
+    ) -> Result<(), WorkspacePresetError> {
+        let name = preset_name(name)?;
+        if self.named_presets.contains_key(name) {
+            if !overwrite {
+                return Err(WorkspacePresetError::AlreadyExists);
+            }
+        } else if self.named_presets.len() >= Self::MAX_NAMED_PRESETS {
+            return Err(WorkspacePresetError::LimitReached);
         }
-        if !self.named_presets.contains_key(trimmed) && self.named_presets.len() >= 32 {
-            return false;
-        }
-        self.named_presets
-            .insert(trimmed.to_owned(), self.dock.clone());
-        true
+        let mut preset = WorkspacePreset::capture(self);
+        preset.sanitize();
+        self.named_presets.insert(name.to_owned(), preset);
+        self.active_named_preset = Some(name.to_owned());
+        Ok(())
     }
 
     /// Apply a previously saved named workspace layout preset.
     #[allow(dead_code)]
     pub fn apply_named_preset(&mut self, name: &str) -> bool {
-        let Some(mut layout) = self.named_presets.get(name).cloned() else {
+        let name = name.trim();
+        let Some(preset) = self.named_presets.get(name).cloned() else {
             return false;
         };
-        layout.sanitize(self.detached);
-        self.dock = layout;
+        preset.apply_to(self);
+        self.active_named_preset = Some(name.to_owned());
         true
+    }
+
+    /// Rename atomically, preserving the saved arrangement rather than capturing the current one.
+    #[allow(dead_code)]
+    pub fn rename_named_preset(
+        &mut self,
+        old_name: &str,
+        new_name: &str,
+        overwrite: bool,
+    ) -> Result<(), WorkspacePresetError> {
+        let old_name = old_name.trim();
+        let new_name = preset_name(new_name)?;
+        if !self.named_presets.contains_key(old_name) {
+            return Err(WorkspacePresetError::NotFound);
+        }
+        if old_name == new_name {
+            return Ok(());
+        }
+        if self.named_presets.contains_key(new_name) && !overwrite {
+            return Err(WorkspacePresetError::AlreadyExists);
+        }
+        let preset = self.named_presets.remove(old_name).expect("checked preset");
+        self.named_presets.insert(new_name.to_owned(), preset);
+        if self.active_named_preset.as_deref() == Some(old_name) {
+            self.active_named_preset = Some(new_name.to_owned());
+        } else if self.active_named_preset.as_deref() == Some(new_name) {
+            // The displayed arrangement still belongs to the replaced preset, not the renamed one.
+            self.active_named_preset = None;
+        }
+        Ok(())
     }
 
     /// Delete a user-saved workspace layout preset.
     #[allow(dead_code)]
     pub fn delete_named_preset(&mut self, name: &str) -> bool {
-        self.named_presets.remove(name.trim()).is_some()
+        let name = name.trim();
+        if self.named_presets.remove(name).is_none() {
+            return false;
+        }
+        if self.active_named_preset.as_deref() == Some(name) {
+            self.active_named_preset = None;
+        }
+        true
     }
 }
 
@@ -2571,6 +2743,26 @@ impl WorkspacePrefs {
         self.recent_colors
             .truncate(neoflash_ui::components::swatches::PALETTE_COLUMNS);
         self.custom_swatches.truncate(64);
+        self.sanitize_layout();
+        let mut presets = std::collections::BTreeMap::new();
+        for (name, mut preset) in std::mem::take(&mut self.named_presets) {
+            // Older builds allowed built-in names; keep those saved layouts loadable/renameable.
+            if let Ok(name) = normalized_preset_name(&name)
+                && presets.len() < Self::MAX_NAMED_PRESETS
+            {
+                preset.sanitize();
+                presets.entry(name.to_owned()).or_insert(preset);
+            }
+        }
+        self.named_presets = presets;
+        self.active_named_preset = self
+            .active_named_preset
+            .take()
+            .map(|name| name.trim().to_owned())
+            .filter(|name| self.named_presets.contains_key(name));
+    }
+
+    fn sanitize_layout(&mut self) {
         self.sizes.sanitize();
         self.detached.sanitize();
         self.dock.sanitize(self.detached);
@@ -2726,6 +2918,7 @@ impl WorkspacePrefs {
             recent_colors: std::mem::take(&mut self.recent_colors),
             custom_swatches: std::mem::take(&mut self.custom_swatches),
             document_defaults: self.document_defaults.take(),
+            named_presets: std::mem::take(&mut self.named_presets),
             dock,
             panels,
             active_bottom,

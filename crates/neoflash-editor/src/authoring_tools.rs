@@ -531,10 +531,13 @@ impl Editor {
             self.presented_interactive_authored_scene(self.show_layer_masking(painter.ctx()));
         let mut changes = Vec::new();
         for target in &gesture.targets {
-            if authored.draws.iter().any(|draw| {
-                draw.item.instance_path.first() == Some(&target.element)
-                    && !draw.clip_ids.is_empty()
-            }) {
+            let Some(draw) = authored.draws.iter().find(|draw| {
+                draw.item.instance_path.len() == 1
+                    && draw.item.instance_path.first() == Some(&target.element)
+            }) else {
+                continue;
+            };
+            if !draw.clip_ids.is_empty() {
                 self.message("Partial stroke erasing on masked artwork is not available yet; no masked stroke was changed.");
                 continue;
             }
@@ -547,6 +550,16 @@ impl Editor {
             else {
                 continue;
             };
+            let layer = &self.symbol().timeline.layers[index];
+            if layer.properties.motion_guide.is_some()
+                && !layer.keyframes.iter().any(|key| key.frame == self.frame)
+                && (self.workspace.timeline_prefs.auto_keyframe
+                    || motion_span(layer, self.frame).is_some())
+                && draw.item.transform != transform_matrix(element.transform)
+            {
+                self.message("Partial stroke erasing cannot insert a keyframe inside guided motion yet. Erase at an existing keyframe, or turn off Auto keyframe for a classic tween; the object was unchanged.");
+                continue;
+            }
             let Some((commands, rule)) = element.to_path_commands() else {
                 continue;
             };
@@ -555,7 +568,10 @@ impl Editor {
             };
             let result = match neoflash_core::erase_path_stroke(
                 &commands,
-                transform_matrix(element.transform),
+                // Hit testing sees the presented pose, including motion guides
+                // and Orient to path. Cut in that same space without baking the
+                // presentation transform into the authored span key.
+                draw.item.transform,
                 &points,
                 f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
                 0.2 / f64::from(gesture.zoom),
@@ -627,7 +643,7 @@ impl Editor {
         }
         self.transact(|editor| {
             let before = editor.project.clone();
-            for (target, replacements) in changes {
+            for (target, mut replacements) in changes {
                 if !editor.target_editable(&target) {
                     continue;
                 }
@@ -642,6 +658,18 @@ impl Editor {
                     .iter()
                     .position(|element| element.id == target.element)
                 {
+                    // With Auto keyframe off, the destination is the existing
+                    // span key, not the interpolated pose sampled for geometry.
+                    let transform = elements[position].transform;
+                    for replacement in &mut replacements {
+                        replacement.transform = transform;
+                        if matches!(
+                            replacement.kind,
+                            ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+                        ) {
+                            replacement.transform.primitive = None;
+                        }
+                    }
                     let ids: Vec<_> = replacements
                         .iter()
                         .map(|element| element.id.clone())

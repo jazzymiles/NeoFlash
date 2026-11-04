@@ -333,7 +333,7 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
   sampled solid color. Properties RGB edits replace a gradient; alpha-only edits retain stops and update their alpha.
 - Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks.
 - Brush input: pressure-bearing touch and macOS tablet-point samples drive 10–100% width, with one shared draft/saved vector outline, constant mouse width and cancellation without a commit. Physical tablet acceptance and the v2.2 pressure/tilt controls remain pending.
-- Engine-ready, UI pending (R-034): per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Partial-fill erasing is not implemented.
+- Engine-ready, UI pending (R-034): per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key insertion if it would move the artwork. Partial-fill erasing is not implemented.
 - Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
   actual intersections, group isolation and Undo without changing the NF2 components.
 
