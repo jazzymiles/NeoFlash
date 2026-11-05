@@ -140,6 +140,7 @@ impl PreferencesDraft {
                 let t = TimelineView::default();
                 self.timeline.preview = t.preview;
                 self.timeline.short_rows = t.short_rows;
+                self.timeline.compact_rows = t.compact_rows;
                 self.timeline.show_seconds = t.show_seconds;
                 self.timeline.snap_playhead = t.snap_playhead;
                 self.onion = defaults.onion_range.map(f64::from);
@@ -227,6 +228,7 @@ impl Editor {
         w.shift_select = draft.shift_select;
         w.timeline.preview = draft.timeline.preview;
         w.timeline.short_rows = draft.timeline.short_rows;
+        w.timeline.compact_rows = draft.timeline.compact_rows;
         w.timeline.show_seconds = draft.timeline.show_seconds;
         w.timeline.snap_playhead = draft.timeline.snap_playhead;
         w.onion_range = draft.onion.map(|n| n.round().max(0.0) as u32);
@@ -800,13 +802,22 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ],
             160.0,
         );
+        let mut row_mode = if draft.timeline.compact_rows {
+            2_u8
+        } else if draft.timeline.short_rows {
+            1_u8
+        } else {
+            0_u8
+        };
         c::Select::options(
             ui,
             "prefs-frame-rows",
-            &mut draft.timeline.short_rows,
-            &[(false, "Row: Normal"), (true, "Row: Short")],
+            &mut row_mode,
+            &[(0, "Row: Normal"), (1, "Row: Short"), (2, "Row: Compact")],
             160.0,
         );
+        draft.timeline.short_rows = row_mode == 1;
+        draft.timeline.compact_rows = row_mode == 2;
     });
     row(ui, "Ruler", |ui| {
         bound_switch(ui, &mut draft.timeline.show_seconds, "Show seconds");

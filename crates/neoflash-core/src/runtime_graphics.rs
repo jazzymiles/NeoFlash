@@ -946,6 +946,7 @@ impl GraphicsState {
                         alpha: f64::from(applied[3]) / 255.0,
                         fill_gradient: None,
                         fill_bitmap: None,
+                        luminance: false,
                     });
                 }
                 Paint::Gradient(paint) => {
@@ -962,6 +963,7 @@ impl GraphicsState {
                         alpha: 1.0,
                         fill_gradient: Some(gradient),
                         fill_bitmap: None,
+                        luminance: false,
                     });
                 }
                 Paint::Bitmap(spec) => {
@@ -986,6 +988,7 @@ impl GraphicsState {
                                 smoothing: spec.smoothing,
                                 color_transform: color,
                             }),
+                            luminance: false,
                         });
                     }
                 }

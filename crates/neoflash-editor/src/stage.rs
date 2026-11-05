@@ -1057,7 +1057,7 @@ impl Editor {
         if scene
             .clips
             .iter()
-            .any(|clip| clip.alpha_components.is_some())
+            .any(|clip| clip.alpha_components.is_some() || clip.invert)
         {
             if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
                 self.message(error);

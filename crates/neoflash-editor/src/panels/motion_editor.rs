@@ -248,52 +248,165 @@ impl Editor {
                                 .show(ui, |_| {});
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if *label == "Transformation" {
-                                let add = ui.add_enabled(
-                                    editable,
-                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
-                                );
-                                c::popup_below(&add, 160.0, |ui| {
-                                    if ui
-                                        .add_enabled(
-                                            !has_skew,
-                                            c::MenuItem::new("Skew").checked(show_skew),
-                                        )
-                                        .clicked()
-                                    {
-                                        state.show_skew = !show_skew;
-                                        if state.show_skew {
-                                            state.selected = TweenProperty::Skew;
-                                        } else if state.selected == TweenProperty::Skew {
-                                            state.selected = TweenProperty::X;
+                            let add = ui.add_enabled(
+                                editable,
+                                c::IconButton::new(i16::PLUS, "Add property").side(24.0),
+                            );
+                            match *label {
+                                "Basic motion" => {
+                                    c::popup_below(&add, 160.0, |ui| {
+                                        for (prop, item_label) in [
+                                            (TweenProperty::X, "X"),
+                                            (TweenProperty::Y, "Y"),
+                                            (TweenProperty::Rotation, "Rotation Z"),
+                                        ] {
+                                            let keyed =
+                                                self.motion_key_frames(&span, prop).len() > 1;
+                                            if ui
+                                                .add(c::MenuItem::new(item_label).checked(keyed))
+                                                .clicked()
+                                            {
+                                                state.selected = prop;
+                                                self.ensure_motion_property_track(&span, prop);
+                                                ui.close();
+                                            }
                                         }
-                                        ui.close();
-                                    }
-                                });
-                            } else if *label == "Colour effect" {
-                                let add = ui.add_enabled(
-                                    editable,
-                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
-                                );
-                                c::popup_below(&add, 160.0, |ui| {
-                                    let has_color =
-                                        self.motion_key_frames(&span, TweenProperty::Color).len()
+                                    });
+                                }
+                                "Transformation" => {
+                                    c::popup_below(&add, 160.0, |ui| {
+                                        for (prop, item_label) in [
+                                            (TweenProperty::ScaleX, "Scale X"),
+                                            (TweenProperty::ScaleY, "Scale Y"),
+                                        ] {
+                                            let keyed =
+                                                self.motion_key_frames(&span, prop).len() > 1;
+                                            if ui
+                                                .add(c::MenuItem::new(item_label).checked(keyed))
+                                                .clicked()
+                                            {
+                                                state.selected = prop;
+                                                self.ensure_motion_property_track(&span, prop);
+                                                ui.close();
+                                            }
+                                        }
+                                        c::menu_separator(ui);
+                                        if ui
+                                            .add_enabled(
+                                                !has_skew,
+                                                c::MenuItem::new("Skew").checked(show_skew),
+                                            )
+                                            .clicked()
+                                        {
+                                            state.show_skew = !show_skew;
+                                            if state.show_skew {
+                                                state.selected = TweenProperty::Skew;
+                                                self.ensure_motion_property_track(
+                                                    &span,
+                                                    TweenProperty::Skew,
+                                                );
+                                            } else if state.selected == TweenProperty::Skew {
+                                                state.selected = TweenProperty::X;
+                                            }
+                                            ui.close();
+                                        }
+                                    });
+                                }
+                                "Colour effect" => {
+                                    c::popup_below(&add, 160.0, |ui| {
+                                        let has_alpha = self
+                                            .motion_key_frames(&span, TweenProperty::Alpha)
+                                            .len()
                                             > 1;
-                                    if ui
-                                        .add(c::MenuItem::new("Tint / Colour").checked(has_color))
-                                        .clicked()
-                                    {
-                                        state.selected = TweenProperty::Alpha;
-                                        self.toggle_motion_key(&span, TweenProperty::Color);
-                                        ui.close();
-                                    }
-                                });
-                            } else {
-                                let add = ui.add_enabled(
-                                    false,
-                                    c::IconButton::new(i16::PLUS, "Add property").side(24.0),
-                                );
-                                c::not_available(add, "Add property");
+                                        if ui
+                                            .add(c::MenuItem::new("Alpha").checked(has_alpha))
+                                            .clicked()
+                                        {
+                                            state.selected = TweenProperty::Alpha;
+                                            self.ensure_motion_property_track(
+                                                &span,
+                                                TweenProperty::Alpha,
+                                            );
+                                            ui.close();
+                                        }
+                                        let has_color = self
+                                            .motion_key_frames(&span, TweenProperty::Color)
+                                            .len()
+                                            > 1;
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new("Tint / Colour")
+                                                    .checked(has_color),
+                                            )
+                                            .clicked()
+                                        {
+                                            state.selected = TweenProperty::Alpha;
+                                            self.toggle_motion_key(&span, TweenProperty::Color);
+                                            ui.close();
+                                        }
+                                    });
+                                }
+                                "Filters" => {
+                                    c::popup_below(&add, 160.0, |ui| {
+                                        for (item_label, filter) in [
+                                            (
+                                                "Blur",
+                                                neoflash_core::FilterSpec::Blur {
+                                                    blur_x: 4.0,
+                                                    blur_y: 4.0,
+                                                    quality: 1,
+                                                },
+                                            ),
+                                            (
+                                                "Glow",
+                                                neoflash_core::FilterSpec::Glow {
+                                                    color: 0x00FF0000,
+                                                    alpha: 1.0,
+                                                    blur_x: 6.0,
+                                                    blur_y: 6.0,
+                                                    strength: 2.0,
+                                                    quality: 1,
+                                                    inner: false,
+                                                    knockout: false,
+                                                },
+                                            ),
+                                            (
+                                                "Drop shadow",
+                                                neoflash_core::FilterSpec::DropShadow {
+                                                    distance: 4.0,
+                                                    angle: 45.0,
+                                                    color: 0x00000000,
+                                                    alpha: 1.0,
+                                                    blur_x: 4.0,
+                                                    blur_y: 4.0,
+                                                    strength: 1.0,
+                                                    quality: 1,
+                                                    inner: false,
+                                                    knockout: false,
+                                                    hide_object: false,
+                                                },
+                                            ),
+                                            (
+                                                "Adjust colour",
+                                                neoflash_core::FilterSpec::ColorMatrix {
+                                                    matrix: [
+                                                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+                                                        0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                                                        0.0, 0.0, 1.0, 0.0,
+                                                    ],
+                                                },
+                                            ),
+                                        ] {
+                                            if ui.add(c::MenuItem::new(item_label)).clicked() {
+                                                if self.add_motion_span_filter(&span, filter) {
+                                                    self.show_panel(PanelId::Filters);
+                                                }
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                }
+                                _ => {}
                             }
                         });
                     });
@@ -597,17 +710,23 @@ impl Editor {
                 c::Slider::new(&mut state.expanded, 0.0..=100.0, "Expanded graph size")
                     .width(120.0),
             );
-            // The span length is set on the Timeline; the field shows it.
             let mut shown = f64::from(frames);
             let response = ui.add_enabled(
-                false,
+                editable,
                 c::Field::new(&mut shown, "Frames")
                     .prefix("Frames")
                     .decimals(0)
+                    .range(1.0..=10_000.0)
                     .stepper()
                     .width(120.0),
             );
-            c::not_available(response, "Frames");
+            if response.changed() {
+                self.set_motion_span_frames(
+                    &span,
+                    shown.round().clamp(1.0, 10_000.0) as u32,
+                    Some(response.id),
+                );
+            }
             ui.label(
                 rich(
                     "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames",

@@ -488,6 +488,159 @@ impl Editor {
         });
     }
 
+    /// Ensure `property` has an active ◆ key track in `span` (at the playhead when inside the span,
+    /// or at `span.end - 1` when on `span.start` of a multi-frame span). One Undo step.
+    pub(crate) fn ensure_motion_property_track(
+        &mut self,
+        span: &TweenSpan,
+        property: TweenProperty,
+    ) -> bool {
+        if span.kind != TweenKind::Motion || !self.layer_editable() {
+            return false;
+        }
+        let target_frame = if self.frame > span.start && self.frame < span.end {
+            self.frame
+        } else if span.end > span.start + 1 {
+            span.end - 1
+        } else {
+            return false;
+        };
+        if self
+            .motion_key_frames(span, property)
+            .contains(&target_frame)
+        {
+            return false;
+        }
+        let span = span.clone();
+        self.finish_edits();
+        self.transact(move |s| {
+            s.ensure_key_at(&span.layer_id, target_frame, false);
+            if let Some(list) = s
+                .span_key_mut(&span, target_frame)
+                .and_then(|key| key.keyed_properties.as_mut())
+                && !list.contains(&property)
+            {
+                list.push(property);
+            }
+        });
+        true
+    }
+
+    /// Add a display filter to the tweened element on `span` in one Undo step.
+    pub(crate) fn add_motion_span_filter(
+        &mut self,
+        span: &TweenSpan,
+        filter: neoflash_core::FilterSpec,
+    ) -> bool {
+        if span.kind != TweenKind::Motion || !self.layer_editable() {
+            return false;
+        }
+        let has_elements = self
+            .span_layer(span)
+            .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start))
+            .is_some_and(|k| !k.elements.is_empty());
+        if !has_elements {
+            return false;
+        }
+        let span = span.clone();
+        self.finish_edits();
+        self.transact(move |s| {
+            if let Some(layer) = s
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == span.layer_id)
+            {
+                for key in &mut layer.keyframes {
+                    if key.frame >= span.start && key.frame < span.end {
+                        for element in &mut key.elements {
+                            element.filters.push(filter.clone());
+                        }
+                    }
+                }
+            }
+            s.project.format_version = s.project.format_version.max(8);
+        });
+        true
+    }
+
+    /// Resize the motion tween span `span` to `target_frames` frames (`>= 1`) in one Undo step.
+    pub(crate) fn set_motion_span_frames(
+        &mut self,
+        span: &TweenSpan,
+        target_frames: u32,
+        control: Option<egui::Id>,
+    ) -> bool {
+        let target_frames = target_frames.clamp(1, 10_000);
+        let current_frames = span.frames();
+        if span.kind != TweenKind::Motion
+            || !self.layer_editable()
+            || target_frames == current_frames
+        {
+            return false;
+        }
+        let new_end = span.start + target_frames;
+        let delta = new_end as i64 - span.end as i64;
+        let span = span.clone();
+        self.motion_edit(control, move |s| {
+            let timeline = &mut s.symbol_mut().timeline;
+            let other_layers_max = timeline
+                .layers
+                .iter()
+                .filter(|l| l.id != span.layer_id)
+                .flat_map(|l| {
+                    l.keyframes
+                        .iter()
+                        .map(|k| k.frame + 1)
+                        .chain(l.properties.end_frame)
+                })
+                .max()
+                .unwrap_or(1);
+            if let Some(layer) = timeline.layers.iter_mut().find(|l| l.id == span.layer_id) {
+                let had_following_key = layer.keyframes.iter().any(|k| k.frame >= span.end);
+                if delta < 0 {
+                    layer.keyframes.retain(|k| {
+                        !(k.frame >= new_end && k.frame < span.end && k.keyed_properties.is_some())
+                    });
+                }
+                for key in &mut layer.keyframes {
+                    if key.frame >= span.end {
+                        key.frame = (key.frame as i64 + delta).max(new_end as i64) as u32;
+                    }
+                }
+                if had_following_key {
+                    if let Some(end) = &mut layer.properties.end_frame
+                        && *end >= span.end
+                    {
+                        *end = (*end as i64 + delta).max(new_end as i64) as u32;
+                    }
+                    let layer_max = layer
+                        .keyframes
+                        .iter()
+                        .map(|k| k.frame + 1)
+                        .max()
+                        .unwrap_or(1)
+                        .max(new_end);
+                    timeline.frame_count = timeline.frame_count.max(layer_max);
+                } else if new_end >= other_layers_max {
+                    layer.properties.end_frame = None;
+                    timeline.frame_count = new_end.max(1);
+                } else {
+                    timeline.frame_count = timeline.frame_count.max(new_end);
+                    layer.properties.end_frame =
+                        (new_end < timeline.frame_count).then_some(new_end);
+                }
+                layer.normalize_motion_keys();
+            }
+            if s.frame >= new_end && s.frame < span.end {
+                s.frame = new_end.saturating_sub(1);
+            }
+            s.project.upgrade_format_for_features();
+        });
+        true
+    }
+
     /// Bounds `[x, y, w, h]` of the motion path: the X and Y key values of the span.
     pub(crate) fn motion_path_bounds(&self, span: &TweenSpan) -> Option<[f64; 4]> {
         let axis = |property| {

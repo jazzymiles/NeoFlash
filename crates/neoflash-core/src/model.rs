@@ -207,16 +207,33 @@ pub enum LayerRole {
 
 /// Geometric masks preserve legacy fill silhouettes. Alpha masks composite the
 /// source's painted opacity, including gradients and decoded bitmap pixels.
+/// Luminance masks weight coverage by BT.709 relative luminance (`0.2126 R + 0.7152 G + 0.0722 B`)
+/// multiplied by painted opacity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MaskMode {
     #[default]
     Geometry,
     Alpha,
+    Luminance,
 }
 impl MaskMode {
+    pub const ALL: [Self; 3] = [Self::Geometry, Self::Alpha, Self::Luminance];
+
     pub fn is_geometry(&self) -> bool {
         *self == Self::Geometry
+    }
+
+    pub fn uses_paint_coverage(&self) -> bool {
+        matches!(self, Self::Alpha | Self::Luminance)
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Geometry => "Geometry",
+            Self::Alpha => "Alpha",
+            Self::Luminance => "Luminance",
+        }
     }
 }
 
@@ -236,6 +253,10 @@ pub struct LayerProperties {
     /// Applies to a Mask layer's source, never to its linked target layers.
     #[serde(default, skip_serializing_if = "MaskMode::is_geometry")]
     pub mask_mode: MaskMode,
+    /// When true on a Mask layer, target layers are visible outside the mask coverage
+    /// (`1 - coverage`) instead of inside (`coverage`), matching After Effects Inverted masks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mask_invert: bool,
     #[serde(default)]
     pub outline: bool,
     /// Authoring-only RGB; None uses the stable layer palette without changing
@@ -351,12 +372,12 @@ impl Project {
         }
     }
 
-    /// Explicit painted-alpha timeline masks and per-resource audio export settings (format 9).
+    /// Explicit painted-alpha/luminance/inverted timeline masks and per-resource audio export settings (format 9).
     pub fn uses_format_9(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
-            .any(|layer| !layer.properties.mask_mode.is_geometry())
+            .any(|layer| !layer.properties.mask_mode.is_geometry() || layer.properties.mask_invert)
             || self
                 .resources
                 .iter()

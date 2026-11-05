@@ -21,10 +21,12 @@ struct Component {
     alpha: f64,
     gradient: Option<GradientPaint>,
     bitmap: Option<(Arc<DecodedImage>, u32, u32, bool, ColorTransform)>,
+    luminance: bool,
     clips: Vec<usize>,
 }
 struct Clip {
     alpha: bool,
+    invert: bool,
     components: Vec<Component>,
 }
 
@@ -70,6 +72,7 @@ impl MaskCoverage {
                             c.fill_gradient.clone(),
                             c.resource_bitmap.as_ref(),
                             c.fill_bitmap.is_some(),
+                            c.luminance,
                         )
                     })
                     .collect()
@@ -86,11 +89,14 @@ impl MaskCoverage {
                             None,
                             None,
                             false,
+                            false,
                         )
                     })
                     .collect()
             };
-            for (commands, rule, matrix, ids, alpha, gradient, bitmap, runtime_bitmap) in sources {
+            for (commands, rule, matrix, ids, alpha, gradient, bitmap, runtime_bitmap, luminance) in
+                sources
+            {
                 if runtime_bitmap {
                     return Err("Native authored mask requires a portable image resource, not runtime bitmap pixels".into());
                 }
@@ -150,11 +156,13 @@ impl MaskCoverage {
                     alpha: alpha.clamp(0., 1.),
                     gradient,
                     bitmap,
+                    luminance,
                     clips,
                 });
             }
             result.clips.push(Clip {
                 alpha: clip.alpha_components.is_some(),
+                invert: clip.invert,
                 components,
             });
         }
@@ -187,6 +195,7 @@ impl MaskCoverage {
                 return value;
             }
             let value = clips[index].alpha
+                || clips[index].invert
                 || clips[index]
                     .components
                     .iter()
@@ -311,7 +320,12 @@ impl MaskCoverage {
             }
             let mut alpha = component.alpha;
             if let Some(gradient) = &component.gradient {
-                alpha *= f64::from(gradient.sample(local[0], local[1])[3]) / 255.;
+                let sample = gradient.sample(local[0], local[1]);
+                alpha *= f64::from(sample[3]) / 255.;
+                if component.luminance {
+                    alpha *=
+                        crate::authored_layers::bt709_luminance(sample[0], sample[1], sample[2]);
+                }
             }
             if let Some((image, width, height, smoothing, color)) = &component.bitmap {
                 if *width == 0 || *height == 0 {
@@ -319,8 +333,17 @@ impl MaskCoverage {
                 }
                 let x = local[0] * f64::from(image.width) / f64::from(*width);
                 let y = local[1] * f64::from(image.height) / f64::from(*height);
-                let a = bitmap_alpha(image, x, y, *smoothing);
-                alpha *= (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
+                if component.luminance {
+                    let [r, g, b, a] = bitmap_rgba(image, x, y, *smoothing);
+                    let r = (r * color.multipliers[0] + color.offsets[0] / 255.).clamp(0., 1.);
+                    let g = (g * color.multipliers[1] + color.offsets[1] / 255.).clamp(0., 1.);
+                    let b = (b * color.multipliers[2] + color.offsets[2] / 255.).clamp(0., 1.);
+                    let a = (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
+                    alpha *= a * (0.2126 * r + 0.7152 * g + 0.0722 * b);
+                } else {
+                    let a = bitmap_alpha(image, x, y, *smoothing);
+                    alpha *= (a * color.multipliers[3] + color.offsets[3] / 255.).clamp(0., 1.);
+                }
             }
             for id in &component.clips {
                 alpha *= self.clip_alpha(*id, point, cache);
@@ -334,7 +357,10 @@ impl MaskCoverage {
                 break;
             }
         }
-        let result = result.clamp(0., 1.);
+        let mut result = result.clamp(0., 1.);
+        if clip.invert {
+            result = (1. - result).clamp(0., 1.);
+        }
         cache[index] = result;
         result
     }
@@ -405,11 +431,17 @@ fn contains(edges: &[Vec<Edge>], bounds: PathBounds, rule: FillRule, p: [f64; 2]
         FillRule::NonZero => winding != 0,
     }
 }
-fn bitmap_alpha(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> f64 {
-    let pixel = |x: i64, y: i64| {
+fn bitmap_rgba(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> [f64; 4] {
+    let pixel = |x: i64, y: i64| -> [f64; 4] {
         let x = x.clamp(0, i64::from(image.width) - 1) as usize;
         let y = y.clamp(0, i64::from(image.height) - 1) as usize;
-        f64::from(image.rgba[(y * image.width as usize + x) * 4 + 3]) / 255.
+        let i = (y * image.width as usize + x) * 4;
+        [
+            f64::from(image.rgba[i]) / 255.,
+            f64::from(image.rgba[i + 1]) / 255.,
+            f64::from(image.rgba[i + 2]) / 255.,
+            f64::from(image.rgba[i + 3]) / 255.,
+        ]
     };
     if !smoothing {
         return pixel(x.floor() as i64, y.floor() as i64);
@@ -417,9 +449,18 @@ fn bitmap_alpha(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> f64 {
     let (x, y) = (x - 0.5, y - 0.5);
     let (ix, iy) = (x.floor(), y.floor());
     let (fx, fy) = (x - ix, y - iy);
-    let a = pixel(ix as i64, iy as i64) * (1. - fx) + pixel(ix as i64 + 1, iy as i64) * fx;
-    let b = pixel(ix as i64, iy as i64 + 1) * (1. - fx) + pixel(ix as i64 + 1, iy as i64 + 1) * fx;
-    a * (1. - fy) + b * fy
+    let p00 = pixel(ix as i64, iy as i64);
+    let p10 = pixel(ix as i64 + 1, iy as i64);
+    let p01 = pixel(ix as i64, iy as i64 + 1);
+    let p11 = pixel(ix as i64 + 1, iy as i64 + 1);
+    std::array::from_fn(|c| {
+        let top = p00[c] * (1. - fx) + p10[c] * fx;
+        let bottom = p01[c] * (1. - fx) + p11[c] * fx;
+        top * (1. - fy) + bottom * fy
+    })
+}
+fn bitmap_alpha(image: &DecodedImage, x: f64, y: f64, smoothing: bool) -> f64 {
+    bitmap_rgba(image, x, y, smoothing)[3]
 }
 
 #[cfg(test)]
@@ -446,12 +487,14 @@ mod tests {
             resource_bitmap: None,
             fill_gradient: None,
             fill_bitmap: None,
+            luminance: false,
         };
         let mut clips = vec![
             RuntimeClip {
                 id: "alpha".into(),
                 components: vec![],
                 alpha_components: Some(vec![alpha.clone(), alpha]),
+                invert: false,
             },
             RuntimeClip {
                 id: "outer".into(),
@@ -462,6 +505,7 @@ mod tests {
                     clip_ids: vec!["alpha".into()],
                 }],
                 alpha_components: None,
+                invert: false,
             },
         ];
         let coverage = MaskCoverage::new(&Project::blank(), &clips).unwrap();

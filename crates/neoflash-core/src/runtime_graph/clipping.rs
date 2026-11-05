@@ -43,6 +43,9 @@ pub struct RuntimeClip {
     /// None preserves geometric clipping; Some(empty) is an empty alpha mask.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpha_components: Option<Vec<AlphaClipComponent>>,
+    /// Invert the final mask coverage (`1 - coverage`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invert: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AlphaClipComponent {
@@ -58,6 +61,9 @@ pub struct AlphaClipComponent {
     pub fill_gradient: Option<crate::GradientPaint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_bitmap: Option<crate::BitmapPaint>,
+    /// Weight gradient/bitmap pixel coverage by BT.709 relative luminance.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub luminance: bool,
 }
 /// Authored image coverage references portable project resources, not runtime pixel arenas.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -203,6 +209,7 @@ impl RuntimeGraph {
                         smoothing: node.smoothing,
                         color_transform: node.concatenated_color_transform,
                     }),
+                    luminance: false,
                 });
             }
             if let Some(kind) = &node.display.kind
@@ -212,6 +219,7 @@ impl RuntimeGraph {
                     matrix,
                     node.concatenated_color_transform,
                     node.clip_ids.clone(),
+                    false,
                 )
             {
                 components.push(component);
@@ -432,6 +440,7 @@ impl RuntimeGraph {
                 id: id.clone(),
                 components,
                 alpha_components: None,
+                invert: false,
             });
             own_clips.entry(target.clone()).or_default().push(id);
         }
@@ -502,6 +511,7 @@ impl RuntimeGraph {
                 id: id.clone(),
                 components,
                 alpha_components,
+                invert: false,
             });
             own_clips.entry(target.clone()).or_default().push(id);
         }
@@ -509,9 +519,11 @@ impl RuntimeGraph {
             .clips
             .iter()
             .filter(|clip| {
-                clip.alpha_components
-                    .as_ref()
-                    .map_or_else(|| clip.components.is_empty(), Vec::is_empty)
+                !clip.invert
+                    && clip
+                        .alpha_components
+                        .as_ref()
+                        .map_or_else(|| clip.components.is_empty(), Vec::is_empty)
             })
             .map(|clip| clip.id.as_str())
             .collect();

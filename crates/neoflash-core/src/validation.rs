@@ -93,8 +93,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_9() && project.format_version < 9 {
         add(
             "format_version".into(),
-            "painted-alpha timeline masks and per-resource audio export settings require document version 9"
-                .into(),
+            "painted-alpha/luminance or inverted timeline masks and per-resource audio export settings require document version 9".into(),
         );
     }
     let mut scene_ids = HashSet::new();

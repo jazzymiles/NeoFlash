@@ -84,3 +84,44 @@ test('mask clip table and filter cache preserve explicit alpha and nested revisi
   clips[1].alpha_components[0].clip_ids=['outer'];
   assert.throws(()=>renderer.clipVersions({clips}),/cyclic/);
 });
+
+test('inverted and luminance masks update clipTable, clipsContain and ClipRenderer',()=>{
+  const {clipTable,clipsContain,ClipRenderer}=require('../path.js');
+  const box=[{op:'move_to',x:0,y:0},{op:'line_to',x:40,y:0},{op:'line_to',x:40,y:40},{op:'line_to',x:0,y:40},{op:'close'}];
+  const clips=[{
+    id:'inv-luma',
+    invert:true,
+    components:[{commands:box,matrix:[1,0,0,1,0,0],fill_rule:'nonzero',clip_ids:[]}],
+    alpha_components:[{commands:box,matrix:[1,0,0,1,0,0],fill_rule:'nonzero',alpha:0.7152,luminance:true,clip_ids:[]}],
+  }];
+  const table=clipTable(clips);
+  const group=table.get('inv-luma');
+  assert.equal(group.invert,true);
+  assert.equal(group.components[0].luminance,true);
+  const hitContext={
+    save(){},restore(){},setTransform(){},
+    isPointInPath(_path,x,y){return x>=0&&x<=40&&y>=0&&y<=40;},
+  };
+  const fakePaths={get:()=>({})};
+  assert.equal(clipsContain(hitContext,['inv-luma'],table,20,20,fakePaths),false,'point inside inverted mask hole is excluded');
+  assert.equal(clipsContain(hitContext,['inv-luma'],table,60,20,fakePaths),true,'point outside inverted mask hole is included');
+
+  const compOps=[];
+  const makeCtx=(canvas)=>({
+    canvas,globalAlpha:1,globalCompositeOperation:'source-over',fillStyle:'#000',
+    _m:[1,0,0,1,0,0],
+    save(){},restore(){},
+    getTransform(){const[a,b,c,d,e,f]=this._m;return{a,b,c,d,e,f};},
+    setTransform(a,b,c,d,e,f){this._m=[a,b,c,d,e,f];},
+    transform(){},clearRect(){},clip(){},
+    fill(){compOps.push(this.globalCompositeOperation);},
+    fillRect(){compOps.push(`fillRect:${this.globalCompositeOperation}`);},
+    drawImage(){compOps.push(`drawImage:${this.globalCompositeOperation}`);},
+  });
+  const createCanvas=(w=64,h=64)=>{const c={width:w,height:h};c.getContext=()=>makeCtx(c);return c;};
+  const clipRenderer=new ClipRenderer({createCanvas});
+  const dest=createCanvas(64,64).getContext('2d');
+  clipRenderer.draw(dest,{clip_ids:['inv-luma']},table,fakePaths,()=>compOps.push('target'));
+  assert.ok(compOps.includes('fillRect:source-out'),'inverted mask flips alpha coverage via source-out');
+  assert.ok(compOps.includes('drawImage:destination-in'),'masked target applies inverted mask via destination-in');
+});

@@ -308,3 +308,69 @@ fn nested_masks_clip_the_source_before_outer_coverage_and_keep_transforms() {
     let masks = MaskCoverage::new(&project, &snapshot.clips).unwrap();
     assert!((masks.alpha(&snapshot.draws[0].clip_ids, [20., 20.]) - 0.25).abs() < 0.004);
 }
+
+#[test]
+fn luminance_and_inverted_masks_evaluate_coverage_hit_test_and_runtime_snapshot() {
+    // 1. Solid green vector fill (0, 255, 0, 255): BT.709 luminance = 0.7152.
+    let mut green = rect("green-luma", 100., 100.);
+    green.kind = ElementKind::Rectangle {
+        width: 100.,
+        height: 100.,
+        fill: [0, 255, 0, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    let mut project = masked(vec![green], MaskMode::Luminance);
+    assert_eq!(project.format_version, 9);
+    project.validate().unwrap();
+    let samples = coverage(&project, 0, &[[50., 50.], [150., 50.]]);
+    assert!(
+        (samples[0] - 0.7152).abs() < 0.002,
+        "BT.709 green luminance: {samples:?}"
+    );
+    assert_eq!(samples[1], 0.0);
+
+    // 2. Invert the Luminance mask: inside becomes 1.0 - 0.7152 = 0.2848; outside becomes 1.0.
+    project.symbols[0].timeline.layers[1].properties.mask_invert = true;
+    project.validate().unwrap();
+    let reopened = Project::from_json(&project.to_json().unwrap()).unwrap();
+    assert!(
+        reopened.symbols[0].timeline.layers[1]
+            .properties
+            .mask_invert
+    );
+    let inv_samples = coverage(&reopened, 0, &[[50., 50.], [150., 50.]]);
+    assert!(
+        (inv_samples[0] - (1.0 - 0.7152)).abs() < 0.002,
+        "inverted green luminance: {inv_samples:?}"
+    );
+    assert!((inv_samples[1] - 1.0).abs() < 0.001);
+
+    // Runtime snapshot preserves `invert` and `luminance` on RuntimeClip.
+    let snapshot = Player::new(&reopened).runtime_snapshot(&reopened);
+    assert!(snapshot.clips[0].invert);
+    let runtime_masks = MaskCoverage::new(&reopened, &snapshot.clips).unwrap();
+    assert!(
+        (runtime_masks.alpha(&snapshot.draws[0].clip_ids, [50., 50.]) - inv_samples[0]).abs()
+            < 0.002
+    );
+    assert!((runtime_masks.alpha(&snapshot.draws[0].clip_ids, [150., 50.]) - 1.0).abs() < 0.001);
+
+    // 3. Inverted Geometry mask: hit-testing and coverage are 0 inside the mask shape and 1 outside.
+    let mut geo_inv = masked(vec![rect("hole", 80., 80.)], MaskMode::Geometry);
+    geo_inv.symbols[0].timeline.layers[1].properties.mask_invert = true;
+    geo_inv.upgrade_format_for_features();
+    assert_eq!(geo_inv.format_version, 9);
+    geo_inv.validate().unwrap();
+    let geo_cov = coverage(&geo_inv, 0, &[[40., 40.], [120., 40.]]);
+    assert_eq!(geo_cov, vec![0.0, 1.0]);
+    let scene = evaluate_scene(&geo_inv, &geo_inv.root, 0, false, true);
+    assert!(
+        !scene.contains_point(&scene.draws[0].item.instance_path, [40., 40.]),
+        "point inside inverted geometry mask hole should be clipped out"
+    );
+    assert!(
+        scene.contains_point(&scene.draws[0].item.instance_path, [120., 40.]),
+        "point outside inverted geometry mask hole should hit target"
+    );
+}

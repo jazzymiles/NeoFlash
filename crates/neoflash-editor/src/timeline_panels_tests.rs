@@ -676,3 +676,50 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
         }
     }
 }
+
+#[test]
+fn motion_editor_add_property_track_filter_and_resize_span_frames_with_single_undo() {
+    let mut editor = motion_editor();
+    editor.frame = 4;
+    let span = editor
+        .motion_tween_span()
+        .expect("motion tween span active");
+
+    // 1. Add property track on an interior frame creates a ◆ keyframe with that property.
+    let before = editor.project.clone();
+    assert!(editor.ensure_motion_property_track(&span, TweenProperty::Rotation));
+    editor.project.validate().unwrap();
+    let mid_key = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|kf| kf.frame == 4)
+        .expect("interior property keyframe created at frame 4");
+    assert_eq!(
+        mid_key.keyed_properties.as_deref(),
+        Some(&[TweenProperty::Rotation][..])
+    );
+    undo_restores(&mut editor, &before);
+
+    // 2. Add filter in Motion editor adds the filter across the motion span in one Undo step.
+    let before = editor.project.clone();
+    let blur = FilterSpec::Blur {
+        blur_x: 4.0,
+        blur_y: 4.0,
+        quality: 1,
+    };
+    assert!(editor.add_motion_span_filter(&span, blur.clone()));
+    editor.project.validate().unwrap();
+    assert_eq!(start_key(&editor).elements[0].filters, vec![blur]);
+    undo_restores(&mut editor, &before);
+
+    // 3. Resize motion span frames in the Motion editor footer in one Undo step.
+    let before = editor.project.clone();
+    assert!(editor.set_motion_span_frames(&span, 15, None));
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[1].frame,
+        15,
+        "span of 15 frames from frame 0 ends at frame 15"
+    );
+    undo_restores(&mut editor, &before);
+}

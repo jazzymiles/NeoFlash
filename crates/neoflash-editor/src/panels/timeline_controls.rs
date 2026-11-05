@@ -636,10 +636,22 @@ impl Editor {
             }
         }
         if ui
-            .add(MenuItem::new("Short").checked(view.short_rows))
+            .add(MenuItem::new("Short").checked(view.short_rows && !view.compact_rows))
             .clicked()
         {
-            view.short_rows = !view.short_rows;
+            view.short_rows = !(view.short_rows && !view.compact_rows);
+            if view.short_rows {
+                view.compact_rows = false;
+            }
+        }
+        if ui
+            .add(MenuItem::new("Compact").checked(view.compact_rows))
+            .clicked()
+        {
+            view.compact_rows = !view.compact_rows;
+            if view.compact_rows {
+                view.short_rows = false;
+            }
         }
         nf::menu_separator(ui);
         if ui

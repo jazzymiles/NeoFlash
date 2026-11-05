@@ -3,7 +3,11 @@ use crate::app::Editor;
 use crate::theme::DesignUi as _;
 use eframe::egui;
 use neoflash_core::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
+
+static SELECTED_LAYER_ROWS: LazyLock<Mutex<HashMap<(Id, Id), BTreeSet<Id>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone)]
 struct LayerClipboard {
@@ -234,6 +238,44 @@ pub(crate) fn populate_blend_mode_menu(
     }
 }
 
+/// Populate the 3-mode `R-048` / `R-049` mask-mode menu (`Geometry`, `Alpha`, `Luminance`).
+pub(crate) fn populate_mask_mode_menu(
+    ui: &mut egui::Ui,
+    current: MaskMode,
+    mut on_pick: impl FnMut(MaskMode),
+) {
+    for mode in MaskMode::ALL {
+        if ui
+            .add(neoflash_ui::components::MenuItem::new(mode.label()).checked(current == mode))
+            .clicked()
+        {
+            on_pick(mode);
+            ui.close();
+        }
+    }
+}
+
+fn folder_is_descendant_of(layers: &[Layer], candidate_folder_id: &str, ancestor_id: &str) -> bool {
+    if candidate_folder_id == ancestor_id {
+        return true;
+    }
+    let mut seen = HashSet::from([candidate_folder_id]);
+    let mut current = layers.iter().find(|l| l.id == candidate_folder_id);
+    while let Some(layer) = current {
+        let Some(parent_id) = layer.properties.parent.as_deref() else {
+            break;
+        };
+        if parent_id == ancestor_id {
+            return true;
+        }
+        if !seen.insert(parent_id) {
+            break;
+        }
+        current = layers.iter().find(|l| l.id == parent_id);
+    }
+    false
+}
+
 #[derive(Clone)]
 struct LayerOutlineDraft {
     symbol: Id,
@@ -243,6 +285,285 @@ struct LayerOutlineDraft {
 }
 
 impl Editor {
+    fn selected_layers_key(&self) -> (Id, Id) {
+        (self.clipboard.session.clone(), self.symbol_id().to_owned())
+    }
+
+    pub(crate) fn clear_selected_layer_rows(&mut self) {
+        if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+            guard.remove(&self.selected_layers_key());
+        }
+    }
+
+    pub(crate) fn selected_layer_indices(&self) -> Vec<usize> {
+        let layers = &self.symbol().timeline.layers;
+        let extra = SELECTED_LAYER_ROWS
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(&self.selected_layers_key()).cloned())
+            .unwrap_or_default();
+        let mut indices: Vec<usize> = layers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| (i == self.layer || extra.contains(&l.id)).then_some(i))
+            .collect();
+        if indices.is_empty() && self.layer < layers.len() {
+            indices.push(self.layer);
+        }
+        indices
+    }
+
+    pub(crate) fn is_layer_row_selected(&self, index: usize) -> bool {
+        if index == self.layer {
+            return true;
+        }
+        let Some(layer) = self.symbol().timeline.layers.get(index) else {
+            return false;
+        };
+        SELECTED_LAYER_ROWS
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .get(&self.selected_layers_key())
+                    .map(|set| set.contains(&layer.id))
+            })
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn target_layer_indices(&self, index: usize) -> Vec<usize> {
+        if self.is_layer_row_selected(index) {
+            let sel = self.selected_layer_indices();
+            if !sel.is_empty() {
+                return sel;
+            }
+        }
+        vec![index]
+    }
+
+    /// Select a timeline layer row with optional `Shift` (visual range) or `⌘` / `Ctrl` (toggle).
+    pub(crate) fn select_layer_row(&mut self, index: usize, shift: bool, command: bool) {
+        let layers = &self.symbol().timeline.layers;
+        if index >= layers.len() {
+            return;
+        }
+        let key = self.selected_layers_key();
+        if shift {
+            let rows = visible_layer_indices(&self.symbol().timeline);
+            let anchor_pos = rows.iter().position(|&i| i == self.layer);
+            let target_pos = rows.iter().position(|&i| i == index);
+            let mut set = SELECTED_LAYER_ROWS
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(&key).cloned())
+                .unwrap_or_default();
+            if let (Some(a), Some(b)) = (anchor_pos, target_pos) {
+                for &row_idx in &rows[a.min(b)..=a.max(b)] {
+                    set.insert(layers[row_idx].id.clone());
+                }
+            } else {
+                for i in self.layer.min(index)..=self.layer.max(index) {
+                    set.insert(layers[i].id.clone());
+                }
+            }
+            if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+                guard.insert(key, set);
+            }
+            self.layer = index;
+        } else if command {
+            let mut set = SELECTED_LAYER_ROWS
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(&key).cloned())
+                .unwrap_or_default();
+            if let Some(current) = layers.get(self.layer) {
+                set.insert(current.id.clone());
+            }
+            let clicked_id = layers[index].id.clone();
+            if set.contains(&clicked_id) && set.len() > 1 {
+                set.remove(&clicked_id);
+                if self.layer == index
+                    && let Some(next_idx) = layers.iter().position(|l| set.contains(&l.id))
+                {
+                    self.layer = next_idx;
+                }
+            } else {
+                set.insert(clicked_id);
+                self.layer = index;
+            }
+            if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+                guard.insert(key, set);
+            }
+        } else {
+            if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+                guard.remove(&key);
+            }
+            self.layer = index;
+        }
+    }
+
+    pub(crate) fn toggle_selected_layers_visibility(&mut self, index: usize) {
+        let Some(target_visible) = self.symbol().timeline.layers.get(index).map(|l| !l.visible)
+        else {
+            return;
+        };
+        let targets = self.target_layer_indices(index);
+        self.layer_change(move |p, id| {
+            let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+            for i in targets {
+                if let Some(l) = layers.get_mut(i) {
+                    l.visible = target_visible;
+                }
+            }
+        });
+    }
+
+    pub(crate) fn toggle_selected_layers_lock(&mut self, index: usize) {
+        let Some(target_locked) = self.symbol().timeline.layers.get(index).map(|l| !l.locked)
+        else {
+            return;
+        };
+        let targets = self.target_layer_indices(index);
+        self.layer_change(move |p, id| {
+            let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+            for i in targets {
+                if let Some(l) = layers.get_mut(i)
+                    && l.properties.role != LayerRole::Folder
+                {
+                    l.locked = target_locked;
+                }
+            }
+        });
+    }
+
+    pub(crate) fn toggle_selected_layers_outline(&mut self, index: usize) {
+        let targets = self.target_layer_indices(index);
+        if targets.len() <= 1 {
+            if let Some(layer) = self.symbol().timeline.layers.get(index).cloned() {
+                self.toggle_layer_outline(&layer);
+            }
+            return;
+        }
+        let Some(target_outline) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(index)
+            .map(|l| !l.properties.outline)
+        else {
+            return;
+        };
+        self.layer_change(move |p, id| {
+            let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+            for i in targets {
+                if let Some(l) = layers.get_mut(i)
+                    && l.properties.role != LayerRole::Folder
+                {
+                    l.properties.outline = target_outline;
+                }
+            }
+        });
+    }
+
+    /// Reparent `layer_id` (and any other currently selected layer rows when `layer_id` is in the
+    /// multi-selection) into `folder_id` (`Some(fid)`) or out to root (`None`) in one Undo step.
+    pub(crate) fn reparent_timeline_layer_to_folder(
+        &mut self,
+        layer_id: &str,
+        folder_id: Option<&str>,
+    ) {
+        let layers = &self.symbol().timeline.layers;
+        let Some(primary_idx) = layers.iter().position(|l| l.id == layer_id) else {
+            return;
+        };
+        if let Some(fid) = folder_id
+            && !layers
+                .iter()
+                .any(|l| l.id == fid && l.properties.role == LayerRole::Folder)
+        {
+            return;
+        }
+        let targets = self.target_layer_indices(primary_idx);
+        let target_ids: Vec<Id> = targets
+            .into_iter()
+            .filter_map(|i| layers.get(i).map(|l| l.id.clone()))
+            .collect();
+        let new_parent = folder_id.map(str::to_owned);
+        self.layer_change(move |project, symbol| {
+            let layers = &mut project.symbol_mut(symbol).unwrap().timeline.layers;
+            if let Some(fid) = new_parent.as_deref() {
+                for tid in &target_ids {
+                    if folder_is_descendant_of(layers, fid, tid) {
+                        return;
+                    }
+                }
+                if let Some(folder) = layers.iter_mut().find(|l| l.id == fid) {
+                    folder.properties.collapsed = false;
+                }
+            }
+            let target_set: HashSet<Id> = target_ids.into_iter().collect();
+            for layer in layers.iter_mut() {
+                let linked_to_target = layer
+                    .properties
+                    .mask
+                    .as_ref()
+                    .is_some_and(|m| target_set.contains(m))
+                    || layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .is_some_and(|g| target_set.contains(g));
+                if target_set.contains(&layer.id) || linked_to_target {
+                    layer.properties.parent = new_parent.clone();
+                }
+            }
+        });
+    }
+
+    /// Reorder `layer_id` in visual row order and optionally reparent it to `new_parent` in one
+    /// Undo step (`new_parent = Some(Some(folder_id))` moves into a folder; `Some(None)` moves to
+    /// root; `None` keeps existing parent).
+    pub(crate) fn drop_timeline_layer_visual(
+        &mut self,
+        layer_id: &str,
+        before: Option<&str>,
+        new_parent: Option<Option<&str>>,
+    ) {
+        let layers = &self.symbol().timeline.layers;
+        let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
+            return;
+        };
+        let moved: HashSet<_> = group_indices(layers, index).into_iter().collect();
+        let insertion = if let Some(target) = before {
+            let Some(target) = layers.iter().position(|layer| layer.id == target) else {
+                return;
+            };
+            if moved.contains(&target) {
+                if let Some(parent_opt) = new_parent {
+                    self.reparent_timeline_layer_to_folder(layer_id, parent_opt);
+                }
+                return;
+            }
+            let end = group_indices(layers, target)
+                .into_iter()
+                .filter(|i| !moved.contains(i))
+                .max()
+                .unwrap_or(target);
+            layers
+                .iter()
+                .enumerate()
+                .find(|(i, _)| *i > end && !moved.contains(i))
+                .map(|(_, layer)| layer.id.clone())
+        } else {
+            layers
+                .iter()
+                .enumerate()
+                .find(|(i, _)| !moved.contains(i))
+                .map(|(_, layer)| layer.id.clone())
+        };
+        let parent_override = new_parent.map(|opt| opt.map(str::to_owned));
+        self.reorder_and_reparent_timeline_layer(layer_id, insertion.as_deref(), parent_override);
+    }
     /// A drop above a visual row belongs after that row's group in painter
     /// order. A drop below every visual row belongs at painter index zero.
     pub(crate) fn reorder_timeline_layer_visual(&mut self, layer_id: &str, before: Option<&str>) {
@@ -465,6 +786,15 @@ impl Editor {
     /// Reorder document rows in painter order. A folder carries descendants;
     /// a mask carries its targets. Explicit parent/mask IDs are preserved.
     pub(crate) fn reorder_timeline_layer(&mut self, layer_id: &str, before: Option<&str>) {
+        self.reorder_and_reparent_timeline_layer(layer_id, before, None);
+    }
+
+    fn reorder_and_reparent_timeline_layer(
+        &mut self,
+        layer_id: &str,
+        before: Option<&str>,
+        new_parent: Option<Option<Id>>,
+    ) {
         let layers = &self.symbol().timeline.layers;
         let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
             return;
@@ -475,9 +805,12 @@ impl Editor {
             .map(|index| layers[*index].id.clone())
             .collect();
         if before.is_some_and(|id| moved_ids.contains(id)) {
+            if let Some(parent_opt) = new_parent {
+                self.reparent_timeline_layer_to_folder(layer_id, parent_opt.as_deref());
+            }
             return;
         }
-        let moving: Vec<_> = layers
+        let mut moving: Vec<_> = layers
             .iter()
             .filter(|layer| moved_ids.contains(&layer.id))
             .cloned()
@@ -495,6 +828,24 @@ impl Editor {
         } else {
             remaining.len()
         };
+        if let Some(parent_opt) = &new_parent {
+            if let Some(fid) = parent_opt.as_deref() {
+                if folder_is_descendant_of(layers, fid, layer_id) {
+                    return;
+                }
+                if let Some(folder) = remaining.iter_mut().find(|l| l.id == fid) {
+                    folder.properties.collapsed = false;
+                }
+            }
+            for layer in &mut moving {
+                if layer.id == layer_id
+                    || layer.properties.mask.as_deref() == Some(layer_id)
+                    || layer.properties.motion_guide.as_deref() == Some(layer_id)
+                {
+                    layer.properties.parent = parent_opt.clone();
+                }
+            }
+        }
         remaining.splice(insertion..insertion, moving);
         if &remaining == layers {
             return;
@@ -546,14 +897,23 @@ impl Editor {
         }
     }
     pub(crate) fn delete_timeline_layer(&mut self, index: usize) {
-        self.layer_change(|project, symbol| {
+        let targets = self.target_layer_indices(index);
+        self.clear_selected_layer_rows();
+        self.layer_change(move |project, symbol| {
             let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
-            let indices = group_indices(&timeline.layers, index);
-            let removed: HashSet<_> = indices
-                .iter()
-                .map(|i| timeline.layers[*i].id.clone())
-                .collect();
-            let parent = timeline.layers[index].properties.parent.clone();
+            let mut removed = HashSet::new();
+            for &target_idx in &targets {
+                if target_idx < timeline.layers.len() {
+                    for i in group_indices(&timeline.layers, target_idx) {
+                        removed.insert(timeline.layers[i].id.clone());
+                    }
+                }
+            }
+            let parent = timeline
+                .layers
+                .get(index)
+                .and_then(|l| l.properties.parent.clone())
+                .filter(|id| !removed.contains(id));
             timeline.layers.retain(|l| !removed.contains(&l.id));
             for layer in &mut timeline.layers {
                 if layer
@@ -582,7 +942,15 @@ impl Editor {
     }
     fn copy_timeline_layers(&self, ctx: &egui::Context, index: usize) {
         let timeline = &self.symbol().timeline;
-        let indices = group_indices(&timeline.layers, index);
+        let targets = self.target_layer_indices(index);
+        let mut indices = BTreeSet::new();
+        for target_idx in targets {
+            if target_idx < timeline.layers.len() {
+                for i in group_indices(&timeline.layers, target_idx) {
+                    indices.insert(i);
+                }
+            }
+        }
         let layers = indices
             .into_iter()
             .map(|i| timeline.layers[i].clone())
@@ -816,6 +1184,7 @@ impl Editor {
             timeline.layers[index].properties.mask = None;
             if role != LayerRole::Mask {
                 timeline.layers[index].properties.mask_mode = MaskMode::Geometry;
+                timeline.layers[index].properties.mask_invert = false;
                 for layer in &mut timeline.layers {
                     if layer.properties.mask.as_ref() == Some(&id) {
                         layer.properties.mask = None;
@@ -841,6 +1210,26 @@ impl Editor {
                 if let Some(target) = target {
                     timeline.layers[target].properties.mask = Some(id);
                 }
+            }
+        });
+    }
+    pub(crate) fn set_layer_mask_mode(&mut self, index: usize, mask_mode: MaskMode) {
+        self.layer_change(move |project, symbol| {
+            let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
+            if let Some(layer) = timeline.layers.get_mut(index)
+                && layer.properties.role == LayerRole::Mask
+            {
+                layer.properties.mask_mode = mask_mode;
+            }
+        });
+    }
+    pub(crate) fn set_layer_mask_invert(&mut self, index: usize, mask_invert: bool) {
+        self.layer_change(move |project, symbol| {
+            let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
+            if let Some(layer) = timeline.layers.get_mut(index)
+                && layer.properties.role == LayerRole::Mask
+            {
+                layer.properties.mask_invert = mask_invert;
             }
         });
     }
@@ -997,6 +1386,23 @@ impl Editor {
                 },
             );
             ui.close();
+        }
+        if layer.properties.role == LayerRole::Mask {
+            let mode_label = format!("Mask mode: {}", layer.properties.mask_mode.label());
+            crate::ui_icons::menu_submenu(ui, &mode_label, |ui| {
+                let mut picked = None;
+                populate_mask_mode_menu(ui, layer.properties.mask_mode, |mode| {
+                    picked = Some(mode);
+                });
+                if let Some(mode) = picked {
+                    self.set_layer_mask_mode(index, mode);
+                }
+            });
+            let mut invert = layer.properties.mask_invert;
+            if menu_toggle(ui, &mut invert, "Invert mask", "").changed() {
+                self.set_layer_mask_invert(index, invert);
+                ui.close();
+            }
         }
         let mut masking = self.show_layer_masking(&ctx);
         if menu_toggle(ui, &mut masking, "Show masking", "").changed() {
@@ -1200,6 +1606,20 @@ impl Editor {
                         );
                     }
                 });
+            if layer.properties.role == LayerRole::Mask {
+                egui::ComboBox::from_id_salt("layer-mask-mode")
+                    .selected_text(format!("Mask mode: {}", draft.properties.mask_mode.label()))
+                    .show_ui(ui, |ui| {
+                        for mode in MaskMode::ALL {
+                            ui.selectable_value(
+                                &mut draft.properties.mask_mode,
+                                mode,
+                                mode.label(),
+                            );
+                        }
+                    });
+                ui.checkbox(&mut draft.properties.mask_invert, "Invert mask");
+            }
             if layer.properties.role == LayerRole::Normal {
                 egui::ComboBox::from_id_salt("layer-mask")
                     .selected_text(

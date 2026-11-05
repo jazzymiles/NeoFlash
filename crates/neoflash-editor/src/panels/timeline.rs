@@ -86,7 +86,8 @@ impl Editor {
         let resize_id = egui::Id::new((&id, "layer-column-resize"));
         let mut reorder = ctx.data(|data| data.get_temp::<LayerReorder>(reorder_id));
         let mut resize = ctx.data(|data| data.get_temp::<ColumnResize>(resize_id));
-        let mut commit_reorder = None;
+        let mut commit_reorder: Option<(String, Option<String>, Option<Option<String>>)> = None;
+        let mut commit_reparent_folder: Option<(String, String)> = None;
         let (pressed, released, pointer, down, cancelled) = ctx.input(|input| {
             let mut pressed = None;
             let mut released = None;
@@ -252,22 +253,26 @@ impl Editor {
                                     );
                                     let renaming = rename.as_ref().is_some_and(|draft| draft.layer == layer.id);
                                     let kind = layer_kind(&self.symbol().timeline, layer);
+                                    let is_mask_row = layer.properties.role == LayerRole::Mask;
                                     let mode_cell = if !show_mode {
                                         tl::ModeCell::Hidden
-                                    } else if matches!(
-                                        kind,
-                                        tl::LayerKind::Guide
-                                            | tl::LayerKind::MotionGuide
-                                            | tl::LayerKind::Sound
-                                    ) {
+                                    } else if is_mask_row
+                                        || matches!(
+                                            kind,
+                                            tl::LayerKind::Guide
+                                                | tl::LayerKind::MotionGuide
+                                                | tl::LayerKind::Sound
+                                        )
+                                    {
                                         tl::ModeCell::Empty
                                     } else {
                                         tl::ModeCell::Mode(layer.properties.blend_mode.label())
                                     };
+                                    let row_selected = self.is_layer_row_selected(idx);
                                     let row = LayerRow {
                                         label: if renaming { "" } else { &layer.name },
                                         kind,
-                                        selected: idx == self.layer,
+                                        selected: row_selected,
                                         indent: depths[row_index],
                                         editing: idx == self.layer,
                                         visible: layer.visible,
@@ -288,48 +293,56 @@ impl Editor {
                                         self.toggle_layer_folder(idx);
                                     }
                                     if row.visibility {
-                                        self.finish_edits();
-                                        self.transact(|s| s.symbol_mut().timeline.layers[idx].visible = !layer.visible);
+                                        self.toggle_selected_layers_visibility(idx);
                                     }
                                     if row.solo {
                                         let alt = ui.input(|i| i.modifiers.alt);
                                         self.toggle_layer_solo(idx, alt);
                                     }
                                     if row.lock {
-                                        self.finish_edits();
-                                        self.transact(|s| s.symbol_mut().timeline.layers[idx].locked = !layer.locked);
+                                        self.toggle_selected_layers_lock(idx);
                                     }
                                     if row.outline {
-                                        self.toggle_layer_outline(layer);
+                                        self.toggle_selected_layers_outline(idx);
                                     }
-                                    if let Some(mode_rect) = row.mode_rect
-                                        && matches!(mode_cell, tl::ModeCell::Mode(_))
-                                    {
-                                        let mode_popup_id = row.row.id.with("mode-popup");
-                                        egui::Popup::new(
-                                            mode_popup_id,
-                                            ui.ctx().clone(),
-                                            egui::PopupAnchor::ParentRect(mode_rect),
-                                            ui.layer_id(),
-                                        )
-                                        .kind(egui::PopupKind::Menu)
-                                        .open_memory(
-                                            row.mode.then_some(egui::SetOpenCommand::Toggle),
-                                        )
-                                        .gap(space::S1)
-                                        .frame(nf::popover_frame(ui.ctx()))
-                                        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-                                        .show(|ui| {
-                                            ui.set_min_width(180.0);
-                                            ui.spacing_mut().item_spacing.y = 2.0;
-                                            crate::layer_controls::populate_blend_mode_menu(
+                                    if let Some(mode_rect) = row.mode_rect {
+                                        if is_mask_row && show_mode {
+                                            self.paint_mask_row_mode_and_icons(
                                                 ui,
-                                                layer.properties.blend_mode,
-                                                |mode| {
-                                                    self.set_layer_blend_mode(idx, mode);
-                                                },
+                                                row.row.id,
+                                                mode_rect,
+                                                idx,
+                                                layer.properties.mask_mode,
+                                                layer.properties.mask_invert,
+                                                row_selected,
                                             );
-                                        });
+                                        } else if matches!(mode_cell, tl::ModeCell::Mode(_)) {
+                                            let mode_popup_id = row.row.id.with("mode-popup");
+                                            egui::Popup::new(
+                                                mode_popup_id,
+                                                ui.ctx().clone(),
+                                                egui::PopupAnchor::ParentRect(mode_rect),
+                                                ui.layer_id(),
+                                            )
+                                            .kind(egui::PopupKind::Menu)
+                                            .open_memory(
+                                                row.mode.then_some(egui::SetOpenCommand::Toggle),
+                                            )
+                                            .gap(space::S1)
+                                            .frame(nf::popover_frame(ui.ctx()))
+                                            .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+                                            .show(|ui| {
+                                                ui.set_min_width(180.0);
+                                                ui.spacing_mut().item_spacing.y = 2.0;
+                                                crate::layer_controls::populate_blend_mode_menu(
+                                                    ui,
+                                                    layer.properties.blend_mode,
+                                                    |mode| {
+                                                        self.set_layer_blend_mode(idx, mode);
+                                                    },
+                                                );
+                                            });
+                                        }
                                     }
                                     // The outline swatch keeps its right-click colour menu.
                                     let swatch = Rect::from_min_size(
@@ -367,17 +380,41 @@ impl Editor {
                                         }
                                         continue;
                                     }
-                                    // Name area (left of the column toggles) starts a reorder drag.
-                                    let grab = Rect::from_min_max(row_rect.min, Pos2::new(row_rect.right() - space::S2 - 4. * LAYER_TOGGLE, row_rect.bottom()));
+                                    // Name area (left of Mode + column toggles) starts a reorder drag.
+                                    let grab_right = row
+                                        .mode_rect
+                                        .map_or(row_rect.right() - space::S2 - 4. * LAYER_TOGGLE, |r| {
+                                            r.left() - space::S1
+                                        });
+                                    let grab = Rect::from_min_max(
+                                        row_rect.min,
+                                        Pos2::new(grab_right, row_rect.bottom()),
+                                    );
                                     if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| grab.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
-                                        self.finish_edits();self.timeline_key_drag=None;self.layer=idx;self.clear_selection();
+                                        let mods = ui.input(|i| i.modifiers);
+                                        if !mods.shift && !mods.command && !self.is_layer_row_selected(idx) {
+                                            self.finish_edits();
+                                            self.timeline_key_drag = None;
+                                            self.select_layer_row(idx, false, false);
+                                            self.clear_selection();
+                                        }
                                         reorder=Some(LayerReorder {symbol:self.symbol_id().to_owned(),layer:layer.id.clone(),start,moved:false});
                                     }
                                     let response = row.row;
-                                    if response.clicked() || response.secondary_clicked() {
+                                    if response.clicked() {
+                                        let mods = ui.input(|i| i.modifiers);
                                         self.finish_edits();
                                         self.timeline_key_drag = None;
-                                        self.layer = idx;
+                                        self.select_layer_row(idx, mods.shift, mods.command);
+                                        self.clear_selection();
+                                    } else if response.secondary_clicked() {
+                                        self.finish_edits();
+                                        self.timeline_key_drag = None;
+                                        if !self.is_layer_row_selected(idx) {
+                                            self.select_layer_row(idx, false, false);
+                                        } else {
+                                            self.layer = idx;
+                                        }
                                         self.clear_selection();
                                     }
                                     if response.double_clicked() {
@@ -507,10 +544,94 @@ impl Editor {
                         let within=names_view.contains(position);
                         ctx.set_cursor_icon(if within {egui::CursorIcon::Grabbing} else {egui::CursorIcon::NotAllowed});
                         if within {
-                            let boundary=(((position.y-grid_rect.top())/row_height).round().max(0.) as usize).min(layers.len());
-                            let y=(grid_rect.top()+boundary as f32*row_height).clamp(names_view.top(),names_view.bottom());
-                            nf::surface::drop_indicator(ui.painter(), &ctx, Pos2::new(names_view.left(),y), Pos2::new(rows.inner_rect.right(),y));
-                            if released.is_some() {commit_reorder=Some((drag.layer.clone(),layers.get(boundary).map(|layer|layer.id.clone())));}
+                            let rel_y = (position.y - grid_rect.top()) / row_height;
+                            let hover_row = rel_y.floor().max(0.) as usize;
+                            let row_frac = rel_y - hover_row as f32;
+                            let folder_target = layers.get(hover_row).filter(|l| {
+                                l.properties.role == LayerRole::Folder
+                                    && l.id != drag.layer
+                                    && (0.22..=0.78).contains(&row_frac)
+                            });
+                            if let Some(folder) = folder_target {
+                                let highlight = Rect::from_min_max(
+                                    Pos2::new(
+                                        names_view.left(),
+                                        grid_rect.top() + hover_row as f32 * row_height,
+                                    ),
+                                    Pos2::new(
+                                        rows.inner_rect.right(),
+                                        grid_rect.top() + (hover_row + 1) as f32 * row_height,
+                                    ),
+                                )
+                                .intersect(rows.inner_rect);
+                                let hp = ui.painter_at(rows.inner_rect);
+                                hp.rect_filled(highlight, 0., p.timeline_row_selected);
+                                hp.rect_stroke(
+                                    highlight,
+                                    0.,
+                                    egui::Stroke::new(1.0_f32, p.accent_default),
+                                    egui::StrokeKind::Inside,
+                                );
+                                if released.is_some() {
+                                    commit_reparent_folder =
+                                        Some((drag.layer.clone(), folder.id.clone()));
+                                }
+                            } else {
+                                let boundary = (rel_y.round().max(0.) as usize).min(layers.len());
+                                let y = (grid_rect.top() + boundary as f32 * row_height)
+                                    .clamp(names_view.top(), names_view.bottom());
+                                nf::surface::drop_indicator(
+                                    ui.painter(),
+                                    &ctx,
+                                    Pos2::new(names_view.left(), y),
+                                    Pos2::new(rows.inner_rect.right(), y),
+                                );
+                                if released.is_some() {
+                                    let above = boundary.checked_sub(1).and_then(|i| layers.get(i));
+                                    let below = layers.get(boundary);
+                                    let new_parent = if let Some(a) = above
+                                        && a.properties.role == LayerRole::Folder
+                                        && !a.properties.collapsed
+                                        && a.id != drag.layer
+                                    {
+                                        Some(Some(a.id.clone()))
+                                    } else if let Some(b) = below
+                                        && b.properties.parent.is_some()
+                                        && above.is_some_and(|a| {
+                                            a.properties.parent == b.properties.parent
+                                        })
+                                    {
+                                        Some(b.properties.parent.clone())
+                                    } else if let Some(a) = above
+                                        && a.properties.parent.is_some()
+                                        && below.map_or(true, |b| {
+                                            b.properties.parent != a.properties.parent
+                                        })
+                                    {
+                                        if position.x >= names_view.left() + 28.0 {
+                                            Some(a.properties.parent.clone())
+                                        } else {
+                                            Some(None)
+                                        }
+                                    } else if below
+                                        .map_or(true, |b| b.properties.parent.is_none())
+                                        && above.map_or(true, |a| {
+                                            a.properties.parent.is_none()
+                                                && (a.properties.role != LayerRole::Folder
+                                                    || a.properties.collapsed)
+                                        })
+                                    {
+                                        Some(None)
+                                    } else {
+                                        None
+                                    };
+                                    commit_reorder = Some((
+                                        drag.layer.clone(),
+                                        below.map(|layer| layer.id.clone()),
+                                        new_parent,
+                                    ));
+                                }
+                            }
                             if down {
                                 let direction=if position.y<names_view.top()+18. {-1.} else if position.y>names_view.bottom()-18. {1.} else {0.};
                                 if direction!=0. {
@@ -684,8 +805,14 @@ impl Editor {
                 }
             }
         });
-        if let Some((layer, before)) = commit_reorder {
-            self.reorder_timeline_layer_visual(&layer, before.as_deref());
+        if let Some((layer, folder_id)) = commit_reparent_folder {
+            self.reparent_timeline_layer_to_folder(&layer, Some(&folder_id));
+        } else if let Some((layer, before, new_parent)) = commit_reorder {
+            self.drop_timeline_layer_visual(
+                &layer,
+                before.as_deref(),
+                new_parent.as_ref().map(|opt| opt.as_deref()),
+            );
         }
         ctx.data_mut(|data| {
             if let Some(drag) = reorder {
@@ -1144,5 +1271,212 @@ impl Editor {
                 (self.frame + self.onion_after).min(self.symbol().timeline.frame_count - 1),
             )
         }
+    }
+
+    /// Paint the compact Mode label plus the 2 inline AE-style 16×16 mask icons (`R-049`:
+    /// 1. Mask Channel: Alpha / Color-Luminance / Geometry; 2. Mask Invert) right after `Mode`
+    /// on a `LayerRole::Mask` row.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_mask_row_mode_and_icons(
+        &mut self,
+        ui: &mut egui::Ui,
+        row_id: egui::Id,
+        mode_rect: Rect,
+        idx: usize,
+        mask_mode: MaskMode,
+        mask_invert: bool,
+        row_selected: bool,
+    ) {
+        let p = neoflash_ui::palette(ui.ctx());
+        let mode_btn_rect = Rect::from_min_size(
+            mode_rect.min,
+            Vec2::new(space::S6 + space::S1, mode_rect.height()),
+        );
+        let icon_y = mode_rect.center().y - space::S2;
+        let half_s1 = space::S1 * 0.5;
+        let channel_icon_rect = Rect::from_min_size(
+            Pos2::new(mode_btn_rect.right() + half_s1, icon_y),
+            Vec2::splat(space::S4),
+        );
+        let invert_icon_rect = Rect::from_min_size(
+            Pos2::new(channel_icon_rect.right() + half_s1, icon_y),
+            Vec2::splat(space::S4),
+        );
+
+        let mode_resp = ui.interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click());
+        let channel_resp = ui.interact(
+            channel_icon_rect,
+            row_id.with("mask-channel-icon"),
+            Sense::click(),
+        );
+        let invert_resp = ui.interact(
+            invert_icon_rect,
+            row_id.with("mask-invert-icon"),
+            Sense::click(),
+        );
+
+        let short_label = match mask_mode {
+            MaskMode::Geometry => "Geo",
+            MaskMode::Alpha => "Alpha",
+            MaskMode::Luminance => "Luma",
+        };
+        let mode_active = !mask_mode.is_geometry();
+        let mode_fg = if mode_active {
+            p.accent_default
+        } else if mode_resp.hovered() || row_selected {
+            p.text_primary
+        } else {
+            p.text_secondary
+        };
+        if mode_active || mode_resp.hovered() {
+            ui.painter().rect_filled(
+                mode_btn_rect,
+                neoflash_ui::tokens::radius::SM,
+                if mode_active {
+                    p.accent_subtle
+                } else {
+                    p.bg_hover
+                },
+            );
+        }
+        ui.painter().text(
+            Pos2::new(mode_btn_rect.left() + space::S1, mode_btn_rect.center().y),
+            Align2::LEFT_CENTER,
+            short_label,
+            typography::font(TextStyle::Small),
+            mode_fg,
+        );
+
+        // Icon 1 (16×16): AE-style Mask Channel icon (Alpha vs Color/Luminance vs Geometry).
+        let channel_fg = if mode_active {
+            p.accent_default
+        } else if channel_resp.hovered() || row_selected {
+            p.text_primary
+        } else {
+            p.text_secondary
+        };
+        if mode_active || channel_resp.hovered() {
+            ui.painter().rect_filled(
+                channel_icon_rect,
+                neoflash_ui::tokens::radius::SM,
+                if mode_active {
+                    p.accent_subtle
+                } else {
+                    p.bg_hover
+                },
+            );
+        }
+        let c_center = channel_icon_rect.center();
+        let c_radius = space::S1 + half_s1;
+        ui.painter()
+            .circle_stroke(c_center, c_radius, Stroke::new(1.0_f32, channel_fg));
+        match mask_mode {
+            MaskMode::Alpha => {
+                ui.painter().text(
+                    c_center,
+                    Align2::CENTER_CENTER,
+                    "α",
+                    typography::font(TextStyle::Small),
+                    channel_fg,
+                );
+            }
+            MaskMode::Luminance => {
+                // AE-style half-filled luminance disc + vertical contrast split.
+                ui.painter().vline(
+                    c_center.x,
+                    (c_center.y - c_radius)..=(c_center.y + c_radius),
+                    Stroke::new(1.0_f32, channel_fg),
+                );
+                let left_half = Rect::from_min_max(
+                    Pos2::new(c_center.x - c_radius * 0.7, c_center.y - c_radius * 0.7),
+                    Pos2::new(c_center.x, c_center.y + c_radius * 0.7),
+                );
+                ui.painter().rect_filled(left_half, 0.0, channel_fg);
+            }
+            MaskMode::Geometry => {
+                ui.painter().circle_filled(c_center, half_s1, channel_fg);
+            }
+        }
+
+        // Icon 2 (16×16): AE-style Mask Invert icon.
+        let invert_fg = if mask_invert {
+            p.accent_default
+        } else if invert_resp.hovered() || row_selected {
+            p.text_primary
+        } else {
+            p.text_secondary
+        };
+        if mask_invert || invert_resp.hovered() {
+            ui.painter().rect_filled(
+                invert_icon_rect,
+                neoflash_ui::tokens::radius::SM,
+                if mask_invert {
+                    p.accent_subtle
+                } else {
+                    p.bg_hover
+                },
+            );
+        }
+        let inv_box = invert_icon_rect.shrink(half_s1 + 1.0);
+        let inv_center = inv_box.center();
+        if mask_invert {
+            ui.painter()
+                .rect_filled(inv_box, neoflash_ui::tokens::radius::SM, invert_fg);
+            ui.painter()
+                .circle_filled(inv_center, half_s1 + 0.5, p.bg_panel);
+        } else {
+            ui.painter().rect_stroke(
+                inv_box,
+                neoflash_ui::tokens::radius::SM,
+                Stroke::new(1.0_f32, invert_fg),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter()
+                .circle_filled(inv_center, half_s1 + 0.5, invert_fg);
+        }
+
+        if channel_resp.clicked() {
+            let next_mode = match mask_mode {
+                MaskMode::Geometry => MaskMode::Alpha,
+                MaskMode::Alpha => MaskMode::Luminance,
+                MaskMode::Luminance => MaskMode::Geometry,
+            };
+            self.set_layer_mask_mode(idx, next_mode);
+        }
+        if invert_resp.clicked() {
+            self.set_layer_mask_invert(idx, !mask_invert);
+        }
+
+        let open_popup = mode_resp.clicked() || channel_resp.secondary_clicked();
+        let mode_popup_id = row_id.with("mask-mode-popup");
+        egui::Popup::new(
+            mode_popup_id,
+            ui.ctx().clone(),
+            egui::PopupAnchor::ParentRect(mode_rect),
+            ui.layer_id(),
+        )
+        .kind(egui::PopupKind::Menu)
+        .open_memory(open_popup.then_some(egui::SetOpenCommand::Toggle))
+        .gap(space::S1)
+        .frame(nf::popover_frame(ui.ctx()))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+        .show(|ui| {
+            ui.set_min_width(180.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            crate::layer_controls::populate_mask_mode_menu(ui, mask_mode, |picked| {
+                self.set_layer_mask_mode(idx, picked);
+            });
+        });
+
+        let _ = mode_resp.on_hover_text(format!("Mask mode: {}", mask_mode.label()));
+        let _ = channel_resp.on_hover_text(format!(
+            "Mask channel: {} — click to cycle Geometry / Alpha / Luminance (right-click for menu)",
+            mask_mode.label()
+        ));
+        let _ = invert_resp.on_hover_text(if mask_invert {
+            "Invert mask: On (click to use normal mask)"
+        } else {
+            "Invert mask: Off (click to invert mask coverage)"
+        });
     }
 }

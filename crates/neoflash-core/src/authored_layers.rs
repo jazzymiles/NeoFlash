@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct LayerMaskPlan {
     pub id: String,
     pub mode: MaskMode,
+    pub invert: bool,
     pub sources: Vec<Vec<Id>>,
     pub targets: Vec<Vec<Id>>,
     pub target_groups: Vec<(String, Vec<Vec<Id>>)>,
@@ -159,7 +160,18 @@ impl AuthoredScene {
                 .iter()
                 .find(|clip| clip.id == id)
                 .is_some_and(|clip| {
-                    clip.components.iter().any(|component| {
+                    let is_inside = clip.components.iter().enumerate().any(|(idx, component)| {
+                        if let Some(alpha_comp) = clip
+                            .alpha_components
+                            .as_ref()
+                            .and_then(|list| list.get(idx))
+                            && alpha_comp.fill_gradient.is_none()
+                            && alpha_comp.fill_bitmap.is_none()
+                            && alpha_comp.resource_bitmap.is_none()
+                            && alpha_comp.alpha <= 0.0
+                        {
+                            return false;
+                        }
                         let m = component.matrix;
                         let determinant = m[0] * m[3] - m[1] * m[2];
                         if determinant.abs() < 1e-12 {
@@ -184,11 +196,16 @@ impl AuthoredScene {
                                 .clip_ids
                                 .iter()
                                 .all(|id| inside(scene, id, point, depth + 1))
-                    })
+                    });
+                    if clip.invert { !is_inside } else { is_inside }
                 })
         }
         draw.clip_ids.iter().all(|id| inside(self, id, point, 0))
     }
+}
+
+pub fn bt709_luminance(r: u8, g: u8, b: u8) -> f64 {
+    (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b)) / 255.0
 }
 
 pub(crate) fn layer_mask_plans(
@@ -238,6 +255,7 @@ pub(crate) fn layer_mask_plans(
                     })
                     .collect(),
                 mode: layer.properties.mask_mode,
+                invert: layer.properties.mask_invert,
                 sources: paths(layer),
                 targets: timeline
                     .layers
@@ -391,7 +409,8 @@ pub(crate) fn scene_from_evaluation(
             .iter()
             .filter(|draw| source_owner(&draw.item.instance_path) == Some(index))
             .collect();
-        let alpha_components = (plan.mode == MaskMode::Alpha).then(|| {
+        let luminance = plan.mode == MaskMode::Luminance;
+        let alpha_components = plan.mode.uses_paint_coverage().then(|| {
             sources
                 .iter()
                 .filter_map(|draw| {
@@ -400,6 +419,7 @@ pub(crate) fn scene_from_evaluation(
                         draw.item.transform,
                         draw.item.color_transform,
                         source_clips(&draw.clip_ids),
+                        luminance,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -425,6 +445,7 @@ pub(crate) fn scene_from_evaluation(
             id: plan.id.clone(),
             components,
             alpha_components,
+            invert: plan.invert,
         });
     }
     scene
@@ -492,6 +513,7 @@ pub(crate) fn scene_from_evaluation(
 pub(crate) struct RuntimeLayerMask {
     pub id: String,
     pub mode: MaskMode,
+    pub invert: bool,
     pub sources: Vec<ObjectRef>,
     pub target_groups: Vec<(String, Vec<ObjectRef>)>,
 }
@@ -514,6 +536,7 @@ impl LayerMaskPlan {
                 })
                 .collect(),
             mode: self.mode,
+            invert: self.invert,
             sources: self.sources.iter().filter_map(|p| resolve(p)).collect(),
         }
     }
@@ -600,11 +623,12 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
             .iter()
             .filter(|draw| source_owner(&draw.owner_ref) == Some(index))
             .collect();
-        let alpha_components = (plan.mode == MaskMode::Alpha).then(|| {
+        let luminance = plan.mode == MaskMode::Luminance;
+        let alpha_components = plan.mode.uses_paint_coverage().then(|| {
             sources
                 .iter()
                 .filter_map(|draw| {
-                    runtime_alpha_component(draw).map(|mut component| {
+                    runtime_alpha_component(draw, luminance).map(|mut component| {
                         component.clip_ids = source_clips(&component.clip_ids);
                         component
                     })
@@ -641,6 +665,7 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
             id: plan.id.clone(),
             components,
             alpha_components,
+            invert: plan.invert,
         });
     }
     for plan in plans {
@@ -649,7 +674,7 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
     let empty: HashSet<_> = snapshot
         .clips
         .iter()
-        .filter(|clip| clip.components.is_empty())
+        .filter(|clip| !clip.invert && clip.components.is_empty())
         .map(|clip| clip.id.as_str())
         .collect();
     for node in &mut snapshot.objects {
@@ -685,6 +710,7 @@ pub(crate) fn alpha_component(
     matrix: [f64; 6],
     color: ColorTransform,
     clip_ids: Vec<String>,
+    luminance: bool,
 ) -> Option<AlphaClipComponent> {
     let mut fill_gradient = None;
     let mut resource_bitmap = None;
@@ -725,7 +751,13 @@ pub(crate) fn alpha_component(
                 fill_gradient = Some(gradient);
                 1.
             } else {
-                f64::from(color.apply(*fill)[3]) / 255.
+                let c = color.apply(*fill);
+                let base_alpha = f64::from(c[3]) / 255.;
+                if luminance {
+                    base_alpha * bt709_luminance(c[0], c[1], c[2])
+                } else {
+                    base_alpha
+                }
             };
             (commands, rule, alpha)
         }
@@ -740,6 +772,7 @@ pub(crate) fn alpha_component(
         fill_gradient,
         fill_bitmap: None,
         resource_bitmap,
+        luminance,
     })
 }
 
@@ -756,13 +789,14 @@ fn mask_rectangle(width: f64, height: f64) -> Vec<PathCommand> {
     ]
 }
 
-fn runtime_alpha_component(draw: &RuntimeDrawItem) -> Option<AlphaClipComponent> {
+fn runtime_alpha_component(draw: &RuntimeDrawItem, luminance: bool) -> Option<AlphaClipComponent> {
     match &draw.item.kind {
         RuntimeDrawKind::Element(kind) => alpha_component(
             kind,
             draw.item.transform,
             draw.item.color_transform,
             draw.clip_ids.clone(),
+            luminance,
         ),
         RuntimeDrawKind::GradientPath {
             commands,
@@ -773,19 +807,26 @@ fn runtime_alpha_component(draw: &RuntimeDrawItem) -> Option<AlphaClipComponent>
             ..
         } => {
             // Runtime Graphics paints are already color-transformed.
+            let alpha = if fill_gradient.is_some() || fill_bitmap.is_some() {
+                1.
+            } else {
+                let base_alpha = f64::from(fill[3]) / 255.;
+                if luminance {
+                    base_alpha * bt709_luminance(fill[0], fill[1], fill[2])
+                } else {
+                    base_alpha
+                }
+            };
             Some(AlphaClipComponent {
                 commands: commands.clone(),
                 fill_rule: *fill_rule,
                 matrix: draw.item.transform,
                 clip_ids: draw.clip_ids.clone(),
-                alpha: if fill_gradient.is_some() || fill_bitmap.is_some() {
-                    1.
-                } else {
-                    f64::from(fill[3]) / 255.
-                },
+                alpha,
                 fill_gradient: fill_gradient.clone(),
                 fill_bitmap: fill_bitmap.clone(),
                 resource_bitmap: None,
+                luminance,
             })
         }
         RuntimeDrawKind::BitmapPixels {
@@ -814,6 +855,7 @@ fn runtime_alpha_component(draw: &RuntimeDrawItem) -> Option<AlphaClipComponent>
                 smoothing: *smoothing,
                 color_transform: *color_transform,
             }),
+            luminance,
         }),
         _ => None,
     }
@@ -848,6 +890,7 @@ fn clip_uses_alpha(clips: &[RuntimeClip], id: &str, depth: usize) -> bool {
     }
     clips.iter().find(|clip| clip.id == id).is_some_and(|clip| {
         clip.alpha_components.is_some()
+            || clip.invert
             || clip
                 .components
                 .iter()
@@ -1000,7 +1043,7 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
                 visiting.remove(&symbol.id);
                 valid
             }
-            ElementKind::Bitmap { resource_id, .. } if mode == MaskMode::Alpha => project
+            ElementKind::Bitmap { resource_id, .. } if mode.uses_paint_coverage() => project
                 .resources
                 .iter()
                 .find(|resource| &resource.id == resource_id)
@@ -1078,10 +1121,20 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
                 next = parent.properties.parent.as_ref();
             }
         }
-        if layer.properties.mask_mode == MaskMode::Alpha && layer.properties.role != LayerRole::Mask
-        {
+        if !layer.properties.mask_mode.is_geometry() && layer.properties.role != LayerRole::Mask {
             errors.push(format!(
-                "Layer '{}' can use alpha mask mode only with the Mask role",
+                "Layer '{}' can use {} mask mode only with the Mask role",
+                layer.name,
+                match layer.properties.mask_mode {
+                    MaskMode::Alpha => "alpha",
+                    MaskMode::Luminance => "luminance",
+                    MaskMode::Geometry => "geometry",
+                }
+            ));
+        }
+        if layer.properties.mask_invert && layer.properties.role != LayerRole::Mask {
+            errors.push(format!(
+                "Layer '{}' can invert a mask only with the Mask role",
                 layer.name
             ));
         }
@@ -1099,7 +1152,7 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
                     )
                 });
             if !valid {
-                errors.push(format!("Mask '{}' requires vector fills or nested vector symbols in Geometry mode; Alpha mode also accepts decodable bitmap images and mixed symbols. Convert text/video to supported artwork", layer.name));
+                errors.push(format!("Mask '{}' requires vector fills or nested vector symbols in Geometry mode; Alpha mode (and Luminance mode) also accepts decodable bitmap images and mixed symbols. Convert text/video to supported artwork", layer.name));
             }
         }
     }

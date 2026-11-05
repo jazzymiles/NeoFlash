@@ -587,6 +587,7 @@ mod tests {
     fn overlapping_mask_components_paint_once_and_preserve_interpolated_attributes() {
         let clip = RuntimeClip {
             alpha_components: None,
+            invert: false,
             id: "overlap".into(),
             components: vec![
                 neoflash_core::ClipComponent {

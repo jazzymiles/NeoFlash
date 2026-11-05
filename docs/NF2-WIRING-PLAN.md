@@ -370,11 +370,13 @@ and Play all scenes are done in the editor (W0.1); the shared `AuthoredPlayback`
 ### Phase 2 — Major features
 
 **W2.1 · Motion tweens + Motion editor + Motion tween properties (TL-05, PP-02, PR-10/PP-03, MN-02)** — E-10 —
-**partial** (§7). Done: ◆ property keyframes with independent tracks and per-property eases (`Keyframe.property_eases`
-in format 7), moving ◆ keys horizontally in time in the Motion editor, Orient to path for motion tweens, Show path /
-Show frame dots (`TimelineView`), Sync graphic symbols (`Keyframe.sync_symbols`), Snap to motion guide
-(`Keyframe.snap_to_guide`), motion path on the stage, Motion editor (`panels/motion_editor.rs`), Properties — Motion
-tween (`panels/motion_tween.rs`), Copy / Paste motion and Paste motion special; Bézier segment/handle editing uses the approved R-008 painter. Add property in Motion editor remains open.
+**done** (§7). ◆ property keyframes with independent tracks and per-property eases (`Keyframe.property_eases`
+in format 7), moving ◆ keys horizontally in time in the Motion editor, `Add property` (`+` on `Basic motion`,
+`Transformation`, `Colour effect` and `Filters`) and the `Frames` span-duration stepper in `panels/motion_editor.rs`,
+Orient to path for motion tweens, Show path / Show frame dots (`TimelineView`), Sync graphic symbols
+(`Keyframe.sync_symbols`), Snap to motion guide (`Keyframe.snap_to_guide`), motion path on the stage, Motion editor
+(`panels/motion_editor.rs`), Properties — Motion tween (`panels/motion_tween.rs`), Copy / Paste motion and Paste motion
+special; Bézier segment/handle editing uses the approved R-008 painter.
 Registry: `animation-motion-tween`, `animation-easing`.
 
 **W2.2 · Ease presets Bounce/Elastic + per-property curves (PP-01 rest)** — E-02 — **done** (§7.4 rows 1–2).
@@ -473,8 +475,8 @@ Preferences ▸ Updates must stay disabled (no update service, no telemetry) unt
 ## 6. Dependency order
 
 ```text
-Done: W0.1, W0.2, W0.3, W0.4, W0.5, W0.9, W0.11, W0.12, W0.14, W1.1, W1.2, W1.4, W1.6, W1.8, W2.2, W2.3 (rest in §7.4), W2.4
-Partial: W0.13, W0.15, W1.3, W1.12, W2.1, W2.6, W2.8, W2.10
+Done: W0.1, W0.2, W0.3, W0.4, W0.5, W0.9, W0.11, W0.12, W0.14, W1.1, W1.2, W1.4, W1.6, W1.8, W2.1, W2.2, W2.3, W2.4
+Partial: W0.13, W0.15, W1.3, W1.12, W2.6, W2.8, W2.10
 W1.3 View ▸ Snapping submenu ◄── R-003 (object/pixel snapping, Tools toggle and ⌘-suspend are done)
 W0.6 Colour effect styles, W0.15 Properties Swap… picker ◄── R-012
 W0.7 output levels ──► W1.5 compiler errors ──► W2.8 code intelligence ──► W2.9 debugger + trace bridge
@@ -539,7 +541,7 @@ non-MovieClip scenes, instances of scene symbols and frame sounds without an aud
 | `neoflash-editor/src/timeline_preview.rs` | Frame view ▸ Preview thumbnails, cached per keyframe and `History::revision`. |
 | `neoflash-editor/src/timeline_sound.rs` | Attach/import/edit frame sounds; native preview: decodes with rodio/Symphonia (MP3, WAV) and plays the preview `Player`'s `SoundCommand`s and custom envelopes; Sound properties audition/update/replace; Mute sounds. Scrubbing is silent. |
 | `neoflash-editor/src/panels/` | `timeline_controls.rs` (transport, tween/ease/sound buttons, scene select, frame view menu), `timeline.rs` (frame menu), `layer_controls.rs` + `layer_properties.rs` (layer menu, Add classic motion guide, Layer properties modal), `symbols_popover.rs` (breadcrumb `▾` + Symbols & scenes popover), `ease.rs`, `scene.rs`, `motion_editor.rs`, `motion_tween.rs` (also the motion-span edits shared with the Motion editor), `properties_sound.rs`, `edit_envelope.rs`, `sound_properties.rs`, `menu.rs` (Insert / Edit ▸ Timeline / Modify ▸ Timeline / Control / Window). |
-| `neoflash-editor/src/workspace.rs` | `TimelineView { tinted, show_seconds, short_rows, snap_playhead, loop_playback, preview, show_motion_path, show_motion_frame_dots }` (saved with the workspace; `row_height()` feeds painters and `timeline_cell_at`); `PanelId::{Ease, Scene, MotionEditor}` start hidden. Session-only state (`edit_multiple`, `play_all_scenes`) lives in `timeline_edit.rs::TimelineSelection`. |
+| `neoflash-editor/src/workspace.rs` | `TimelineView { tinted, show_seconds, compact_rows, short_rows, snap_playhead, loop_playback, preview, show_motion_path, show_motion_frame_dots }` (saved with the workspace; `row_height()` feeds painters and `timeline_cell_at`, including 14 pt `Compact` rows); `PanelId::{Ease, Scene, MotionEditor}` start hidden. Session-only state (`edit_multiple`, `play_all_scenes`) lives in `timeline_edit.rs::TimelineSelection`. |
 
 **Invariant.** Every history commit goes through `Editor::commit_history` (`Editor::transact` already ends with it):
 `record_motion_property_keys` keys exactly the properties an edit changed on a ◆ key and refreshes the unkeyed values
@@ -594,9 +596,9 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 17 | ~~Breadcrumb ▾ and Symbols & scenes popover (ST-08)~~ | Done: `panels/symbols_popover.rs` + `shell.rs` breadcrumb `▾` and overflow `…` menu with instant search, `Scenes` / `Matches` / `Recent` / `Browse` folder tree and `↑↓ ←→ ↵ ⌥↵ Esc` keyboard navigation (`panel_tests.rs`). | | | |
 | 18 | ~~Range edits inside tweens keep editable curves (`animation-frame-ranges`)~~ | Done: `timeline_edit.rs` subdivides `CubicBezier`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `Linear` span and `property_eases` curves via exact De Casteljau cubic-Bézier splitting (`subdivide_cubic_bezier`) on `InsertKeyframe`, `ClearFrames` and `RemoveFrames` (`timeline_tweens.rs`). | | | |
 | 19 | ~~XFL import of tween kinds, guides and scenes~~ | Done: `neoflash-import/src/xfl.rs` and `xfl/shape.rs` import multi-scene `DOMTimeline`s (`Project.scenes`), library folders, `normal`/`guide`/`mask`/`folder` layers, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), Graphic `firstFrame` offsets, skew matrices and stroke-only straight/quadratic guide paths (`tests/batch_import_capabilities.rs`). | | | |
-| 20 | ~~Layer properties dialog: Guided type (DL-16)~~ | Done: modal `panels/layer_properties.rs` (`Modify ▸ Timeline ▸ Layer properties…`, `Layer menu ▸ Properties…`, double-click layer icon) edits Name, Visible, Locked, `Normal`/`Guide`/`Guided`/`Mask`/`Masked`/`Folder` (`Guided` ↔ `motion_guide`), Outline colour & outlines toggle, and Layer height `100 %`/`200 %`/`300 %` with one Undo step (`panel_tests.rs`). | | | |
+| 20 | ~~Layer properties dialog: Guided type (DL-16)~~ | Done: modal `panels/layer_properties.rs` (`Modify ▸ Timeline ▸ Layer properties…`, `Layer menu ▸ Properties…`, double-click layer icon) edits Name, Visible, Locked, `Normal`/`Guide`/`Guided`/`Mask`/`Masked`/`Folder` (`Guided` ↔ `motion_guide`), `Mask mode` (`Geometry`/`Alpha`/`Luminance`) + `Invert mask` (`R-048`), Outline colour & outlines toggle, and Layer height `Compact`/`Short`/`100 %`/`200 %` with one Undo step (`panel_tests.rs`, `timeline_commands_tests.rs`). | | | |
 | 21 | Frame view ▸ Help (F1) (TL-12) | `panels/timeline_controls.rs` | none | — | Needs a product decision on the help target; stays disabled until then |
-| 22 | Timeline and AS2/AS3 masks: geometry and explicit gradient/PNG alpha | Implemented in shared core, native stage and HTML5: format9 `mask_mode`, gradient/PNG/mixed sources, nested source/target composition, moving masks and T-053 neighbor fix. Existing cache semantics preserved. | Alpha-mode selector awaits R-048; no new editor UI composition | Core mask families, native pixel/Undo/save-reopen tests and shared clipped-scene workflow; actual Canvas pixels with motion/Restart | Text/video sources, fully scripted mask-of-mask graphs, AS2 String target paths and exact Flash raster/filter conformance remain outside the supported profile. |
+| 22 | ~~Timeline and AS2/AS3 masks: geometry, alpha, luminance and AE-style mask inversion~~ | Done: format-9 `MaskMode::{Geometry, Alpha, Luminance}` (BT.709 luminance) and `LayerProperties.mask_invert`, evaluated across core (`authored_layers.rs`, `mask_composition.rs`, `mask_coverage.rs`), native stage (`stage_clipping.rs`), HTML5 Canvas 2D (`web/path.js`) and Lottie export (`lottie.rs` `"inv": true`), with editor controls in `Layer properties` (`R-048`), layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on `LayerRole::Mask` timeline rows (`R-049`) (`timeline_masks.rs`, `timeline_commands_tests.rs`, `path-cache.test.cjs`). | | | |
 
 Related stage work outside the timeline: object and pixel snapping (`Guides > Objects > Grid > Pixels`), the Tools
 `Snap to objects` toggle and `⌘`-suspend are implemented in `snapping.rs` / `stage_view.rs`; `View ▸ Snapping` waits for

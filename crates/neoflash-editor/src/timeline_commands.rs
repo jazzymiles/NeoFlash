@@ -412,13 +412,24 @@ impl Editor {
         if layer.properties.role == LayerRole::Guide {
             return false;
         }
-        if layer.properties.blend_mode == blend_mode {
+        let targets = self.target_layer_indices(layer_index);
+        let any_changed = targets.iter().any(|&i| {
+            self.symbol().timeline.layers.get(i).is_some_and(|l| {
+                l.properties.role != LayerRole::Guide && l.properties.blend_mode != blend_mode
+            })
+        });
+        if !any_changed {
             return true;
         }
         self.finish_edits();
-        self.transact(|editor| {
-            if let Some(layer) = editor.symbol_mut().timeline.layers.get_mut(layer_index) {
-                layer.properties.blend_mode = blend_mode;
+        self.transact(move |editor| {
+            let layers = &mut editor.symbol_mut().timeline.layers;
+            for i in targets {
+                if let Some(layer) = layers.get_mut(i)
+                    && layer.properties.role != LayerRole::Guide
+                {
+                    layer.properties.blend_mode = blend_mode;
+                }
             }
             if !blend_mode.is_normal() {
                 editor.project.format_version = editor.project.format_version.max(8);
@@ -442,13 +453,24 @@ impl Editor {
         if layer.properties.role == LayerRole::Guide {
             return false;
         }
-        if layer.properties.sync_timeline == sync {
+        let targets = self.target_layer_indices(layer_index);
+        let any_changed = targets.iter().any(|&i| {
+            self.symbol().timeline.layers.get(i).is_some_and(|l| {
+                l.properties.role != LayerRole::Guide && l.properties.sync_timeline != sync
+            })
+        });
+        if !any_changed {
             return true;
         }
         self.finish_edits();
-        self.transact(|editor| {
-            if let Some(layer) = editor.symbol_mut().timeline.layers.get_mut(layer_index) {
-                layer.properties.sync_timeline = sync;
+        self.transact(move |editor| {
+            let layers = &mut editor.symbol_mut().timeline.layers;
+            for i in targets {
+                if let Some(layer) = layers.get_mut(i)
+                    && layer.properties.role != LayerRole::Guide
+                {
+                    layer.properties.sync_timeline = sync;
+                }
             }
             if sync {
                 editor.project.format_version = editor.project.format_version.max(8);

@@ -62,6 +62,7 @@ fn factor(
             id: union_id.clone(),
             components: children.iter().map(geometry).collect(),
             alpha_components: Some(children),
+            invert: false,
         });
         // A conservative world-space bounds rectangle carries the synthetic
         // union and the shared mask. Exact curves/holes remain in its children.
@@ -97,6 +98,7 @@ fn factor(
             fill_gradient: None,
             fill_bitmap: None,
             resource_bitmap: None,
+            luminance: false,
         });
     }
     components.into_iter().flatten().collect()
@@ -166,6 +168,7 @@ mod tests {
             fill_gradient: None,
             fill_bitmap: None,
             resource_bitmap: None,
+            luminance: false,
         }
     }
     #[test]
@@ -184,6 +187,7 @@ mod tests {
                 id: "half".into(),
                 components: vec![geometry(&hole)],
                 alpha_components: Some(vec![hole]),
+                invert: false,
             },
             RuntimeClip {
                 id: "source".into(),
@@ -192,6 +196,7 @@ mod tests {
                     component(0., 1., vec!["half".into()]),
                     component(20., 1., vec!["half".into()]),
                 ]),
+                invert: false,
             },
         ];
         factor_alpha_clip_groups(&mut clips);

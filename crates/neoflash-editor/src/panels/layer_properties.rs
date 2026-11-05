@@ -73,16 +73,23 @@ impl LayerTypeChoice {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LayerHeightChoice {
+    Compact,
     Short,
     Normal100,
     Preview200,
 }
 
 impl LayerHeightChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::Short, Self::Normal100, Self::Preview200];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::Compact,
+        Self::Short,
+        Self::Normal100,
+        Self::Preview200,
+    ];
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
+            Self::Compact => "Layer height: Compact",
             Self::Short => "Layer height: Short",
             Self::Normal100 => "Layer height: 100 %",
             Self::Preview200 => "Layer height: 200 %",
@@ -91,6 +98,7 @@ impl LayerHeightChoice {
 
     pub(crate) const fn menu_label(self) -> &'static str {
         match self {
+            Self::Compact => "Compact",
             Self::Short => "Short",
             Self::Normal100 => "100 %",
             Self::Preview200 => "200 %",
@@ -106,6 +114,8 @@ pub(crate) struct LayerPropertiesDraft {
     pub(crate) visible: bool,
     pub(crate) locked: bool,
     pub(crate) kind: LayerTypeChoice,
+    pub(crate) mask_mode: MaskMode,
+    pub(crate) mask_invert: bool,
     pub(crate) outline_color: Color32,
     pub(crate) outline: bool,
     pub(crate) height: LayerHeightChoice,
@@ -169,7 +179,12 @@ fn layer_can_be_folder(layer: &Layer) -> bool {
         .any(|k| !k.elements.is_empty() || k.sound.is_some())
 }
 
-fn layer_can_be_mask(project: &Project, symbol_id: &str, layer_index: usize) -> bool {
+fn layer_can_be_mask_with_mode(
+    project: &Project,
+    symbol_id: &str,
+    layer_index: usize,
+    mask_mode: MaskMode,
+) -> bool {
     let mut candidate = project.clone();
     let Some(symbol) = candidate.symbol_mut(symbol_id) else {
         return false;
@@ -180,6 +195,7 @@ fn layer_can_be_mask(project: &Project, symbol_id: &str, layer_index: usize) -> 
     let layer_id = layer.id.clone();
     let was_folder = layer.properties.role == LayerRole::Folder;
     layer.properties.role = LayerRole::Mask;
+    layer.properties.mask_mode = mask_mode;
     layer.properties.mask = None;
     layer.properties.motion_guide = None;
     if was_folder && layer.keyframes.is_empty() {
@@ -194,7 +210,13 @@ fn layer_can_be_mask(project: &Project, symbol_id: &str, layer_index: usize) -> 
         }
     }
     candidate.format_version = candidate.format_version.max(4);
+    candidate.upgrade_format_for_features();
     candidate.validate().is_ok()
+}
+
+fn layer_can_be_mask(project: &Project, symbol_id: &str, layer_index: usize) -> bool {
+    layer_can_be_mask_with_mode(project, symbol_id, layer_index, MaskMode::Geometry)
+        || layer_can_be_mask_with_mode(project, symbol_id, layer_index, MaskMode::Alpha)
 }
 
 impl Editor {
@@ -202,6 +224,8 @@ impl Editor {
         let view = &self.workspace.timeline;
         if view.preview != FramePreview::Off {
             LayerHeightChoice::Preview200
+        } else if view.compact_rows {
+            LayerHeightChoice::Compact
         } else if view.short_rows {
             LayerHeightChoice::Short
         } else {
@@ -212,15 +236,23 @@ impl Editor {
     fn apply_layer_height_choice(&mut self, choice: LayerHeightChoice) {
         let view = &mut self.workspace.timeline;
         match choice {
+            LayerHeightChoice::Compact => {
+                view.compact_rows = true;
+                view.short_rows = false;
+                view.preview = FramePreview::Off;
+            }
             LayerHeightChoice::Short => {
+                view.compact_rows = false;
                 view.short_rows = true;
                 view.preview = FramePreview::Off;
             }
             LayerHeightChoice::Normal100 => {
+                view.compact_rows = false;
                 view.short_rows = false;
                 view.preview = FramePreview::Off;
             }
             LayerHeightChoice::Preview200 => {
+                view.compact_rows = false;
                 view.short_rows = false;
                 if view.preview == FramePreview::Off {
                     view.preview = FramePreview::Layer;
@@ -244,6 +276,8 @@ impl Editor {
             visible: layer.visible,
             locked: layer.locked,
             kind: LayerTypeChoice::from_layer(&layer),
+            mask_mode: layer.properties.mask_mode,
+            mask_invert: layer.properties.mask_invert,
             outline_color: Color32::from_rgb(color[0], color[1], color[2]),
             outline: layer.properties.outline,
             height: self.current_layer_height_choice(),
@@ -369,8 +403,12 @@ impl Editor {
                     layer.keyframes.clear();
                 }
             }
-            if draft.kind != LayerTypeChoice::Mask {
+            if draft.kind == LayerTypeChoice::Mask {
+                layer.properties.mask_mode = draft.mask_mode;
+                layer.properties.mask_invert = draft.mask_invert;
+            } else {
                 layer.properties.mask_mode = MaskMode::Geometry;
+                layer.properties.mask_invert = false;
             }
             if draft.kind == LayerTypeChoice::Guide {
                 layer.properties.blend_mode = BlendMode::Normal;
@@ -548,11 +586,44 @@ impl Editor {
                                     .clicked()
                                 {
                                     draft.kind = choice;
+                                    if choice == LayerTypeChoice::Mask
+                                        && !layer_can_be_mask_with_mode(
+                                            &self.project,
+                                            &draft.symbol_id,
+                                            layer_index,
+                                            draft.mask_mode,
+                                        )
+                                        && layer_can_be_mask_with_mode(
+                                            &self.project,
+                                            &draft.symbol_id,
+                                            layer_index,
+                                            MaskMode::Alpha,
+                                        )
+                                    {
+                                        draft.mask_mode = MaskMode::Alpha;
+                                    }
                                 }
                             }
                             let armature = ui.add_enabled(false, c::Radio::new(false, "Armature"));
                             let _ = c::not_available(armature, ARMATURE_REASON);
                         });
+                        if draft.kind == LayerTypeChoice::Mask {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let mode_label =
+                                    format!("Mask mode: {}", draft.mask_mode.label());
+                                c::Select::new("layer-properties-mask-mode", &mode_label)
+                                    .width(200.0)
+                                    .show(ui, |ui| {
+                                        crate::layer_controls::populate_mask_mode_menu(
+                                            ui,
+                                            draft.mask_mode,
+                                            |mode| draft.mask_mode = mode,
+                                        );
+                                    });
+                                ui.add(c::Switch::new(&mut draft.mask_invert, "Invert mask"));
+                            });
+                        }
 
                         group(ui, "Outline");
                         ui.horizontal(|ui| {

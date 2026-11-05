@@ -1749,7 +1749,10 @@ impl<'a> LottieBuilder<'a> {
             self.add_note(
                 LottieNoteKind::Approximated,
                 format!("Mask layer '{}'", mask_layer.name),
-                "Alpha mask layer exported as vector contour mask; Lottie does not support soft alpha/gradient/bitmap mask coverage.",
+                format!(
+                    "{} mask layer exported as vector contour mask; Lottie does not support soft alpha/luminance/gradient/bitmap mask coverage.",
+                    mask_layer.properties.mask_mode.label()
+                ),
                 None,
                 Some(mask_layer.id.clone()),
                 Some(first_frame),
@@ -1781,6 +1784,14 @@ impl<'a> LottieBuilder<'a> {
         let mask_animated = last_frame > first_frame + 1
             && (mask_layer.keyframes.len() > 1
                 || mask_layer.keyframes.iter().any(|k| k.tween.is_some()));
+        let mask_invert = mask_layer.properties.mask_invert;
+        let mask_mode_for_index = |idx: usize| -> (bool, &'static str) {
+            if mask_invert {
+                if idx == 0 { (true, "a") } else { (false, "s") }
+            } else {
+                (false, "a")
+            }
+        };
         let mut masks_props = Vec::new();
         if mask_animated {
             let per_frame: Vec<(u32, Vec<LottieBezier>)> = (first_frame..last_frame)
@@ -1797,6 +1808,7 @@ impl<'a> LottieBuilder<'a> {
             });
             if compatible {
                 for c_idx in 0..count {
+                    let (inv, mode) = mask_mode_for_index(c_idx);
                     let kfs: Vec<Value> = per_frame
                         .iter()
                         .enumerate()
@@ -1815,8 +1827,8 @@ impl<'a> LottieBuilder<'a> {
                         })
                         .collect();
                     masks_props.push(json!({
-                        "inv": false,
-                        "mode": "a",
+                        "inv": inv,
+                        "mode": mode,
                         "pt": {"a": 1, "k": kfs},
                         "o": {"a": 0, "k": 100},
                         "x": {"a": 0, "k": 0},
@@ -1832,10 +1844,11 @@ impl<'a> LottieBuilder<'a> {
                     Some(mask_layer.id.clone()),
                     Some(first_frame),
                 );
-                for bez in first_contours {
+                for (c_idx, bez) in first_contours.into_iter().enumerate() {
+                    let (inv, mode) = mask_mode_for_index(c_idx);
                     masks_props.push(json!({
-                        "inv": false,
-                        "mode": "a",
+                        "inv": inv,
+                        "mode": mode,
                         "pt": {"a": 0, "k": bez.to_json()},
                         "o": {"a": 0, "k": 100},
                         "x": {"a": 0, "k": 0},
@@ -1844,10 +1857,11 @@ impl<'a> LottieBuilder<'a> {
                 }
             }
         } else {
-            for bez in first_contours {
+            for (c_idx, bez) in first_contours.into_iter().enumerate() {
+                let (inv, mode) = mask_mode_for_index(c_idx);
                 masks_props.push(json!({
-                    "inv": false,
-                    "mode": "a",
+                    "inv": inv,
+                    "mode": mode,
                     "pt": {"a": 0, "k": bez.to_json()},
                     "o": {"a": 0, "k": 100},
                     "x": {"a": 0, "k": 0},

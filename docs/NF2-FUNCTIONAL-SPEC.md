@@ -228,13 +228,13 @@ groups.
 - Depends on: editor (selection across keyframes; `animation-frame-ranges` limit "simultaneous artwork editing").
 - Acceptance: select-all + move shifts objects on all keyframes in range with one Undo; off restores normal view.
 
-**TL-09 · Frame view ▸ Short rows** — `timeline_frame_view_menu` · done
-- Done: `TimelineView.short_rows`; row height is passed to painters and hit tests.
-- Purpose: 18 pt layer rows (`metrics::LAYER_ROW_SHORT`).
-- Behaviour: checked menu item; layer list, grid, hit testing and drag targets all use the short height.
+**TL-09 · Frame view ▸ Compact / Short rows** — `timeline_frame_view_menu` · done
+- Done: `TimelineView.compact_rows` (`14 pt`, `TimelineView::LAYER_ROW_COMPACT`) and `TimelineView.short_rows` (`18 pt`, `metrics::LAYER_ROW_SHORT`), also selectable in `Preferences ▸ Timeline ▸ Row: Compact / Short / Normal` and `Layer properties ▸ Layer height: Compact / Short / 100 % / 200 %`; row height is passed to painters and hit tests.
+- Purpose: 14 pt (`Compact`) and 18 pt (`Short`) layer rows.
+- Behaviour: checked menu item; layer list, grid, hit testing and drag targets all use the compact/short height.
 - Data: workspace pref. `timeline_paint::ROW_HEIGHT` is a constant today → must become per-view.
 - Depends on: UI-only (editor).
-- Acceptance: rows 18 pt; clicking/dragging frames and layers hits the right row; preference persists.
+- Acceptance: rows 14 pt / 18 pt; clicking/dragging frames and layers hits the right row; preference persists.
 
 **TL-10 · Frame view ▸ Preview** — `timeline_frame_view_menu` · done
 - Done (2026-11-01): Preview and Preview in context (checked rows, saved in `TimelineView.preview`) switch rows to `metrics::LAYER_ROW_PREVIEW` (44) and paint a ≤ 62 × 38 thumbnail after each span's keyframe cell with the stage painter: the layer's own content, or the whole stage on the document background. Evaluated scenes are cached per (symbol, layer, keyframe, `History::revision`), only for visible spans, at most 12 new per repaint (`timeline_preview.rs`).
@@ -676,12 +676,14 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Acceptance: Apply on "Back out" (Y2 > 1) or "Bounce" overshoots/bounces in editor preview and HTML5; Cancel leaves the
   document unchanged (History unchanged).
 
-**PP-02 · Motion editor** — partial (`panels/motion_editor.rs`)
-- Done: rows X, Y, Rotation Z, Scale X/Y, Alpha over the motion span with ◆ keys; value field keys the property at the
+**PP-02 · Motion editor** — done (`panels/motion_editor.rs`)
+- Done: rows X, Y, Rotation Z, Scale X/Y, Skew, Alpha over the motion span with ◆ keys; value field keys the property at the
   playhead; per-row `Ease` column selects per-property eases (`Keyframe.property_eases`, format 7) in one Undo; ◆
   adds/removes that property's key; ◀ ▶ jump between its keys; click a lane to move the playhead, drag a key vertically
   on the selected lane to change its value or horizontally to move that property's key in time (`Editor::move_motion_key`,
-  one Undo per drag); Graph size / Expanded sliders. Not yet: Add property (and Filters tracks).
+  one Undo per drag); `Add property` (`+`) menus on `Basic motion` (`X`, `Y`, `Rotation Z`), `Transformation` (`Scale X`,
+  `Scale Y`, `Skew`), `Colour effect` (`Alpha`, `Tint / Colour`) and `Filters` (`Blur`, `Glow`, `Drop shadow`,
+  `Adjust colour`); Graph size / Expanded sliders and `Frames` span-duration stepper.
 - Controls: columns Property · Value · Ease · Keyframe + frame ruler; sections Basic motion (X, Y, Rotation Z),
   Transformation (Scale X/Y, Skew X/Y), Colour effect (Alpha, Tint …), Filters; per row value field, ease select (No
   ease, Simple (slow), Bounce …), ◀ ◆ ▶ keyframe navigation, curve lane; Add property; footer Graph size, Expanded
@@ -899,18 +901,19 @@ audition). P3.
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced | 9-slice guides; runtime shared library export/import URL; authortime sharing source | **NEW** symbol fields; runtime 9-slice scaling | P3 |
-| DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), Outline colour + outlines toggle, Layer height `Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
+| DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), `Mask mode` (`Geometry`, `Alpha`, `Luminance`) + `Invert mask` (`R-048`), Outline colour + outlines toggle, Layer height `Compact`/`Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
-**Layer and scripted mask coverage — engine implemented; mode UI pending (DL-16).** Geometry remains the
-legacy default. Format 9 adds explicit painted-alpha masks with gradient transparency, decoded PNG alpha,
-compound holes, nested/mixed sources and moving/tweened transforms. Native stage and HTML5 share the Rust
-clip graph; target layers composite before coverage so overlaps and nested masks retain the correct alpha.
-AS2 `setMask` / AS3 `mask` preserve the existing source-plus-target `cacheAsBitmap` contract, including authored
-gradient/PNG sources. The Mask command links the eligible sibling below in displayed order, with one Undo;
-mode data survives save/reopen. Text/video sources and fully scripted mask-of-mask graphs remain outside the
-supported profile. The alpha-mode selector is requested in R-048; no unapproved control has been added.
-See task card22 in [the wiring plan](NF2-WIRING-PLAN.md#74-remaining-timeline-work-task-cards).
+**Layer and scripted mask coverage — done (DL-16, R-048, R-049).** Geometry remains the
+legacy default. Format 9 adds explicit painted-alpha (`MaskMode::Alpha`) and BT.709 luminance (`MaskMode::Luminance`)
+masks plus AE-style mask inversion (`LayerProperties.mask_invert`) with gradient transparency, decoded PNG alpha/luma,
+compound holes, nested/mixed sources and moving/tweened transforms. Native stage, HTML5 Canvas 2D and Lottie export
+(`"inv": true`) share the mask model; target layers composite before coverage so overlaps and nested masks retain the
+correct alpha. AS2 `setMask` / AS3 `mask` preserve the existing source-plus-target `cacheAsBitmap` contract, including
+authored gradient/PNG sources. The Mask command links the eligible sibling below in displayed order, with one Undo;
+`Layer properties` (`R-048`), the layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on
+`LayerRole::Mask` timeline rows (`R-049`) switch `Geometry` / `Alpha` / `Luminance` and `Invert mask` in one Undo step.
+See task card 22 in [the wiring plan](NF2-WIRING-PLAN.md#74-remaining-timeline-work-task-cards).
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 

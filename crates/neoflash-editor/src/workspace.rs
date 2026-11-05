@@ -2240,6 +2240,9 @@ pub struct TimelineView {
     pub show_seconds: bool,
     /// 18 pt layer rows (Frame view ▸ Short).
     pub short_rows: bool,
+    /// 14 pt compact layer rows (Frame view ▸ Compact).
+    #[serde(default)]
+    pub compact_rows: bool,
     /// Ruler scrubbing lands on the current layer's keyframes (⇧ suspends it).
     pub snap_playhead: bool,
     /// Off = editor playback stops on the last frame instead of wrapping.
@@ -2270,6 +2273,7 @@ impl Default for TimelineView {
             tinted: true,
             show_seconds: true,
             short_rows: false,
+            compact_rows: false,
             snap_playhead: false,
             loop_playback: true,
             preview: FramePreview::Off,
@@ -2280,10 +2284,15 @@ impl Default for TimelineView {
 }
 
 impl TimelineView {
+    /// Ultra-compact layer row height (`Frame view ▸ Compact`, 14 pt).
+    pub const LAYER_ROW_COMPACT: f32 = 14.0;
+
     /// `NF2/TL Layer` row height for the current frame view.
     pub fn row_height(&self) -> f32 {
         if self.preview != FramePreview::Off {
             neoflash_ui::metrics::LAYER_ROW_PREVIEW
+        } else if self.compact_rows {
+            Self::LAYER_ROW_COMPACT
         } else if self.short_rows {
             neoflash_ui::metrics::LAYER_ROW_SHORT
         } else {

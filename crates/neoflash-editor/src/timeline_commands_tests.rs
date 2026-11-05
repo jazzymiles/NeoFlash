@@ -1684,3 +1684,135 @@ fn solo_hidden_layers_are_excluded_from_selection_and_edits_and_reconciled_on_to
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn mask_luminance_and_invert_modes_and_compact_row_height_roundtrip_with_single_undo() {
+    use crate::panels::layer_properties::{
+        LayerHeightChoice, LayerTypeChoice, edit_layer_properties_draft,
+    };
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let mut content = project.symbols[0].timeline.layers[0].clone();
+    content.id = "content".into();
+    content.name = "Content".into();
+    content.keyframes[0].elements = vec![element("box", rectangle(), 0.)];
+    let mut mask = content.clone();
+    mask.id = "mask".into();
+    mask.name = "Mask".into();
+    mask.keyframes[0].elements = vec![element("mask-shape", rectangle(), 0.)];
+    project.symbols[0].timeline.layers = vec![content, mask];
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.set_layer_role(1, LayerRole::Mask);
+    let after_role = editor.project.clone();
+
+    editor.set_layer_mask_mode(1, MaskMode::Luminance);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].properties.mask_mode,
+        MaskMode::Luminance
+    );
+    assert_eq!(editor.project.format_version, 9);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &after_role);
+
+    editor.set_layer_mask_invert(1, true);
+    assert!(editor.symbol().timeline.layers[1].properties.mask_invert);
+    assert_eq!(editor.project.format_version, 9);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &after_role);
+
+    // Layer properties modal edits mask_mode, mask_invert and Compact layer height in one Undo step.
+    editor.open_layer_properties(&ctx, 1);
+    edit_layer_properties_draft(&ctx, |d| {
+        d.kind = LayerTypeChoice::Mask;
+        d.mask_mode = MaskMode::Luminance;
+        d.mask_invert = true;
+        d.height = LayerHeightChoice::Compact;
+    });
+    editor.confirm_layer_properties(&ctx).unwrap();
+    let l1 = &editor.symbol().timeline.layers[1];
+    assert_eq!(l1.properties.mask_mode, MaskMode::Luminance);
+    assert!(l1.properties.mask_invert);
+    assert!(editor.workspace.timeline.compact_rows);
+    assert_eq!(
+        editor.workspace.timeline.row_height(),
+        crate::workspace::TimelineView::LAYER_ROW_COMPACT
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &after_role);
+}
+
+#[test]
+fn multi_row_layer_selection_and_drag_reparent_into_folders_commit_in_one_undo_step() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let mut l0 = project.symbols[0].timeline.layers[0].clone();
+    l0.id = "l0".into();
+    l0.name = "L0".into();
+    l0.keyframes[0].elements = vec![element("e0", rectangle(), 0.)];
+    let mut l1 = l0.clone();
+    l1.id = "l1".into();
+    l1.name = "L1".into();
+    l1.keyframes[0].elements = vec![element("e1", rectangle(), 20.)];
+    let mut folder = l0.clone();
+    folder.id = "folder".into();
+    folder.name = "Folder".into();
+    folder.properties.role = LayerRole::Folder;
+    folder.properties.collapsed = true;
+    folder.keyframes.clear();
+    project.symbols[0].timeline.layers = vec![l0, l1, folder];
+    project.format_version = 4;
+    project.validate().unwrap();
+    let before = project.clone();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.select_layer_row(0, false, false);
+    editor.select_layer_row(1, false, true);
+    assert_eq!(editor.selected_layer_indices(), vec![0, 1]);
+    assert!(editor.is_layer_row_selected(0));
+    assert!(editor.is_layer_row_selected(1));
+
+    // Batch visibility toggle on selected rows -> 1 Undo step.
+    editor.toggle_selected_layers_visibility(0);
+    assert!(!editor.symbol().timeline.layers[0].visible);
+    assert!(!editor.symbol().timeline.layers[1].visible);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // Batch blend mode change on selected rows -> 1 Undo step.
+    assert!(editor.set_layer_blend_mode(1, BlendMode::Multiply));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.blend_mode,
+        BlendMode::Multiply
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1].properties.blend_mode,
+        BlendMode::Multiply
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // Drag-reparent selected layers into `folder` -> uncollapses folder and reparents both in 1 Undo step.
+    editor.reparent_timeline_layer_to_folder("l1", Some("folder"));
+    let layers = &editor.symbol().timeline.layers;
+    assert_eq!(layers[0].properties.parent.as_deref(), Some("folder"));
+    assert_eq!(layers[1].properties.parent.as_deref(), Some("folder"));
+    assert!(!layers[2].properties.collapsed);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // Drop single layer into folder via visual drop -> 1 Undo step.
+    editor.select_layer_row(0, false, false);
+    editor.drop_timeline_layer_visual("l0", Some("l1"), Some(Some("folder")));
+    let l0_after = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .find(|l| l.id == "l0")
+        .unwrap();
+    assert_eq!(l0_after.properties.parent.as_deref(), Some("folder"));
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+}
