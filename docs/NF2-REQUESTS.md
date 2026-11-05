@@ -703,4 +703,4 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Shared pieces for `neoflash-ui`: shortcut row (title, note, chip cell) and shortcut recorder field.
   Available in `neoflash-ui`: `shortcuts::{ShortcutRow (new/chords/conflict/selected → row, cell), ShortcutRecorder
   (new/captured/conflict_with → accept, cancel, go_to), conflict_strip}` and `SHORTCUT_ROW / SHORTCUT_INDENT / SHORTCUT_CELL /
-  SHORTCUT_RECORDER`; “▸” in titles is drawn as “›” (NF2 fonts lack U+25B8). Gallery section `shortcuts`.
+  SHORTCUT_RECORDER`; “▸” in menu paths renders through the NF2 Symbols fallback font. Gallery section `shortcuts`.

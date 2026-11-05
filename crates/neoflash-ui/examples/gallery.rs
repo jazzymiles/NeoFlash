@@ -342,7 +342,7 @@ impl eframe::App for Gallery {
                             egui::style::ScrollAnimation::none(),
                         );
                     }
-                    title(ui, "Preferences › Shortcuts (R-046)");
+                    title(ui, "Preferences ▸ Shortcuts (R-046)");
                     c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                         let w = 650.0;

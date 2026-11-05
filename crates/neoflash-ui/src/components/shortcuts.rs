@@ -20,11 +20,6 @@ pub const SHORTCUT_RECORDER: f32 = 150.0;
 
 const CHIP_GAP: f32 = 4.0;
 
-/// NF2 fonts have no “▸” (U+25B8); command menu paths are drawn with “›” (U+203A) instead.
-fn menu_path(text: &str) -> String {
-    text.replace('▸', "›")
-}
-
 fn chip_width(ui: &Ui, key: &str) -> f32 {
     let p = palette(ui.ctx());
     (galley(ui, key, TextStyle::Small, p.text_secondary).size().x + 2.0 * 6.0).max(20.0)
@@ -166,8 +161,7 @@ impl<'a> ShortcutRow<'a> {
         };
         let mut title_right = cell_rect.right() - used.max(SHORTCUT_CELL) - space::S2;
         if let Some(note) = self.conflict {
-            let note = menu_path(note);
-            let g = galley(ui, &note, TextStyle::Small, p.warning_default);
+            let g = galley(ui, note, TextStyle::Small, p.warning_default);
             let right = cell_rect.right() - used - space::S3;
             let x = right - g.size().x;
             let icon = Rect::from_center_size(
@@ -191,8 +185,7 @@ impl<'a> ShortcutRow<'a> {
             p.text_secondary
         };
         let x = rect.left() + SHORTCUT_INDENT;
-        let title = menu_path(self.title);
-        let g = galley_truncated(ui, &title, TextStyle::Body, fg, title_right - x);
+        let g = galley_truncated(ui, self.title, TextStyle::Body, fg, title_right - x);
         text_at(ui, x, rect, g, fg);
         a11y(
             &row,
@@ -284,10 +277,9 @@ impl<'a> ShortcutRecorder<'a> {
             }
         }
         let x = rect.left() + SHORTCUT_INDENT;
-        let title = menu_path(self.title);
         let g = galley_truncated(
             ui,
-            &title,
+            self.title,
             TextStyle::Body,
             p.text_primary,
             field.left() - space::S2 - x,
@@ -315,9 +307,7 @@ impl<'a> ShortcutRecorder<'a> {
 /// “Go to <menu path>”). Returns `true` when Go to was clicked.
 pub fn conflict_strip(ui: &mut Ui, width: f32, text: &str, path: &str) -> bool {
     let p = palette(ui.ctx());
-    let text = menu_path(text);
-    let text = text.as_str();
-    let go_label = format!("Go to {}", menu_path(path));
+    let go_label = format!("Go to {path}");
     let button_w = galley(ui, &go_label, TextStyle::BodyStrong, p.text_primary)
         .size()
         .x
