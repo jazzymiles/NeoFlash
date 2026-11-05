@@ -1520,4 +1520,34 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
     assert!(!editor.has_any_solo_layers());
     assert_eq!(editor.project, before_solo);
     assert!(!editor.history.can_undo());
+
+    // Timeline UI renders the R-040 `Mode` cell and R-045 `Solo` toggle + header clear button.
+    ctx.enable_accesskit();
+    let out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 720.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| editor.timeline(ctx),
+    );
+    let labels: Vec<String> = out
+        .platform_output
+        .accesskit_update
+        .unwrap()
+        .nodes
+        .into_iter()
+        .filter_map(|(_, node)| node.label().map(str::to_owned))
+        .collect();
+    assert!(
+        labels.iter().any(|l| l == "Clear solo on all layers"),
+        "{labels:?}"
+    );
+    assert!(labels.iter().any(|l| l == "Solo layer"), "{labels:?}");
+    assert!(
+        labels.iter().any(|l| l == "Blend mode: Normal"),
+        "{labels:?}"
+    );
 }

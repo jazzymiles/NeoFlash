@@ -127,7 +127,7 @@ impl Editor {
         let previous_cell = self.timeline_cell;
         let row_height = self.workspace.timeline.row_height();
         let timeline_width = ui.available_width();
-        let maximum_layer_width = (timeline_width - 100.).clamp(140., 320.);
+        let maximum_layer_width = (timeline_width - 100.).clamp(140., 420.);
         let mut layer_column_width = self
             .workspace
             .sizes
@@ -174,13 +174,26 @@ impl Editor {
                     ctx.request_repaint();
                 }
             }
-            // NF2/TL Layers Header: "LAYERS" + eye / lock / outline columns that toggle every row.
+            // NF2/TL Layers Header: "LAYERS" + Mode + eye / solo / lock / outline columns.
+            let show_mode = layer_column_width >= 260.;
             let header_toggles = ui
                 .scope_builder(
                     egui::UiBuilder::new().max_rect(Rect::from_min_size(header.min, Vec2::new(layer_column_width, RULER_HEIGHT))),
-                    |ui| tl::layers_header(ui, layer_column_width),
+                    |ui| {
+                        tl::layers_header_with(
+                            ui,
+                            layer_column_width,
+                            tl::LayersHeaderColumns {
+                                mode: show_mode,
+                                solo: true,
+                            },
+                        )
+                    },
                 )
                 .inner;
+            if header_toggles.clear_solo {
+                self.clear_all_solo_layers();
+            }
             for (clicked, column) in [
                 (header_toggles.all_visibility, ToggleKind::Visibility),
                 (header_toggles.all_lock, ToggleKind::Lock),
@@ -238,9 +251,22 @@ impl Editor {
                                         Sense::click_and_drag(),
                                     );
                                     let renaming = rename.as_ref().is_some_and(|draft| draft.layer == layer.id);
+                                    let kind = layer_kind(&self.symbol().timeline, layer);
+                                    let mode_cell = if !show_mode {
+                                        tl::ModeCell::Hidden
+                                    } else if matches!(
+                                        kind,
+                                        tl::LayerKind::Guide
+                                            | tl::LayerKind::MotionGuide
+                                            | tl::LayerKind::Sound
+                                    ) {
+                                        tl::ModeCell::Empty
+                                    } else {
+                                        tl::ModeCell::Mode(layer.properties.blend_mode.label())
+                                    };
                                     let row = LayerRow {
                                         label: if renaming { "" } else { &layer.name },
-                                        kind: layer_kind(&self.symbol().timeline, layer),
+                                        kind,
                                         selected: idx == self.layer,
                                         indent: depths[row_index],
                                         editing: idx == self.layer,
@@ -249,7 +275,15 @@ impl Editor {
                                         outline: layer.properties.outline,
                                         color: layer_color(layer),
                                     }
-                                    .paint_at(ui, row_rect, row_response);
+                                    .paint_at_with(
+                                        ui,
+                                        row_rect,
+                                        row_response,
+                                        tl::LayerColumns {
+                                            mode: mode_cell,
+                                            solo: Some(self.is_layer_soloed(idx)),
+                                        },
+                                    );
                                     if row.disclosure {
                                         self.toggle_layer_folder(idx);
                                     }
@@ -257,12 +291,45 @@ impl Editor {
                                         self.finish_edits();
                                         self.transact(|s| s.symbol_mut().timeline.layers[idx].visible = !layer.visible);
                                     }
+                                    if row.solo {
+                                        let alt = ui.input(|i| i.modifiers.alt);
+                                        self.toggle_layer_solo(idx, alt);
+                                    }
                                     if row.lock {
                                         self.finish_edits();
                                         self.transact(|s| s.symbol_mut().timeline.layers[idx].locked = !layer.locked);
                                     }
                                     if row.outline {
                                         self.toggle_layer_outline(layer);
+                                    }
+                                    if let Some(mode_rect) = row.mode_rect
+                                        && matches!(mode_cell, tl::ModeCell::Mode(_))
+                                    {
+                                        let mode_popup_id = row.row.id.with("mode-popup");
+                                        egui::Popup::new(
+                                            mode_popup_id,
+                                            ui.ctx().clone(),
+                                            egui::PopupAnchor::ParentRect(mode_rect),
+                                            ui.layer_id(),
+                                        )
+                                        .kind(egui::PopupKind::Menu)
+                                        .open_memory(
+                                            row.mode.then_some(egui::SetOpenCommand::Toggle),
+                                        )
+                                        .gap(space::S1)
+                                        .frame(nf::popover_frame(ui.ctx()))
+                                        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+                                        .show(|ui| {
+                                            ui.set_min_width(180.0);
+                                            ui.spacing_mut().item_spacing.y = 2.0;
+                                            crate::layer_controls::populate_blend_mode_menu(
+                                                ui,
+                                                layer.properties.blend_mode,
+                                                |mode| {
+                                                    self.set_layer_blend_mode(idx, mode);
+                                                },
+                                            );
+                                        });
                                     }
                                     // The outline swatch keeps its right-click colour menu.
                                     let swatch = Rect::from_min_size(
@@ -301,7 +368,7 @@ impl Editor {
                                         continue;
                                     }
                                     // Name area (left of the column toggles) starts a reorder drag.
-                                    let grab = Rect::from_min_max(row_rect.min, Pos2::new(row_rect.right() - space::S2 - 3. * LAYER_TOGGLE, row_rect.bottom()));
+                                    let grab = Rect::from_min_max(row_rect.min, Pos2::new(row_rect.right() - space::S2 - 4. * LAYER_TOGGLE, row_rect.bottom()));
                                     if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| grab.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
                                         self.finish_edits();self.timeline_key_drag=None;self.layer=idx;self.clear_selection();
                                         reorder=Some(LayerReorder {symbol:self.symbol_id().to_owned(),layer:layer.id.clone(),start,moved:false});

@@ -639,7 +639,7 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             {
                 let y = text.pos.y + text.galley.size().y / 2.;
                 if shape.clip_rect.contains(Pos2::new(text.pos.x + 2., y))
-                    && text.pos.x < neoflash_ui::metrics::LAYER_COLUMN
+                    && text.pos.x < neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO
                     && y >= row_top
                     && y <= row_bottom
                 {
@@ -765,8 +765,8 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                 primary_button(divider - Vec2::new(60., 0.), false),
             ],
         );
-        // The NF2 column starts at 280 (near its 320 maximum), so narrow it.
-        assert_eq!(width, neoflash_ui::metrics::LAYER_COLUMN);
+        // The NF2 column with Mode + Solo starts at 372 (near its 420 maximum), so narrow it.
+        assert_eq!(width, neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO);
         assert!((editor.workspace.sizes.layer_column_width - width + 60.).abs() < 1.);
         assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());

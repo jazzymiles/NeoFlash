@@ -348,7 +348,7 @@ impl Default for PanelSizes {
             timeline_height: crate::theme::TIMELINE_HEIGHT,
             bottom_height: 190.,
             library_width: 280.,
-            layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
+            layer_column_width: neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
         }
     }
 }
@@ -376,7 +376,7 @@ impl PanelSizes {
             self.layer_column_width,
             default.layer_column_width,
             140.,
-            320.,
+            420.,
         );
     }
 }
@@ -3488,7 +3488,7 @@ mod tests {
                 timeline_height: crate::theme::TIMELINE_HEIGHT,
                 bottom_height: 190.,
                 library_width: 248.,
-                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
+                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
             }
         );
         assert!(prefs.sizes.timeline_height.is_nan());
@@ -3501,7 +3501,7 @@ mod tests {
                 timeline_height: 380.,
                 bottom_height: 145.,
                 library_width: 360.,
-                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN,
+                layer_column_width: neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
             }
         );
     }
