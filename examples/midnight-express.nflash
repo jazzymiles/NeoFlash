@@ -10,10 +10,10 @@
     34,
     255
   ],
-  "root": "symbol-50",
+  "root": "symbol-13",
   "symbols": [
     {
-      "id": "symbol-50",
+      "id": "symbol-13",
       "name": "Night Station",
       "kind": "movie_clip",
       "timeline": {
@@ -1533,7 +1533,7 @@
     }
   ],
   "scenes": [
-    "symbol-50",
+    "symbol-13",
     "scene-bridge"
   ]
 }
