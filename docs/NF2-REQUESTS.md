@@ -674,3 +674,31 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Available in `neoflash-ui`: `timeline::LayerColumns { mode: ModeCell, solo: Option<bool> }` with
   `LayerRow::show_with` / `paint_at_with` (response `mode`, `mode_rect`, `solo`), `layers_header_with` (`clear_solo`),
   `paint_solo_toggle`, `BLEND_MODE_GROUPS`, `metrics::{LAYER_MODE, LAYER_COLUMN_MODE_SOLO}`; gallery section `timeline`.
+
+### R-046 · Preferences ▸ Shortcuts: grouped list, search, Only assigned, recorder with Accept / Cancel and conflicts
+- **Status:** answered
+- **Requested by / for:** project owner · DL-01 / W3.7 (`prefs_shortcuts`); replaces the flat table and category Select
+- **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_shortcuts`), `commands.rs` (`CommandCategory`, `conflicts`).
+- **Need:** a macOS-style shortcut editor: visible combinations, click to record, Accept or Cancel, conflict warning with a way to
+  jump to the other command, warnings for duplicates, grouping, a filter for assigned commands and search by command name.
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Preferences ▸ Shortcuts — macOS-style
+  recorder” (Dark `146:28332`, Light `147:28550`).
+  Top: `Shortcut set` row unchanged (Select + Duplicate / Rename / Delete). Filter row: `NF2/Search` “Search commands” (Fill;
+  matches command title and menu path), Switch `Only assigned` (off by default) and, when conflicts exist, a Warning Badge
+  `N conflict(s)` — click toggles “show only conflicting commands”. The category Select is removed.
+  List: one `NF2/Section Header` per `CommandCategory` in menu order, label `<Menu> · <assigned> of <total> assigned` (with a
+  search: `<n> matches`; groups without matches are hidden); collapsed state is remembered per session. Rows 32 pt, indent
+  28 pt: Body title (text/primary when assigned, text/secondary when not), optional conflict note (warning icon + Small
+  warning text “Also on <command>”), shortcut cell 140 pt right-aligned: `NF2/Kbd` chips per key, several chords joined by
+  tertiary “or”; unassigned = tertiary “—”, on hover accent “Add shortcut”. Selected row = bg/selected.
+  Recorder: click the cell (or ↩ on a selected row) → row selected fill + recorder field (bg/field, 1 pt border/focus, radius 6,
+  150 pt) showing “Press keys…” and a Ghost `Cancel`. Every key combination is captured except bare Esc (cancel) and bare ⌫
+  (remove the shortcut). Captured chords show as chips; pressing again replaces them; buttons become Secondary `Cancel` +
+  Primary `Accept`. If the chord is used by another command in the active set, a warning strip (warning/subtle fill) under the
+  row reads “<chord> is already used by <menu path>. Accept keeps both — only the first in menu order runs.” with Ghost
+  `Go to <menu path>`, which scrolls to that command, selects it and opens its recorder. Accept keeps both and both rows show
+  “Also on …”; Cancel, Esc or a click elsewhere restores the previous chord. Row context menu: Add another shortcut, Remove
+  shortcut, Reset to default. Empty result: tertiary “No commands match “<query>”. Clear the search or turn off Only
+  assigned.” Footer and Reset command / Export as HTML… are unchanged; Save keeps conflicts (they are warnings, not errors).
+  Shared pieces for `neoflash-ui`: shortcut row (title, note, chip cell) and shortcut recorder field.
+
