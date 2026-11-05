@@ -76,6 +76,10 @@ pub const LAYER_COLUMN: f32 = 280.0;
 pub const LAYERS_HEADER: f32 = 32.0;
 /// Width of one layer column toggle (eye / lock / outline).
 pub const LAYER_TOGGLE: f32 = 20.0;
+/// Width of the layer-row `Mode` cell (blend mode, R-040).
+pub const LAYER_MODE: f32 = 64.0;
+/// Layer column with the Mode cell and the Solo toggle (R-040, R-045): 280 + 64 + 20 + 8.
+pub const LAYER_COLUMN_MODE_SOLO: f32 = 372.0;
 /// Indentation of nested layers (`Indent 1`, `Indent 2`).
 pub const LAYER_INDENT: f32 = 16.0;
 

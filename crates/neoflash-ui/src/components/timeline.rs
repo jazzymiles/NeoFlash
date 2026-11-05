@@ -7,7 +7,8 @@
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
 use crate::metrics::{
-    FrameView, LAYER_COLUMN, LAYER_INDENT, LAYER_ROW, LAYER_TOGGLE, LAYERS_HEADER, TIMELINE_RULER,
+    FrameView, LAYER_COLUMN, LAYER_INDENT, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE, LAYERS_HEADER,
+    TIMELINE_RULER,
 };
 use crate::theme::{cr, palette};
 use crate::tokens::{Palette, TextStyle, radius, space};
@@ -146,7 +147,49 @@ pub struct LayerRowResponse {
     pub outline: bool,
     /// Rect of the label, for an inline rename editor.
     pub label_rect: Rect,
+    /// The `Mode` cell was clicked (R-040): open the blend-mode menu below [`Self::mode_rect`].
+    pub mode: bool,
+    /// Rect of the `Mode` cell when the column is shown.
+    pub mode_rect: Option<Rect>,
+    /// The Solo toggle was clicked (R-045). The caller reads ⌥ for “solo only this layer”.
+    pub solo: bool,
 }
+
+/// `Mode` cell of a layer row (R-040, owner-approved 5 Nov 2026, Figma `143:22609`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ModeCell<'a> {
+    /// No Mode column in this timeline (the classic 280 pt layout).
+    #[default]
+    Hidden,
+    /// Column shown, but this row has no blend mode (guide, motion guide, sound).
+    Empty,
+    /// Column shown with the layer's blend mode name; `"Normal"` is drawn quietly.
+    Mode(&'a str),
+}
+
+/// Optional layer-row columns added by R-040 (Mode) and R-045 (Solo). The default keeps the
+/// classic row. Every row of one timeline must use the same column set; the layer column is then
+/// [`crate::metrics::LAYER_COLUMN_MODE_SOLO`] wide.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LayerColumns<'a> {
+    pub mode: ModeCell<'a>,
+    /// `Some(on)` shows the Solo toggle right after the eye; `None` hides the column.
+    pub solo: Option<bool>,
+}
+
+/// Blend modes in menu order and grouping (R-040): separators between the groups. Labels match the
+/// layer context menu `Blending ▸`.
+pub const BLEND_MODE_GROUPS: [&[&str]; 6] = [
+    &["Normal", "Layer"],
+    &["Darken", "Multiply"],
+    &["Lighten", "Screen", "Add"],
+    &["Overlay", "Hard light"],
+    &["Difference", "Subtract", "Invert"],
+    &["Alpha", "Erase"],
+];
+
+const MODE_TOOLTIP: &str = "Blend mode — click to change";
+const SOLO_TOOLTIP: &str = "Solo — show only soloed layers (⌥-click: only this one)";
 
 impl LayerRow<'_> {
     pub fn show(self, ui: &mut Ui, width: f32, height: f32) -> LayerRowResponse {
@@ -155,8 +198,32 @@ impl LayerRow<'_> {
         self.paint_at(ui, rect, row)
     }
 
+    /// [`Self::show`] with the optional Mode / Solo columns.
+    pub fn show_with(
+        self,
+        ui: &mut Ui,
+        width: f32,
+        height: f32,
+        columns: LayerColumns<'_>,
+    ) -> LayerRowResponse {
+        let (rect, row) =
+            ui.allocate_exact_size(egui::vec2(width, height), Sense::click_and_drag());
+        self.paint_at_with(ui, rect, row, columns)
+    }
+
     /// Paint into an already allocated rect (timelines that lay rows out themselves).
     pub fn paint_at(self, ui: &mut Ui, rect: Rect, row: Response) -> LayerRowResponse {
+        self.paint_at_with(ui, rect, row, LayerColumns::default())
+    }
+
+    /// [`Self::paint_at`] with the optional Mode / Solo columns.
+    pub fn paint_at_with(
+        self,
+        ui: &mut Ui,
+        rect: Rect,
+        row: Response,
+        columns: LayerColumns<'_>,
+    ) -> LayerRowResponse {
         let p = palette(ui.ctx());
         let s = State::of(ui, &row);
         let bg = if self.selected {
@@ -212,9 +279,17 @@ impl LayerRow<'_> {
             ic,
         );
         x += 16.0 + space::S2;
-        let toggles_w = 3.0 * LAYER_TOGGLE + space::S2 + 8.0;
+        let toggle_count = if columns.solo.is_some() { 4.0 } else { 3.0 };
+        let toggles_left = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
+        let toggles_w = toggle_count * LAYER_TOGGLE + space::S2 + 8.0;
+        let mode_w = if columns.mode == ModeCell::Hidden {
+            0.0
+        } else {
+            // Cell + 4 pt to the toggles + 4 pt to the label: 92 pt with the Solo column (Figma 143:22609).
+            LAYER_MODE + space::S2
+        };
         let pencil_w = if self.editing { 20.0 } else { 0.0 };
-        let label_right = rect.right() - toggles_w - pencil_w;
+        let label_right = rect.right() - toggles_w - mode_w - pencil_w;
         let fg = if self.selected {
             p.text_primary
         } else {
@@ -237,9 +312,59 @@ impl LayerRow<'_> {
                 p.accent_default,
             );
         }
-        // Column toggles.
-        let mut tx = rect.right() - space::S2 - 3.0 * LAYER_TOGGLE;
+        // Mode cell (R-040).
+        let mut mode = false;
+        let mut mode_rect = None;
+        if columns.mode != ModeCell::Hidden {
+            let r = Rect::from_min_size(
+                egui::pos2(toggles_left - space::S1 - LAYER_MODE, cy - 10.0),
+                egui::vec2(LAYER_MODE, 20.0),
+            );
+            mode_rect = Some(r);
+            if let ModeCell::Mode(name) = columns.mode {
+                let resp = ui.interact(r, row.id.with("mode"), Sense::click());
+                if resp.hovered() {
+                    ui.painter().rect_filled(r, cr(radius::SM), p.bg_hover);
+                }
+                let color = if name == "Normal" {
+                    p.text_tertiary
+                } else {
+                    p.text_primary
+                };
+                let g = galley(ui, name, TextStyle::Small, color);
+                ui.painter().with_clip_rect(r).galley(
+                    egui::pos2(r.left() + space::S1, cy - g.size().y / 2.0),
+                    g,
+                    color,
+                );
+                a11y(
+                    &resp,
+                    egui::WidgetType::Button,
+                    &format!("Blend mode: {name}"),
+                    None,
+                );
+                mode = super::display::tooltip(resp, MODE_TOOLTIP, None).clicked();
+            }
+        }
+        // Column toggles: eye, [solo], lock, outline.
+        let mut tx = toggles_left;
+        let mut solo = false;
+        if let Some(on) = columns.solo {
+            let eye = Rect::from_min_size(
+                egui::pos2(tx, rect.top()),
+                egui::vec2(LAYER_TOGGLE, rect.height()),
+            );
+            let r = eye.translate(egui::vec2(LAYER_TOGGLE, 0.0));
+            let resp = ui.interact(r, row.id.with("solo"), Sense::click());
+            paint_solo_toggle(ui.painter(), ui.ctx(), r, on, resp.hovered());
+            a11y(&resp, egui::WidgetType::Checkbox, "Solo layer", Some(on));
+            solo = super::display::tooltip(resp, SOLO_TOOLTIP, None).clicked();
+        }
+        let solo_slot = columns.solo.is_some();
         let mut toggle = |ui: &mut Ui, kind: ToggleKind, on: bool| {
+            if solo_slot && kind == ToggleKind::Lock {
+                tx += LAYER_TOGGLE;
+            }
             let r = Rect::from_min_size(
                 egui::pos2(tx, rect.top()),
                 egui::vec2(LAYER_TOGGLE, rect.height()),
@@ -275,7 +400,33 @@ impl LayerRow<'_> {
             lock,
             outline,
             label_rect,
+            mode,
+            mode_rect,
+            solo,
         }
+    }
+}
+
+/// Paint the Solo toggle (R-045): 8 pt dot — off = 1.5 pt ring (`text/tertiary`, `text/primary` on
+/// hover), on = `accent/default` fill.
+pub fn paint_solo_toggle(
+    painter: &Painter,
+    ctx: &egui::Context,
+    rect: Rect,
+    on: bool,
+    hovered: bool,
+) {
+    let p = palette(ctx);
+    let c = rect.center();
+    if on {
+        painter.circle_filled(c, 4.0, p.accent_default);
+    } else {
+        let ring = if hovered {
+            p.text_primary
+        } else {
+            p.text_tertiary
+        };
+        painter.circle_stroke(c, 3.25, Stroke::new(1.5_f32, ring));
     }
 }
 
@@ -350,11 +501,30 @@ pub struct LayersHeaderResponse {
     pub all_visibility: bool,
     pub all_lock: bool,
     pub all_outline: bool,
+    /// The Solo column header was clicked: clear every Solo (R-045).
+    pub clear_solo: bool,
+}
+
+/// Optional header columns matching [`LayerColumns`]: `mode` shows the “Mode” label, `solo` the
+/// Solo ring after the eye.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LayersHeaderColumns {
+    pub mode: bool,
+    pub solo: bool,
 }
 
 /// `NF2/TL Layers Header` (280 × 32): "LAYERS" overline and the eye / lock / outline column headers
 /// (click toggles all rows).
 pub fn layers_header(ui: &mut Ui, width: f32) -> LayersHeaderResponse {
+    layers_header_with(ui, width, LayersHeaderColumns::default())
+}
+
+/// [`layers_header`] with the optional Mode / Solo columns (R-040, R-045).
+pub fn layers_header_with(
+    ui: &mut Ui,
+    width: f32,
+    columns: LayersHeaderColumns,
+) -> LayersHeaderResponse {
     let p = palette(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, LAYERS_HEADER), Sense::hover());
     ui.painter().rect_filled(rect, cr(0.0), p.bg_panel);
@@ -371,7 +541,35 @@ pub fn layers_header(ui: &mut Ui, width: f32) -> LayersHeaderResponse {
         p.text_tertiary,
     );
     let mut out = LayersHeaderResponse::default();
-    let mut x = rect.right() - space::S2 - 3.0 * LAYER_TOGGLE;
+    let toggle_count = if columns.solo { 4.0 } else { 3.0 };
+    let mut x = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
+    if columns.mode {
+        let left = x - LAYER_MODE;
+        text_at(
+            ui,
+            left,
+            rect,
+            galley(ui, "Mode", TextStyle::Small, p.text_tertiary),
+            p.text_tertiary,
+        );
+    }
+    if columns.solo {
+        let r = Rect::from_min_size(
+            egui::pos2(x + LAYER_TOGGLE, rect.top()),
+            egui::vec2(LAYER_TOGGLE, rect.height()),
+        );
+        let resp = ui.interact(r, ui.id().with(("layers-header", "solo")), Sense::click());
+        let ring = if resp.hovered() {
+            p.text_primary
+        } else {
+            p.text_secondary
+        };
+        ui.painter()
+            .circle_stroke(r.center(), 3.25, Stroke::new(1.5_f32, ring));
+        let name = "Clear solo on all layers";
+        a11y(&resp, egui::WidgetType::Button, name, None);
+        out.clear_solo = super::display::tooltip(resp, name, None).clicked();
+    }
     for (i, (icon, name)) in [
         (i16::EYE, "Show or hide all layers"),
         (i16::LOCK, "Lock or unlock all layers"),
@@ -380,6 +578,9 @@ pub fn layers_header(ui: &mut Ui, width: f32) -> LayersHeaderResponse {
     .into_iter()
     .enumerate()
     {
+        if columns.solo && i == 1 {
+            x += LAYER_TOGGLE;
+        }
         let r = Rect::from_min_size(
             egui::pos2(x, rect.top()),
             egui::vec2(LAYER_TOGGLE, rect.height()),

@@ -5,6 +5,7 @@
 //! cargo run -p neoflash-ui --example gallery -- light     # Light
 //! cargo run -p neoflash-ui --example gallery -- dark  target/ui-shots/gallery-dark.png   # save a PNG and quit
 //! NF2_GALLERY_SECTION=answers cargo run -p neoflash-ui --example gallery -- dark x.png  # design-answer pieces
+//! NF2_GALLERY_SECTION=timeline cargo run -p neoflash-ui --example gallery -- dark x.png # Mode & Solo + timeline
 //! ```
 //! Compare the PNG with `interface/design-system/docs/illustrations/*.png`.
 use eframe::egui;
@@ -331,6 +332,54 @@ impl eframe::App for Gallery {
                             selected: Some(1),
                         }
                         .show(ui);
+                    });
+
+                    // `NF2_GALLERY_SECTION=timeline` scrolls here so the PNG capture shows this section.
+                    if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "timeline") {
+                        ui.scroll_to_cursor_animation(
+                            Some(egui::Align::TOP),
+                            egui::style::ScrollAnimation::none(),
+                        );
+                    }
+                    title(ui, "Timeline — Mode & Solo (R-040, R-045)");
+                    c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                        let lc = neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO;
+                        tl::layers_header_with(
+                            ui,
+                            lc,
+                            tl::LayersHeaderColumns {
+                                mode: true,
+                                solo: true,
+                            },
+                        );
+                        for (l, k, mode, solo, sel) in [
+                            ("ball", tl::LayerKind::Layer, tl::ModeCell::Mode("Screen"), true, false),
+                            ("hand", tl::LayerKind::Masked, tl::ModeCell::Mode("Multiply"), true, true),
+                            ("body", tl::LayerKind::Layer, tl::ModeCell::Mode("Normal"), false, false),
+                            ("Guide: sketch", tl::LayerKind::Guide, tl::ModeCell::Empty, false, false),
+                        ] {
+                            tl::LayerRow {
+                                label: l,
+                                kind: k,
+                                selected: sel,
+                                indent: 0,
+                                editing: false,
+                                visible: true,
+                                locked: false,
+                                outline: false,
+                                color: p.layer_blue,
+                            }
+                            .show_with(
+                                ui,
+                                lc,
+                                28.0,
+                                tl::LayerColumns {
+                                    mode,
+                                    solo: Some(solo),
+                                },
+                            );
+                        }
                     });
 
                     title(ui, "Timeline 2.0");

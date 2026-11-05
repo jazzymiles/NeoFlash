@@ -561,7 +561,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   or Properties. Uses existing Menu Item states only.
 
 ### R-040 · Layer blend modes (AE / Animate CC style) in Layer Properties, Frame Properties and Timeline layer rows
-- **Status:** answered
+- **Status:** resolved
 - **Requested by / for:** implementation track (`gemini`) · T-036 (`LayerProperties.blend_mode`)
 - **Where:** `panels/layer_properties.rs` (`Layer properties` modal dialog), `panels/properties.rs` (Frame / Layer context when no stage object is selected), and `panels/timeline.rs` (`LayerRow` header column).
 - **Need:** Approved NF2 placement for `LayerProperties.blend_mode` (`Blending` select with all 14 Flash blend modes `Normal`..`Erase`): (1) a `Blending` row in the `Layer properties` modal dialog (`panels-dialog-layer-properties.txt`), (2) whether `Properties` (when inspecting a frame/layer with no stage selection) should also show the layer `Blending` select alongside `Window ▸ Filters`, and (3) an optional compact badge or mode indicator on `LayerRow` when a layer uses a non-`Normal` blend mode.
@@ -576,6 +576,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Overlay·Hard light / Difference·Subtract·Invert / Alpha·Erase (Checked = current), one Undo step. Guide, Motion
   guide and Sound rows have no Mode cell. The layer column grows from 280 to 372 pt together with Solo (R-045).
   The AE-style “indicators slot” in the alternative version is not adopted.
+  Available in `neoflash-ui`: `timeline::LayerColumns { mode: ModeCell, solo: Option<bool> }` with
+  `LayerRow::show_with` / `paint_at_with` (response `mode`, `mode_rect`, `solo`), `layers_header_with` (`clear_solo`),
+  `paint_solo_toggle`, `BLEND_MODE_GROUPS`, `metrics::{LAYER_MODE, LAYER_COLUMN_MODE_SOLO}`; gallery section `timeline`.
 
 ### R-041 · AE-style Option-drag (Alt-drag) symbol replacement visual feedback, target highlight and cursor
 - **Status:** resolved
@@ -656,7 +659,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Toast component (action text right of the label, before ×).
 
 ### R-045 · Layer Solo toggle on the classic timeline
-- **Status:** answered
+- **Status:** resolved
 - **Requested by / for:** project owner · timeline layer display (with R-040 Mode cell); replaces the AE-style EXP-01…06 direction
 - **Where:** `panels/timeline.rs` layer rows and header (`NF2/TL Layer`, `NF2/TL Layers Header`, `NF2/TL Toggle`).
 - **Need:** a per-layer Solo switch next to visibility, without property rows, parenting or other AE additions.
@@ -668,4 +671,6 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   part of Undo and never affects publish/export. Tooltip “Solo — show only soloed layers (⌥-click: only this one)”.
   The AE-style alternative (filter chips, Shy, parenting column, property rows, work area, markers) in `138:20571`
   is kept for reference only and is not approved for implementation.
-
+  Available in `neoflash-ui`: `timeline::LayerColumns { mode: ModeCell, solo: Option<bool> }` with
+  `LayerRow::show_with` / `paint_at_with` (response `mode`, `mode_rect`, `solo`), `layers_header_with` (`clear_solo`),
+  `paint_solo_toggle`, `BLEND_MODE_GROUPS`, `metrics::{LAYER_MODE, LAYER_COLUMN_MODE_SOLO}`; gallery section `timeline`.
