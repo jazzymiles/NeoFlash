@@ -14,6 +14,9 @@ use neoflash_ui::components::{self as nf, code::Severity};
 use neoflash_ui::tokens::{radius, space};
 use std::hash::{Hash, Hasher};
 
+#[path = "sources_diagnostics.rs"]
+mod diagnostics_ui;
+
 pub(crate) struct CodeFeedback {
     target: egui::Id,
     fingerprint: u64,
@@ -247,57 +250,20 @@ impl Editor {
         }
     }
 
-    /// The approved shortcut applies a single unambiguous fix at the caret. A selector/peek needs
-    /// an NF2 component; never silently choose the first of several possible transformations.
-    fn quick_fix_at_caret(&mut self, ctx: &egui::Context, source: &str, language: ScriptLanguage) {
-        let id = self.actions_editor_id();
-        if !ctx.memory(|memory| memory.has_focus(id))
-            || !ctx
-                .input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Period))
-        {
-            return;
-        }
-        let script = Script {
-            language,
-            source: source.to_owned(),
-        };
-        if self.current_feedback(&script).is_none() {
-            if self.script_target == ScriptTarget::Source {
-                self.check_project_sources(false);
-            } else {
-                self.check_action_source(&script, false);
+    fn diagnostic_action(
+        &mut self,
+        action: Option<diagnostics_ui::Action>,
+        diagnostics: &[Diagnostic],
+    ) {
+        match action {
+            Some(diagnostics_ui::Action::Fix(fix)) => {
+                self.actions_ui.pending = Some(CodeCommand::ApplyQuickFix(fix));
             }
-        }
-        let caret = egui::text_edit::TextEditState::load(ctx, id)
-            .and_then(|state| state.cursor.char_range())
-            .map_or(0, |range| range.primary.index);
-        let (line, _) = nf::code::line_col(source, caret);
-        let mut fixes = Vec::new();
-        if let Some(feedback) = self.current_feedback(&script) {
-            for diagnostic in &feedback.diagnostics {
-                if self.diagnostic_is_current(diagnostic)
-                    && diagnostic.line <= line
-                    && line <= diagnostic.end_line
-                {
-                    for fix in &diagnostic.fixes {
-                        if !fixes.contains(fix) {
-                            fixes.push(fix.clone());
-                        }
-                    }
-                }
+            Some(diagnostics_ui::Action::CompilerErrors) => {
+                self.show_actions_compiler_diagnostics(diagnostics);
             }
-        }
-        match fixes.as_slice() {
-            [fix] => self.actions_ui.pending = Some(CodeCommand::ApplyQuickFix(fix.clone())),
-            [] => self.message("No quick fix at the caret."),
-            _ => self.message(format!(
-                "Multiple quick fixes at the caret: {}",
-                fixes
-                    .iter()
-                    .map(|fix| fix.title.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            )),
+            Some(diagnostics_ui::Action::NoFix) => self.message("No quick fix at the caret."),
+            None => {}
         }
     }
 
@@ -316,9 +282,53 @@ impl Editor {
         self.fonts
             .ensure_loaded(ui.ctx(), &self.workspace.code_editor.font);
         let code_prefs = self.workspace.code_editor.clone();
-        self.quick_fix_at_caret(ui.ctx(), source, language);
         let before_command = source.clone();
+        let script = Script {
+            language,
+            source: source.clone(),
+        };
+        // Navigation and fixes can be requested before the delayed live check has run.
+        if ui.ctx().memory(|m| m.has_focus(editor_id))
+            && ui.input(|i| {
+                i.events.iter().any(|event| matches!(event,
+                egui::Event::Key { key, modifiers, pressed: true, .. }
+                    if *key == egui::Key::F8 || (*key == egui::Key::Period && modifiers.command)
+            ))
+            })
+            && self.current_feedback(&script).is_none()
+        {
+            if self.script_target == ScriptTarget::Source {
+                self.check_project_sources(false);
+            } else {
+                self.check_action_source(&script, false);
+            }
+        }
+        let mut diagnostic_ui = diagnostics_ui::DiagnosticUi::load(
+            ui.ctx(),
+            editor_id,
+            self.current_feedback(&script).map(|f| f.fingerprint),
+        );
+        let current_diagnostics = self
+            .current_feedback(&script)
+            .map(|f| {
+                f.diagnostics
+                    .iter()
+                    .filter(|d| self.diagnostic_is_current(d))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let action = if !self.has_modal_dialog_in(ui.ctx()) && ui.is_enabled() {
+            diagnostic_ui.before_editor(ui.ctx(), editor_id, source, &current_diagnostics)
+        } else {
+            diagnostic_ui.close();
+            None
+        };
+        self.diagnostic_action(action, &current_diagnostics);
         let show_hints = self.apply_code_command(ui.ctx(), editor_id, source);
+        if *source != before_command {
+            diagnostic_ui.close();
+        }
         let feedback = self
             .current_feedback(&Script {
                 language,
@@ -356,7 +366,12 @@ impl Editor {
             egui::pos2(full.right(), (diag.top() - gap).max(full.top() + 60.)),
         );
         let hint_context = || self.hint_context(language);
-        let (mut response, caret) = ui
+        let paint_diagnostics = if *source == before_command {
+            current_diagnostics.as_slice()
+        } else {
+            &[]
+        };
+        let (mut response, caret, action) = ui
             .scope_builder(egui::UiBuilder::new().max_rect(code), |ui| {
                 code_editor(
                     ui,
@@ -367,12 +382,19 @@ impl Editor {
                     &hint_context,
                     show_hints,
                     &code_prefs,
+                    paint_diagnostics,
+                    &mut diagnostic_ui,
                 )
             })
             .inner;
+        // Popup actions execute now, under the checked fingerprint, never as a stale next-frame edit.
+        self.diagnostic_action(action, &current_diagnostics);
+        self.apply_code_command(ui.ctx(), editor_id, source);
         if *source != before_command {
+            diagnostic_ui.close();
             response.mark_changed();
         }
+        diagnostic_ui.store(ui.ctx(), editor_id);
         self.live_check(ui.ctx(), editor_id, &response, source, language);
         if let Some((success, text, diagnostics)) = &feedback {
             ui.scope_builder(egui::UiBuilder::new().max_rect(diag), |ui| {
@@ -1101,10 +1123,21 @@ fn code_editor(
     hints: &dyn Fn() -> Option<HintContext<'static>>,
     show_hints: bool,
     prefs: &CodeEditorPrefs,
-) -> (egui::Response, (usize, usize)) {
+    diagnostics: &[Diagnostic],
+    diagnostic_ui: &mut diagnostics_ui::DiagnosticUi,
+) -> (
+    egui::Response,
+    (usize, usize),
+    Option<diagnostics_ui::Action>,
+) {
     let ctx = ui.ctx().clone();
+    let checked_source = source.clone();
+    let mut diagnostic_action = None;
     let state_id = id.with("code-hint-state");
     let mut hint_state: HintState = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
+    if diagnostic_ui.is_open() {
+        hint_state = HintState::default();
+    }
     let focused = ctx.memory(|memory| memory.has_focus(id));
     let frame_typed_dot = ctx.input(|i| {
         i.events
@@ -1492,13 +1525,38 @@ fn code_editor(
                             None => hint_state = HintState::default(),
                         }
                     }
+                    if *source == checked_source {
+                        let text_clip = ui.clip_rect().intersect(egui::Rect::from_min_max(
+                            egui::pos2(gutter_rect.right(), rect.top()),
+                            rect.max,
+                        ));
+                        diagnostic_action =
+                            diagnostic_ui.paint(ui, id, source, diagnostics, &output, text_clip);
+                    } else {
+                        diagnostic_ui.close();
+                    }
                     output.response
                 })
                 .inner
         })
         .inner;
     ctx.data_mut(|d| d.insert_temp(state_id, hint_state));
-    (response, caret)
+    if diagnostic_ui.is_open() {
+        // egui handles Escape at begin_pass, before our popup can consume it. Retain text focus
+        // for this popup so Escape closes the explanation/menu without leaving the editor.
+        ctx.memory_mut(|memory| {
+            memory.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    escape: true,
+                },
+            );
+        });
+    }
+    (response, caret, diagnostic_action)
 }
 
 #[cfg(test)]
@@ -1697,11 +1755,11 @@ mod integration_tests {
                 let _ = render(&mut editor, &ctx, true);
                 assert_eq!(source(&editor, target), ambiguous);
                 assert!(
-                    editor
-                        .output
-                        .last()
-                        .unwrap()
-                        .contains("Multiple quick fixes")
+                    ctx.data(|d| d.get_temp::<diagnostics_ui::DiagnosticUi>(
+                        diagnostics_ui::state_id(editor.actions_editor_id())
+                    ))
+                    .unwrap()
+                    .is_open()
                 );
                 editor.undo();
                 assert_eq!(editor.project, original);

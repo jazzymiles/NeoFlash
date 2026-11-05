@@ -26,6 +26,22 @@ pub(crate) struct Debugger {
     last_messages: Vec<String>,
     export_directory: Option<PathBuf>,
     close_panel: bool,
+    pub(crate) startup_status: Option<DebuggerStartupStatus>,
+}
+
+/// Presentation only: these failures occur before any debug session exists.
+#[derive(Clone, Debug)]
+pub(crate) enum DebuggerStartupStatus {
+    NotAvailable(String),
+    Failed(String),
+}
+
+impl DebuggerStartupStatus {
+    fn reason(&self) -> &str {
+        match self {
+            Self::NotAvailable(reason) | Self::Failed(reason) => reason,
+        }
+    }
 }
 
 struct DebugSession {
@@ -157,11 +173,15 @@ impl Debugger {
     pub(crate) fn active(&self) -> bool {
         self.session.is_some()
     }
+    pub(crate) fn has_presentation(&self) -> bool {
+        self.active() || self.startup_status.is_some()
+    }
     pub(crate) fn stop(&mut self) {
         self.close_panel = true;
         self.session = None;
         self.last_status.clear();
         self.last_messages.clear();
+        self.startup_status = None;
         if let Some(directory) = self.export_directory.take() {
             let _ = std::fs::remove_dir_all(directory);
         }
@@ -195,7 +215,7 @@ impl Editor {
             Some(DebugState::Paused | DebugState::Connecting) => {}
             _ => self.start_debug_movie(ctx),
         }
-        if self.debugger.active() {
+        if self.debugger.has_presentation() {
             crate::panels::planned::set_open(
                 ctx,
                 crate::panels::planned::PlannedPanel::Debugger,
@@ -215,22 +235,27 @@ impl Editor {
             self.debugger.reset_document();
         }
         self.debugger.stop();
-        let result = (|| -> Result<(), String> {
-            let executable = browser_executable()?;
-            let output = private_directory().map_err(|e| e.to_string())?;
+        let result = (|| -> Result<(), DebuggerStartupStatus> {
+            let executable = browser_executable().map_err(DebuggerStartupStatus::NotAvailable)?;
+            let output =
+                private_directory().map_err(|e| DebuggerStartupStatus::Failed(e.to_string()))?;
             self.debugger.export_directory = Some(output.clone());
             let index =
                 neoflash_export::export_project(&self.project, &output, &Self::runtime_dir())
-                    .map_err(|e| e.to_string())?;
-            let (sources, scripts) = read_export_sources(&index)?;
+                    .map_err(|e| DebuggerStartupStatus::Failed(e.to_string()))?;
+            let (sources, scripts) =
+                read_export_sources(&index).map_err(DebuggerStartupStatus::Failed)?;
             self.debugger.scripts = scripts;
-            self.debugger.session = Some(DebugSession::launch(
-                executable,
-                &index,
-                sources,
-                self.debugger.breakpoints.clone(),
-                ctx.clone(),
-            )?);
+            self.debugger.session = Some(
+                DebugSession::launch(
+                    executable,
+                    &index,
+                    sources,
+                    self.debugger.breakpoints.clone(),
+                    ctx.clone(),
+                )
+                .map_err(DebuggerStartupStatus::Failed)?,
+            );
             self.debugger.project = Some(self.project.clone());
             self.debugger.close_panel = false;
             Ok(())
@@ -244,12 +269,18 @@ impl Editor {
                     true,
                 );
             }
-            Err(error) => {
-                self.debugger.stop();
-                self.message(format!("Cannot debug Test Movie: {error}"));
-            }
+            Err(status) => self.record_debug_startup_failure(ctx, status),
         }
         self.show_panel(crate::workspace::PanelId::Output);
+    }
+
+    fn record_debug_startup_failure(&mut self, ctx: &egui::Context, status: DebuggerStartupStatus) {
+        self.debugger.stop();
+        self.message(format!("Cannot debug Test Movie: {}", status.reason()));
+        self.debugger.startup_status = Some(status);
+        self.debugger.project = Some(self.project.clone());
+        self.debugger.close_panel = false;
+        crate::panels::planned::set_open(ctx, crate::panels::planned::PlannedPanel::Debugger, true);
     }
 
     pub(crate) fn debug_command(&mut self, command: DebugCommand) {
@@ -322,6 +353,29 @@ impl Editor {
             ) {
                 ctx.request_repaint_after(Duration::from_millis(80));
             }
+            // R-033 gives a paused session first claim on F8, even when its panel is hidden.
+            // Consume it while a command is pending too, so it cannot become Next problem or
+            // Convert to Symbol during the brief wait for the browser's acknowledgement.
+            if !self.has_modal_dialog_in(ctx)
+                && snapshot.state == DebugState::Paused
+                && ctx.input_mut(|input| {
+                    let mut consumed = false;
+                    input.events.retain(|event| {
+                        let plain_f8 = matches!(event, egui::Event::Key {
+                            key: egui::Key::F8,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } if modifiers.is_none());
+                        consumed |= plain_f8;
+                        !plain_f8
+                    });
+                    consumed
+                })
+                && !snapshot.command_pending
+            {
+                self.debug_command(DebugCommand::Resume);
+            }
             if !self.has_modal_dialog_in(ctx)
                 && crate::panels::planned::is_open(
                     ctx,
@@ -331,9 +385,7 @@ impl Editor {
             {
                 if snapshot.state == crate::debugger_protocol::DebugState::Paused {
                     let command = ctx.input_mut(|input| {
-                        if input.consume_key(egui::Modifiers::NONE, egui::Key::F8) {
-                            Some(DebugCommand::Resume)
-                        } else if input.consume_key(egui::Modifiers::NONE, egui::Key::F10) {
+                        if input.consume_key(egui::Modifiers::NONE, egui::Key::F10) {
                             Some(DebugCommand::StepOver)
                         } else if input.consume_key(egui::Modifiers::SHIFT, egui::Key::F11) {
                             Some(DebugCommand::StepOut)
@@ -539,6 +591,7 @@ mod tests {
                 (DebugState::Connecting, false),
                 (DebugState::Running, false),
                 (DebugState::Disconnected, false),
+                (DebugState::Failed, false),
                 (DebugState::Paused, true),
                 (DebugState::Paused, false),
             ] {
@@ -546,6 +599,11 @@ mod tests {
                     let mut snapshot = shared.lock().unwrap();
                     snapshot.state = state;
                     snapshot.command_pending = pending;
+                    snapshot.reason = if state == DebugState::Failed {
+                        "Fixture browser refused the connection.".into()
+                    } else {
+                        String::new()
+                    };
                 }
                 let output = render(&mut editor, &ctx, vec![]);
                 let nodes = &output
@@ -572,6 +630,10 @@ mod tests {
                         .any(|(_, node)| node.label() == Some("Restart")),
                     state == DebugState::Disconnected,
                 );
+                assert_eq!(
+                    nodes.iter().any(|(_, node)| node.label() == Some("Retry")),
+                    state == DebugState::Failed,
+                );
                 let texts: Vec<_> = output
                     .shapes
                     .iter()
@@ -580,23 +642,52 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                let status = texts
-                    .iter()
-                    .find(|text| text.galley.job.text == format!("{state:?}"))
-                    .unwrap();
                 let palette = neoflash_ui::palette(&ctx);
-                let expected = match state {
-                    DebugState::Connecting | DebugState::Disconnected => palette.text_secondary,
-                    DebugState::Running => palette.accent_default,
-                    _ => palette.warning_default,
-                };
-                assert!(
-                    status
-                        .galley
-                        .job
-                        .sections
+                if state == DebugState::Failed {
+                    assert!(!texts.iter().any(|text| text.galley.job.text == "Failed"));
+                    let error = texts
                         .iter()
-                        .all(|section| section.format.color == expected)
+                        .find(|text| {
+                            text.galley.job.text == "Fixture browser refused the connection."
+                        })
+                        .unwrap();
+                    assert!(
+                        error
+                            .galley
+                            .job
+                            .sections
+                            .iter()
+                            .all(|section| { section.format.color == palette.danger_default })
+                    );
+                } else {
+                    let status = texts
+                        .iter()
+                        .find(|text| text.galley.job.text == format!("{state:?}"))
+                        .unwrap();
+                    let expected = match state {
+                        DebugState::Connecting | DebugState::Disconnected => palette.text_secondary,
+                        DebugState::Running => palette.accent_default,
+                        _ => palette.warning_default,
+                    };
+                    assert!(
+                        status
+                            .galley
+                            .job
+                            .sections
+                            .iter()
+                            .all(|section| section.format.color == expected)
+                    );
+                }
+                assert!(texts.iter().any(|text| {
+                    text.galley
+                        .job
+                        .text
+                        .starts_with("Watch expressions are not available yet.")
+                }));
+                assert!(
+                    !texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "Expression")
                 );
                 assert_eq!(
                     texts
@@ -658,6 +749,152 @@ mod tests {
                 }],
             );
             assert!(matches!(receiver.try_recv(), Ok(DebugCommand::StepOver)));
+            // A hidden debugger still owns F8 before the global and Actions shortcut routes.
+            crate::panels::planned::set_open(
+                &ctx,
+                crate::panels::planned::PlannedPanel::Debugger,
+                false,
+            );
+            for pending in [false, true] {
+                shared.lock().unwrap().command_pending = pending;
+                let _ = ctx.run(
+                    egui::RawInput {
+                        events: vec![egui::Event::Key {
+                            key: egui::Key::F8,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::NONE,
+                        }],
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        editor.poll_debugger(ctx);
+                        assert!(!ctx.input_mut(|input| {
+                            input.consume_key(egui::Modifiers::NONE, egui::Key::F8)
+                        }));
+                    },
+                );
+                if pending {
+                    assert!(receiver.try_recv().is_err());
+                } else {
+                    assert!(matches!(receiver.try_recv(), Ok(DebugCommand::Resume)));
+                }
+            }
+            let _ = ctx.run(
+                egui::RawInput {
+                    events: vec![egui::Event::Key {
+                        key: egui::Key::F8,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::SHIFT,
+                    }],
+                    ..Default::default()
+                },
+                |ctx| {
+                    editor.poll_debugger(ctx);
+                    assert!(ctx.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::SHIFT, egui::Key::F8)
+                    }));
+                },
+            );
+            assert!(receiver.try_recv().is_err());
+            for startup in [
+                DebuggerStartupStatus::NotAvailable(
+                    "Install Chrome or Chromium to debug Test Movie.".into(),
+                ),
+                DebuggerStartupStatus::Failed("Fixture export could not be written.".into()),
+            ] {
+                let unavailable = matches!(startup, DebuggerStartupStatus::NotAvailable(_));
+                let reason = startup.reason().to_owned();
+                editor.record_debug_startup_failure(&ctx, startup);
+                assert!(!editor.debugger.active(), "startup status is not a session");
+                assert!(editor.debugger.snapshot().is_none());
+                assert!(editor.debugger.has_presentation());
+                let output = render(&mut editor, &ctx, vec![]);
+                let nodes = &output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes;
+                for label in [
+                    "Continue",
+                    "Step over",
+                    "Step in",
+                    "Step out",
+                    "Toggle breakpoint",
+                    "Remove all breakpoints",
+                ] {
+                    assert!(
+                        nodes
+                            .iter()
+                            .find(|(_, node)| node.label() == Some(label))
+                            .unwrap()
+                            .1
+                            .is_disabled(),
+                        "startup {label}"
+                    );
+                }
+                assert_eq!(
+                    nodes.iter().any(|(_, node)| node.label() == Some("Retry")),
+                    !unavailable
+                );
+                let texts: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) => Some(text),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(
+                    texts
+                        .iter()
+                        .any(|text| text.galley.job.text == "Not available"),
+                    unavailable
+                );
+                let reason_text = texts
+                    .iter()
+                    .find(|text| text.galley.job.text == reason)
+                    .unwrap();
+                let palette = neoflash_ui::palette(&ctx);
+                let color = if unavailable {
+                    palette.text_secondary
+                } else {
+                    palette.danger_default
+                };
+                assert!(
+                    reason_text
+                        .galley
+                        .job
+                        .sections
+                        .iter()
+                        .all(|section| section.format.color == color)
+                );
+                assert!(texts.iter().any(|text| {
+                    text.galley
+                        .job
+                        .text
+                        .starts_with("Watch expressions are not available yet.")
+                }));
+                editor.debugger.stop();
+                editor.poll_debugger(&ctx);
+                assert!(!editor.debugger.has_presentation());
+                assert!(!crate::panels::planned::is_open(
+                    &ctx,
+                    crate::panels::planned::PlannedPanel::Debugger
+                ));
+            }
+            editor.record_debug_startup_failure(
+                &ctx,
+                DebuggerStartupStatus::Failed("Document-scoped failure.".into()),
+            );
+            editor.project.name.push_str(" changed");
+            editor.poll_debugger(&ctx);
+            assert!(!editor.debugger.has_presentation());
+            editor.project = original.clone();
             assert_eq!(editor.project, original);
             assert!(!editor.history.can_undo());
         }

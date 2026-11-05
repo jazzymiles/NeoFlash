@@ -164,10 +164,18 @@ Both Actions and Compiler errors consume structured diagnostics. Source-file err
 attached to the selected file. Only diagnostics belonging to the open script create gutter markers. Warnings use
 the existing amber NF2 marker and count; codes remain visible in compiler messages.
 
-⌘. checks the current source fingerprint and applies a unique available fix on the caret line. The existing command
-path preserves Unicode positions, focus and one Undo for frame/object actions and project files. Unsupported or
-ambiguous fixes leave the text intact. Lints never offer deletion that can discard initializer side effects, or
-legacy operator replacement that changes coercion. Error peek and a multiple-fix selector await R-033.
+Diagnostics underline their exact source range, including Unicode, tabs and wrapped lines. Hover opens an Error
+or Warning peek with the code and explanation; long explanations remain available on hover. F8 moves to the next
+problem and opens its peek while Actions has keyboard focus; ⇧F8 moves backwards, with wraparound. A paused debug
+session has priority for plain F8 (Continue); otherwise F8 outside Actions retains Convert to Symbol.
+
+⌘. checks the current source fingerprint and applies a unique safe fix on the caret line. With several fixes it
+opens a menu at the caret: ↑↓ select, ↩ applies, Esc closes; mouse selection works too. The peek action offers fixes
+for that diagnostic. Each fix preserves Unicode positions, focus and one Undo for frame/object actions and project
+files. Source/context changes invalidate the menu before an edit can run. Invalid and no-op edits are not offered.
+Show in Compiler errors opens the existing panel, retaining current semantic warnings and their source location;
+informational hints remain in Actions. Lints never offer deletion that can discard initializer side effects, or
+legacy operator replacement that changes coercion.
 
 ### 5.5 Live check
 
@@ -195,7 +203,7 @@ Step over (F10), Step in (F11), Step out (⇧F11), Stop, the call stack, read-on
 Toggle breakpoint uses the current Actions caret line (⌘B while Debugger is open); Remove all clears the session's
 breakpoints. Use Debug options again to pause a running session. Test Movie (⌘↵) restarts an active debug session
 with its breakpoints. Editing or switching documents retires the session and clears stale source bindings.
-The toolbar distinguishes Connecting (spinner), Running, Paused and Disconnected; Disconnected offers Restart. Continue/step controls are inactive outside a ready pause, and call-stack/variable hints replace stale data without a paused frame. Error/Watch inline messages, diagnostic peek/range painting and the keyboard quick-fix chooser still need the remaining R-033 components. Debug state and breakpoints are not saved in the document.
+The toolbar distinguishes Connecting (spinner), Running, Paused and Disconnected; Disconnected offers Restart. Continue/step controls are inactive outside a ready pause, and call-stack/variable hints replace stale data without a paused frame. Startup unavailability shows its reason; failures show an inline error and Retry. Watch displays an explicit unavailable message until expression evaluation exists. Debug state and breakpoints are not saved in the document.
 
 The debugger verifies the generated Function body before applying source locations and installs authored
 breakpoints before initial execution. A breakpoint that Chrome can place only on a different authored line remains
@@ -218,8 +226,9 @@ to its statement start.
   built HTML5 runtime and installed Chromium; `NEOFLASH_TEST_BROWSER_HEADED=1` selects a normal window instead
   of the default headless browser.
 
-- `sources::integration_tests` — real Actions warning display, ⌘. for frame/object/project sources, one Undo,
-  document validation and cross-file diagnostic navigation.
+- `sources::integration_tests` and `sources::diagnostics_ui::tests` — real Actions warnings, range geometry,
+  keyboard/mouse fix selection across frame/object/project sources, one Undo, navigation and stale-state rejection.
+- `panels::compiler_errors::tests` — current semantic warning handoff, source navigation and context invalidation.
 - Compiler `language_service` tests — scoped declarations, multiline project members, receiver hints and source refs.
 - `typescript_toolchain` — structured diagnostic ranges and safe fixes; source maps and tooling boundaries.
 - `source_mapping` plus exporter and `web/tests/runtime.test.cjs` families — repeated calls, nested functions,
@@ -246,7 +255,8 @@ Allowed (behaviour, no visual change): regenerate the asset; extend `scan_class`
 toolbar command by giving it a `CodeCommand` in `CODE_TOOLS` once its behaviour exists.
 
 Not allowed (design-owned): the sidebar width/padding, row components, icons, labels, popover look, toolbar order,
-adding Error peek / overview ruler / folding UI. Missing UI goes to `docs/NF2-REQUESTS.md`.
+adding unapproved overview ruler / folding UI. R-033 approves the connected diagnostic range, peek, fix menu and
+debugger states; their shared components remain design-owned. Missing UI goes to `docs/NF2-REQUESTS.md`.
 
 ## 8. Known limits
 

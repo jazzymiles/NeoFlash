@@ -28,7 +28,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 ## Open requests
 
 ### R-033 · Actions diagnostic peek, fix selection and debugger connection states
-- **Status:** answered
+- **Status:** resolved
 - **Requested by / for:** implementation track · AC-03/AC-08 (Actions tooling)
 - **Where:** `sources.rs::script_workspace`, Actions Debug options, Debugger panel
 - **Need:** NF2 components/states for error peek and source-range underline; selection among several quick fixes;
@@ -41,10 +41,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `neoflash-ui/src/components/code.rs`; `docs/NF2-ACTIONS-EDITOR.md`.
 - **Proposal (optional):** reuse the approved Menu Item presentation for fix choices; specify missing peek/range
   and debugger states. Existing live debugger bindings retain the current NF2 composition.
-- **Integration dependencies:** the current shared code exports no Error peek or wavy-range painter, inline
-  message line, or keyboard-selected Menu Item state. Supply these through T-028; clarify F8 precedence with
-  existing debugger Continue (F8) and Convert to Symbol (F8). Connecting/Running/Paused/Disconnected, inactive
-  step controls, Restart and no-frame hints use available components; these do not resolve the whole request.
+- **Integration:** shared range painter, ErrorPeek, keyboard-highlighted MenuItem and InlineMessage are available.
+  Actions connects ranges, hover/F8 peek and safe fix selection; Debugger connects startup and session states and
+  the unavailable Watch message. Expression evaluation and deeper/editable inspection remain separate engine work.
+  F8 follows the approved addendum below.
 - **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — Codex batch” (Dark `124:18100`, Light `132:19052`), column R-033.
   Range: 2 pt wavy underline under the exact range, syntax/error or syntax/warning; gutter/overview marks unchanged.
   Hover or F8 opens the existing Error peek (warning variant uses warning tokens and icon). ⌘. with one safe fix

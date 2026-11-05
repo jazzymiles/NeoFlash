@@ -1,5 +1,6 @@
 //! Existing NF2 Debugger composition bound to a live Test Movie session.
 use crate::app::Editor;
+use crate::debugger::DebuggerStartupStatus;
 use crate::debugger_protocol::{DebugCommand, DebugState};
 use crate::theme::DesignUi as _;
 use eframe::egui::{self, Ui};
@@ -34,19 +35,29 @@ fn column<R>(ui: &mut Ui, width: f32, content: impl FnOnce(&mut Ui) -> R) {
 
 impl Editor {
     pub(crate) fn debugger_contents(&mut self, ui: &mut Ui) -> bool {
-        let Some(snapshot) = self.debugger.snapshot() else {
+        let snapshot = self.debugger.snapshot();
+        let startup = self.debugger.startup_status.clone();
+        if snapshot.is_none() && startup.is_none() {
             return true;
-        };
+        }
         let mut close = false;
         let nf = neoflash_ui::palette(ui.ctx());
-        let paused = snapshot.state == DebugState::Paused && !snapshot.command_pending;
-        let has_paused_frame = snapshot.state == DebugState::Paused
-            && snapshot
-                .selected_frame
-                .is_some_and(|index| index < snapshot.frames.len());
+        let paused = snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.state == DebugState::Paused && !snapshot.command_pending
+        });
+        let has_paused_frame = snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.state == DebugState::Paused
+                && snapshot
+                    .selected_frame
+                    .is_some_and(|index| index < snapshot.frames.len())
+        });
         let actionscript = snapshot
-            .selected_frame
-            .and_then(|index| snapshot.frames.get(index))
+            .as_ref()
+            .and_then(|snapshot| {
+                snapshot
+                    .selected_frame
+                    .and_then(|index| snapshot.frames.get(index))
+            })
             .and_then(|frame| frame.location.as_ref())
             .is_some_and(|location| self.debug_source_is_actionscript(&location.source));
         ui.horizontal(|ui| {
@@ -85,16 +96,55 @@ impl Editor {
                 close = true;
             }
             if ui
-                .add(c::IconButton::new(i16::BREAKPOINT, "Toggle breakpoint").shortcut("⌘B"))
+                .add_enabled_semantic(
+                    snapshot.is_some(),
+                    c::IconButton::new(i16::BREAKPOINT, "Toggle breakpoint").shortcut("⌘B"),
+                )
                 .clicked()
             {
                 self.toggle_debug_breakpoint(ui.ctx());
             }
-            if ui.add(c::Button::ghost("Remove all breakpoints")).clicked() {
+            if ui
+                .add_enabled_semantic(
+                    snapshot.is_some(),
+                    c::Button::ghost("Remove all breakpoints"),
+                )
+                .clicked()
+            {
                 self.debugger.breakpoints.clear();
                 self.debug_command(DebugCommand::SetBreakpoints(Vec::new()));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(startup) = &startup {
+                    match startup {
+                        DebuggerStartupStatus::NotAvailable(reason) => {
+                            ui.add(c::Badge::new("Not available", c::BadgeType::Neutral));
+                            ui.add(c::InlineMessage::info(reason));
+                        }
+                        DebuggerStartupStatus::Failed(reason) => {
+                            if ui.add(c::Button::new("Retry")).clicked() {
+                                self.start_debug_movie(ui.ctx());
+                            }
+                            ui.add(c::InlineMessage::error(reason));
+                        }
+                    }
+                    return;
+                }
+                let Some(snapshot) = &snapshot else {
+                    return;
+                };
+                if snapshot.state == DebugState::Failed {
+                    if ui.add(c::Button::new("Retry")).clicked() {
+                        self.start_debug_movie(ui.ctx());
+                    }
+                    let reason = if snapshot.reason.is_empty() {
+                        "Test Movie debugger failed."
+                    } else {
+                        &snapshot.reason
+                    };
+                    ui.add(c::InlineMessage::error(reason));
+                    return;
+                }
                 if snapshot.state == DebugState::Disconnected
                     && ui.add(c::Button::new("Restart")).clicked()
                 {
@@ -118,8 +168,8 @@ impl Editor {
                 let badge = match snapshot.state {
                     DebugState::Connecting | DebugState::Disconnected => c::BadgeType::Neutral,
                     DebugState::Running => c::BadgeType::Accent,
-                    // The approved Error line still needs the design-owned inline-message API.
-                    DebugState::Paused | DebugState::Failed => c::BadgeType::Warning,
+                    DebugState::Paused => c::BadgeType::Warning,
+                    DebugState::Failed => unreachable!("failed sessions use an inline error"),
                 };
                 ui.add(c::Badge::new(&status, badge));
                 if snapshot.state == DebugState::Connecting {
@@ -142,8 +192,8 @@ impl Editor {
                     );
                 }
                 for (index, frame) in snapshot
-                    .frames
                     .iter()
+                    .flat_map(|snapshot| &snapshot.frames)
                     .enumerate()
                     .filter(|_| has_paused_frame)
                 {
@@ -162,7 +212,7 @@ impl Editor {
                                 frame.function_name, frame.generated_url, frame.generated_line
                             )
                         });
-                    let selected = snapshot.selected_frame == Some(index);
+                    let selected = snapshot.as_ref().is_some_and(|snapshot| snapshot.selected_frame == Some(index));
                     let icon = if selected {
                         i16::EXEC_ARROW
                     } else {
@@ -196,7 +246,7 @@ impl Editor {
                     kind: c::TableRowKind::Header,
                     columns: cols,
                 });
-                for local in &snapshot.locals {
+                for local in snapshot.iter().flat_map(|snapshot| &snapshot.locals) {
                     // The AS compiler reserves this prefix for its own bindings.
                     // Keep JS/TS names intact, including authored __nf identifiers.
                     if actionscript && local.name.starts_with("__nf") {
@@ -211,15 +261,12 @@ impl Editor {
             });
             column(ui, (total - 620.0).max(240.0), |ui| {
                 column_title(ui, "Watch");
-                let cols = &[0.0, 0.5];
-                ui.add(c::TableRow {
-                    cells: &["Expression", "Value"],
-                    kind: c::TableRowKind::Header,
-                    columns: cols,
-                });
+                ui.add(c::InlineMessage::info(
+                    "Watch expressions are not available yet. Inspect read-only values in Variables while paused.",
+                ));
                 column_title(ui, "Breakpoints");
                 ui.spacing_mut().item_spacing.y = space::S1;
-                for breakpoint in &snapshot.breakpoints {
+                for breakpoint in snapshot.iter().flat_map(|snapshot| &snapshot.breakpoints) {
                     let label = format!(
                         "{} · line {}",
                         breakpoint.requested.source, breakpoint.requested.line

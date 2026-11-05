@@ -78,6 +78,8 @@ Adapted algorithms keep their pinned sources and licences in the `*-PROVENANCE.m
 
 The standalone handler API remains `neoflash_script::compile(&Script) -> Result<String, Vec<Diagnostic>>`. Publication first calls `compile_project(&Project)`, then `compile_with_program(&Script, &ProjectProgram)` for handlers. Diagnostics retain source language, one-based Unicode start/end positions, byte span, severity, optional code,
 source path and safe quick fixes. Actions and Compiler errors preserve file attribution and warning severity.
+Actions underlines diagnostic ranges, opens explanations on hover or F8 navigation, and offers safe fixes by mouse
+or keyboard with one Undo. Stale source/context changes dismiss pending choices. Expression watches remain unavailable.
 ActionScript syntax recovery collects independent top-level statement errors; it never publishes recovered code.
 The shared language service combines compiler-token declarations with advisory ActionScript AST type flow for
 assignments, scopes, compatible branch joins and known function/class signatures. Hints and selected AS3 nominal

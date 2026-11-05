@@ -216,7 +216,7 @@ impl Editor {
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
-        if self.debugger.active() {
+        if self.debugger.has_presentation() {
             show_planned_panels_with(ctx, Some(&mut |ui| self.debugger_contents(ui)));
         } else {
             show_planned_panels(ctx);

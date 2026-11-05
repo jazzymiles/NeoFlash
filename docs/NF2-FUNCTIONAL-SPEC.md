@@ -598,7 +598,7 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 ## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
 
 Status: AC-02, AC-05 and AC-06 work and AC-01 re-indents only (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md));
-AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
+AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 is partial.
 
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
@@ -609,7 +609,7 @@ AC-03, AC-04 and AC-07 stay disabled; AC-08 is partial.
 | AC-05 | Block comment / line comment / uncomment | Toggle `/* */` or `//` over the selection/line; one Undo. | Editor only (language comment syntax is identical for AS/JS/TS). | Round-trip comment → uncomment restores the exact text. |
 | AC-06 | Toolbox sidebar + Script navigator | Left sidebar: toolbox search + tree (Top level, Language elements, packages); navigator (current selection, scenes, symbol definitions with scripts). Double-click inserts. | Catalogue data (as AC-02); navigator from `Timeline.scripts`, `Element.scripts`, `Project.sources`. | Navigator jumps to every script in the document. |
 | AC-07 | Script assist | Form-based editing of simple calls (Flash Script Assist). | Large; parameter metadata per API. | P3; disabled until specified. |
-| AC-08 | Gutter markers, inline error peek + Quick fix ⌘., overview ruler, code hint popover | Structured errors/warnings, codes, source ranges, correct-file navigation and unique safe ⌘. fixes work. Breakpoint/fold markers, error peek, multiple-fix selector and overview ruler remain pending (R-033). | `neoflash_script::Diagnostic` preserves severity, code, byte/Unicode range, path and safe fix suggestions; Actions and Compiler errors consume it. | Warning shows amber triangle; peek shows code + message under the line. |
+| AC-08 | Gutter markers, inline error peek + Quick fix ⌘., overview ruler, code hint popover | Structured errors/warnings, exact range underlines, hover/F8 peek, correct-file navigation and safe ⌘. fixes work. Multiple fixes use the approved mouse/keyboard menu and one Undo. F8 continues a paused debug session, otherwise navigates problems in focused Actions; ⇧F8 navigates backwards. Breakpoint/fold markers and overview ruler remain pending. | `neoflash_script::Diagnostic` preserves severity, code, byte/Unicode range, path and safe fix suggestions; Actions and Compiler errors consume it. | Warning shows amber triangle; peek shows code + message under the line. |
 
 ## 8. Output and Compiler errors (`panels/actions.rs` › `output_panel`)
 

@@ -35,6 +35,7 @@ pub(crate) struct CompilerErrorsState {
 fn project_diagnostics_fingerprint(project: &Project) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     project.name.hash(&mut hash);
+    project.root.hash(&mut hash);
     project.document_class.hash(&mut hash);
     project.scenes.hash(&mut hash);
     for unit in &project.sources {
@@ -48,10 +49,14 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
         resource.id.hash(&mut hash);
         resource.path.hash(&mut hash);
         resource.media_type.hash(&mut hash);
+        if resource.path.ends_with(".as") {
+            resource.data_base64.hash(&mut hash);
+        }
     }
     for symbol in &project.symbols {
         symbol.id.hash(&mut hash);
         symbol.name.hash(&mut hash);
+        std::mem::discriminant(&symbol.kind).hash(&mut hash);
         symbol.class_name.hash(&mut hash);
         symbol.linkage_id.hash(&mut hash);
         for fs in &symbol.timeline.scripts {
@@ -67,9 +72,11 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
                 for el in &key.elements {
                     el.id.hash(&mut hash);
                     el.name.hash(&mut hash);
+                    std::mem::discriminant(&el.kind).hash(&mut hash);
                     match &el.kind {
                         ElementKind::Text { font_family, .. } => font_family.hash(&mut hash),
                         ElementKind::TextBox { format, .. } => format.font.hash(&mut hash),
+                        ElementKind::Instance { symbol_id, .. } => symbol_id.hash(&mut hash),
                         _ => {}
                     }
                     for os in &el.scripts {
@@ -260,6 +267,98 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
 }
 
 impl Editor {
+    /// Bring current Actions diagnostics into the existing panel, including advisory semantic
+    /// warnings that the project compiler does not emit. The caller supplies only diagnostics
+    /// from the open script's current checked fingerprint; ordinary refresh retires added rows.
+    pub(crate) fn show_actions_compiler_diagnostics(
+        &mut self,
+        diagnostics: &[neoflash_script::Diagnostic],
+    ) {
+        use neoflash_script::DiagnosticSeverity;
+        self.refresh_compiler_diagnostics();
+        if let Some(location) = self.current_script_location() {
+            let label = match &location {
+                ScriptLocation::Source(id) => self
+                    .project
+                    .sources
+                    .iter()
+                    .find(|unit| &unit.id == id)
+                    .map_or_else(|| "Project source".into(), |unit| unit.path.clone()),
+                ScriptLocation::Frame { symbol, frame } => format!(
+                    "{} · frame {}",
+                    self.project
+                        .symbol(symbol)
+                        .map_or("Timeline", |symbol| symbol.name.as_str()),
+                    frame + 1,
+                ),
+                ScriptLocation::Object {
+                    symbol,
+                    frame,
+                    element,
+                    event,
+                } => {
+                    let symbol = self.project.symbol(symbol);
+                    let name = symbol
+                        .and_then(|symbol| {
+                            symbol
+                                .timeline
+                                .layers
+                                .iter()
+                                .filter_map(|layer| layer.key_at(*frame))
+                                .flat_map(|key| &key.elements)
+                                .find(|candidate| &candidate.id == element)
+                        })
+                        .map_or("object", |element| {
+                            if element.name.is_empty() {
+                                "object"
+                            } else {
+                                &element.name
+                            }
+                        });
+                    format!(
+                        "{} · frame {} · {event:?} ({name})",
+                        symbol.map_or("Timeline", |symbol| symbol.name.as_str()),
+                        frame + 1
+                    )
+                }
+            };
+            for diagnostic in diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity != DiagnosticSeverity::Info)
+            {
+                let message = diagnostic_message(diagnostic);
+                let is_error = diagnostic.severity == DiagnosticSeverity::Error;
+                if self.compiler_errors.items.iter().any(|item| {
+                    item.script.as_ref() == Some(&location)
+                        && item.line == diagnostic.line
+                        && item.column == diagnostic.column
+                        && item.message == message
+                        && item.is_error == is_error
+                }) {
+                    continue;
+                }
+                self.compiler_errors.items.push(CompilerDiagnosticItem {
+                    is_error,
+                    message,
+                    location_label: format!("{label} · Line {}", diagnostic.line),
+                    script: Some(location.clone()),
+                    line: diagnostic.line,
+                    column: diagnostic.column,
+                });
+            }
+        }
+        if !diagnostics.is_empty()
+            && diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity == DiagnosticSeverity::Info)
+        {
+            self.message(
+                "Informational hints remain in Actions; Compiler errors shows errors and warnings.",
+            );
+        }
+        self.show_panel(crate::workspace::PanelId::CompilerErrors);
+    }
+
     pub(crate) fn refresh_compiler_diagnostics(&mut self) {
         let fp = project_diagnostics_fingerprint(&self.project);
         if self.compiler_errors.fingerprint != Some(fp) {
@@ -409,5 +508,107 @@ impl Editor {
             let ctx = ui.ctx().clone();
             self.jump_to_compiler_diagnostic(&ctx, idx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::script_api::{HintContext, ThisKind};
+    use neoflash_core::{FrameScript, ResourceUnit, Script, ScriptLanguage};
+
+    #[test]
+    fn actions_semantic_handoff_navigates_once_and_retires_with_context_changes() {
+        let ctx = egui::Context::default();
+        let source = "function consume(point:Point):void { trace(point.x); }\nvar wrong:Rectangle = new Rectangle(0,0,10,10);\nconsume(wrong);";
+        let mut project = Project::blank();
+        project.format_version = 8;
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: source.into(),
+            },
+        });
+        project.resources.push(
+            ResourceUnit::from_bytes("include", "support.as", "text/plain", b"var a = 1;").unwrap(),
+        );
+        project.validate().unwrap();
+        let context =
+            HintContext::new(&project, ScriptLanguage::ActionScript3, ThisKind::MovieClip).unwrap();
+        let analysis = context.semantic_analysis(source);
+        let diagnostic = analysis
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code.as_deref() == Some("flow-argument-type"))
+            .unwrap()
+            .clone();
+        let mut editor = Editor::from_project(&ctx, project);
+        let original = editor.project.clone();
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            !editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.message.contains("flow-argument-type"))
+        );
+        editor.show_actions_compiler_diagnostics(std::slice::from_ref(&diagnostic));
+        editor.show_actions_compiler_diagnostics(std::slice::from_ref(&diagnostic));
+        let matching: Vec<_> = editor
+            .compiler_errors
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.message.contains("flow-argument-type"))
+            .collect();
+        assert_eq!(matching.len(), 1);
+        let (index, item) = matching[0];
+        assert!(!item.is_error);
+        assert_eq!(
+            (item.line, item.column),
+            (diagnostic.line, diagnostic.column)
+        );
+        assert!(editor.jump_to_compiler_diagnostic(&ctx, index));
+        let caret = egui::text_edit::TextEditState::load(&ctx, editor.actions_editor_id())
+            .unwrap()
+            .cursor
+            .char_range()
+            .unwrap()
+            .primary
+            .index;
+        assert_eq!(
+            c::code::line_col(source, caret),
+            (diagnostic.line, diagnostic.column)
+        );
+        assert_eq!(editor.project, original);
+        assert!(!editor.history.can_undo());
+
+        // An include can change without altering its path, kind or encoded length.
+        editor.project.resources[0] =
+            ResourceUnit::from_bytes("include", "support.as", "text/plain", b"var a = 2;").unwrap();
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            !editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.message.contains("flow-argument-type"))
+        );
+
+        let count = editor.compiler_errors.items.len();
+        let mut info = diagnostic.clone();
+        info.language = ScriptLanguage::TypeScript;
+        info.message = "Add an explicit type annotation.".into();
+        info.severity = neoflash_script::DiagnosticSeverity::Info;
+        editor.show_actions_compiler_diagnostics(&[info]);
+        assert_eq!(editor.compiler_errors.items.len(), count);
+        assert!(
+            editor
+                .output
+                .last()
+                .unwrap()
+                .contains("Informational hints remain in Actions")
+        );
     }
 }
