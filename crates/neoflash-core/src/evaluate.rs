@@ -65,6 +65,7 @@ pub(crate) struct Node {
     pub visible: bool,
     pub effective_visible: bool,
     pub blend_mode: BlendMode,
+    pub element_blend_mode: BlendMode,
     pub cache_as_bitmap: bool,
     pub filters: Vec<FilterSpec>,
     pub kind: Option<ElementKind>,
@@ -75,6 +76,7 @@ pub(crate) struct Evaluation {
     pub items: Vec<DrawItem>,
     pub nodes: Vec<Node>,
     pub masks: Vec<crate::authored_layers::LayerMaskPlan>,
+    pub blend_groups: Vec<crate::authored_layers::AuthoredBlendGroupPlan>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1230,6 +1232,7 @@ pub(crate) fn snapshot_mode(
         visible,
         effective_visible: visible,
         blend_mode: BlendMode::Normal,
+        element_blend_mode: BlendMode::Normal,
         cache_as_bitmap: false,
         filters: vec![],
         kind: None,
@@ -1291,6 +1294,14 @@ impl Walker<'_> {
                 frame,
                 parent,
             ));
+        self.result
+            .blend_groups
+            .extend(crate::authored_layers::layer_blend_plans(
+                &symbol.timeline,
+                frame,
+                parent,
+                self.include_guides,
+            ));
         // Layer zero is the backmost layer; list order is painter order everywhere.
         for layer in &symbol.timeline.layers {
             if !layer_effectively_visible(&symbol.timeline, layer)
@@ -1350,6 +1361,7 @@ impl Walker<'_> {
                 } else {
                     e.blend_mode
                 };
+                let element_blend_mode = e.blend_mode;
                 let mut node = Node {
                     path: path.clone(),
                     name: e.name.clone(),
@@ -1364,6 +1376,7 @@ impl Walker<'_> {
                     visible,
                     effective_visible,
                     blend_mode,
+                    element_blend_mode,
                     cache_as_bitmap: e.cache_as_bitmap,
                     filters: e.filters.clone(),
                     kind: None,
@@ -1373,6 +1386,14 @@ impl Walker<'_> {
                     playback,
                 } = &e.kind
                 {
+                    if !element_blend_mode.is_normal() {
+                        self.result
+                            .blend_groups
+                            .push(crate::authored_layers::instance_blend_plan(
+                                &path,
+                                element_blend_mode,
+                            ));
+                    }
                     let Some(child) = self.project.symbol(symbol_id) else {
                         continue;
                     };

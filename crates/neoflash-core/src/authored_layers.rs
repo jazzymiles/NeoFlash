@@ -12,17 +12,27 @@ pub(crate) struct LayerMaskPlan {
     pub target_groups: Vec<(String, Vec<Vec<Id>>)>,
 }
 #[derive(Clone, Debug)]
+pub(crate) struct AuthoredBlendGroupPlan {
+    pub id: String,
+    pub depth: usize,
+    pub tier: usize,
+    pub roots: Vec<Vec<Id>>,
+    pub blend_mode: BlendMode,
+}
+#[derive(Clone, Debug)]
 pub struct AuthoredDraw {
     pub item: DrawItem,
     pub clip_ids: Vec<String>,
     pub outline_color: Option<Color>,
     pub mask_group: Option<String>,
+    pub blend_mode: BlendMode,
 }
 #[derive(Clone, Debug)]
 pub struct AuthoredMaskGroup {
     pub id: String,
     pub parent_id: Option<String>,
     pub clip_ids: Vec<String>,
+    pub blend_mode: BlendMode,
 }
 #[derive(Clone, Debug, Default)]
 pub struct AuthoredScene {
@@ -143,6 +153,14 @@ pub fn layer_effectively_synced(timeline: &Timeline, layer: &Layer) -> bool {
     false
 }
 impl AuthoredScene {
+    pub fn has_blend_modes(&self) -> bool {
+        self.draws.iter().any(|draw| !draw.blend_mode.is_normal())
+            || self
+                .mask_groups
+                .iter()
+                .any(|group| !group.blend_mode.is_normal())
+    }
+
     pub fn contains_point(&self, path: &[Id], point: [f64; 2]) -> bool {
         let Some(draw) = self
             .draws
@@ -268,6 +286,136 @@ pub(crate) fn layer_mask_plans(
         .collect()
 }
 
+pub(crate) fn instance_blend_plan(path: &[Id], blend_mode: BlendMode) -> AuthoredBlendGroupPlan {
+    AuthoredBlendGroupPlan {
+        id: format!(
+            "blend-instance:{}",
+            serde_json::to_string(path).unwrap_or_default()
+        ),
+        depth: path.len(),
+        tier: 200,
+        roots: vec![path.to_vec()],
+        blend_mode,
+    }
+}
+
+pub(crate) fn layer_blend_plans(
+    timeline: &Timeline,
+    frame: u32,
+    parent: &[Id],
+    include_guides: bool,
+) -> Vec<AuthoredBlendGroupPlan> {
+    let is_descendant = |layer: &Layer, folder_id: &str| -> bool {
+        let mut current = layer.properties.parent.as_deref();
+        for _ in 0..=timeline.layers.len() {
+            let Some(id) = current else {
+                return false;
+            };
+            if id == folder_id {
+                return true;
+            }
+            current = timeline
+                .layers
+                .iter()
+                .find(|l| l.id == id)
+                .and_then(|l| l.properties.parent.as_deref());
+        }
+        false
+    };
+    let folder_depth = |layer: &Layer| -> usize {
+        let mut depth = 0usize;
+        let mut current = layer.properties.parent.as_deref();
+        for _ in 0..=timeline.layers.len() {
+            let Some(id) = current else {
+                break;
+            };
+            depth += 1;
+            current = timeline
+                .layers
+                .iter()
+                .find(|l| l.id == id)
+                .and_then(|l| l.properties.parent.as_deref());
+        }
+        depth
+    };
+    let mut plans = Vec::new();
+    for folder in &timeline.layers {
+        if folder.properties.role != LayerRole::Folder
+            || folder.properties.blend_mode != BlendMode::Layer
+            || !layer_effectively_visible(timeline, folder)
+        {
+            continue;
+        }
+        let mut roots = Vec::new();
+        for child in &timeline.layers {
+            if !layer_effectively_visible(timeline, child)
+                || child.properties.role == LayerRole::Folder
+                || child.properties.role == LayerRole::Mask
+                || (!include_guides && child.properties.role == LayerRole::Guide)
+                || !is_descendant(child, &folder.id)
+            {
+                continue;
+            }
+            for e in sample_layer_in(timeline, child, frame) {
+                let mut path = parent.to_vec();
+                path.push(e.id);
+                roots.push(path);
+            }
+        }
+        if !roots.is_empty() {
+            let mut identity = parent.to_vec();
+            identity.push(folder.id.clone());
+            plans.push(AuthoredBlendGroupPlan {
+                id: format!(
+                    "blend-folder:{}",
+                    serde_json::to_string(&identity).unwrap_or_default()
+                ),
+                depth: parent.len() + 1,
+                tier: folder_depth(folder),
+                roots,
+                blend_mode: BlendMode::Layer,
+            });
+        }
+    }
+    for layer in &timeline.layers {
+        if !layer_effectively_visible(timeline, layer)
+            || layer.properties.role == LayerRole::Folder
+            || layer.properties.role == LayerRole::Mask
+            || (!include_guides && layer.properties.role == LayerRole::Guide)
+        {
+            continue;
+        }
+        let layer_blend = layer_effective_blend_mode(timeline, layer);
+        if layer_blend.is_normal() {
+            continue;
+        }
+        let roots: Vec<Vec<Id>> = sample_layer_in(timeline, layer, frame)
+            .into_iter()
+            .filter(|e| layer_blend == BlendMode::Layer || e.blend_mode.is_normal())
+            .map(|e| {
+                let mut path = parent.to_vec();
+                path.push(e.id);
+                path
+            })
+            .collect();
+        if !roots.is_empty() {
+            let mut identity = parent.to_vec();
+            identity.push(layer.id.clone());
+            plans.push(AuthoredBlendGroupPlan {
+                id: format!(
+                    "blend-layer:{}",
+                    serde_json::to_string(&identity).unwrap_or_default()
+                ),
+                depth: parent.len() + 1,
+                tier: 100,
+                roots,
+                blend_mode: layer_blend,
+            });
+        }
+    }
+    plans
+}
+
 pub fn evaluate_scene(
     project: &Project,
     symbol: &str,
@@ -330,6 +478,11 @@ pub(crate) fn scene_from_evaluation(
             }
         }
     }
+    let element_blends: HashMap<Vec<Id>, BlendMode> = evaluation
+        .nodes
+        .iter()
+        .map(|node| (node.path.clone(), node.element_blend_mode))
+        .collect();
     let mut scene = AuthoredScene {
         draws: evaluation
             .items
@@ -339,172 +492,216 @@ pub(crate) fn scene_from_evaluation(
                     .instance_path
                     .iter()
                     .find_map(|id| outlines.get(id.as_str()).copied());
+                let blend_mode = element_blends
+                    .get(&item.instance_path)
+                    .copied()
+                    .unwrap_or(BlendMode::Normal);
                 AuthoredDraw {
                     item,
                     clip_ids: vec![],
                     outline_color,
                     mask_group: None,
+                    blend_mode,
                 }
             })
             .collect(),
         clips: vec![],
         mask_groups: vec![],
     };
-    if !show_masking {
-        return scene;
-    }
-    // Attach all relationships first: a mask inside a source symbol must clip
-    // that source's painted content before it becomes the outer mask.
-    for plan in &evaluation.masks {
-        for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
-            for draw in &mut scene.draws {
-                if roots.iter().any(|p| draw.item.instance_path.starts_with(p)) {
-                    draw.clip_ids
-                        .push(target_clip_id(&plan.id, plan.target_groups.len(), index));
+    if show_masking {
+        // Attach all relationships first: a mask inside a source symbol must clip
+        // that source's painted content before it becomes the outer mask.
+        for plan in &evaluation.masks {
+            for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
+                for draw in &mut scene.draws {
+                    if roots.iter().any(|p| draw.item.instance_path.starts_with(p)) {
+                        draw.clip_ids.push(target_clip_id(
+                            &plan.id,
+                            plan.target_groups.len(),
+                            index,
+                        ));
+                    }
                 }
             }
         }
+        let source_owner = |path: &[Id]| {
+            evaluation
+                .masks
+                .iter()
+                .enumerate()
+                .flat_map(|(index, plan)| {
+                    plan.sources
+                        .iter()
+                        .filter(move |p| path.starts_with(p))
+                        .map(move |p| (p.len(), index))
+                })
+                .max()
+                .map(|(_, index)| index)
+        };
+        for (index, plan) in evaluation.masks.iter().enumerate() {
+            // An ancestor target's mask is deferred until that target is composed.
+            // It must not also attenuate a mask source inside the target subtree.
+            let inherited: HashSet<_> = evaluation
+                .masks
+                .iter()
+                .flat_map(|other| {
+                    other
+                        .target_groups
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, (_, roots))| {
+                            plan.sources
+                                .iter()
+                                .any(|source| roots.iter().any(|target| source.starts_with(target)))
+                        })
+                        .map(|(index, _)| {
+                            target_clip_id(&other.id, other.target_groups.len(), index)
+                        })
+                })
+                .collect();
+            let source_clips = |ids: &[String]| {
+                ids.iter()
+                    .filter(|id| !inherited.contains(*id))
+                    .cloned()
+                    .collect()
+            };
+            let sources: Vec<_> = scene
+                .draws
+                .iter()
+                .filter(|draw| source_owner(&draw.item.instance_path) == Some(index))
+                .collect();
+            let luminance = plan.mode == MaskMode::Luminance;
+            let alpha_components = plan.mode.uses_paint_coverage().then(|| {
+                sources
+                    .iter()
+                    .filter_map(|draw| {
+                        alpha_component(
+                            &draw.item.kind,
+                            draw.item.transform,
+                            draw.item.color_transform,
+                            source_clips(&draw.clip_ids),
+                            luminance,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let components = if let Some(alpha) = &alpha_components {
+                alpha.iter().map(alpha_geometry).collect()
+            } else {
+                sources
+                    .iter()
+                    .filter_map(|draw| {
+                        crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
+                            |(commands, fill_rule)| ClipComponent {
+                                commands,
+                                fill_rule,
+                                matrix: draw.item.transform,
+                                clip_ids: source_clips(&draw.clip_ids),
+                            },
+                        )
+                    })
+                    .collect()
+            };
+            scene.clips.push(RuntimeClip {
+                id: plan.id.clone(),
+                components,
+                alpha_components,
+                invert: plan.invert,
+            });
+        }
+        scene
+            .draws
+            .retain(|draw| source_owner(&draw.item.instance_path).is_none());
+        for plan in &evaluation.masks {
+            alias_target_clips(&mut scene.clips, &plan.id, plan.target_groups.len());
+        }
+        crate::mask_composition::factor_alpha_clip_groups(&mut scene.clips);
     }
-    let source_owner = |path: &[Id]| {
+
+    struct GroupEntry {
+        id: String,
+        depth: usize,
+        tier: usize,
+        roots: Vec<Vec<Id>>,
+        clip_ids: Vec<String>,
+        blend_mode: BlendMode,
+    }
+    let mut groups: Vec<GroupEntry> = if show_masking {
         evaluation
             .masks
             .iter()
-            .enumerate()
-            .flat_map(|(index, plan)| {
-                plan.sources
-                    .iter()
-                    .filter(move |p| path.starts_with(p))
-                    .map(move |p| (p.len(), index))
-            })
-            .max()
-            .map(|(_, index)| index)
-    };
-    for (index, plan) in evaluation.masks.iter().enumerate() {
-        // An ancestor target's mask is deferred until that target is composed.
-        // It must not also attenuate a mask source inside the target subtree.
-        let inherited: HashSet<_> = evaluation
-            .masks
-            .iter()
-            .flat_map(|other| {
-                other
-                    .target_groups
+            .filter(|plan| clip_uses_alpha(&scene.clips, &plan.id, 0))
+            .flat_map(|plan| {
+                plan.target_groups
                     .iter()
                     .enumerate()
-                    .filter(|(_, (_, roots))| {
-                        plan.sources
-                            .iter()
-                            .any(|source| roots.iter().any(|target| source.starts_with(target)))
+                    .map(move |(index, (id, roots))| GroupEntry {
+                        id: id.clone(),
+                        depth: roots.first().map_or(0, Vec::len),
+                        tier: 150,
+                        roots: roots.clone(),
+                        clip_ids: vec![target_clip_id(&plan.id, plan.target_groups.len(), index)],
+                        blend_mode: BlendMode::Normal,
                     })
-                    .map(|(index, _)| target_clip_id(&other.id, other.target_groups.len(), index))
             })
-            .collect();
-        let source_clips = |ids: &[String]| {
-            ids.iter()
-                .filter(|id| !inherited.contains(*id))
-                .cloned()
-                .collect()
-        };
-        let sources: Vec<_> = scene
-            .draws
-            .iter()
-            .filter(|draw| source_owner(&draw.item.instance_path) == Some(index))
-            .collect();
-        let luminance = plan.mode == MaskMode::Luminance;
-        let alpha_components = plan.mode.uses_paint_coverage().then(|| {
-            sources
-                .iter()
-                .filter_map(|draw| {
-                    alpha_component(
-                        &draw.item.kind,
-                        draw.item.transform,
-                        draw.item.color_transform,
-                        source_clips(&draw.clip_ids),
-                        luminance,
-                    )
-                })
-                .collect::<Vec<_>>()
-        });
-        let components = if let Some(alpha) = &alpha_components {
-            alpha.iter().map(alpha_geometry).collect()
-        } else {
-            sources
-                .iter()
-                .filter_map(|draw| {
-                    crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
-                        |(commands, fill_rule)| ClipComponent {
-                            commands,
-                            fill_rule,
-                            matrix: draw.item.transform,
-                            clip_ids: source_clips(&draw.clip_ids),
-                        },
-                    )
-                })
-                .collect()
-        };
-        scene.clips.push(RuntimeClip {
+            .collect()
+    } else {
+        Vec::new()
+    };
+    for plan in &evaluation.blend_groups {
+        if plan.tier == 100
+            && let Some(existing) = groups
+                .iter_mut()
+                .find(|g| g.tier == 150 && g.roots == plan.roots && g.blend_mode.is_normal())
+        {
+            existing.blend_mode = plan.blend_mode;
+            continue;
+        }
+        groups.push(GroupEntry {
             id: plan.id.clone(),
-            components,
-            alpha_components,
-            invert: plan.invert,
+            depth: plan.depth,
+            tier: plan.tier,
+            roots: plan.roots.clone(),
+            clip_ids: vec![],
+            blend_mode: plan.blend_mode,
         });
     }
-    scene
-        .draws
-        .retain(|draw| source_owner(&draw.item.instance_path).is_none());
-    for plan in &evaluation.masks {
-        alias_target_clips(&mut scene.clips, &plan.id, plan.target_groups.len());
-    }
-    crate::mask_composition::factor_alpha_clip_groups(&mut scene.clips);
-    let groups: Vec<_> = evaluation
-        .masks
-        .iter()
-        .filter(|plan| clip_uses_alpha(&scene.clips, &plan.id, 0))
-        .flat_map(|plan| {
-            plan.target_groups
-                .iter()
-                .enumerate()
-                .map(move |(index, (id, roots))| {
-                    (
-                        id,
-                        roots,
-                        target_clip_id(&plan.id, plan.target_groups.len(), index),
-                    )
-                })
-        })
-        .collect();
     let matching_groups = |path: &[Id]| {
         let mut matches: Vec<_> = groups
             .iter()
             .enumerate()
-            .filter_map(|(index, (_, roots, _))| {
-                roots
+            .filter_map(|(index, entry)| {
+                entry
+                    .roots
                     .iter()
                     .filter(|root| path.starts_with(root))
                     .map(Vec::len)
                     .max()
-                    .map(|depth| (depth, index))
+                    .map(|depth| ((depth, entry.tier, index), index))
             })
             .collect();
         matches.sort_unstable();
         matches
     };
-    for (index, (id, roots, clip)) in groups.iter().enumerate() {
-        let parent = roots.first().and_then(|root| {
+    for (index, entry) in groups.iter().enumerate() {
+        let my_key = (entry.depth, entry.tier, index);
+        let parent = entry.roots.first().and_then(|root| {
             matching_groups(root)
                 .into_iter()
-                .rfind(|(_, found)| *found != index)
-                .map(|(_, found)| groups[found].0.clone())
+                .rfind(|(key, _)| *key < my_key)
+                .map(|(_, found)| groups[found].id.clone())
         });
         scene.mask_groups.push(AuthoredMaskGroup {
-            id: (*id).clone(),
+            id: entry.id.clone(),
             parent_id: parent,
-            clip_ids: vec![clip.clone()],
+            clip_ids: entry.clip_ids.clone(),
+            blend_mode: entry.blend_mode,
         });
     }
     for draw in &mut scene.draws {
         draw.mask_group = matching_groups(&draw.item.instance_path)
             .last()
-            .map(|(_, index)| groups[*index].0.clone());
+            .map(|(_, index)| groups[*index].id.clone());
     }
 
     scene

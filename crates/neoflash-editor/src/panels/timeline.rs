@@ -266,7 +266,13 @@ impl Editor {
                                     {
                                         tl::ModeCell::Empty
                                     } else {
-                                        tl::ModeCell::Mode(layer.properties.blend_mode.label())
+                                        tl::ModeCell::Mode(
+                                            neoflash_core::layer_effective_blend_mode(
+                                                &self.symbol().timeline,
+                                                layer,
+                                            )
+                                            .label(),
+                                        )
                                     };
                                     let row_selected = self.is_layer_row_selected(idx);
                                     let row = LayerRow {

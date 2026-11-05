@@ -394,11 +394,13 @@ impl Editor {
     }
 
     pub(crate) fn layer_blend_mode(&self, layer_index: usize) -> BlendMode {
-        self.symbol()
-            .timeline
+        let timeline = &self.symbol().timeline;
+        timeline
             .layers
             .get(layer_index)
-            .map_or(BlendMode::Normal, |l| l.properties.blend_mode)
+            .map_or(BlendMode::Normal, |l| {
+                neoflash_core::layer_effective_blend_mode(timeline, l)
+            })
     }
 
     pub(crate) fn set_layer_blend_mode(
@@ -415,7 +417,12 @@ impl Editor {
         let targets = self.target_layer_indices(layer_index);
         let any_changed = targets.iter().any(|&i| {
             self.symbol().timeline.layers.get(i).is_some_and(|l| {
-                l.properties.role != LayerRole::Guide && l.properties.blend_mode != blend_mode
+                l.properties.role != LayerRole::Guide
+                    && (l.properties.blend_mode != blend_mode
+                        || l.keyframes
+                            .iter()
+                            .flat_map(|kf| &kf.elements)
+                            .any(|el| !el.blend_mode.is_normal()))
             })
         });
         if !any_changed {
@@ -429,6 +436,11 @@ impl Editor {
                     && layer.properties.role != LayerRole::Guide
                 {
                     layer.properties.blend_mode = blend_mode;
+                    for kf in &mut layer.keyframes {
+                        for el in &mut kf.elements {
+                            el.blend_mode = BlendMode::Normal;
+                        }
+                    }
                 }
             }
             if !blend_mode.is_normal() {

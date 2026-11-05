@@ -1486,6 +1486,29 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
     });
     editor.history = History::new(150);
     let before_solo = editor.project.clone();
+
+    // If an object on a layer had an element-level blend mode override, setting the layer's
+    // blend mode from the Timeline clears the element override so the layer mode takes effect.
+    editor.select_single_id("bg-rect".into());
+    assert!(editor.set_selected_blend_mode(BlendMode::Difference));
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0].elements[0].blend_mode,
+        BlendMode::Difference
+    );
+    assert!(editor.set_layer_blend_mode(1, BlendMode::Overlay));
+    assert_eq!(editor.layer_blend_mode(1), BlendMode::Overlay);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0].elements[0].blend_mode,
+        BlendMode::Normal
+    );
+    assert!(editor.current_authored_scene(true).has_blend_modes());
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    editor.clear_selection();
+    editor.history = History::new(150);
+    assert_eq!(editor.project, before_solo);
+
     assert!(!editor.has_any_solo_layers());
     assert_eq!(editor.current_authored_scene(true).draws.len(), 2);
 

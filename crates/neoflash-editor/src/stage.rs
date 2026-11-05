@@ -1058,6 +1058,7 @@ impl Editor {
             .clips
             .iter()
             .any(|clip| clip.alpha_components.is_some() || clip.invert)
+            || (!style.outlines && style.tint.is_none() && scene.has_blend_modes())
         {
             if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
                 self.message(error);

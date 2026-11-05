@@ -6,7 +6,7 @@ use eframe::egui::{
     self, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureId, TextureOptions,
 };
 use egui::epaint::{ClippedPrimitive, Mesh, Primitive};
-use neoflash_core::{AuthoredScene, MaskCoverage};
+use neoflash_core::{AuthoredScene, BlendMode, MaskCoverage};
 use std::{
     collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
@@ -24,6 +24,8 @@ struct Cached {
     bytes: usize,
     // Retaining resource identities prevents pointer reuse after Replace/Undo.
     _sources: Vec<Arc<str>>,
+    #[cfg(test)]
+    image: ColorImage,
 }
 #[derive(Clone, Default)]
 struct Cache(Vec<Cached>);
@@ -31,6 +33,7 @@ struct Captured {
     primitives: Vec<ClippedPrimitive>,
     clip_ids: Vec<String>,
     group: Option<String>,
+    blend_mode: BlendMode,
     bounds: Rect,
 }
 #[derive(Clone)]
@@ -66,6 +69,81 @@ impl Surface {
                 if dx >= 0 && dy >= 0 && dx < self.width as i32 && dy < self.height as i32 {
                     let target = &mut self.pixels[dy as usize * self.width + dx as usize];
                     *target = over(source.pixels[y * source.width + x], *target);
+                }
+            }
+        }
+    }
+    fn composite_blended(
+        &mut self,
+        source: &Self,
+        mode: BlendMode,
+        backdrop: Option<(Color32, [i32; 4])>,
+    ) {
+        match mode {
+            BlendMode::Normal | BlendMode::Layer => self.composite(source),
+            BlendMode::Alpha => {
+                for dy in 0..self.height {
+                    for dx in 0..self.width {
+                        let sx = self.left + dx as i32 - source.left;
+                        let sy = self.top + dy as i32 - source.top;
+                        let sa = if sx >= 0
+                            && sy >= 0
+                            && sx < source.width as i32
+                            && sy < source.height as i32
+                        {
+                            u32::from(source.pixels[sy as usize * source.width + sx as usize].a())
+                        } else {
+                            0
+                        };
+                        let target = &mut self.pixels[dy * self.width + dx];
+                        let t = target.to_array();
+                        let c = std::array::from_fn::<_, 4, _>(|i| {
+                            ((u32::from(t[i]) * sa + 127) / 255) as u8
+                        });
+                        *target = Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3]);
+                    }
+                }
+            }
+            BlendMode::Erase => {
+                for y in 0..source.height {
+                    for x in 0..source.width {
+                        let sa = u32::from(source.pixels[y * source.width + x].a());
+                        if sa == 0 {
+                            continue;
+                        }
+                        let dx = source.left + x as i32 - self.left;
+                        let dy = source.top + y as i32 - self.top;
+                        if dx >= 0 && dy >= 0 && dx < self.width as i32 && dy < self.height as i32 {
+                            let inv = 255 - sa;
+                            let target = &mut self.pixels[dy as usize * self.width + dx as usize];
+                            let t = target.to_array();
+                            let c = std::array::from_fn::<_, 4, _>(|i| {
+                                ((u32::from(t[i]) * inv + 127) / 255) as u8
+                            });
+                            *target = Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3]);
+                        }
+                    }
+                }
+            }
+            _ => {
+                for y in 0..source.height {
+                    for x in 0..source.width {
+                        let sp = source.pixels[y * source.width + x];
+                        if sp.a() == 0 {
+                            continue;
+                        }
+                        let gx = source.left + x as i32;
+                        let gy = source.top + y as i32;
+                        let dx = gx - self.left;
+                        let dy = gy - self.top;
+                        if dx >= 0 && dy >= 0 && dx < self.width as i32 && dy < self.height as i32 {
+                            let bg = backdrop.and_then(|(color, [x0, y0, x1, y1])| {
+                                (gx >= x0 && gy >= y0 && gx < x1 && gy < y1).then_some(color)
+                            });
+                            let target = &mut self.pixels[dy as usize * self.width + dx as usize];
+                            *target = blend_color32(sp, *target, mode, bg);
+                        }
+                    }
                 }
             }
         }
@@ -142,10 +220,16 @@ pub(super) fn paint(
             })
             .fold(Rect::NOTHING, Rect::union)
             .intersect(painter.clip_rect());
+        let outlines_active = style.outlines || draw.outline_color.is_some();
         draws.push(Captured {
             primitives,
             clip_ids: draw.clip_ids.clone(),
             group: draw.mask_group.clone(),
+            blend_mode: if outlines_active {
+                BlendMode::Normal
+            } else {
+                draw.blend_mode
+            },
             bounds,
         });
     }
@@ -172,7 +256,10 @@ pub(super) fn paint(
         group.id.hash(&mut hash);
         group.parent_id.hash(&mut hash);
         group.clip_ids.hash(&mut hash);
+        group.blend_mode.as_str().hash(&mut hash);
     }
+    editor.project.background.hash(&mut hash);
+    [editor.project.width, editor.project.height].hash(&mut hash);
     [scale, style.origin.x, style.origin.y, style.zoom]
         .map(f32::to_bits)
         .hash(&mut hash);
@@ -180,6 +267,7 @@ pub(super) fn paint(
     for draw in &draws {
         draw.clip_ids.hash(&mut hash);
         draw.group.hash(&mut hash);
+        draw.blend_mode.as_str().hash(&mut hash);
         for primitive in &draw.primitives {
             if let Primitive::Mesh(mesh) = &primitive.primitive {
                 mesh.texture_id.hash(&mut hash);
@@ -242,6 +330,18 @@ pub(super) fn paint(
         return Ok(());
     }
     let coverage = MaskCoverage::new(&editor.project, &scene.clips)?;
+    let bg = editor.project.background;
+    let stage_bg = Color32::from_rgba_unmultiplied(bg[0], bg[1], bg[2], bg[3]);
+    let page = Rect::from_min_size(
+        style.origin,
+        egui::vec2(editor.project.width as f32, editor.project.height as f32) * style.zoom,
+    );
+    let page_px = [
+        (page.left() * scale).floor() as i32,
+        (page.top() * scale).floor() as i32,
+        (page.right() * scale).ceil() as i32,
+        (page.bottom() * scale).ceil() as i32,
+    ];
     let mut renderer = Renderer {
         scene,
         draws: &draws,
@@ -250,6 +350,8 @@ pub(super) fn paint(
         origin: style.origin,
         zoom: style.zoom,
         scale,
+        stage_bg,
+        page_px,
         work: 0,
         active: HashSet::new(),
     };
@@ -263,6 +365,8 @@ pub(super) fn paint(
     );
     let bytes = surface.pixels.len() * 4;
     let image = ColorImage::new([surface.width, surface.height], surface.pixels);
+    #[cfg(test)]
+    let test_image = image.clone();
     let handle = painter
         .ctx()
         .load_texture("authored-alpha-mask", image, TextureOptions::LINEAR);
@@ -286,6 +390,8 @@ pub(super) fn paint(
             rect,
             bytes,
             _sources: sources,
+            #[cfg(test)]
+            image: test_image,
         });
     });
     Ok(())
@@ -298,6 +404,8 @@ struct Renderer<'a> {
     origin: Pos2,
     zoom: f32,
     scale: f32,
+    stage_bg: Color32,
+    page_px: [i32; 4],
     work: usize,
     active: HashSet<String>,
 }
@@ -376,7 +484,8 @@ impl Renderer<'_> {
                     }
                 }
                 part.mask(self.coverage, &extra, self.origin, self.zoom, self.scale)?;
-                surface.composite(&part);
+                let backdrop = id.is_none().then_some((self.stage_bg, self.page_px));
+                surface.composite_blended(&part, draw.blend_mode, backdrop);
             } else {
                 let mut child = draw
                     .group
@@ -400,7 +509,14 @@ impl Renderer<'_> {
                 if emitted.insert(child.clone())
                     && let Some(part) = self.group(Some(&child), &deferred)?
                 {
-                    surface.composite(&part);
+                    let child_mode = self
+                        .scene
+                        .mask_groups
+                        .iter()
+                        .find(|g| g.id == child)
+                        .map_or(BlendMode::Normal, |g| g.blend_mode);
+                    let backdrop = id.is_none().then_some((self.stage_bg, self.page_px));
+                    surface.composite_blended(&part, child_mode, backdrop);
                 }
             }
         }
@@ -419,6 +535,67 @@ fn over(source: Color32, target: Color32) -> Color32 {
         (u32::from(s[i]) + (u32::from(t[i]) * inv + 127) / 255).min(255) as u8
     });
     Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3])
+}
+fn blend_color32(
+    source: Color32,
+    target: Color32,
+    mode: BlendMode,
+    stage_bg: Option<Color32>,
+) -> Color32 {
+    let sa = source.a();
+    if sa == 0 {
+        return target;
+    }
+    let s = source.to_array();
+    let t = target.to_array();
+    let sa_f = f64::from(sa) / 255.0;
+    let ta_f = f64::from(target.a()) / 255.0;
+    let cs: [f64; 3] = std::array::from_fn(|i| (f64::from(s[i]) / 255.0 / sa_f).clamp(0.0, 1.0));
+    let cb: [f64; 3] = if let Some(bg) = stage_bg {
+        let eff = over(target, bg).to_array();
+        std::array::from_fn(|i| f64::from(eff[i]) / 255.0)
+    } else if ta_f > 0.0 {
+        std::array::from_fn(|i| (f64::from(t[i]) / 255.0 / ta_f).clamp(0.0, 1.0))
+    } else {
+        [0.0; 3]
+    };
+    let out_a = sa_f + ta_f * (1.0 - sa_f);
+    let out_a_u8 = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+    let mut rgb = [0u8; 3];
+    for c in 0..3 {
+        let mixed = match mode {
+            BlendMode::Darken => cb[c].min(cs[c]),
+            BlendMode::Multiply => cb[c] * cs[c],
+            BlendMode::Lighten => cb[c].max(cs[c]),
+            BlendMode::Screen => cb[c] + cs[c] - cb[c] * cs[c],
+            BlendMode::Add => (cb[c] + cs[c]).min(1.0),
+            BlendMode::Subtract => (cb[c] - cs[c]).max(0.0),
+            BlendMode::Difference => (cb[c] - cs[c]).abs(),
+            BlendMode::Invert => 1.0 - cb[c],
+            BlendMode::Overlay => {
+                if cb[c] <= 0.5 {
+                    2.0 * cb[c] * cs[c]
+                } else {
+                    1.0 - 2.0 * (1.0 - cb[c]) * (1.0 - cs[c])
+                }
+            }
+            BlendMode::Hardlight => {
+                if cs[c] <= 0.5 {
+                    2.0 * cb[c] * cs[c]
+                } else {
+                    1.0 - 2.0 * (1.0 - cb[c]) * (1.0 - cs[c])
+                }
+            }
+            BlendMode::Normal | BlendMode::Layer | BlendMode::Alpha | BlendMode::Erase => cs[c],
+        };
+        let premul = if stage_bg.is_some() {
+            sa_f * mixed + (1.0 - sa_f) * (f64::from(t[c]) / 255.0)
+        } else {
+            sa_f * (1.0 - ta_f) * cs[c] + ta_f * (1.0 - sa_f) * cb[c] + sa_f * ta_f * mixed
+        };
+        rgb[c] = (premul * 255.0).round().clamp(0.0, f64::from(out_a_u8)) as u8;
+    }
+    Color32::from_rgba_premultiplied(rgb[0], rgb[1], rgb[2], out_a_u8)
 }
 fn raster_mesh(
     surface: &mut Surface,
@@ -745,6 +922,138 @@ mod tests {
             nested.pixels[5 * 30 + 15].to_array(),
             [0, 0, 64, 64],
             "nested target alpha applies each group once, without leaking outer coverage into the inner source"
+        );
+    }
+
+    #[test]
+    fn layer_and_instance_blend_modes_composite_all_modes_and_invalidate_cache() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 9;
+        project.background = [255, 255, 255, 255];
+
+        // Layer 0 (bottom): blue-gray rectangle [50, 100, 200, 255] covering x = 0..20, y = 0..10.
+        let base_layer = &mut project.symbols[0].timeline.layers[0];
+        base_layer.id = "base".into();
+        base_layer.keyframes[0].elements = vec![rect("base-rect", 0., [50, 100, 200, 255])];
+
+        // Layer 1 (top): warm orange rectangle [200, 120, 40, 255] covering x = 10..30, y = 0..10
+        // (x = 10..20 overlaps Layer 0; x = 20..30 sits directly over the white Stage background).
+        let mut top_layer = base_layer.clone();
+        top_layer.id = "top".into();
+        top_layer.name = "Top".into();
+        top_layer.properties.blend_mode = BlendMode::Overlay;
+        top_layer.keyframes[0].elements = vec![rect("top-rect", 10., [200, 120, 40, 255])];
+        project.symbols[0].timeline.layers.push(top_layer);
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        let sample_px = |editor: &mut Editor, mode: BlendMode| -> ([u8; 4], [u8; 4], [u8; 4]) {
+            editor.set_layer_blend_mode(1, mode);
+            let scene = evaluate_scene(&editor.project, &editor.project.root, 0, false, true);
+            assert!(scene.has_blend_modes());
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(100., 100.))),
+                    ..Default::default()
+                },
+                |ctx| {
+                    let painter = ctx
+                        .layer_painter(egui::LayerId::background())
+                        .with_clip_rect(Rect::from_min_size(Pos2::ZERO, egui::vec2(100., 100.)));
+                    editor.paint_scene_at(&painter, &scene, Pos2::ZERO, 1.);
+                },
+            );
+            let image = ctx.data(|data| {
+                data.get_temp::<Cache>(egui::Id::new("neoflash-alpha-mask-rasters"))
+                    .unwrap()
+                    .0
+                    .last()
+                    .unwrap()
+                    .image
+                    .clone()
+            });
+            (
+                image.pixels[5 * 30 + 5].to_array(),
+                image.pixels[5 * 30 + 15].to_array(),
+                image.pixels[5 * 30 + 25].to_array(),
+            )
+        };
+
+        let (base_only, mul_overlap, mul_over_bg) = sample_px(&mut editor, BlendMode::Multiply);
+        assert_eq!(base_only, [50, 100, 200, 255]);
+        assert_eq!(mul_overlap, [39, 47, 31, 255]);
+        assert_eq!(mul_over_bg, [200, 120, 40, 255]);
+
+        let (_, overlay_overlap, _) = sample_px(&mut editor, BlendMode::Overlay);
+        assert_eq!(overlay_overlap, [78, 94, 162, 255]);
+
+        let (_, screen_overlap, screen_over_bg) = sample_px(&mut editor, BlendMode::Screen);
+        assert_eq!(screen_overlap, [211, 173, 209, 255]);
+        assert_eq!(screen_over_bg, [255, 255, 255, 255]);
+
+        let (_, diff_overlap, diff_over_bg) = sample_px(&mut editor, BlendMode::Difference);
+        assert_eq!(diff_overlap, [150, 20, 160, 255]);
+        assert_eq!(diff_over_bg, [55, 135, 215, 255]);
+
+        let (_, add_overlap, _) = sample_px(&mut editor, BlendMode::Add);
+        assert_eq!(add_overlap, [250, 220, 240, 255]);
+
+        let (_, sub_overlap, sub_over_bg) = sample_px(&mut editor, BlendMode::Subtract);
+        assert_eq!(sub_overlap, [0, 0, 160, 255]);
+        assert_eq!(sub_over_bg, [55, 135, 215, 255]);
+
+        let (_, inv_overlap, inv_over_bg) = sample_px(&mut editor, BlendMode::Invert);
+        assert_eq!(inv_overlap, [205, 155, 55, 255]);
+        assert_eq!(inv_over_bg, [0, 0, 0, 255]);
+
+        let (_, darken_overlap, _) = sample_px(&mut editor, BlendMode::Darken);
+        assert_eq!(darken_overlap, [50, 100, 40, 255]);
+
+        let (_, lighten_overlap, _) = sample_px(&mut editor, BlendMode::Lighten);
+        assert_eq!(lighten_overlap, [200, 120, 200, 255]);
+
+        let (_, hardlight_overlap, _) = sample_px(&mut editor, BlendMode::Hardlight);
+        assert_eq!(hardlight_overlap, [167, 94, 63, 255]);
+
+        let (erase_left, erase_overlap, _) = sample_px(&mut editor, BlendMode::Erase);
+        assert_eq!(erase_left, [50, 100, 200, 255]);
+        assert_eq!(erase_overlap, [0, 0, 0, 0]);
+
+        let (alpha_left, alpha_overlap, _) = sample_px(&mut editor, BlendMode::Alpha);
+        assert_eq!(alpha_left, [0, 0, 0, 0]);
+        assert_eq!(alpha_overlap, [50, 100, 200, 255]);
+
+        // 2. Symbol instance (Graphic / MovieClip) placed on an Overlay layer inherits the layer's blend mode.
+        let mut graphic_sym = editor.project.symbols[0].clone();
+        graphic_sym.id = "orange-graphic".into();
+        graphic_sym.name = "OrangeGraphic".into();
+        graphic_sym.kind = SymbolKind::Graphic;
+        graphic_sym.timeline.layers = vec![Layer {
+            id: "g-layer".into(),
+            name: "G".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![rect("g-rect", 0., [200, 120, 40, 255])],
+                ..Default::default()
+            }],
+            properties: Default::default(),
+        }];
+        editor.project.symbols.push(graphic_sym);
+        editor.project.symbols[0].timeline.layers[1].keyframes[0].elements = vec![Element {
+            kind: ElementKind::Instance {
+                symbol_id: "orange-graphic".into(),
+                playback: InstancePlayback::Loop,
+            },
+            ..rect("inst-on-overlay", 10., [0; 4])
+        }];
+        let (_, inst_overlay_overlap, _) = sample_px(&mut editor, BlendMode::Overlay);
+        assert_eq!(
+            inst_overlay_overlap,
+            [78, 94, 162, 255],
+            "Graphic symbol instance on an Overlay layer must composite with Overlay"
         );
     }
 }

@@ -453,9 +453,14 @@ impl Editor {
 
         let mut visible = sampled.as_ref().is_none_or(|e| e.visible);
         let mut cache_as_bitmap = sampled.as_ref().is_some_and(|e| e.cache_as_bitmap);
-        let blend_mode = sampled
-            .as_ref()
-            .map_or_else(|| self.layer_blend_mode(self.layer), |e| e.blend_mode);
+        let layer_blend = self.layer_blend_mode(self.layer);
+        let blend_mode = sampled.as_ref().map_or(layer_blend, |e| {
+            if e.blend_mode.is_normal() {
+                layer_blend
+            } else {
+                e.blend_mode
+            }
+        });
         let layer_blend_editable = self.selection.is_empty()
             && self
                 .symbol()
