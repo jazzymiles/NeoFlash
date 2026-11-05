@@ -123,20 +123,62 @@ impl Editor {
         let Some((position, down)) = pointer else {
             return;
         };
+        let alt = ctx.input(|input| input.modifiers.alt);
         let hit = area.contains(position) && stage_window_is_front(ctx, position);
         if hit {
-            ui.painter_at(area).rect_stroke(
-                area.shrink(3.),
-                2.,
-                egui::Stroke::new(2.0_f32, ui.visuals().selection.stroke.color),
-                egui::StrokeKind::Inside,
-            );
-            ctx.set_cursor_icon(egui::CursorIcon::Copy);
+            match &self.library_panel.drag {
+                Some(crate::library::LibraryDrag::Symbol(sym_id)) => {
+                    let sym_id = sym_id.clone();
+                    let new_name = self
+                        .project
+                        .symbol(&sym_id)
+                        .map(|s| s.name.clone())
+                        .unwrap_or_else(|| sym_id.clone());
+                    let swap_target = alt
+                        .then(|| self.stage_swap_target_info(ui, area, origin, &sym_id))
+                        .flatten();
+                    if let Some((_, target_rect)) = &swap_target
+                        && target_rect.is_finite()
+                        && target_rect.is_positive()
+                    {
+                        neoflash_ui::components::canvas::paint_selection_box(
+                            &ui.painter_at(area),
+                            ctx,
+                            *target_rect,
+                            neoflash_ui::components::canvas::SelectionKind::Symbol,
+                        );
+                    }
+                    let label = if let Some((old_name, _)) = swap_target {
+                        format!("Replace “{old_name}” with “{new_name}”")
+                    } else {
+                        format!("Place “{new_name}”")
+                    };
+                    let ghost_painter = ctx.layer_painter(egui::LayerId::new(
+                        egui::Order::Tooltip,
+                        egui::Id::new("library-symbol-stage-drag-ghost"),
+                    ));
+                    neoflash_ui::components::drag_ghost_at(
+                        &ghost_painter,
+                        ctx,
+                        position + egui::vec2(12., 12.),
+                        &label,
+                    );
+                }
+                Some(crate::library::LibraryDrag::Resource(_)) => {
+                    ui.painter_at(area).rect_stroke(
+                        area.shrink(3.),
+                        2.,
+                        egui::Stroke::new(2.0_f32, ui.visuals().selection.stroke.color),
+                        egui::StrokeKind::Inside,
+                    );
+                    ctx.set_cursor_icon(egui::CursorIcon::Copy);
+                }
+                None => {}
+            }
         }
         if down {
             return;
         }
-        let alt = ctx.input(|input| input.modifiers.alt);
         if !hit {
             if !(alt
                 && matches!(
@@ -168,6 +210,76 @@ impl Editor {
         if let Err(error) = result {
             self.message(format!("Cannot place on Stage: {error}"));
         }
+    }
+
+    fn stage_swap_target_info(
+        &self,
+        ui: &egui::Ui,
+        area: Rect,
+        origin: Pos2,
+        new_symbol_id: &str,
+    ) -> Option<(String, Rect)> {
+        let mut target_el_id: Option<Id> = None;
+        let mut old_sym_id: Option<Id> = None;
+        if self.can_swap_instance_symbol(new_symbol_id) {
+            for (target, el) in self.sampled_targets() {
+                if !self.target_editable(&target) {
+                    continue;
+                }
+                if let ElementKind::Instance { symbol_id, .. } = &el.kind {
+                    target_el_id = Some(el.id);
+                    old_sym_id = Some(symbol_id.clone());
+                    break;
+                }
+            }
+        }
+        if old_sym_id.is_none() && self.can_swap_layer_symbol(self.layer, new_symbol_id) {
+            let timeline = &self.symbol().timeline;
+            if let Some(layer) = timeline.layers.get(self.layer) {
+                for el in sample_layer_in(timeline, layer, self.frame) {
+                    if let ElementKind::Instance { symbol_id, .. } = &el.kind {
+                        target_el_id = Some(el.id);
+                        old_sym_id = Some(symbol_id.clone());
+                        break;
+                    }
+                }
+                if old_sym_id.is_none() {
+                    old_sym_id = layer
+                        .keyframes
+                        .iter()
+                        .flat_map(|k| &k.elements)
+                        .find_map(|el| match &el.kind {
+                            ElementKind::Instance { symbol_id, .. } => Some(symbol_id.clone()),
+                            _ => None,
+                        });
+                }
+            }
+        }
+        let old_sym_id = old_sym_id?;
+        let old_name = self
+            .project
+            .symbol(&old_sym_id)
+            .map(|s| s.name.clone())
+            .unwrap_or(old_sym_id);
+        let mut screen_rect = Rect::NOTHING;
+        if let Some(el_id) = target_el_id {
+            let painter = ui.painter_at(area);
+            let scene = self.presented_authored_scene(self.show_layer_masking(ui.ctx()));
+            let stage_bounds = scene
+                .draws
+                .iter()
+                .filter(|d| d.item.instance_path.first() == Some(&el_id))
+                .fold(Rect::NOTHING, |acc, d| {
+                    acc.union(crate::stage::world_bounds(&d.item, &painter))
+                });
+            if stage_bounds.is_finite() && stage_bounds.is_positive() {
+                screen_rect = Rect::from_min_max(
+                    origin + stage_bounds.min.to_vec2() * self.zoom,
+                    origin + stage_bounds.max.to_vec2() * self.zoom,
+                );
+            }
+        }
+        Some((old_name, screen_rect))
     }
 
     pub(crate) fn import_graphics_paths(

@@ -109,8 +109,9 @@ impl Editor {
         frames.retain(|&f| f != self.frame);
         frames.sort_by_key(|&f| (f.abs_diff(self.frame), f));
         let symbol_id = self.symbol_id();
+        let eval_project = self.project_for_stage_eval();
         for f in frames {
-            let ghost = evaluate_scene(&self.project, symbol_id, f, true, show_masking);
+            let ghost = evaluate_scene(&eval_project, symbol_id, f, true, show_masking);
             let mut added_this_frame = HashSet::new();
             let mut used_clips = HashSet::new();
             for mut draw in ghost.draws {
@@ -183,6 +184,7 @@ impl Editor {
         preview: Option<&AuthoringPreview>,
         show_masking: bool,
     ) -> AuthoredScene {
+        let eval_project = self.project_for_stage_eval();
         let simple_buttons_active = self.enable_simple_buttons
             && !self.playing
             && (preview.is_none()
@@ -190,7 +192,7 @@ impl Editor {
                 || self.pressed_simple_button.is_some());
         if simple_buttons_active {
             return evaluate_scene_with_buttons(
-                &self.project,
+                &eval_project,
                 self.symbol_id(),
                 self.frame,
                 true,
@@ -199,9 +201,9 @@ impl Editor {
             );
         }
         match preview {
-            Some(preview) => preview.playback.scene(&self.project, true, show_masking),
+            Some(preview) => preview.playback.scene(&eval_project, true, show_masking),
             None => evaluate_scene(
-                &self.project,
+                &eval_project,
                 self.symbol_id(),
                 self.frame,
                 true,

@@ -98,6 +98,21 @@ impl Editor {
                         for r in numeric_pair(ui, ["Scale X", "Scale Y"], [&mut element.transform.scale_x, &mut element.transform.scale_y], -1000. ..=1000., 0.01) { changes.note(r); }
                         changes.note(numeric_row(ui, "Rotation", &mut element.transform.rotation, -36000. ..=36000., 1.));
                     });
+                    if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
+                        && let Some(count) = self
+                            .project
+                            .symbol(symbol_id)
+                            .filter(|s| s.kind == SymbolKind::MovieClip)
+                            .map(|s| s.timeline.frame_count.max(1))
+                    {
+                        inspector_section(ui, "Timeline", |ui| {
+                            if let Some(control) =
+                                Self::movie_clip_timeline_section_ui(ui, count, playback)
+                            {
+                                changes.control = Some(control);
+                            }
+                        });
+                    }
                     inspector_section(ui, appearance_title(&element.kind), |ui| {
                     changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                     match &mut element.kind {

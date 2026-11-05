@@ -125,6 +125,8 @@ pub struct Editor {
     pub(crate) timeline_motion: crate::timeline_motion::MotionState,
     pub(crate) timeline_shape_hints: crate::timeline_shape_hints::ShapeHintsState,
     pub(crate) timeline_thumbnails: crate::timeline_preview::ThumbnailCache,
+    /// Transient per-symbol soloed layer IDs (`R-045`); never saved in `.nflash` or Undo.
+    pub(crate) solo_layers: std::collections::HashMap<Id, std::collections::BTreeSet<Id>>,
     /// Native preview of timeline sounds (Control ▸ Mute sounds).
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
     /// Autosave timer and crash-recovery storage (`recovery.rs`).
@@ -336,6 +338,7 @@ impl Editor {
             timeline_motion: Default::default(),
             timeline_shape_hints: Default::default(),
             timeline_thumbnails: Default::default(),
+            solo_layers: Default::default(),
             timeline_audio: Default::default(),
             recovery: Default::default(),
             sessions: Vec::new(),

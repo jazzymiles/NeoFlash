@@ -457,6 +457,151 @@ impl Editor {
         true
     }
 
+    /// Active soloed layer IDs on the current symbol timeline (`R-045`), ignoring deleted layers.
+    pub(crate) fn active_solo_layer_ids(&self) -> std::collections::BTreeSet<Id> {
+        let Some(raw) = self.solo_layers.get(self.symbol_id()) else {
+            return std::collections::BTreeSet::new();
+        };
+        let layers = &self.symbol().timeline.layers;
+        raw.iter()
+            .filter(|id| layers.iter().any(|l| &l.id == *id))
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn has_any_solo_layers(&self) -> bool {
+        !self.active_solo_layer_ids().is_empty()
+    }
+
+    pub(crate) fn is_layer_soloed(&self, layer_index: usize) -> bool {
+        let Some(layer) = self.symbol().timeline.layers.get(layer_index) else {
+            return false;
+        };
+        self.solo_layers
+            .get(self.symbol_id())
+            .is_some_and(|set| set.contains(&layer.id))
+    }
+
+    pub(crate) fn is_layer_id_effectively_soloed(&self, layer_id: &str) -> bool {
+        let solo = self.active_solo_layer_ids();
+        if solo.is_empty() {
+            return true;
+        }
+        let timeline = &self.symbol().timeline;
+        let mut seen = std::collections::HashSet::from([layer_id]);
+        let mut current = timeline.layers.iter().find(|l| l.id == layer_id);
+        while let Some(layer) = current {
+            if solo.contains(&layer.id) {
+                return true;
+            }
+            let Some(parent_id) = layer.properties.parent.as_deref() else {
+                break;
+            };
+            if !seen.insert(parent_id) {
+                break;
+            }
+            current = timeline.layers.iter().find(|l| l.id == parent_id);
+        }
+        false
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_layer_effectively_soloed(&self, layer_index: usize) -> bool {
+        self.symbol()
+            .timeline
+            .layers
+            .get(layer_index)
+            .is_some_and(|l| self.is_layer_id_effectively_soloed(&l.id))
+    }
+
+    /// Toggle a layer's solo state (`R-045`): click toggles `layer_index` in the solo set;
+    /// `⌥`-click (`exclusive_alt = true`) solos only `layer_index` (or clears solo when it is
+    /// already the sole soloed layer). Transient view state: never mutates `project` or Undo.
+    pub(crate) fn toggle_layer_solo(&mut self, layer_index: usize, exclusive_alt: bool) -> bool {
+        let Some(layer_id) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_index)
+            .map(|l| l.id.clone())
+        else {
+            return false;
+        };
+        let existing_ids: std::collections::HashSet<Id> = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .map(|l| l.id.clone())
+            .collect();
+        let symbol_id = self.symbol_id().to_owned();
+        let set = self.solo_layers.entry(symbol_id).or_default();
+        set.retain(|id| existing_ids.contains(id));
+        if exclusive_alt {
+            if set.len() == 1 && set.contains(&layer_id) {
+                set.clear();
+            } else {
+                set.clear();
+                set.insert(layer_id);
+            }
+        } else if !set.remove(&layer_id) {
+            set.insert(layer_id);
+        }
+        true
+    }
+
+    pub(crate) fn clear_all_solo_layers(&mut self) {
+        let symbol_id = self.symbol_id().to_owned();
+        if let Some(set) = self.solo_layers.get_mut(&symbol_id) {
+            set.clear();
+        }
+    }
+
+    /// Ephemeral `Project` view for Stage evaluation when any layer on the active timeline is
+    /// soloed (`R-045`). Non-soloed layers are hidden (`visible = false`) on the copy while
+    /// ancestor folders and referenced masks/guides of soloed layers retain their visibility.
+    pub(crate) fn project_for_stage_eval(&self) -> std::borrow::Cow<'_, Project> {
+        let solo = self.active_solo_layer_ids();
+        if solo.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.project);
+        }
+        let timeline = &self.symbol().timeline;
+        let mut soloed_ids = std::collections::HashSet::new();
+        let mut needed_ids = std::collections::HashSet::new();
+        for layer in &timeline.layers {
+            if self.is_layer_id_effectively_soloed(&layer.id) {
+                soloed_ids.insert(layer.id.clone());
+                if let Some(mask_id) = &layer.properties.mask {
+                    needed_ids.insert(mask_id.clone());
+                }
+                if let Some(guide_id) = &layer.properties.motion_guide {
+                    needed_ids.insert(guide_id.clone());
+                }
+                let mut seen = std::collections::HashSet::from([layer.id.as_str()]);
+                let mut cur = Some(layer);
+                while let Some(l) = cur {
+                    let Some(pid) = l.properties.parent.as_deref() else {
+                        break;
+                    };
+                    if !seen.insert(pid) {
+                        break;
+                    }
+                    needed_ids.insert(pid.to_owned());
+                    cur = timeline.layers.iter().find(|cand| cand.id == pid);
+                }
+            }
+        }
+        let mut copy = self.project.clone();
+        if let Some(sym) = copy.symbol_mut(self.symbol_id()) {
+            for layer in &mut sym.timeline.layers {
+                if !soloed_ids.contains(&layer.id) && !needed_ids.contains(&layer.id) {
+                    layer.visible = false;
+                }
+            }
+        }
+        std::borrow::Cow::Owned(copy)
+    }
+
     /// Scenes in play order with their names; a document without scenes has one.
     pub(crate) fn scene_list(&self) -> Vec<(Id, String)> {
         self.project

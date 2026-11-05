@@ -148,6 +148,9 @@ impl Editor {
             ui.small("AS2 callbacks and AS3 events run on this named instance.");
             return None;
         }
+        if kind == SymbolKind::MovieClip {
+            return None;
+        }
         let before = *playback;
         let (mut mode, mut first) = match *playback {
             InstancePlayback::Independent => (0, 0),
@@ -198,6 +201,71 @@ impl Editor {
             control.get_or_insert(response.id);
         }
         control
+    }
+
+    /// R-042 Movie clip `Timeline` section (expanded above `Display` / `Colour effect`):
+    /// `Start at frame` Stepper (`1..=frame_count`) + tertiary note.
+    pub(crate) fn movie_clip_timeline_section_ui(
+        ui: &mut egui::Ui,
+        count: u32,
+        playback: &mut InstancePlayback,
+    ) -> Option<egui::Id> {
+        use neoflash_ui::{TextStyle, components as nf, typography::rich};
+        let count = count.max(1);
+        let first = match *playback {
+            InstancePlayback::Independent | InstancePlayback::Loop | InstancePlayback::PlayOnce => {
+                0
+            }
+            InstancePlayback::LoopFrom(f)
+            | InstancePlayback::PlayOnceFrom(f)
+            | InstancePlayback::SingleFrame(f) => f,
+        };
+        let mut start_at = (first.saturating_add(1).min(count)) as f64;
+        let width = ui.available_width();
+        let field = ui.add(
+            nf::Field::new(&mut start_at, "Start at frame")
+                .prefix("Start at frame")
+                .range(1.0..=count as f64)
+                .step(1.0)
+                .decimals(0)
+                .stepper()
+                .width(width),
+        );
+        let p = neoflash_ui::palette(ui.ctx());
+        ui.add(
+            egui::Label::new(
+                rich(
+                    "Scripts that call gotoAndPlay take over after it starts.",
+                    TextStyle::Small,
+                )
+                .color(p.text_tertiary),
+            )
+            .wrap(),
+        );
+        if field.changed() {
+            let next_first = (start_at.round() as u32).clamp(1, count) - 1;
+            *playback = match (*playback, next_first) {
+                (InstancePlayback::Independent, 0) => InstancePlayback::Independent,
+                (InstancePlayback::Loop | InstancePlayback::LoopFrom(_), 0) => {
+                    InstancePlayback::Loop
+                }
+                (
+                    InstancePlayback::Independent
+                    | InstancePlayback::Loop
+                    | InstancePlayback::LoopFrom(_),
+                    f,
+                ) => InstancePlayback::LoopFrom(f),
+                (InstancePlayback::PlayOnce | InstancePlayback::PlayOnceFrom(_), 0) => {
+                    InstancePlayback::PlayOnce
+                }
+                (InstancePlayback::PlayOnce | InstancePlayback::PlayOnceFrom(_), f) => {
+                    InstancePlayback::PlayOnceFrom(f)
+                }
+                (InstancePlayback::SingleFrame(_), f) => InstancePlayback::SingleFrame(f),
+            };
+            return Some(field.id);
+        }
+        None
     }
 
     /// Set the 1-based `First frame` (`1..=frame_count`) on all editable selected `Graphic` or

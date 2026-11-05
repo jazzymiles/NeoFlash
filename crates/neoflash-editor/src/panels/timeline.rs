@@ -560,41 +560,60 @@ impl Editor {
                 tl::paint_playhead(&ui.painter_at(full.expand2(Vec2::new(0., 1.))), &ctx, full, ruler, &geo, geo.frame_x(self.frame + 1), self.frame + 1, time.as_deref());
             }
             if let Some(crate::library::LibraryDrag::Symbol(sym_id)) = self.library_panel.drag.clone() {
-                let alt = ctx.input(|i| i.modifiers.alt);
-                if alt
-                    && let Some(pos) = pointer
-                    && (rows.inner_rect.contains(pos) || grid_clip.contains(pos))
-                {
-                    let row_idx = ((pos.y - grid_rect.top()) / row_height).floor().max(0.) as usize;
-                    let target_layer_idx = layer_indices.get(row_idx).copied().unwrap_or(self.layer);
-                    if self.can_swap_layer_symbol(target_layer_idx, &sym_id) {
-                        let highlight = Rect::from_min_max(
-                            Pos2::new(
-                                rows.inner_rect.left(),
-                                grid_rect.top() + row_idx as f32 * row_height,
-                            ),
-                            Pos2::new(
-                                rows.inner_rect.right(),
-                                grid_rect.top() + (row_idx + 1) as f32 * row_height,
-                            ),
-                        )
-                        .intersect(rows.inner_rect);
-                        ui.painter_at(rows.inner_rect).rect_stroke(
-                            highlight.shrink(1.),
-                            2.,
-                            egui::Stroke::new(2.0_f32, ui.visuals().selection.stroke.color),
-                            egui::StrokeKind::Inside,
-                        );
-                        ctx.set_cursor_icon(egui::CursorIcon::Copy);
-                        if !down {
-                            self.library_panel.drag = None;
-                            self.layer = target_layer_idx;
-                            self.swap_layer_or_selected_symbol(target_layer_idx, &sym_id);
+                if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.library_panel.drag = None;
+                } else {
+                    let alt = ctx.input(|i| i.modifiers.alt);
+                    if alt
+                        && let Some(pos) = pointer
+                        && (rows.inner_rect.contains(pos) || grid_clip.contains(pos))
+                    {
+                        let row_idx =
+                            ((pos.y - grid_rect.top()) / row_height).floor().max(0.) as usize;
+                        if let Some(&target_layer_idx) = layer_indices.get(row_idx)
+                            && self.can_swap_layer_symbol(target_layer_idx, &sym_id)
+                        {
+                            let highlight = Rect::from_min_max(
+                                Pos2::new(
+                                    rows.inner_rect.left(),
+                                    grid_rect.top() + row_idx as f32 * row_height,
+                                ),
+                                Pos2::new(
+                                    rows.inner_rect.right(),
+                                    grid_rect.top() + (row_idx + 1) as f32 * row_height,
+                                ),
+                            )
+                            .intersect(rows.inner_rect);
+                            let hp = ui.painter_at(rows.inner_rect);
+                            hp.rect_filled(highlight, 0., p.timeline_row_selected);
+                            hp.rect_stroke(
+                                highlight,
+                                0.,
+                                egui::Stroke::new(1.0_f32, p.accent_default),
+                                egui::StrokeKind::Inside,
+                            );
+                            let layer_name =
+                                self.symbol().timeline.layers[target_layer_idx].name.clone();
+                            let ghost_painter = ctx.layer_painter(egui::LayerId::new(
+                                egui::Order::Tooltip,
+                                egui::Id::new("library-symbol-timeline-swap-ghost"),
+                            ));
+                            nf::drag_ghost_at(
+                                &ghost_painter,
+                                &ctx,
+                                pos + Vec2::new(12., 12.),
+                                &format!("Replace on all keyframes of “{layer_name}”"),
+                            );
+                            if !down {
+                                self.library_panel.drag = None;
+                                self.layer = target_layer_idx;
+                                self.swap_layer_or_selected_symbol(target_layer_idx, &sym_id);
+                            }
                         }
                     }
-                }
-                if !down {
-                    self.library_panel.drag = None;
+                    if !down {
+                        self.library_panel.drag = None;
+                    }
                 }
             }
         });
@@ -678,6 +697,7 @@ impl Editor {
         if preview {
             self.begin_thumbnail_pass();
         }
+        let any_solo = self.has_any_solo_layers();
         for (li, layer) in layers.iter().enumerate() {
             let y = rect.top() + li as f32 * row_height;
             let row =
@@ -688,6 +708,9 @@ impl Editor {
             let rp = painter.with_clip_rect(clip.intersect(row));
             if layer.properties.role == LayerRole::Folder {
                 tl::paint_grid(&rp, &ctx, row, &geo, GridKind::Folder);
+                if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
+                    rp.rect_filled(row, 0., p.bg_panel.gamma_multiply(0.55));
+                }
                 continue;
             }
             tl::paint_grid(&rp, &ctx, row, &geo, GridKind::Layer);
@@ -848,6 +871,10 @@ impl Editor {
                         geo.frame_x(next + 1),
                     );
                 }
+            }
+            // R-045: while any layer is soloed, frame cells of non-soloed rows are drawn at 45 %.
+            if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
+                rp.rect_filled(row, 0., p.bg_panel.gamma_multiply(0.55));
             }
         }
     }

@@ -498,18 +498,20 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
 
-**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` and AE-style `⌥`-drag replacement work; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
+**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` and AE-style `⌥`-drag replacement with `NF2/Drag Ghost` and `Selection Box` (`Symbol`) / timeline row highlight work per `R-041`; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
 - Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and choosing `Swap symbol` on a
   Library symbol (row context menu or ⋯ menu), or holding `⌥` (`Alt`) while dragging a symbol from Library onto the Stage
-  or Timeline layer row/frame span, replaces `ElementKind::Instance.symbol_id` across the layer/instance while preserving
+  (`NF2/Drag Ghost` `Replace “<old>” with “<new>”` + `Selection Box` (`Symbol`), or `Place “<new>”` without `⌥`) or
+  Timeline layer row/frame span (`timeline_row_selected` fill + `1 pt` `accent_default` outline + `Replace on all keyframes
+  of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the layer/instance while preserving
   transform, instance name, scripts, filters, blend mode, accessibility and compatible playback settings
   (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo).
 - Swap…: Properties `Swap…` button + picker dialog/popover and stage context menu `Swap symbol…` wait for R-012.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
-**PR-07 · Graphic / Movie clip — First frame ("Start from") & thumbnail strip** — partial (Looping and `First frame` `1..=count` work via `instance_playback_ui` for both `Graphic` and `MovieClip` instances; layer-level `Sync layer to timeline` crops leading empty frames synchronously; clickable thumbnail strip remains open)
-- Purpose: `First frame` (`1..=frame_count`) in Properties sets the starting child frame (`LoopFrom` / `PlayOnceFrom` /
+**PR-07 · Graphic / Movie clip — First frame ("Start from") & thumbnail strip** — partial (MovieClip `Timeline ▸ Start at frame` Stepper `1..=count` + tertiary note and Graphic `Playback` + `First frame` `1..=count` work per `R-042`; layer-level `Sync layer to timeline` works in `Layer properties`, the layer context menu and Timeline `⋯`; clickable Graphic thumbnail strip remains open)
+- Purpose: `Start at frame` / `First frame` (`1..=frame_count`) in Properties sets the starting child frame (`LoopFrom` / `PlayOnceFrom` /
   `SingleFrame`), and `Sync layer to timeline` (`LayerProperties.sync_timeline` in format 8) locks child timeline frames
   to the parent frame index when leading frames on the layer are empty; clickable thumbnail strip to pick the first frame.
   Depends on: editor (thumbnails as TL-10).
@@ -857,7 +859,7 @@ re-encoding at publish lands. P3.
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced | 9-slice guides; runtime shared library export/import URL; authortime sharing source | **NEW** symbol fields; runtime 9-slice scaling | P3 |
-| DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), Outline colour + outlines toggle, and Layer height `100 %`/`200 %`/`300 %` with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
+| DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), Outline colour + outlines toggle, Layer height `Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)

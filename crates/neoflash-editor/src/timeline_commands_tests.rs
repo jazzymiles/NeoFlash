@@ -1436,4 +1436,88 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
     assert_eq!(editor.project, before_lottie);
     assert!(!editor.history.can_undo());
     let _ = std::fs::remove_dir_all(&dir);
+
+    // R-040 & R-042 in `Layer properties`: editing `blend_mode` and `sync_timeline` in the draft
+    // and confirming commits both in one `"Layer properties"` Undo step; inherited folder blend
+    // mode is formatted as `"Blending: Inherited (<mode>)"`.
+    let before_dialog = editor.project.clone();
+    editor.open_layer_properties(&ctx, 0);
+    crate::panels::layer_properties::edit_layer_properties_draft(&ctx, |draft| {
+        draft.blend_mode = BlendMode::Screen;
+        draft.sync_timeline = true;
+    });
+    editor.confirm_layer_properties(&ctx).unwrap();
+    assert_eq!(editor.layer_blend_mode(0), BlendMode::Screen);
+    assert!(editor.layer_sync_timeline(0));
+    assert_eq!(
+        crate::layer_controls::layer_blending_select_label(
+            BlendMode::Normal,
+            Some(BlendMode::Multiply)
+        ),
+        "Blending: Inherited (Multiply)"
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_dialog);
+
+    // R-045 Layer Solo: transient view state filters Stage evaluation to soloed layers (and
+    // propagates folder solo to children) without mutating `project`, `layer.visible`, or Undo.
+    editor.symbol_mut().timeline.layers.push(Layer {
+        id: "bg-layer".into(),
+        name: "Background".into(),
+        visible: true,
+        locked: false,
+        properties: Default::default(),
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "bg-rect".into(),
+                name: "bg".into(),
+                kind: ElementKind::Rectangle {
+                    width: 80.0,
+                    height: 80.0,
+                    fill: [10, 20, 30, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    });
+    editor.history = History::new(150);
+    let before_solo = editor.project.clone();
+    assert!(!editor.has_any_solo_layers());
+    assert_eq!(editor.current_authored_scene(true).draws.len(), 2);
+
+    // Click solo on layer 0: only layer 0 renders on Stage; layer 1's `visible` flag stays true.
+    assert!(editor.toggle_layer_solo(0, false));
+    assert!(editor.has_any_solo_layers());
+    assert!(editor.is_layer_effectively_soloed(0));
+    assert!(!editor.is_layer_effectively_soloed(1));
+    assert!(editor.symbol().timeline.layers[1].visible);
+    let solo_scene = editor.current_authored_scene(true);
+    assert_eq!(solo_scene.draws.len(), 1);
+    assert_eq!(
+        solo_scene.draws[0]
+            .item
+            .instance_path
+            .first()
+            .map(String::as_str),
+        Some("hero-inst")
+    );
+
+    // Click solo on layer 1 too: both layers are now soloed.
+    assert!(editor.toggle_layer_solo(1, false));
+    assert!(editor.is_layer_effectively_soloed(0));
+    assert!(editor.is_layer_effectively_soloed(1));
+    assert_eq!(editor.current_authored_scene(true).draws.len(), 2);
+
+    // ⌥-click solo on layer 1: exclusively solos layer 1; ⌥-clicking layer 1 again clears solo.
+    assert!(editor.toggle_layer_solo(1, true));
+    assert!(!editor.is_layer_effectively_soloed(0));
+    assert!(editor.is_layer_effectively_soloed(1));
+    assert!(editor.toggle_layer_solo(1, true));
+    assert!(!editor.has_any_solo_layers());
+    assert_eq!(editor.project, before_solo);
+    assert!(!editor.history.can_undo());
 }

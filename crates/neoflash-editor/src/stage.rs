@@ -638,13 +638,16 @@ impl Editor {
                         } else {
                             Some(palette.onion_after)
                         };
-                        let ghost = evaluate_scene(
-                            &self.project,
-                            &id,
-                            frame,
-                            true,
-                            self.show_layer_masking(ctx),
-                        );
+                        let ghost = {
+                            let eval_project = self.project_for_stage_eval();
+                            evaluate_scene(
+                                &eval_project,
+                                &id,
+                                frame,
+                                true,
+                                self.show_layer_masking(ctx),
+                            )
+                        };
                         self.paint_authored_scene(
                             &content,
                             &ghost,
@@ -926,6 +929,7 @@ impl Editor {
         for layer in timeline.layers.iter().rev() {
             if layer.properties.role != LayerRole::Normal
                 || !layer_effectively_visible(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
             {
                 continue;
             }

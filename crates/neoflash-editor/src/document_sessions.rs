@@ -63,6 +63,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     stage_view: crate::stage_view::StageView = Default::default(),
     timeline_motion: crate::timeline_motion::MotionState = Default::default(),
     timeline_shape_hints: crate::timeline_shape_hints::ShapeHintsState = Default::default(),
+    solo_layers: std::collections::HashMap<neoflash_core::Id, std::collections::BTreeSet<neoflash_core::Id>> = Default::default(),
     recovery: crate::recovery::RecoveryManager = recovery,
 }
 

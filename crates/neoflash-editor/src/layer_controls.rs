@@ -163,6 +163,77 @@ pub(crate) fn layer_color(layer: &Layer) -> egui::Color32 {
     egui::Color32::from_rgb(color[0], color[1], color[2])
 }
 
+/// R-040: the 14 Flash layer blend modes in the 6 approved menu groups.
+pub(crate) const BLEND_MODE_GROUPS: [&[BlendMode]; 6] = [
+    &[BlendMode::Normal, BlendMode::Layer],
+    &[BlendMode::Darken, BlendMode::Multiply],
+    &[BlendMode::Lighten, BlendMode::Screen, BlendMode::Add],
+    &[BlendMode::Overlay, BlendMode::Hardlight],
+    &[
+        BlendMode::Difference,
+        BlendMode::Subtract,
+        BlendMode::Invert,
+    ],
+    &[BlendMode::Alpha, BlendMode::Erase],
+];
+
+/// Nearest ancestor folder's non-`Normal` blend mode (`R-040`), if any.
+pub(crate) fn inherited_folder_blend_mode(timeline: &Timeline, layer: &Layer) -> Option<BlendMode> {
+    let mut seen = HashSet::from([layer.id.as_str()]);
+    let mut current = layer;
+    while let Some(parent_id) = current.properties.parent.as_deref() {
+        if !seen.insert(parent_id) {
+            break;
+        }
+        let Some(parent) = timeline.layers.iter().find(|l| l.id == parent_id) else {
+            break;
+        };
+        if !parent.properties.blend_mode.is_normal() {
+            return Some(parent.properties.blend_mode);
+        }
+        current = parent;
+    }
+    None
+}
+
+/// Select / submenu label for a layer's blend mode (`R-040`): shows
+/// `Blending: Inherited (<mode>)` when a parent folder has a non-`Normal` blend mode and the
+/// layer's own mode is `Normal`.
+pub(crate) fn layer_blending_select_label(
+    own_mode: BlendMode,
+    inherited_folder_mode: Option<BlendMode>,
+) -> String {
+    if own_mode.is_normal()
+        && let Some(inherited) = inherited_folder_mode.filter(|m| !m.is_normal())
+    {
+        format!("Blending: Inherited ({})", inherited.label())
+    } else {
+        format!("Blending: {}", own_mode.label())
+    }
+}
+
+/// Populate the 6-group 14-mode `R-040` blend-mode menu.
+pub(crate) fn populate_blend_mode_menu(
+    ui: &mut egui::Ui,
+    current: BlendMode,
+    mut on_pick: impl FnMut(BlendMode),
+) {
+    for (gi, group) in BLEND_MODE_GROUPS.iter().enumerate() {
+        if gi > 0 {
+            neoflash_ui::components::menu_separator(ui);
+        }
+        for &mode in *group {
+            if ui
+                .add(neoflash_ui::components::MenuItem::new(mode.label()).checked(current == mode))
+                .clicked()
+            {
+                on_pick(mode);
+                ui.close();
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct LayerOutlineDraft {
     symbol: Id,
@@ -788,6 +859,19 @@ impl Editor {
                 }
             })
         );
+        let mut solo = self.is_layer_soloed(index);
+        if menu_toggle(ui, &mut solo, "Solo", "")
+            .on_hover_text("Solo — show only soloed layers (⌥-click: only this one)")
+            .changed()
+        {
+            let exclusive_alt = ui.input(|i| i.modifiers.alt);
+            self.toggle_layer_solo(index, exclusive_alt);
+            ui.close();
+        }
+        if menu_item_enabled(ui, self.has_any_solo_layers(), "Clear all solo", "").clicked() {
+            self.clear_all_solo_layers();
+            ui.close();
+        }
         nf::menu_separator(ui);
         action!(
             "Insert layer",
@@ -891,14 +975,15 @@ impl Editor {
             ui.close();
         }
         ui.add_enabled_ui_semantic(non_guide, |ui| {
-            let blend_label = format!("Blending: {}", layer.properties.blend_mode.label());
+            let inherited = inherited_folder_blend_mode(&self.symbol().timeline, &layer);
+            let blend_label = layer_blending_select_label(layer.properties.blend_mode, inherited);
             crate::ui_icons::menu_submenu(ui, &blend_label, |ui| {
-                for mode in BlendMode::ALL {
-                    let mut checked = layer.properties.blend_mode == mode;
-                    if menu_toggle(ui, &mut checked, mode.label(), "").changed() {
-                        self.set_layer_blend_mode(index, mode);
-                        ui.close();
-                    }
+                let mut picked = None;
+                populate_blend_mode_menu(ui, layer.properties.blend_mode, |mode| {
+                    picked = Some(mode);
+                });
+                if let Some(mode) = picked {
+                    self.set_layer_blend_mode(index, mode);
                 }
             });
         });

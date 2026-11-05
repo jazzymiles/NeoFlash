@@ -109,6 +109,8 @@ pub(crate) struct LayerPropertiesDraft {
     pub(crate) outline_color: Color32,
     pub(crate) outline: bool,
     pub(crate) height: LayerHeightChoice,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) sync_timeline: bool,
     pub(crate) existing_mask: Option<Id>,
     pub(crate) existing_motion_guide: Option<Id>,
 }
@@ -245,6 +247,8 @@ impl Editor {
             outline_color: Color32::from_rgb(color[0], color[1], color[2]),
             outline: layer.properties.outline,
             height: self.current_layer_height_choice(),
+            blend_mode: layer.properties.blend_mode,
+            sync_timeline: layer.properties.sync_timeline,
             existing_mask: layer.properties.mask.clone(),
             existing_motion_guide: layer.properties.motion_guide.clone(),
         };
@@ -365,6 +369,13 @@ impl Editor {
                     layer.keyframes.clear();
                 }
             }
+            if draft.kind == LayerTypeChoice::Guide {
+                layer.properties.blend_mode = BlendMode::Normal;
+                layer.properties.sync_timeline = false;
+            } else {
+                layer.properties.blend_mode = draft.blend_mode;
+                layer.properties.sync_timeline = draft.sync_timeline;
+            }
             if was_folder && draft.kind != LayerTypeChoice::Folder && layer.keyframes.is_empty() {
                 layer.keyframes.push(Keyframe::default());
             }
@@ -408,6 +419,7 @@ impl Editor {
         if has_motion_guide {
             candidate.format_version = candidate.format_version.max(6);
         }
+        candidate.upgrade_format_for_features();
 
         candidate.validate().map_err(|e| e.to_string())?;
         self.apply_layer_height_choice(draft.height);
@@ -425,7 +437,14 @@ impl Editor {
         let Some(mut draft) = ctx.data(|d| d.get_temp::<LayerPropertiesDraft>(draft_id())) else {
             return;
         };
-        let Some((layer_index, has_other_guide, has_other_mask, can_be_folder, can_be_mask)) = ({
+        let Some((
+            layer_index,
+            has_other_guide,
+            has_other_mask,
+            can_be_folder,
+            can_be_mask,
+            inherited_blend,
+        )) = ({
             self.project.symbol(&draft.symbol_id).and_then(|sym| {
                 let idx = sym
                     .timeline
@@ -446,9 +465,14 @@ impl Editor {
                     .any(|(i, l)| i != idx && l.properties.role == LayerRole::Mask);
                 let can_folder = layer_can_be_folder(&sym.timeline.layers[idx]);
                 let can_mask = layer_can_be_mask(&self.project, &draft.symbol_id, idx);
-                Some((idx, has_guide, has_mask, can_folder, can_mask))
+                let inherited = crate::layer_controls::inherited_folder_blend_mode(
+                    &sym.timeline,
+                    &sym.timeline.layers[idx],
+                );
+                Some((idx, has_guide, has_mask, can_folder, can_mask, inherited))
             })
-        }) else {
+        })
+        else {
             self.cancel_layer_properties(ctx);
             return;
         };
@@ -563,22 +587,53 @@ impl Editor {
                             );
                         });
 
-                        c::Select::new("layer-properties-height", draft.height.label())
-                            .width(200.0)
-                            .show(ui, |ui| {
-                                for choice in LayerHeightChoice::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(choice.menu_label())
-                                                .checked(draft.height == choice),
-                                        )
-                                        .clicked()
-                                    {
-                                        draft.height = choice;
-                                        ui.close();
+                        let non_guide = draft.kind != LayerTypeChoice::Guide;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            c::Select::new("layer-properties-height", draft.height.label())
+                                .width(200.0)
+                                .show(ui, |ui| {
+                                    for choice in LayerHeightChoice::ALL {
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(choice.menu_label())
+                                                    .checked(draft.height == choice),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.height = choice;
+                                            ui.close();
+                                        }
                                     }
-                                }
+                                });
+                            let blend_label = crate::layer_controls::layer_blending_select_label(
+                                draft.blend_mode,
+                                inherited_blend,
+                            );
+                            ui.add_enabled_ui(non_guide, |ui| {
+                                c::Select::new("layer-properties-blending", &blend_label)
+                                    .width(200.0)
+                                    .show(ui, |ui| {
+                                        crate::layer_controls::populate_blend_mode_menu(
+                                            ui,
+                                            draft.blend_mode,
+                                            |mode| draft.blend_mode = mode,
+                                        );
+                                    });
                             });
+                        });
+
+                        ui.add_enabled(
+                            non_guide,
+                            c::Switch::new(&mut draft.sync_timeline, "Sync layer to timeline"),
+                        );
+                        ui.label(
+                            rich(
+                                "Instances on this layer start at the parent timeline frame instead of restarting at frame 1.",
+                                TextStyle::Small,
+                            )
+                            .color(p.text_tertiary),
+                        );
 
                         ui.add_space(space::S2);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
