@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1797,7 +1797,7 @@ pub struct TimelinePrefs {
 impl Default for TimelinePrefs {
     fn default() -> Self {
         Self {
-            span_selection: true,
+            span_selection: false,
             scene_anchors: false,
             onion_falloff: 70.0,
             auto_keyframe: true,
@@ -2798,8 +2798,15 @@ impl WorkspacePrefs {
         let Ok(mut prefs) = serde_json::from_str::<Self>(json) else {
             return Self::default();
         };
-        if prefs.version != VERSION {
+        if prefs.version != 1 && prefs.version != VERSION {
             return Self::default();
+        }
+        // Version 1 shipped Span-based selection as an always-on default. Restore the ordinary
+        // timeline contract for existing workspaces: a plain click targets exactly one frame.
+        // Version 2 still preserves an explicit opt-in chosen after this migration.
+        if prefs.version == 1 {
+            prefs.timeline_prefs.span_selection = false;
+            prefs.version = VERSION;
         }
         // Earlier preferences stored fixed panel sizes and detached flags.
         // Migrate once; thereafter the grid is the authoritative dock layout.
@@ -3486,6 +3493,8 @@ mod tests {
         assert!(loaded.recent_colors.is_empty());
         assert!(loaded.custom_swatches.is_empty());
         assert!(loaded.document_defaults.is_none());
+        assert_eq!(loaded.version, VERSION);
+        assert!(!loaded.timeline_prefs.span_selection);
 
         let mut before_brushes = loaded.clone();
         before_brushes.show_panel(PanelId::Filters);
@@ -3517,6 +3526,19 @@ mod tests {
         assert_eq!(WorkspacePrefs::load(Some(&storage)), prefs);
     }
     #[test]
+    fn version_one_span_selection_default_migrates_off_but_version_two_opt_in_persists() {
+        let migrated =
+            WorkspacePrefs::from_json(r#"{"version":1,"timeline_prefs":{"span_selection":true}}"#);
+        assert_eq!(migrated.version, VERSION);
+        assert!(!migrated.timeline_prefs.span_selection);
+
+        let mut opted_in = migrated;
+        opted_in.timeline_prefs.span_selection = true;
+        let restored = WorkspacePrefs::from_json(&serde_json::to_string(&opted_in).unwrap());
+        assert_eq!(restored.version, VERSION);
+        assert!(restored.timeline_prefs.span_selection);
+    }
+    #[test]
     fn malformed_large_unknown_version_and_unknown_theme_preferences_fail_soft() {
         let default = WorkspacePrefs::default();
         assert_eq!(WorkspacePrefs::load(None), default);
@@ -3524,7 +3546,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":2,"theme":"dark"}"#,
+            r#"{"version":3,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {

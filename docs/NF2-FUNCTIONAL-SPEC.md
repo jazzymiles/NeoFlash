@@ -795,7 +795,7 @@ Enter applies and persists; Reset to defaults resets the active page's group. Wi
   (`1.0–3.0`), Line numbers (with marker-only gutter strip when off), Word wrap, Auto-close brackets/quotes, Code hints
   + delay (`0–1000 ms`; `⌃Space` always immediate), Tab size (`2` / `4` / `8` spaces for `Tab`/`⇧Tab`, Auto-format and
   line comments), Format on save, Highlight current line, plus live 5-line preview.
-- **Timeline:** Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
+- **Timeline:** single-frame selection by default; opt-in Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
   Snap playhead to keyframes, Onion range, linear Onion opacity falloff (`15–100 % → 15 %`, unified with the Timeline
   onion popover), Create keyframe on transform (when off, in-between transforms edit the span keyframe), Default ease,
   Tween type on drag (`None` / `Classic tween` / `Motion tween` in one Undo step).

@@ -1188,7 +1188,7 @@ fn click_accuracy_controls_selection_slop_and_exact_hit_takes_priority() {
 }
 
 #[test]
-fn span_based_selection_clicks_spans_supports_drag_shift_command_and_single_frame_mode() {
+fn frame_click_selects_one_by_default_and_span_selection_remains_explicit() {
     let (mut editor, ctx, _) = fixture(0);
     editor.symbol_mut().timeline.frame_count = 20;
     let top_layer = crate::layer_controls::visible_layer_indices(&editor.symbol().timeline)[0];
@@ -1248,23 +1248,19 @@ fn span_based_selection_clicks_spans_supports_drag_shift_command_and_single_fram
         timeline_input(&ctx, editor, t + 0.05, vec![button(p, false, mods)], mods);
     };
 
-    // Default span_selection = true: clicking in-between frame 3 selects span 0..=9.
-    assert!(editor.workspace.timeline_prefs.span_selection);
+    // Ordinary timeline contract: one click targets exactly one frame.
+    assert!(!editor.workspace.timeline_prefs.span_selection);
     click_cell(&mut editor, 1.0, 3, Modifiers::NONE);
     assert_eq!(editor.frame, 3);
-    assert_eq!(editor.selected_frame_range(), Some((0, 9, 1)));
+    assert_eq!(editor.selected_frame_range(), Some((3, 3, 1)));
 
-    // Shift-clicking frame 14 extends to the union of both spans (0..=19).
+    // Shift-clicking extends from the exact anchor frame.
     click_cell(&mut editor, 1.2, 14, Modifiers::SHIFT);
-    assert_eq!(editor.selected_frame_range(), Some((0, 19, 1)));
+    assert_eq!(editor.selected_frame_range(), Some((3, 14, 1)));
 
-    // Plain click without dragging inside the selected multi-span range narrows to clicked span 10..=19.
+    // A plain click inside the selected range narrows it back to one frame.
     click_cell(&mut editor, 1.4, 12, Modifiers::NONE);
-    assert_eq!(editor.selected_frame_range(), Some((10, 19, 1)));
-
-    // Command-click selects an individual frame even when span_selection is on.
-    click_cell(&mut editor, 1.6, 13, Modifiers::COMMAND);
-    assert_eq!(editor.selected_frame_range(), Some((13, 13, 1)));
+    assert_eq!(editor.selected_frame_range(), Some((12, 12, 1)));
 
     // Drag-to-select across in-between frames selects the exact dragged sub-range (2..=6).
     let p2 = cell_pos(2);
@@ -1272,32 +1268,38 @@ fn span_based_selection_clicks_spans_supports_drag_shift_command_and_single_fram
     timeline_input(
         &ctx,
         &mut editor,
-        1.8,
+        1.6,
         vec![Event::PointerMoved(p2), button(p2, true, Modifiers::NONE)],
         Modifiers::NONE,
     );
     timeline_input(
         &ctx,
         &mut editor,
-        1.85,
+        1.65,
         vec![Event::PointerMoved(p6)],
         Modifiers::NONE,
     );
     timeline_input(
         &ctx,
         &mut editor,
-        1.9,
+        1.7,
         vec![Event::PointerMoved(p6), button(p6, false, Modifiers::NONE)],
         Modifiers::NONE,
     );
     assert_eq!(editor.selected_frame_range(), Some((2, 6, 1)));
 
-    // span_selection = false: clicking in-between frame 3 selects only single cell 3..=3.
-    editor.workspace.timeline_prefs.span_selection = false;
-    click_cell(&mut editor, 2.1, 3, Modifiers::NONE);
-    assert_eq!(editor.selected_frame_range(), Some((3, 3, 1)));
-    click_cell(&mut editor, 2.3, 14, Modifiers::SHIFT);
-    assert_eq!(editor.selected_frame_range(), Some((3, 14, 1)));
+    // Span-based selection remains available only as an explicit preference.
+    editor.workspace.timeline_prefs.span_selection = true;
+    click_cell(&mut editor, 1.9, 3, Modifiers::NONE);
+    assert_eq!(editor.selected_frame_range(), Some((0, 9, 1)));
+    click_cell(&mut editor, 2.1, 14, Modifiers::SHIFT);
+    assert_eq!(editor.selected_frame_range(), Some((0, 19, 1)));
+    click_cell(&mut editor, 2.3, 12, Modifiers::NONE);
+    assert_eq!(editor.selected_frame_range(), Some((10, 19, 1)));
+
+    // Command-click keeps the existing single-cell override in opt-in span mode.
+    click_cell(&mut editor, 2.5, 13, Modifiers::COMMAND);
+    assert_eq!(editor.selected_frame_range(), Some((13, 13, 1)));
 }
 
 #[test]

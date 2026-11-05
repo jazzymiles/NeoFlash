@@ -3951,7 +3951,7 @@ fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() 
     d.click("Save");
 
     assert!(d.editor.preferences.is_none());
-    assert!(!d.editor.workspace.timeline_prefs.span_selection);
+    assert!(d.editor.workspace.timeline_prefs.span_selection);
     assert!(!d.editor.workspace.timeline_prefs.auto_keyframe);
     assert_eq!(
         d.editor.workspace.timeline_prefs.tween_on_drag,
@@ -3971,7 +3971,7 @@ fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() 
     d.settle();
     d.click("Reset to defaults");
     d.click("Save");
-    assert!(d.editor.workspace.timeline_prefs.span_selection);
+    assert!(!d.editor.workspace.timeline_prefs.span_selection);
     assert!(d.editor.workspace.timeline_prefs.auto_keyframe);
     assert_eq!(
         d.editor.workspace.timeline_prefs.tween_on_drag,
