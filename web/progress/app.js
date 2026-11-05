@@ -11,7 +11,11 @@
   const byId = id => document.getElementById(id);
   const number = value => Number(value).toLocaleString('en-US');
   const isActionScript = id => id === 'as2' || id === 'as3';
-  const share = (counts, ...keys) => `${counts.total ? (100 * keys.reduce((sum, key) => sum + counts[key], 0) / counts.total).toFixed(1) : '0.0'}%`;
+  const share = (counts, ...keys) => {
+    const covered = keys.reduce((sum, key) => sum + counts[key], 0);
+    const rounded = counts.total ? (100 * covered / counts.total).toFixed(1) : '0.0';
+    return covered < counts.total && rounded === '100.0' ? '<100%' : `${rounded}%`;
+  };
   const date = value => dateFormat.format(new Date(value.length === 10 ? `${value}T00:00:00Z` : value));
   const pathUrl = (revision, path) => `${repository}/blob/${encodeURIComponent(revision)}/${path.split('/').map(encodeURIComponent).join('/')}`;
 

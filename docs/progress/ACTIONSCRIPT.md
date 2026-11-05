@@ -19,9 +19,9 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 5. Graphics, bitmaps and filters | 313 | 313 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 91 | 90 | 1 | 0 | 0 | 98.9% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,691 | 442 | 1 | 0 | 79.2% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,691 | 442 | 1 | 0 | 79.2% | <100% |
 | **Now: areas 1–6** | 1,939 | 1,935 | 4 | 0 | 0 | 99.8% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,716 | 447 | 1 | 0 | 89.2% | 100.0% |
+| **All Flash Player areas** | 4,164 | 3,716 | 447 | 1 | 0 | 89.2% | <100% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 

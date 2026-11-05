@@ -146,9 +146,15 @@ def summary_table(categories, features):
     return "\n".join(lines)
 
 
+def target_share(row, *statuses):
+    rounded = f"{share(row, *statuses):.1f}%"
+    covered = sum(row[status] for status in statuses)
+    return "<100%" if covered < row["total"] and rounded == "100.0%" else rounded
+
+
 def target_row(title, row):
     return (f"| {title} | {row['total']:,} | {row['working']:,} | {row['partial']:,} | {row['missing']:,} | {row['needs_review']:,} | "
-            f"{share(row, 'working'):.1f}% | {share(row, 'working', 'partial'):.1f}% |")
+            f"{target_share(row, 'working')} | {target_share(row, 'working', 'partial')} |")
 
 
 def target_table(view):

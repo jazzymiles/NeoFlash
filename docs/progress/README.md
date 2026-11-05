@@ -35,6 +35,8 @@ Areas 1–6 are the current priority ("Now"). AS3 routing comes from [as3-priori
 
 For each area the summary shows entry counts per status, then **Working %** and **Working or partial %**. **Outside the target** covers AIR-only APIs, Flex, components, TLF, other libraries and platform-unresolved entries. It is reported as one line of totals and never enters a percentage. The full-reference tables in [ACTIONSCRIPT.md](ACTIONSCRIPT.md) are kept for provenance, not as progress.
 
+Percentages use one decimal place. An incomplete share that would round to `100.0%` is shown as `<100%`; exact counts remain beside it.
+
 ### Changing a status
 
 Statuses change only through a **test-backed review**, applied with:

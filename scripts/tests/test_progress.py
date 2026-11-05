@@ -22,6 +22,14 @@ SPEC.loader.exec_module(progress)
 
 
 class ProgressTests(unittest.TestCase):
+    def test_percentage_never_rounds_incomplete_coverage_to_complete(self):
+        row = {"total": 4164, "working": 3716, "partial": 447}
+        self.assertEqual(progress.target_share(row, "working"), "89.2%")
+        self.assertEqual(progress.target_share(row, "working", "partial"), "<100%")
+        row["partial"] += 1
+        self.assertEqual(progress.target_share(row, "working", "partial"), "100.0%")
+        self.assertEqual(progress.target_share({"total": 0, "working": 0}, "working"), "0.0%")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="neoflash-progress-test-")
         self.addCleanup(self.temporary.cleanup)
