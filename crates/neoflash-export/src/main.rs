@@ -1,7 +1,7 @@
 use neoflash_core::Project;
 use neoflash_export::{
     AudioExportOptions, AudioExportPolicy, AudioFormat, FontExportPolicy, LottieOptions,
-    PublishOptions, SizeLevel,
+    PublishOptions, SizeLevel, VideoFormat, VideoOptions,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -122,8 +122,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    if let Some(_video_path) = video_output {
-        return Err("Video export disabled in T-066 isolated snapshot".into());
+    if let Some(video_path) = video_output {
+        let format = VideoFormat::from_path(&video_path).unwrap_or(VideoFormat::Mp4);
+        let report = neoflash_export::export_project_video(
+            &project,
+            &video_path,
+            &VideoOptions {
+                format,
+                codec: format.default_codec(),
+                symbol: lottie_symbol,
+                ..VideoOptions::default()
+            },
+        )?;
+        println!(
+            "Video export: {} ({} bytes, {} frames, {}x{})",
+            report.output_path.display(),
+            report.bytes,
+            report.frame_count,
+            report.width,
+            report.height
+        );
+        for warning in &report.warnings {
+            eprintln!("Note: {warning}");
+        }
+        return Ok(());
     }
     if let Some(audio_path) = audio_output {
         let inferred_format = audio_format.unwrap_or_else(|| {

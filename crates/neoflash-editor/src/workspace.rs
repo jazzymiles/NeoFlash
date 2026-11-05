@@ -1986,6 +1986,26 @@ impl Default for ClipboardPrefs {
     }
 }
 
+/// Primary target selected in `Preferences ▸ Publish` (`DL-01`) and `Publish settings` (`DL-03`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublishTarget {
+    #[default]
+    Html5,
+    VideoMp4,
+}
+
+impl PublishTarget {
+    pub const OPTIONS: [(Self, &'static str); 2] = [
+        (Self::Html5, "HTML5 · Rust / WebAssembly"),
+        (Self::VideoMp4, "Video (MP4)"),
+    ];
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Preferences ▸ Publish: defaults for File ▸ Publish.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -2001,6 +2021,21 @@ pub struct PublishPrefs {
     pub strict: bool,
     pub warnings_as_errors: bool,
     pub publish_on_save: bool,
+    /// Default target in `Preferences ▸ Publish ▸ Target ▸ Default target` (`DL-01`).
+    #[serde(default)]
+    pub default_target: PublishTarget,
+    /// Whether `HTML5 · Rust / WebAssembly` is enabled in `Publish settings ▸ Targets` (`DL-03`).
+    #[serde(default = "default_true")]
+    pub html5_enabled: bool,
+    /// Whether `Video (MP4)` is enabled in `Publish settings ▸ Targets` (`DL-03`).
+    #[serde(default)]
+    pub video_enabled: bool,
+    /// Persisted `Video (MP4)` target settings (`DL-03` / `DL-05`).
+    #[serde(default)]
+    pub video_options: neoflash_export::VideoOptions,
+    /// Optional explicit output file for the `Video (MP4)` publish target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_file: Option<String>,
 }
 impl Default for PublishPrefs {
     fn default() -> Self {
@@ -2014,6 +2049,11 @@ impl Default for PublishPrefs {
             strict: true,
             warnings_as_errors: false,
             publish_on_save: false,
+            default_target: PublishTarget::Html5,
+            html5_enabled: true,
+            video_enabled: false,
+            video_options: neoflash_export::VideoOptions::default(),
+            video_file: None,
         }
     }
 }
@@ -2207,6 +2247,22 @@ impl WorkspacePrefs {
             .take()
             .map(|f| f.trim().to_owned())
             .filter(|f| !f.is_empty() && f.len() <= 4096);
+        p.video_file = p
+            .video_file
+            .take()
+            .map(|f| f.trim().to_owned())
+            .filter(|f| !f.is_empty() && f.len() <= 4096);
+        p.video_options.quality = p.video_options.quality.clamp(1, 100);
+        if !p.video_options.scale.is_finite() || p.video_options.scale <= 0.0 {
+            p.video_options.scale = 1.0;
+        } else {
+            p.video_options.scale = p.video_options.scale.clamp(0.1, 8.0);
+        }
+        if !p.video_options.fps.is_finite() || p.video_options.fps < 0.0 {
+            p.video_options.fps = 0.0;
+        } else if p.video_options.fps > 120.0 {
+            p.video_options.fps = 120.0;
+        }
         self.shortcuts.sanitize();
     }
 

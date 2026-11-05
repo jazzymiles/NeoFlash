@@ -2301,8 +2301,11 @@ dependencies = [
 name = "neoflash-export"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "base64 0.22.1",
+ "color_quant",
  "flate2",
+ "gif",
  "image",
  "neoflash-core",
  "neoflash-script",
@@ -2310,6 +2313,7 @@ dependencies = [
  "serde_json",
  "symphonia",
  "thiserror 2.0.21",
+ "tiny-skia",
  "url",
  "walrus",
 ]

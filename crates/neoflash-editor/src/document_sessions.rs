@@ -109,6 +109,11 @@ impl Editor {
         self.publish_settings = None;
         self.export_lottie = None;
         self.last_lottie_report = None;
+        if let Some(d) = &self.export_video {
+            d.cancel_worker();
+        }
+        self.export_video = None;
+        self.last_video_report = None;
         self.debugger.reset_document();
         self.finish_edits();
         // Keep document-scoped widget IDs, but never replay delayed clipboard input after a switch.

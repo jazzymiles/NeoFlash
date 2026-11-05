@@ -470,6 +470,8 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-23 · Video and audio export
 
+**Status: done** (`crates/neoflash-export/src/video.rs`, `crates/neoflash-export/src/audio.rs`, `panels/export_video.rs`, `panels/export_audio.rs`, CLI `--video` and `--audio`). `video.rs` renders frames with a CPU `tiny-skia` + `ab_glyph` + `image` + `MaskCoverage` rasteriser (`render_project_frame_rgba`), stepping either `AuthoredPlayback` (`runtime_capture = true`, advancing nested MovieClip timelines) or static authored frames (`runtime_capture = false`) with `VideoStopMode::LastFrame` or `VideoStopMode::AfterSeconds(f64)`, mixing timeline `SoundCommand` audio (`Event`/`Start`/`Stop`/`Stream` sync, trims, loops and stereo `envelope_gains`), encoding `GIF` (`gif` + `color_quant`) and `PNG seq.` natively in Rust, and encoding `MP4` (`H.264`/`H.265`), `WebM` (`VP9`/`AV1` incl. `yuva420p` alpha) and `MOV` (`H.264`/`Apple ProRes` `prores_ks` incl. `yuva444p10le` alpha / `H.265`) via system `ffmpeg`.
+
 - Video: render frames with E-22 rasteriser (authored timeline) or capture the HTML5 runtime (`canvas.captureStream()`
   + `MediaRecorder` for WebM; "runtime capture" option for scripts and nested clips); encode MP4/MOV via an external
   `ffmpeg` only if present on the system (detect, never bundle silently; licence: LGPL/GPL builds) — otherwise offer

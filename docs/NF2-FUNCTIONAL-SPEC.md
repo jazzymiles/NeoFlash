@@ -807,7 +807,7 @@ Enter applies and persists; Reset to defaults resets the active page's group. Wi
   tooltips; shortcut set selector (`NeoFlash default` + user sets with `Duplicate` / `Delete`), live Search and
   category filter, click-to-record `"Press keys…"` (`Esc` cancels, `Backspace`/`Delete` clears), `Conflicts with …`
   warning badge, `Reset command`, and `Export as HTML…`.
-- **Publish:** Output folder + `Browse…` (reused by HTML5 Publish), Treat warnings as errors, Publish on save.
+- **Publish:** Default target (`HTML5 · Rust / WebAssembly` or `Video (MP4)`), Output folder + `Browse…` (reused by HTML5 and Video Publish), `Compression ▸ Audio` policy, Treat warnings as errors, Publish on save.
 - **Updates** and controls waiting on NF2 design tokens (`R-013`–`R-020`) or standalone subsystems (merge drawing, font
   embedding `E-26`, spell check, vertical text, native OS bitmap/SVG clipboard, asset re-encoding, WebGL) stay disabled.
 Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
@@ -858,8 +858,9 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   and the approved R-043 760 pt `Export Lottie` modal dialog + `Lottie export — N notes` compatibility report modal
   (`panels/export_lottie.rs`, opened from `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L` and `Library ▸ Export symbol as Lottie…`)
   are also available; the Publish settings target checkbox remains tracked with `DL-03` / `R-043`.
+  `Video (MP4)` is wired as a second real target in `Publish settings` (`PublishTarget::VideoMp4` + `PublishPrefs.{enable_html5, enable_video_mp4, video_output_file, video_options}`): ticking `Video (MP4)` or clicking its target row opens the right-column `Video (MP4)` settings pane (`Output file` + `Browse…`, `W × H` linked + `Scale`, `FPS`, `Codec: H.264 / H.265`, `Quality` slider `0..=100`, `Range`, `Render nested movie clip animation and scripts`, `Stop at last frame` / `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps`, and live footer summary), and `Publish` / `Publish on save` exports `.mp4` alongside or instead of HTML5.
   Future: `PublishSettings`
-  stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target in `Publish settings`;
+  stored in the document (Flash stores publish profiles in the document). HTML5 and Video (MP4) are real targets in `Publish settings`;
   others must stay disabled until wired.
 - Current acceptance: draft/default separation, real estimates, invalid URL actions, modal input isolation and
   same-root document cancellation. Future acceptance: settings persist in the file; Loop off stops playback; trace stripped when
@@ -874,10 +875,8 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   draw items. PSD/AI/PDF P3. Acceptance: PNG of frame 1 equals the HTML5 canvas frame within tolerance; SVG opens in
   a browser with the same geometry.
 
-**DL-05 · Export video** — `export_video`: MP4 · WebM · MOV · GIF · PNG sequence; range; size; fps; codec; quality;
-runtime capture of nested clips/scripts; stop at last frame / after N s; audio; transparent bg; progress. Depends on:
-engine (frame rendering + encoder; runtime capture in browser via `MediaRecorder` or native encoder). P3.
-Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
+**DL-05 · Export video** — done (`panels/export_video.rs`, `neoflash_export::video`, `File ▸ Export ▸ Export video…`, `Library ▸ Export symbol as video…`, CLI `--video`):
+- Done: 840 pt modal dialog with format tabs `MP4 · WebM · MOV · GIF · PNG seq.`; live rendered stage preview thumbnail (`render_project_frame_rgba`) with cancellable background `VideoAsyncWorker` progress bar (`Exporting frames f / N`) and pause/resume (`Preview while rendering · ⏸ to pause`); `Range` (`Whole movie (all scenes)`, `Current scene`, `Frames From..To`); `Video` (`W × H` with aspect-lock toggle, `1x` / `2x` / `0.5x` scale, `FPS`, per-format `Codec: H.264 / H.265 / VP9 / AV1 / Apple ProRes / GIF 256-colour / PNG 8-bit`, `Quality` slider `0..=100` with live bitrate caption); `Content` (`Render nested movie clip animation and scripts (runtime capture)`, `Stop at last frame` vs `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps` / `Opus 160 kbps` / `PCM 16-bit`, `Transparent bg (MOV/WebM/GIF/PNG seq.)`); and live footer estimate (`~ X.X MB · MM:SS · W×H`). Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
 
 **DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).
@@ -926,7 +925,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image/video/audio open planned previews; Publish settings has live HTML5 size controls |
+| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5/Video Publish, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image open planned previews; Publish settings has live HTML5 size and Video (MP4) controls |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |

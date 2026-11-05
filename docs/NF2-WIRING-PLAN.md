@@ -341,10 +341,10 @@ content. Shape hints are §7.4.
 - Registry: `editor-paint-effects`.
 
 **W1.10 · Publish settings (DL-03, Preferences ▸ Publish)** — E-15
-- Available: workspace `PublishPrefs.options` feeds Publish/publish-on-save; draft publication and cancellable
+- Available: workspace `PublishPrefs` (`options`, `default_target`, `enable_html5`, `enable_video_mp4`, `video_output_file`, `video_options`) feeds Publish/publish-on-save; draft publication and cancellable
   background estimates reuse exporter options and validation. R-032 is wired in `panels/publish_settings.rs`: four
-  levels, on-disk bar/legend, exact gzip/files, Computing/Failed/Retry, omissions, Custom reset and Shared URL
-  validation/runtime-folder export. Publish uses the draft; OK saves workspace defaults; Cancel/close/document
+  levels, on-disk bar/legend, exact gzip/files, Computing/Failed/Retry, omissions, Custom reset, Shared URL
+  validation/runtime-folder export, plus the `Video (MP4)` target checkbox and its switchable right-column video settings page (`Output file` + `Browse…`, `W × H` linked + `Scale`, `FPS`, `Codec: H.264 / H.265`, `Quality` slider, `Range`, `Render nested movie clip animation and scripts`, `Stop at last frame` / `Stop after N s`, and `Include audio` + `AAC 128/192/256 kbps`). Publish uses the draft; OK saves workspace defaults; Cancel/close/document
   switch cancels it. Full/Embed and Full Test Movie remain defaults. Other controls stay disabled.
 - UI: File/Properties Publish settings entry points open the same modal. Document-stored profiles and the engine
   settings below remain future work.
@@ -431,7 +431,7 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | --- | --- | --- | --- | --- |
 | W3.1 Export image PNG + SVG | DL-04 | `planned_dialogs::export_image` | E-22 | none (propose under `web-*`/`platform-*` with owner) |
 | W3.2 Export image PSD / AI / PDF | DL-04 | same | E-22 | — |
-| W3.3 Export video | DL-05 | `planned_dialogs::export_video` | E-23 | — |
+| W3.3 Export video — done | DL-05 | `panels/export_video.rs` (DL-05 done) | E-23 | `web-html5-export`, `web-media-assets` |
 | W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
 | W3.5 Import video, Import PSD | DL-07, DL-10 | `planned_dialogs::import_video` | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |

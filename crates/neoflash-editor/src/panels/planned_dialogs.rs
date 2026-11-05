@@ -1,8 +1,8 @@
-//! Planned dialog previews: Export image / video / audio
-//! (`dialogs-export.png`), Import video (`dialog-import-video.png`), Sound properties (`dialogs-sound-stroke.png`).
+//! Planned dialog previews: Export image
+//! (`dialogs-export.png`) and Import video (`dialog-import-video.png`).
 //! Export formats switch preview pages; every setting stays disabled. Preferences is a real dialog
 //! (`preferences.rs`).
-use super::planned::{caption, check, footer, num, segmented, select, slider, switch, text};
+use super::planned::{caption, check, footer, num, select, switch, text};
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
@@ -134,68 +134,6 @@ pub(super) fn export_image(ui: &mut Ui, format: &mut usize) {
         _ => ("", "Export PNG"),
     };
     disabled(ui, |ui| footer(ui, size, None, &["Cancel", button]));
-}
-
-/// Dialog / Export video.
-pub(super) fn export_video(ui: &mut Ui) {
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(300.0);
-            preview_box(ui, 300.0, 188.0, "Stage preview");
-            c::progress(ui, "Exporting frames 72 / 120", Some(0.6), 300.0);
-            caption(ui, "Preview while rendering · ⏸ to pause");
-        });
-        ui.add_space(space::S5);
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S2;
-            segmented(ui, &["MP4", "WebM", "MOV", "GIF", "PNG seq."], 0);
-            group(ui, "Range");
-            ui.horizontal(|ui| {
-                select(ui, "Whole movie (all scenes)", 220.0);
-                num(ui, 1.0, "From frame", "From", "", 0, 90.0);
-                num(ui, 120.0, "To frame", "To", "", 0, 90.0);
-            });
-            group(ui, "Video");
-            ui.horizontal(|ui| {
-                num(ui, 1920.0, "Width", "W", "", 0, 110.0);
-                num(ui, 1200.0, "Height", "H", "", 0, 110.0);
-                let _ =
-                    ui.add(c::IconButton::new(i16::LINK, "Constrain proportions").selected(true));
-                select(ui, "2×", 76.0);
-            });
-            ui.horizontal(|ui| {
-                select(ui, "24 fps (document)", 160.0);
-                select(ui, "Codec: H.264", 160.0);
-            });
-            ui.horizontal(|ui| {
-                caption(ui, "Quality");
-                slider(ui, 75.0, "Quality", 180.0);
-                caption(ui, "High · ~8 Mbps");
-            });
-            group(ui, "Content");
-            check(
-                ui,
-                true,
-                "Render nested movie clip animation and scripts (runtime capture)",
-            );
-            ui.horizontal(|ui| {
-                ui.add(c::Radio::new(true, "Stop at last frame"));
-                ui.add(c::Radio::new(false, "Stop after"));
-                num(ui, 10.0, "Stop after seconds", "", "s", 0, 72.0);
-            });
-            ui.horizontal(|ui| {
-                switch(ui, true, "Include audio");
-                select(ui, "AAC 192 kbps", 150.0);
-                check(ui, false, "Transparent bg (MOV/WebM)");
-            });
-        });
-    });
-    footer(
-        ui,
-        "~ 12.1 MB · 00:05 · 1920×1200",
-        None,
-        &["Cancel", "Export"],
-    );
 }
 
 /// Dialog / Import video.

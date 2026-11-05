@@ -14,7 +14,7 @@ use crate::app::Editor;
 use crate::theme::ThemeMode;
 use crate::workspace::{
     ClipboardPrefs, CodeEditorPrefs, DrawingPrefs, FramePreview, GeneralPrefs, PublishPrefs,
-    ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
+    PublishTarget, ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
 };
 use eframe::egui::{self, Color32, Ui};
 use neoflash_export::AudioExportPolicy;
@@ -1655,11 +1655,22 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
 }
 
 fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
-    disabled(ui, |ui| {
-        section(ui, "Target");
-        row(ui, "Default target", |ui| {
-            select(ui, "HTML5 · Rust / WebAssembly", 280.0)
-        });
+    section(ui, "Target");
+    row(ui, "Default target", |ui| {
+        let prev = draft.publish.default_target;
+        c::Select::options(
+            ui,
+            "prefs-publish-default-target",
+            &mut draft.publish.default_target,
+            &PublishTarget::OPTIONS,
+            280.0,
+        );
+        if draft.publish.default_target != prev {
+            match draft.publish.default_target {
+                PublishTarget::Html5 => draft.publish.html5_enabled = true,
+                PublishTarget::VideoMp4 => draft.publish.video_enabled = true,
+            }
+        }
     });
     row(ui, "Output folder", |ui| {
         let mut folder = draft.publish.output_folder.clone().unwrap_or_default();

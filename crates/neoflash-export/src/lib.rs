@@ -4,12 +4,14 @@ pub mod audio;
 pub mod fonts;
 pub mod lottie;
 pub mod publish;
+pub mod video;
 pub use audio::*;
 pub use fonts::*;
 pub use lottie::*;
 pub use publish::{
     PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
+pub use video::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};

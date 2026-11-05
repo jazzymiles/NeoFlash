@@ -27,7 +27,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Menu bar (§8).
     ("File ▸ Import ▸ Import video…", P::ImportVideo),
     ("File ▸ Export ▸ Export image…", P::ExportImage),
-    ("File ▸ Export ▸ Export video…", P::ExportVideo),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
     // Panel menus (§6).
@@ -89,6 +88,7 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
 enum ConvertedTrigger {
     DocumentSettings,
     PublishSettings,
+    ExportVideo,
     ExportAudio,
     /// Preferences opened on a page (`panels/preferences.rs`).
     Preferences(usize),
@@ -116,6 +116,7 @@ impl Editor {
             "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
                 Some(ConvertedTrigger::PublishSettings)
             }
+            "File ▸ Export ▸ Export video…" => Some(ConvertedTrigger::ExportVideo),
             "File ▸ Export ▸ Export audio…" => Some(ConvertedTrigger::ExportAudio),
             "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_GENERAL,
@@ -168,6 +169,7 @@ impl Editor {
             match trigger {
                 ConvertedTrigger::DocumentSettings => self.open_document_settings(),
                 ConvertedTrigger::PublishSettings => self.open_publish_settings(),
+                ConvertedTrigger::ExportVideo => self.open_export_video(None),
                 ConvertedTrigger::ExportAudio => self.open_export_audio(ctx, None),
                 ConvertedTrigger::Preferences(page) => self.open_preferences(page),
                 ConvertedTrigger::AddSwatch => {
@@ -483,7 +485,11 @@ impl Editor {
                 &self.sc(C::FileExportLottie),
                 |ui| {
                     Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
-                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
+                    Self::planned_menu_item(
+                        ui,
+                        "File ▸ Export ▸ Export video…",
+                        &self.sc(C::FileExportVideo),
+                    );
                     Self::planned_menu_item(
                         ui,
                         "File ▸ Export ▸ Export audio…",
@@ -1112,8 +1118,8 @@ mod tests {
     fn entry_labels_are_the_last_path_segment() {
         assert_eq!(entry_label("View ▸ Grid ▸ Edit grid…"), "Edit grid…");
         assert_eq!(
-            planned_entry("File ▸ Export ▸ Export video…"),
-            Some(PlannedPanel::ExportVideo)
+            planned_entry("File ▸ Export ▸ Export image…"),
+            Some(PlannedPanel::ExportImage)
         );
     }
 }

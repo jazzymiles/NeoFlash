@@ -503,3 +503,77 @@ fn publish_settings_and_preferences_audio_policy_update_custom_badge_and_persist
         "Preferences ▸ Publish displays current audio policy: {pref_texts:?}"
     );
 }
+
+#[test]
+fn publish_settings_and_preferences_video_target_switch_and_mp4_publish() {
+    use crate::panels::preferences::PAGE_PUBLISH;
+    use crate::workspace::PublishTarget;
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.open_preferences(PAGE_PUBLISH);
+    {
+        let pref = d.editor.preferences.as_mut().expect("prefs open");
+        assert_eq!(pref.publish.default_target, PublishTarget::Html5);
+        pref.publish.default_target = PublishTarget::VideoMp4;
+        pref.publish.video_enabled = true;
+    }
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = d.ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+                ..Default::default()
+            },
+            |ctx| {
+                d.editor.preferences_dialog(ctx);
+            },
+        );
+    }
+    let pref_texts = painted_text(&out);
+    assert!(
+        pref_texts.iter().any(|t| t == "Video (MP4)"),
+        "Preferences ▸ Publish shows Video (MP4) default target: {pref_texts:?}"
+    );
+    let draft_copy = d.editor.preferences.clone().unwrap();
+    d.editor.save_preferences(&d.ctx, &draft_copy);
+    d.editor.preferences = None;
+    assert_eq!(
+        d.editor.workspace.publish.default_target,
+        PublishTarget::VideoMp4
+    );
+
+    d.open();
+    assert_eq!(
+        d.editor.publish_settings.as_ref().unwrap().selected_target,
+        PublishTarget::VideoMp4
+    );
+    let video_texts = painted_text(&d.output);
+    assert!(
+        video_texts.iter().any(|t| t.contains("MP4 (H.264)")),
+        "Publish settings Video tab renders video footer summary: {video_texts:?}"
+    );
+    assert!(
+        video_texts
+            .iter()
+            .any(|t| t == "Render nested movie clip animation and scripts"),
+        "Publish settings Video tab renders Content options"
+    );
+    d.click("OK");
+    assert!(d.editor.publish_settings.is_none());
+
+    if neoflash_export::detect_ffmpeg().is_some() {
+        let dir =
+            std::env::temp_dir().join(format!("neoflash-publish-video-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mp4_path = dir.join("published.mp4");
+        let mut settings = d.editor.workspace.publish.clone();
+        settings.video_file = Some(mp4_path.to_string_lossy().into_owned());
+        settings.video_options.width = 160;
+        settings.video_options.height = 120;
+        settings.video_options.to_frame = Some(2);
+        assert!(d.editor.publish_video_with_settings(None, &settings));
+        assert!(mp4_path.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

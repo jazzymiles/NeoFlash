@@ -102,6 +102,8 @@ pub struct Editor {
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
     pub(crate) export_lottie: Option<crate::panels::export_lottie::ExportLottieDraft>,
     pub(crate) last_lottie_report: Option<neoflash_export::LottieExportReport>,
+    pub(crate) export_video: Option<crate::panels::export_video::ExportVideoDraft>,
+    pub(crate) last_video_report: Option<neoflash_export::VideoExportReport>,
     /// Open Preferences dialog draft (`panels/preferences.rs`).
     pub(crate) preferences: Option<crate::panels::preferences::PreferencesDraft>,
     pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
@@ -307,6 +309,7 @@ impl Editor {
                 })
             }
             Ok("publish_settings") => s.open_publish_settings(),
+            Ok("export_video") => s.open_export_video(None),
             Ok("export_audio") => s.open_export_audio(&cc.egui_ctx, None),
             Ok("sound_properties") => s.open_sound_properties(&cc.egui_ctx, None),
             Ok("edit_envelope") => s.open_edit_envelope(),
@@ -365,7 +368,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, export_lottie: None, last_lottie_report: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
+            document_settings: None, export_lottie: None, last_lottie_report: None, export_video: None, last_video_report: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
             compiler_errors: Default::default(),
             code_snippets: Default::default(),
             movie_explorer: Default::default(),
@@ -547,6 +550,7 @@ impl Editor {
             || self.document_settings.is_some()
             || self.publish_settings.is_some()
             || self.export_lottie.is_some()
+            || self.export_video.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
             || self.find_replace.is_some()
@@ -958,6 +962,10 @@ impl Editor {
                 self.project_panel = Default::default();
                 self.document_settings = None;
                 self.export_lottie = None;
+                if let Some(d) = &self.export_video {
+                    d.cancel_worker();
+                }
+                self.export_video = None;
                 self.find_replace = None;
                 self.edit_envelope = None;
                 self.clear_simple_button_state();
@@ -1185,8 +1193,21 @@ impl Editor {
                     "Project saved."
                 });
                 if !is_fla && self.workspace.publish.publish_on_save {
+                    let settings = self.workspace.publish.clone();
                     if let Some(output) = self.configured_publish_folder() {
-                        self.publish_html5_to(&output, runtime_dir);
+                        if settings.html5_enabled {
+                            self.publish_html5_to(&output, runtime_dir);
+                        }
+                        if settings.video_enabled
+                            || settings.default_target == crate::workspace::PublishTarget::VideoMp4
+                        {
+                            self.publish_video_with_settings(Some(&output), &settings);
+                        }
+                    } else if settings.video_file.is_some()
+                        && (settings.video_enabled
+                            || settings.default_target == crate::workspace::PublishTarget::VideoMp4)
+                    {
+                        self.publish_video_with_settings(None, &settings);
                     } else {
                         self.message(
                             "Publish on save skipped: set an Output folder in Preferences ▸ Publish.",
@@ -1331,6 +1352,13 @@ impl Editor {
             }
             return;
         }
+        let settings = self.workspace.publish.clone();
+        let publish_video = settings.video_enabled
+            || settings.default_target == crate::workspace::PublishTarget::VideoMp4;
+        if publish_video && !settings.html5_enabled {
+            self.publish_video_with_settings(None, &settings);
+            return;
+        }
         let output = if let Some(configured) = self.configured_publish_folder() {
             configured
         } else {
@@ -1348,7 +1376,12 @@ impl Editor {
                     .as_secs()
             ))
         };
-        self.publish_html5_to(&output, &Self::runtime_dir());
+        if settings.html5_enabled {
+            self.publish_html5_to(&output, &Self::runtime_dir());
+        }
+        if publish_video {
+            self.publish_video_with_settings(Some(&output), &settings);
+        }
     }
     /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
     #[cfg(test)]
@@ -1699,6 +1732,9 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::FileImportLegacyFlash) {
             self.request(Pending::Import, ctx);
         }
+        if self.take_command_shortcut(ctx, C::FileExportVideo) {
+            self.open_export_video(None);
+        }
         if self.take_command_shortcut(ctx, C::FileExportAudio) {
             self.open_export_audio(ctx, None);
         }
@@ -1962,6 +1998,7 @@ impl Editor {
         self.document_settings_dialog(ctx);
         self.publish_settings_dialog(ctx);
         self.export_lottie_modal(ctx);
+        self.export_video_modal(ctx);
         if let Some(font) = self
             .preferences
             .as_ref()

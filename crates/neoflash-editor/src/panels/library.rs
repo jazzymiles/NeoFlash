@@ -666,6 +666,13 @@ impl Editor {
                 self.start_library_edit(EditTarget::Symbol(symbol.id.clone()), "");
             }
             if ui
+                .add(nf::MenuItem::new("Export symbol as video…"))
+                .clicked()
+            {
+                self.open_export_video(Some(&symbol.id));
+                ui.close();
+            }
+            if ui
                 .add(nf::MenuItem::new("Export symbol as Lottie…"))
                 .clicked()
             {
