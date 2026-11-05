@@ -2090,6 +2090,87 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
     );
     editor.undo();
     assert_eq!(editor.project, before_move);
+
+    // 6. Dense variable-pressure Brush stroke in Merge mode dissolves internal dab overlaps on
+    // commit and re-merges cleanly when dragged across existing Merge fills, with single-step Undo.
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .clear();
+    editor.workspace.drawing.object_drawing = false;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 90.0,
+            height: 90.0,
+            fill: [80, 170, 230, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        220.0,
+        110.0,
+    );
+    let points: Vec<Pos2> = (0..120)
+        .map(|i| {
+            egui::pos2(
+                60.0 + i as f32 * 0.9,
+                140.0 + (i as f32 * 0.08).sin() * 14.0,
+            )
+        })
+        .collect();
+    let pressures: Vec<f32> = (0..120)
+        .map(|i| 0.35 + ((i as f32 * 0.11).sin().abs()) * 0.55)
+        .collect();
+    let brush_cmds = crate::authoring_tools::brush_outline_with_pressure(&points, &pressures, 16.0);
+    let raw_move_tos = brush_cmds
+        .iter()
+        .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+        .count();
+    assert_eq!(raw_move_tos, 239);
+    let before_brush = editor.project.clone();
+    editor.add_element(
+        ElementKind::Path {
+            commands: brush_cmds,
+            fill_rule: FillRule::NonZero,
+            fill: [212, 162, 249, 255],
+            stroke: [212, 162, 249, 255],
+            stroke_width: 0.0,
+        },
+        0.0,
+        0.0,
+    );
+    editor.project.validate().unwrap();
+    let brush_el = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .last()
+        .unwrap();
+    let ElementKind::Path { commands, .. } = &brush_el.kind else {
+        panic!("expected dissolved Merge brush Path");
+    };
+    let dissolved_move_tos = commands
+        .iter()
+        .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+        .count();
+    assert_eq!(
+        dissolved_move_tos, 1,
+        "239 overlapping brush dabs/quads must dissolve into 1 clean boundary contour"
+    );
+
+    let before_brush_move = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 12.0, vec![]);
+    drag(
+        &mut editor,
+        &ctx,
+        13.0,
+        page.min + egui::vec2(100.0, 145.0),
+        page.min + egui::vec2(210.0, 145.0),
+        false,
+        Modifiers::NONE,
+    );
+    editor.project.validate().unwrap();
+    assert_ne!(editor.project, before_brush_move);
+    editor.undo();
+    assert_eq!(editor.project, before_brush_move);
+    editor.undo();
+    assert_eq!(editor.project, before_brush);
 }
 
 #[test]

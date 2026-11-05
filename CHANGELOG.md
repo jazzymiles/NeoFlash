@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Merge Drawing responsiveness on dense Brush strokes and artwork moves (`T-090`): dissolved multi-contour Merge fills (including variable-pressure Brush strokes) into clean exterior and hole rings up front, replaced $O(S^2)$ segment intersection, $O(V)$ vertex interning, $O(E \cdot V)$ T-junction splitting and $O(E^2)$ probe classification in `merge_drawing.rs` with a sweep-line intersection pass, $O(1)$ spatial hash grid, 2D segment BVH, Y-slab `PreparedRings` over exact snapped ring boundaries, and whole-segment interior dab culling, and batched touching same-paint Merge unions with fast control-point AABB and BVH non-interaction rejection so dense Brush drawing and moving Merge artwork on complex keyframes remain interactive without blocking the UI thread.
+
 - Zero-width strokes retain their selected RGB, alpha and gradient instead of clearing them during Brush creation or Merge Drawing normalization. Brush remains fill-only; setting width to zero hides the stroke without erasing its paint settings.
 
 - NF2 workspace delivery (`T-085`): saved version-2 built-in workspaces refresh once to the current NF2 composition, preventing a stale Color-only inspector from replacing Properties and Library after an update. The migration preserves theme, Timeline/editor/tool/publish preferences and named layout presets. macOS packages are rebuilt from a clean committed tree and record their exact Git commit and build profile in `Info.plist`.

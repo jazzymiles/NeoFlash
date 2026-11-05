@@ -530,6 +530,118 @@ pub fn point_in_rings(pt: [f64; 2], rings: &[Vec<[f64; 2]>], fill_rule: FillRule
     }
 }
 
+/// Pre-indexed horizontal Y-slab accelerator for repeated `point_in_rings` queries.
+///
+/// Because winding number contributions (`+1`, `-1`, `0`) are summed as exact `i32` integers and
+/// an edge `(a, b)` only contributes when its Y-span covers `pt[1]`, bucketing non-horizontal
+/// edges into Y-slabs produces the exact same `total_winding` as scanning all rings while testing
+/// only edges overlapping `pt[1]`'s slab.
+struct PreparedRings {
+    fill_rule: FillRule,
+    bounds: Option<([f64; 2], [f64; 2])>,
+    y_min: f64,
+    inv_slab_height: f64,
+    slabs: Vec<Vec<([f64; 2], [f64; 2])>>,
+}
+
+impl PreparedRings {
+    fn new(rings: &[Vec<[f64; 2]>], fill_rule: FillRule) -> Self {
+        let bounds = rings_bounds(rings);
+        let Some((min, max)) = bounds else {
+            return Self {
+                fill_rule,
+                bounds: None,
+                y_min: 0.0,
+                inv_slab_height: 1.0,
+                slabs: Vec::new(),
+            };
+        };
+        let total_edges: usize = rings.iter().filter(|r| r.len() >= 3).map(|r| r.len()).sum();
+        let num_slabs = (total_edges / 4).clamp(16, 512);
+        let y_min = min[1];
+        let height = (max[1] - min[1]).max(1e-6);
+        let inv_slab_height = (num_slabs as f64) / height;
+        let mut slabs = vec![Vec::new(); num_slabs];
+        let max_slab = num_slabs as isize - 1;
+
+        for ring in rings {
+            let n = ring.len();
+            if n < 3 {
+                continue;
+            }
+            for i in 0..n {
+                let a = ring[i];
+                let b = ring[(i + 1) % n];
+                if a[1] == b[1] {
+                    continue;
+                }
+                let ey_min = a[1].min(b[1]);
+                let ey_max = a[1].max(b[1]);
+                let s0 = (((ey_min - y_min) * inv_slab_height).floor() as isize).clamp(0, max_slab)
+                    as usize;
+                let s1 = (((ey_max - y_min) * inv_slab_height).floor() as isize).clamp(0, max_slab)
+                    as usize;
+                for slab in &mut slabs[s0..=s1] {
+                    slab.push((a, b));
+                }
+            }
+        }
+
+        Self {
+            fill_rule,
+            bounds,
+            y_min,
+            inv_slab_height,
+            slabs,
+        }
+    }
+
+    #[inline]
+    fn contains(&self, pt: [f64; 2]) -> bool {
+        let Some((min, max)) = self.bounds else {
+            return false;
+        };
+        if pt[0] < min[0] || pt[0] > max[0] || pt[1] < min[1] || pt[1] > max[1] {
+            return false;
+        }
+        let max_slab = self.slabs.len() as isize - 1;
+        let slab_idx = (((pt[1] - self.y_min) * self.inv_slab_height).floor() as isize)
+            .clamp(0, max_slab) as usize;
+        let mut total_winding = 0i32;
+        for &(a, b) in &self.slabs[slab_idx] {
+            if a[1] <= pt[1] {
+                if b[1] > pt[1] {
+                    let cross = (b[0] - a[0]) * (pt[1] - a[1]) - (pt[0] - a[0]) * (b[1] - a[1]);
+                    if cross > 0.0 {
+                        total_winding += 1;
+                    }
+                }
+            } else if b[1] <= pt[1] {
+                let cross = (b[0] - a[0]) * (pt[1] - a[1]) - (pt[0] - a[0]) * (b[1] - a[1]);
+                if cross < 0.0 {
+                    total_winding -= 1;
+                }
+            }
+        }
+        match self.fill_rule {
+            FillRule::NonZero => total_winding != 0,
+            FillRule::EvenOdd => total_winding.rem_euclid(2) == 1,
+        }
+    }
+}
+
+fn ring_bounds(ring: &[[f64; 2]]) -> Option<([f64; 2], [f64; 2])> {
+    let mut min = [f64::INFINITY, f64::INFINITY];
+    let mut max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for &p in ring {
+        min[0] = min[0].min(p[0]);
+        min[1] = min[1].min(p[1]);
+        max[0] = max[0].max(p[0]);
+        max[1] = max[1].max(p[1]);
+    }
+    (!ring.is_empty()).then_some((min, max))
+}
+
 fn rings_bounds(rings: &[Vec<[f64; 2]>]) -> Option<([f64; 2], [f64; 2])> {
     let mut min = [f64::INFINITY, f64::INFINITY];
     let mut max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
@@ -546,6 +658,75 @@ fn rings_bounds(rings: &[Vec<[f64; 2]>]) -> Option<([f64; 2], [f64; 2])> {
     any.then_some((min, max))
 }
 
+fn segments_bounds(segs: &[([f64; 2], [f64; 2])]) -> Option<([f64; 2], [f64; 2])> {
+    let mut min = [f64::INFINITY, f64::INFINITY];
+    let mut max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for &(a, b) in segs {
+        min[0] = min[0].min(a[0]).min(b[0]);
+        min[1] = min[1].min(a[1]).min(b[1]);
+        max[0] = max[0].max(a[0]).max(b[0]);
+        max[1] = max[1].max(a[1]).max(b[1]);
+    }
+    (!segs.is_empty()).then_some((min, max))
+}
+
+fn commands_control_bounds(commands: &[PathCommand]) -> Option<([f64; 2], [f64; 2])> {
+    let mut min = [f64::INFINITY, f64::INFINITY];
+    let mut max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+    let mut any = false;
+    let mut include = |x: f64, y: f64| {
+        min[0] = min[0].min(x);
+        min[1] = min[1].min(y);
+        max[0] = max[0].max(x);
+        max[1] = max[1].max(y);
+        any = true;
+    };
+    for cmd in commands {
+        match *cmd {
+            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => include(x, y),
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                include(cx, cy);
+                include(x, y);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                include(cx1, cy1);
+                include(cx2, cy2);
+                include(x, y);
+            }
+            PathCommand::Close => {}
+        }
+    }
+    any.then_some((min, max))
+}
+
+fn is_identity_transform(transform: &Transform) -> bool {
+    transform.x.abs() <= 1e-9
+        && transform.y.abs() <= 1e-9
+        && (transform.scale_x - 1.0).abs() <= 1e-9
+        && (transform.scale_y - 1.0).abs() <= 1e-9
+        && transform.rotation.abs() <= 1e-9
+        && transform.skew.abs() <= 1e-9
+}
+
+fn element_fast_world_bounds(element: &Element) -> Option<([f64; 2], [f64; 2])> {
+    if is_identity_transform(&element.transform)
+        && let ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } =
+            &element.kind
+    {
+        return commands_control_bounds(commands);
+    }
+    let (cmds, _) = element_world_commands(element)?;
+    commands_control_bounds(&cmds)
+}
+
+#[inline]
 fn bounds_overlap(a: ([f64; 2], [f64; 2]), b: ([f64; 2], [f64; 2]), pad: f64) -> bool {
     a.0[0] - pad <= b.1[0]
         && a.1[0] + pad >= b.0[0]
@@ -602,49 +783,259 @@ fn segment_intersections(
     hits
 }
 
+/// Flat 2D bounding-volume hierarchy over line segments for sub-millisecond proximity and AABB queries.
+struct SegmentBvh {
+    indices: Vec<usize>,
+    nodes: Vec<BvhNode>,
+}
+
+#[derive(Clone, Copy)]
+struct BvhNode {
+    min: [f64; 2],
+    max: [f64; 2],
+    start: u32,
+    count: u32,
+    left: u32,
+    right: u32,
+}
+
+impl SegmentBvh {
+    fn from_segments(segments: &[([f64; 2], [f64; 2])]) -> Self {
+        let n = segments.len();
+        if n == 0 {
+            return Self {
+                indices: Vec::new(),
+                nodes: Vec::new(),
+            };
+        }
+        let item_bounds: Vec<([f64; 2], [f64; 2], [f64; 2])> = segments
+            .iter()
+            .map(|&(a, b)| {
+                let min = [a[0].min(b[0]), a[1].min(b[1])];
+                let max = [a[0].max(b[0]), a[1].max(b[1])];
+                let center = [(min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5];
+                (min, max, center)
+            })
+            .collect();
+        let mut indices: Vec<usize> = (0..n).collect();
+        let mut nodes = Vec::with_capacity(n.saturating_mul(2) / 4 + 2);
+        Self::build_node(&item_bounds, &mut indices, 0, n, &mut nodes);
+        Self { indices, nodes }
+    }
+
+    fn build_node(
+        item_bounds: &[([f64; 2], [f64; 2], [f64; 2])],
+        indices: &mut [usize],
+        start: usize,
+        end: usize,
+        nodes: &mut Vec<BvhNode>,
+    ) -> u32 {
+        let node_idx = nodes.len() as u32;
+        let mut min = [f64::INFINITY, f64::INFINITY];
+        let mut max = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for &idx in &indices[start..end] {
+            let (b_min, b_max, _) = item_bounds[idx];
+            min[0] = min[0].min(b_min[0]);
+            min[1] = min[1].min(b_min[1]);
+            max[0] = max[0].max(b_max[0]);
+            max[1] = max[1].max(b_max[1]);
+        }
+        let count = end - start;
+        nodes.push(BvhNode {
+            min,
+            max,
+            start: start as u32,
+            count: count as u32,
+            left: 0,
+            right: 0,
+        });
+        if count <= 8 {
+            return node_idx;
+        }
+        let axis = usize::from(max[1] - min[1] > max[0] - min[0]);
+        let mid = start + count / 2;
+        indices[start..end].select_nth_unstable_by(count / 2, |&i, &j| {
+            item_bounds[i].2[axis].total_cmp(&item_bounds[j].2[axis])
+        });
+        let left = Self::build_node(item_bounds, indices, start, mid, nodes);
+        let right = Self::build_node(item_bounds, indices, mid, end, nodes);
+        nodes[node_idx as usize].count = 0;
+        nodes[node_idx as usize].left = left;
+        nodes[node_idx as usize].right = right;
+        node_idx
+    }
+
+    #[inline]
+    fn node_within_dist(node: &BvhNode, pt: [f64; 2], radius: f64) -> bool {
+        pt[0] >= node.min[0] - radius
+            && pt[0] <= node.max[0] + radius
+            && pt[1] >= node.min[1] - radius
+            && pt[1] <= node.max[1] + radius
+    }
+
+    fn any_within_distance(
+        &self,
+        segments: &[([f64; 2], [f64; 2])],
+        pt: [f64; 2],
+        tol: f64,
+    ) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+        let mut stack = [0u32; 64];
+        let mut sp = 1usize;
+        while sp > 0 {
+            sp -= 1;
+            let node = &self.nodes[stack[sp] as usize];
+            if !Self::node_within_dist(node, pt, tol) {
+                continue;
+            }
+            if node.count > 0 {
+                let start = node.start as usize;
+                let end = start + node.count as usize;
+                for &seg_idx in &self.indices[start..end] {
+                    let (a, b) = segments[seg_idx];
+                    if point_to_segment_projection(pt, a, b).1 <= tol {
+                        return true;
+                    }
+                }
+            } else if sp + 2 <= stack.len() {
+                stack[sp] = node.right;
+                stack[sp + 1] = node.left;
+                sp += 2;
+            }
+        }
+        false
+    }
+
+    fn any_segment_intersections(
+        &self,
+        segments: &[([f64; 2], [f64; 2])],
+        a0: [f64; 2],
+        a1: [f64; 2],
+    ) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+        let s_min = [a0[0].min(a1[0]), a0[1].min(a1[1])];
+        let s_max = [a0[0].max(a1[0]), a0[1].max(a1[1])];
+        let pad = SNAP_EPS * 2.0;
+        let mut stack = [0u32; 64];
+        let mut sp = 1usize;
+        while sp > 0 {
+            sp -= 1;
+            let node = &self.nodes[stack[sp] as usize];
+            if !bounds_overlap((node.min, node.max), (s_min, s_max), pad) {
+                continue;
+            }
+            if node.count > 0 {
+                let start = node.start as usize;
+                let end = start + node.count as usize;
+                for &seg_idx in &self.indices[start..end] {
+                    let (b0, b1) = segments[seg_idx];
+                    let b_min = [b0[0].min(b1[0]), b0[1].min(b1[1])];
+                    let b_max = [b0[0].max(b1[0]), b0[1].max(b1[1])];
+                    if bounds_overlap((s_min, s_max), (b_min, b_max), pad)
+                        && !segment_intersections(a0, a1, b0, b1).is_empty()
+                    {
+                        return true;
+                    }
+                }
+            } else if sp + 2 <= stack.len() {
+                stack[sp] = node.right;
+                stack[sp + 1] = node.left;
+                sp += 2;
+            }
+        }
+        false
+    }
+}
+
 struct PlanarGraph {
     vertices: Vec<[f64; 2]>,
     edges: Vec<(usize, usize)>,
+    edge_bvh: SegmentBvh,
 }
 
 impl PlanarGraph {
-    fn from_segments(raw_segments: &[([f64; 2], [f64; 2])]) -> Self {
+    fn from_segments_with_chains(raw_segments: &[([f64; 2], [f64; 2])]) -> (Self, Vec<Vec<usize>>) {
         let n = raw_segments.len();
         let mut params: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; n];
 
-        for i in 0..n {
-            let (a0, a1) = raw_segments[i];
-            let a_min = [a0[0].min(a1[0]), a0[1].min(a1[1])];
-            let a_max = [a0[0].max(a1[0]), a0[1].max(a1[1])];
-            for j in (i + 1)..n {
-                let (b0, b1) = raw_segments[j];
-                let b_min = [b0[0].min(b1[0]), b0[1].min(b1[1])];
-                let b_max = [b0[0].max(b1[0]), b0[1].max(b1[1])];
-                if !bounds_overlap((a_min, a_max), (b_min, b_max), SNAP_EPS * 2.0) {
+        // 1. Sweep-line sorted by segment min_x so we only test pairs whose X-intervals overlap.
+        let seg_bounds: Vec<([f64; 2], [f64; 2])> = raw_segments
+            .iter()
+            .map(|&(a0, a1)| {
+                (
+                    [a0[0].min(a1[0]), a0[1].min(a1[1])],
+                    [a0[0].max(a1[0]), a0[1].max(a1[1])],
+                )
+            })
+            .collect();
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_unstable_by(|&i, &j| {
+            seg_bounds[i].0[0]
+                .total_cmp(&seg_bounds[j].0[0])
+                .then(i.cmp(&j))
+        });
+
+        let pad = SNAP_EPS * 2.0;
+        for (idx_a, &i) in order.iter().enumerate() {
+            let (a_min, a_max) = seg_bounds[i];
+            let x_limit = a_max[0] + pad;
+            for &j in &order[(idx_a + 1)..] {
+                let (b_min, b_max) = seg_bounds[j];
+                if b_min[0] > x_limit {
+                    break;
+                }
+                if a_min[1] - pad > b_max[1] || a_max[1] + pad < b_min[1] {
                     continue;
                 }
+                let (first, second) = if i < j { (i, j) } else { (j, i) };
+                let (a0, a1) = raw_segments[first];
+                let (b0, b1) = raw_segments[second];
                 for (t, u) in segment_intersections(a0, a1, b0, b1) {
-                    params[i].push(t);
-                    params[j].push(u);
+                    params[first].push(t);
+                    params[second].push(u);
                 }
             }
         }
 
+        // 2. Spatial hash grid over canonical vertices (cell size = 2 * SNAP_EPS) so vertex
+        // interning is O(1) while returning the exact same lowest matching index.
         let mut vertices: Vec<[f64; 2]> = Vec::new();
+        let inv_cell = 1.0 / (SNAP_EPS * 2.0);
+        let mut vertex_grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::with_capacity(n.saturating_mul(2));
         let mut intern_vertex = |pt: [f64; 2]| -> usize {
-            if let Some(idx) = vertices
-                .iter()
-                .position(|&v| dist_sq(v, pt) <= SNAP_EPS * SNAP_EPS)
-            {
+            let gx = (pt[0] * inv_cell).floor() as i64;
+            let gy = (pt[1] * inv_cell).floor() as i64;
+            let mut best: Option<usize> = None;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if let Some(bucket) = vertex_grid.get(&(gx + dx, gy + dy)) {
+                        for &idx in bucket {
+                            if best.is_none_or(|b| idx < b)
+                                && dist_sq(vertices[idx], pt) <= SNAP_EPS * SNAP_EPS
+                            {
+                                best = Some(idx);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(idx) = best {
                 idx
             } else {
                 let idx = vertices.len();
                 vertices.push(pt);
+                vertex_grid.entry((gx, gy)).or_default().push(idx);
                 idx
             }
         };
 
-        let mut initial_edges: Vec<(usize, usize)> = Vec::new();
+        let mut seg_initial: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+        let mut unique_initial: Vec<(usize, usize)> = Vec::new();
         for (i, (a0, a1)) in raw_segments.iter().enumerate() {
             let ps = &mut params[i];
             ps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -661,23 +1052,49 @@ impl PlanarGraph {
                 let u = intern_vertex(p0);
                 let v = intern_vertex(p1);
                 if u != v {
-                    initial_edges.push((u, v));
+                    seg_initial[i].push((u, v));
+                    let key = if u < v { (u, v) } else { (v, u) };
+                    unique_initial.push(key);
                 }
             }
         }
+        unique_initial.sort_unstable();
+        unique_initial.dedup();
 
-        // Split any edge that passes within SNAP_EPS of an existing canonical vertex.
-        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(initial_edges.len());
-        for (u, v) in initial_edges {
+        // 3. Split any edge that passes within SNAP_EPS of an existing canonical vertex using
+        // X-sorted vertices to avoid scanning vertices outside the edge's expanded AABB.
+        let mut verts_by_x: Vec<(f64, usize)> = vertices
+            .iter()
+            .enumerate()
+            .map(|(idx, pt)| (pt[0], idx))
+            .collect();
+        verts_by_x.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(unique_initial.len());
+        let mut initial_split_chains: Vec<Vec<usize>> = Vec::with_capacity(unique_initial.len());
+        for &(u, v) in &unique_initial {
             let a = vertices[u];
             let b = vertices[v];
             let seg_len = dist(a, b);
             if seg_len <= SNAP_EPS {
+                initial_split_chains.push(vec![u, v]);
                 continue;
             }
+            let min_x = a[0].min(b[0]) - SNAP_EPS;
+            let max_x = a[0].max(b[0]) + SNAP_EPS;
+            let min_y = a[1].min(b[1]) - SNAP_EPS;
+            let max_y = a[1].max(b[1]) + SNAP_EPS;
+            let start = verts_by_x.partition_point(|&(x, _)| x < min_x);
             let mut splits: Vec<(f64, usize)> = vec![(0.0, u), (1.0, v)];
-            for (w_idx, &w_pt) in vertices.iter().enumerate() {
+            for &(x, w_idx) in &verts_by_x[start..] {
+                if x > max_x {
+                    break;
+                }
                 if w_idx == u || w_idx == v {
+                    continue;
+                }
+                let w_pt = vertices[w_idx];
+                if w_pt[1] < min_y || w_pt[1] > max_y {
                     continue;
                 }
                 let (t, d) = point_to_segment_projection(w_pt, a, b);
@@ -685,21 +1102,70 @@ impl PlanarGraph {
                     splits.push((t, w_idx));
                 }
             }
-            splits.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal));
-            for pair in splits.windows(2) {
-                let s0 = pair[0].1;
-                let s1 = pair[1].1;
+            splits.sort_by(|x, y| {
+                x.0.partial_cmp(&y.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(x.1.cmp(&y.1))
+            });
+            let mut chain = Vec::with_capacity(splits.len());
+            for &(_, idx) in &splits {
+                if chain.last().copied() != Some(idx) {
+                    chain.push(idx);
+                }
+            }
+            for pair in chain.windows(2) {
+                let s0 = pair[0];
+                let s1 = pair[1];
                 if s0 != s1 {
                     let key = if s0 < s1 { (s0, s1) } else { (s1, s0) };
                     edges.push(key);
                 }
             }
+            initial_split_chains.push(chain);
+        }
+
+        let mut seg_chains: Vec<Vec<usize>> = Vec::with_capacity(n);
+        for init_list in &seg_initial {
+            let mut full_chain: Vec<usize> = Vec::new();
+            for &(u, v) in init_list {
+                let key = if u < v { (u, v) } else { (v, u) };
+                if let Ok(pos) = unique_initial.binary_search(&key) {
+                    let sub = &initial_split_chains[pos];
+                    if u < v {
+                        for &vx in sub {
+                            if full_chain.last().copied() != Some(vx) {
+                                full_chain.push(vx);
+                            }
+                        }
+                    } else {
+                        for &vx in sub.iter().rev() {
+                            if full_chain.last().copied() != Some(vx) {
+                                full_chain.push(vx);
+                            }
+                        }
+                    }
+                }
+            }
+            seg_chains.push(full_chain);
         }
 
         edges.sort_unstable();
         edges.dedup();
 
-        Self { vertices, edges }
+        let edge_segs: Vec<([f64; 2], [f64; 2])> = edges
+            .iter()
+            .map(|&(u, v)| (vertices[u], vertices[v]))
+            .collect();
+        let edge_bvh = SegmentBvh::from_segments(&edge_segs);
+
+        (
+            Self {
+                vertices,
+                edges,
+                edge_bvh,
+            },
+            seg_chains,
+        )
     }
 
     fn probe_points(&self, edge_idx: usize) -> Option<([f64; 2], [f64; 2])> {
@@ -717,16 +1183,37 @@ impl PlanarGraph {
         let ny = dx / len;
 
         let mut min_dist: f64 = 0.2;
-        for (other_idx, &(ou, ov)) in self.edges.iter().enumerate() {
-            if other_idx == edge_idx {
-                continue;
-            }
-            let (_, d) = point_to_segment_projection(mid, self.vertices[ou], self.vertices[ov]);
-            if d > 1e-6 && d < min_dist {
-                min_dist = d;
+        if !self.edge_bvh.nodes.is_empty() {
+            let mut stack = [0u32; 64];
+            let mut sp = 1usize;
+            while sp > 0 {
+                sp -= 1;
+                let node = &self.edge_bvh.nodes[stack[sp] as usize];
+                if !SegmentBvh::node_within_dist(node, mid, min_dist) {
+                    continue;
+                }
+                if node.count > 0 {
+                    let start = node.start as usize;
+                    let end = start + node.count as usize;
+                    for &other_idx in &self.edge_bvh.indices[start..end] {
+                        if other_idx == edge_idx {
+                            continue;
+                        }
+                        let (ou, ov) = self.edges[other_idx];
+                        let (_, d) =
+                            point_to_segment_projection(mid, self.vertices[ou], self.vertices[ov]);
+                        if d > 1e-9 && d < min_dist {
+                            min_dist = d;
+                        }
+                    }
+                } else if sp + 2 <= stack.len() {
+                    stack[sp] = node.right;
+                    stack[sp + 1] = node.left;
+                    sp += 2;
+                }
             }
         }
-        let delta = (min_dist * 0.25).clamp(1e-4, 0.05);
+        let delta = (min_dist * 0.25).clamp(1e-7, 0.05);
         let p_left = [mid[0] + nx * delta, mid[1] + ny * delta];
         let p_right = [mid[0] - nx * delta, mid[1] - ny * delta];
         Some((p_left, p_right))
@@ -746,6 +1233,308 @@ fn rings_to_segments(rings: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2])> {
     segs
 }
 
+/// When a `NonZero` compound path consists of many same-orientation contours (such as the
+/// overlapping circles, quads, or triangles of a Brush stroke), any sub-segment that lies deep
+/// inside another contour can never be part of the union boundary. Clipping each segment against
+/// overlapping contours (visiting immediate index neighbors first, while keeping a `4 * SNAP_EPS`
+/// crossing stub whenever an edge enters/exits a contour so `PlanarGraph` still computes exact
+/// boundary intersections) eliminates the 20-to-40-deep internal dab pileup before building
+/// `PlanarGraph`.
+fn cull_and_clip_union_segments_with_map(
+    rings: &[Vec<[f64; 2]>],
+    fill_rule: FillRule,
+) -> (Vec<([f64; 2], [f64; 2])>, Vec<Vec<Option<usize>>>) {
+    let all_without_cull = |rings: &[Vec<[f64; 2]>]| {
+        let mut segs = Vec::new();
+        let mut map = Vec::with_capacity(rings.len());
+        for ring in rings {
+            if ring.len() < 3 {
+                map.push(Vec::new());
+                continue;
+            }
+            let mut r_map = Vec::with_capacity(ring.len());
+            for i in 0..ring.len() {
+                let a0 = ring[i];
+                let a1 = ring[(i + 1) % ring.len()];
+                if dist_sq(a0, a1) <= SNAP_EPS * SNAP_EPS {
+                    r_map.push(None);
+                } else {
+                    let idx = segs.len();
+                    segs.push((a0, a1));
+                    r_map.push(Some(idx));
+                }
+            }
+            map.push(r_map);
+        }
+        (segs, map)
+    };
+
+    if fill_rule != FillRule::NonZero || rings.len() <= 4 {
+        return all_without_cull(rings);
+    }
+    let mut pos_count = 0usize;
+    let mut neg_count = 0usize;
+    let mut ring_bboxes: Vec<Option<([f64; 2], [f64; 2])>> = Vec::with_capacity(rings.len());
+    for ring in rings {
+        if ring.len() < 3 {
+            ring_bboxes.push(None);
+            continue;
+        }
+        let area = signed_ring_area(ring);
+        if area > AREA_EPS {
+            pos_count += 1;
+        } else if area < -AREA_EPS {
+            neg_count += 1;
+        }
+        ring_bboxes.push(ring_bounds(ring));
+    }
+    // Only pre-cull pure unions (all rings have the same winding sign; no subtractive holes).
+    if pos_count > 0 && neg_count > 0 {
+        return all_without_cull(rings);
+    }
+
+    let n_rings = rings.len();
+    // Sort ring indices by min_x for fast non-local overlap lookup.
+    let mut rings_by_x: Vec<(f64, usize)> = ring_bboxes
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, b)| b.map(|(min, _)| (min[0], idx)))
+        .collect();
+    rings_by_x.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let max_ring_width = ring_bboxes
+        .iter()
+        .flatten()
+        .map(|(min, max)| max[0] - min[0])
+        .fold(0.0_f64, f64::max);
+
+    let point_deep_inside_ring =
+        |pt: [f64; 2], other_ring: &[[f64; 2]], other_bbox: ([f64; 2], [f64; 2])| -> bool {
+            let margin = SNAP_EPS * 2.0;
+            if pt[0] <= other_bbox.0[0] + margin
+                || pt[0] >= other_bbox.1[0] - margin
+                || pt[1] <= other_bbox.0[1] + margin
+                || pt[1] >= other_bbox.1[1] - margin
+            {
+                return false;
+            }
+            if ring_winding_number(pt, other_ring) == 0 {
+                return false;
+            }
+            let m = other_ring.len();
+            !(0..m).any(|k| {
+                point_to_segment_projection(pt, other_ring[k], other_ring[(k + 1) % m]).1 <= margin
+            })
+        };
+
+    let segment_strictly_inside_ring = |a0: [f64; 2],
+                                        a1: [f64; 2],
+                                        a_min: [f64; 2],
+                                        a_max: [f64; 2],
+                                        other_ring: &[[f64; 2]],
+                                        other_bbox: ([f64; 2], [f64; 2])|
+     -> bool {
+        let margin = SNAP_EPS * 2.0;
+        if a_min[0] <= other_bbox.0[0] + margin
+            || a_max[0] >= other_bbox.1[0] - margin
+            || a_min[1] <= other_bbox.0[1] + margin
+            || a_max[1] >= other_bbox.1[1] - margin
+        {
+            return false;
+        }
+        let mid = [(a0[0] + a1[0]) * 0.5, (a0[1] + a1[1]) * 0.5];
+        if !point_deep_inside_ring(a0, other_ring, other_bbox)
+            || !point_deep_inside_ring(a1, other_ring, other_bbox)
+            || !point_deep_inside_ring(mid, other_ring, other_bbox)
+        {
+            return false;
+        }
+        let m = other_ring.len();
+        for k in 0..m {
+            let b0 = other_ring[k];
+            let b1 = other_ring[(k + 1) % m];
+            let b_min = [b0[0].min(b1[0]), b0[1].min(b1[1])];
+            let b_max = [b0[0].max(b1[0]), b0[1].max(b1[1])];
+            if !bounds_overlap((a_min, a_max), (b_min, b_max), margin) {
+                continue;
+            }
+            if !segment_intersections(a0, a1, b0, b1).is_empty()
+                || point_to_segment_projection(b0, a0, a1).1 <= margin
+                || point_to_segment_projection(b1, a0, a1).1 <= margin
+            {
+                return false;
+            }
+        }
+        true
+    };
+
+    let local_window = 24usize;
+    let mut out_segments = Vec::new();
+    let mut ring_map = Vec::with_capacity(rings.len());
+    for (r_idx, ring) in rings.iter().enumerate() {
+        let len = ring.len();
+        if len < 3 {
+            ring_map.push(Vec::new());
+            continue;
+        }
+        let mut r_edges = Vec::with_capacity(len);
+        'edge_loop: for edge_i in 0..len {
+            let a0 = ring[edge_i];
+            let a1 = ring[(edge_i + 1) % len];
+            let seg_len = dist(a0, a1);
+            if seg_len <= SNAP_EPS {
+                r_edges.push(None);
+                continue;
+            }
+            let a_min = [a0[0].min(a1[0]), a0[1].min(a1[1])];
+            let a_max = [a0[0].max(a1[0]), a0[1].max(a1[1])];
+
+            // 1. Check immediate index neighbors first (consecutive brush dabs/quads).
+            for delta in 1..=local_window {
+                for cand in [r_idx.checked_sub(delta), r_idx.checked_add(delta)]
+                    .into_iter()
+                    .flatten()
+                {
+                    if cand < n_rings
+                        && let Some(other_bbox) = ring_bboxes[cand]
+                        && segment_strictly_inside_ring(
+                            a0,
+                            a1,
+                            a_min,
+                            a_max,
+                            &rings[cand],
+                            other_bbox,
+                        )
+                    {
+                        r_edges.push(None);
+                        continue 'edge_loop;
+                    }
+                }
+            }
+
+            // 2. Check any non-local rings whose X-interval can overlap `[a_min[0], a_max[0]]`.
+            let search_min_x = a_min[0] - max_ring_width - SNAP_EPS * 2.0;
+            let search_max_x = a_max[0] + SNAP_EPS * 2.0;
+            let start = rings_by_x.partition_point(|&(x, _)| x < search_min_x);
+            for &(x, other_idx) in &rings_by_x[start..] {
+                if x > search_max_x {
+                    break;
+                }
+                if other_idx.abs_diff(r_idx) <= local_window {
+                    continue;
+                }
+                if let Some(other_bbox) = ring_bboxes[other_idx]
+                    && segment_strictly_inside_ring(
+                        a0,
+                        a1,
+                        a_min,
+                        a_max,
+                        &rings[other_idx],
+                        other_bbox,
+                    )
+                {
+                    r_edges.push(None);
+                    continue 'edge_loop;
+                }
+            }
+
+            let idx = out_segments.len();
+            out_segments.push((a0, a1));
+            r_edges.push(Some(idx));
+        }
+        ring_map.push(r_edges);
+    }
+    (out_segments, ring_map)
+}
+
+fn build_snapped_rings(
+    rings: &[Vec<[f64; 2]>],
+    ring_map: &[Vec<Option<usize>>],
+    seg_offset: usize,
+    vertices: &[[f64; 2]],
+    seg_chains: &[Vec<usize>],
+) -> Vec<Vec<[f64; 2]>> {
+    let mut snapped = Vec::with_capacity(rings.len());
+    for (r_idx, ring) in rings.iter().enumerate() {
+        let len = ring.len();
+        if len < 3 || r_idx >= ring_map.len() || ring_map[r_idx].len() != len {
+            continue;
+        }
+        let r_edges = &ring_map[r_idx];
+        let mut pts: Vec<[f64; 2]> = Vec::with_capacity(len * 2);
+        for edge_i in 0..len {
+            if let Some(local_idx) = r_edges[edge_i]
+                && let Some(chain) = seg_chains.get(seg_offset + local_idx)
+                && !chain.is_empty()
+            {
+                for &vx in chain {
+                    let p = vertices[vx];
+                    if pts.last().is_none_or(|&last| dist_sq(last, p) > 1e-18) {
+                        pts.push(p);
+                    }
+                }
+            } else {
+                let prev_i = (edge_i + len - 1) % len;
+                let prev_had_chain = r_edges[prev_i]
+                    .and_then(|idx| seg_chains.get(seg_offset + idx))
+                    .is_some_and(|c| !c.is_empty());
+                if !prev_had_chain {
+                    let p = ring[edge_i];
+                    if pts.last().is_none_or(|&last| dist_sq(last, p) > 1e-18) {
+                        pts.push(p);
+                    }
+                }
+            }
+        }
+        if pts.len() >= 2 && dist_sq(pts[0], *pts.last().unwrap()) <= 1e-18 {
+            pts.pop();
+        }
+        if pts.len() >= 3 {
+            snapped.push(pts);
+        }
+    }
+    snapped
+}
+
+/// Dissolve a multi-contour fill (such as a Brush stroke composed of overlapping circles/quads/triangles)
+/// into its exterior boundary shells and interior holes.
+fn dissolve_rings_to_islands(
+    rings: &[Vec<[f64; 2]>],
+    fill_rule: FillRule,
+) -> Vec<Vec<PathCommand>> {
+    if rings.is_empty() {
+        return Vec::new();
+    }
+    let (culled_segments, ring_map) = cull_and_clip_union_segments_with_map(rings, fill_rule);
+    let (graph, seg_chains) = PlanarGraph::from_segments_with_chains(&culled_segments);
+    let snapped_rings = build_snapped_rings(rings, &ring_map, 0, &graph.vertices, &seg_chains);
+    let prepared = PreparedRings::new(&snapped_rings, fill_rule);
+    let mut boundary_half_edges = Vec::new();
+    for edge_idx in 0..graph.edges.len() {
+        let Some((p_left, p_right)) = graph.probe_points(edge_idx) else {
+            continue;
+        };
+        let left_in = prepared.contains(p_left);
+        let right_in = prepared.contains(p_right);
+        let (u, v) = graph.edges[edge_idx];
+        if left_in && !right_in {
+            boundary_half_edges.push((u, v));
+        } else if !left_in && right_in {
+            boundary_half_edges.push((v, u));
+        }
+    }
+    let cycles = trace_half_edge_cycles(&graph.vertices, &boundary_half_edges);
+    let traced_rings: Vec<Vec<[f64; 2]>> = cycles
+        .into_iter()
+        .map(|cycle| {
+            cycle
+                .into_iter()
+                .map(|he_idx| graph.vertices[boundary_half_edges[he_idx].0])
+                .collect()
+        })
+        .collect();
+    assemble_shells_and_holes(traced_rings)
+}
+
 /// Only edges separating filled and unfilled space are fill boundaries. A compound path can
 /// contain adjacent/overlapping contours (including the triangles of an authored Brush stroke);
 /// their internal edges must not cut artwork or split another stroke. Winding-based occupancy
@@ -754,15 +1543,18 @@ fn fill_boundary_segments(
     rings: &[Vec<[f64; 2]>],
     fill_rule: FillRule,
 ) -> Vec<([f64; 2], [f64; 2])> {
-    let graph = PlanarGraph::from_segments(&rings_to_segments(rings));
+    let (culled_segments, ring_map) = cull_and_clip_union_segments_with_map(rings, fill_rule);
+    let (graph, seg_chains) = PlanarGraph::from_segments_with_chains(&culled_segments);
+    let snapped_rings = build_snapped_rings(rings, &ring_map, 0, &graph.vertices, &seg_chains);
+    let prepared = PreparedRings::new(&snapped_rings, fill_rule);
     let boundary_half_edges: Vec<_> = graph
         .edges
         .iter()
         .enumerate()
         .filter_map(|(edge_idx, &(u, v))| {
             let (left, right) = graph.probe_points(edge_idx)?;
-            let left_in = point_in_rings(left, rings, fill_rule);
-            let right_in = point_in_rings(right, rings, fill_rule);
+            let left_in = prepared.contains(left);
+            let right_in = prepared.contains(right);
             match (left_in, right_in) {
                 (true, false) => Some((u, v)),
                 (false, true) => Some((v, u)),
@@ -845,8 +1637,62 @@ fn trace_half_edge_cycles(vertices: &[[f64; 2]], half_edges: &[(usize, usize)]) 
     if half_edges.is_empty() {
         return Vec::new();
     }
-    let mut outgoing: Vec<Vec<(usize, f64)>> = vec![Vec::new(); vertices.len()];
+    let n_verts = vertices.len();
+    let n_he = half_edges.len();
+
+    // Iteratively prune dead-end half-edges (where `u` has no incoming active half-edge or `v`
+    // has no outgoing active half-edge) so dangling spurs can never divert a cycle walk into a
+    // dead end.
+    let mut in_deg = vec![0u32; n_verts];
+    let mut out_deg = vec![0u32; n_verts];
+    let mut in_edges: Vec<Vec<usize>> = vec![Vec::new(); n_verts];
+    let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n_verts];
     for (idx, &(u, v)) in half_edges.iter().enumerate() {
+        out_deg[u] += 1;
+        in_deg[v] += 1;
+        out_edges[u].push(idx);
+        in_edges[v].push(idx);
+    }
+    let mut active = vec![true; n_he];
+    let mut queue: Vec<usize> = (0..n_he)
+        .filter(|&idx| {
+            let (u, v) = half_edges[idx];
+            in_deg[u] == 0 || out_deg[v] == 0
+        })
+        .collect();
+    for &idx in &queue {
+        active[idx] = false;
+    }
+    let mut q_head = 0usize;
+    while q_head < queue.len() {
+        let idx = queue[q_head];
+        q_head += 1;
+        let (u, v) = half_edges[idx];
+        out_deg[u] = out_deg[u].saturating_sub(1);
+        in_deg[v] = in_deg[v].saturating_sub(1);
+        if out_deg[u] == 0 {
+            for &in_he in &in_edges[u] {
+                if active[in_he] {
+                    active[in_he] = false;
+                    queue.push(in_he);
+                }
+            }
+        }
+        if in_deg[v] == 0 {
+            for &out_he in &out_edges[v] {
+                if active[out_he] {
+                    active[out_he] = false;
+                    queue.push(out_he);
+                }
+            }
+        }
+    }
+
+    let mut outgoing: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n_verts];
+    for (idx, &(u, v)) in half_edges.iter().enumerate() {
+        if !active[idx] {
+            continue;
+        }
         let a = vertices[u];
         let b = vertices[v];
         let dy = if (b[1] - a[1]).abs() == 0.0 {
@@ -861,16 +1707,15 @@ fn trace_half_edge_cycles(vertices: &[[f64; 2]], half_edges: &[(usize, usize)]) 
         list.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     }
 
-    let mut visited = vec![false; half_edges.len()];
+    let mut visited = vec![false; n_he];
     let mut cycles = Vec::new();
 
-    for start_idx in 0..half_edges.len() {
-        if visited[start_idx] {
+    for start_idx in 0..n_he {
+        if !active[start_idx] || visited[start_idx] {
             continue;
         }
         let mut cycle_edges = Vec::new();
         let mut curr = start_idx;
-        let mut closed = false;
         while !visited[curr] {
             visited[curr] = true;
             cycle_edges.push(curr);
@@ -890,14 +1735,14 @@ fn trace_half_edge_cycles(vertices: &[[f64; 2]], half_edges: &[(usize, usize)]) 
             let idx_first_ge = list.partition_point(|&(_, ang)| ang < rev_angle - 1e-9);
             let next_pos = (idx_first_ge + list.len() - 1) % list.len();
             let next_he = list[next_pos].0;
-            if next_he == start_idx {
-                closed = true;
+            if let Some(pos) = cycle_edges.iter().position(|&he| he == next_he) {
+                let sub_cycle = cycle_edges[pos..].to_vec();
+                if sub_cycle.len() >= 3 {
+                    cycles.push(sub_cycle);
+                }
                 break;
             }
             curr = next_he;
-        }
-        if closed && cycle_edges.len() >= 3 {
-            cycles.push(cycle_edges);
         }
     }
     cycles
@@ -981,7 +1826,7 @@ fn polyline_to_commands(poly: &[[f64; 2]]) -> Vec<PathCommand> {
 }
 
 fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>> {
-    type Shell = (Vec<[f64; 2]>, f64, Vec<Vec<[f64; 2]>>);
+    type Shell = (Vec<[f64; 2]>, f64, ([f64; 2], [f64; 2]), Vec<Vec<[f64; 2]>>);
     let mut shells: Vec<Shell> = Vec::new();
     let mut holes: Vec<Vec<[f64; 2]>> = Vec::new();
 
@@ -992,7 +1837,9 @@ fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>>
         }
         let area = signed_ring_area(&ring);
         if area > AREA_EPS {
-            shells.push((ring, area, Vec::new()));
+            if let Some(bbox) = ring_bounds(&ring) {
+                shells.push((ring, area, bbox, Vec::new()));
+            }
         } else if area < -AREA_EPS {
             holes.push(ring);
         }
@@ -1008,7 +1855,14 @@ fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>>
             .iter()
             .copied()
             .find(|&pt| {
-                !shells.iter().any(|(shell, _, _)| {
+                !shells.iter().any(|(shell, _, (s_min, s_max), _)| {
+                    if pt[0] < s_min[0] - SNAP_EPS
+                        || pt[0] > s_max[0] + SNAP_EPS
+                        || pt[1] < s_min[1] - SNAP_EPS
+                        || pt[1] > s_max[1] + SNAP_EPS
+                    {
+                        return false;
+                    }
                     (0..shell.len()).any(|i| {
                         point_to_segment_projection(pt, shell[i], shell[(i + 1) % shell.len()]).1
                             <= SNAP_EPS
@@ -1016,15 +1870,24 @@ fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>>
                 })
             })
             .unwrap_or(hole[0]);
-        if let Some((_, _, shell_holes)) = shells.iter_mut().find(|(shell, shell_area, _)| {
-            *shell_area > hole_area && ring_winding_number(sample, shell) != 0
-        }) {
+        if let Some((_, _, _, shell_holes)) =
+            shells
+                .iter_mut()
+                .find(|(shell, shell_area, (s_min, s_max), _)| {
+                    *shell_area > hole_area
+                        && sample[0] >= s_min[0]
+                        && sample[0] <= s_max[0]
+                        && sample[1] >= s_min[1]
+                        && sample[1] <= s_max[1]
+                        && ring_winding_number(sample, shell) != 0
+                })
+        {
             shell_holes.push(hole);
         }
     }
 
     let mut result = Vec::with_capacity(shells.len());
-    for (shell, _, shell_holes) in shells {
+    for (shell, _, _, shell_holes) in shells {
         let mut cmds = ring_to_commands(&shell);
         for hole in shell_holes {
             cmds.extend(ring_to_commands(&hole));
@@ -1058,21 +1921,74 @@ pub fn boolean_rings(
     rule_b: FillRule,
     op: BooleanOp,
 ) -> Vec<Vec<PathCommand>> {
+    boolean_rings_with_interaction(rings_a, rule_a, rings_b, rule_b, op).0
+}
+
+fn rings_interact_with_prepared(
+    rings_a: &[Vec<[f64; 2]>],
+    rule_a: FillRule,
+    bbox_a: ([f64; 2], [f64; 2]),
+    segs_b: &[([f64; 2], [f64; 2])],
+    bvh_b: &SegmentBvh,
+    prepared_b: &PreparedRings,
+    rings_b: &[Vec<[f64; 2]>],
+) -> bool {
+    for ring in rings_a {
+        let len = ring.len();
+        if len < 3 {
+            continue;
+        }
+        if prepared_b.contains(ring[0]) {
+            return true;
+        }
+        for i in 0..len {
+            let a0 = ring[i];
+            let a1 = ring[(i + 1) % len];
+            if bvh_b.any_segment_intersections(segs_b, a0, a1) {
+                return true;
+            }
+        }
+    }
+    let pad = SNAP_EPS * 2.0;
+    for ring in rings_b {
+        if let Some(&pt) = ring.first()
+            && pt[0] >= bbox_a.0[0] - pad
+            && pt[0] <= bbox_a.1[0] + pad
+            && pt[1] >= bbox_a.0[1] - pad
+            && pt[1] <= bbox_a.1[1] + pad
+            && point_in_rings(pt, rings_a, rule_a)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn boolean_rings_with_interaction(
+    rings_a: &[Vec<[f64; 2]>],
+    rule_a: FillRule,
+    rings_b: &[Vec<[f64; 2]>],
+    rule_b: FillRule,
+    op: BooleanOp,
+) -> (Vec<Vec<PathCommand>>, bool) {
     if rings_a.is_empty() {
         return match op {
-            BooleanOp::Union | BooleanOp::Xor => assemble_shells_and_holes(
-                rings_b
-                    .iter()
-                    .cloned()
-                    .map(|mut r| {
-                        if signed_ring_area(&r) < 0.0 {
-                            r.reverse();
-                        }
-                        r
-                    })
-                    .collect(),
+            BooleanOp::Union | BooleanOp::Xor => (
+                assemble_shells_and_holes(
+                    rings_b
+                        .iter()
+                        .cloned()
+                        .map(|mut r| {
+                            if signed_ring_area(&r) < 0.0 {
+                                r.reverse();
+                            }
+                            r
+                        })
+                        .collect(),
+                ),
+                !rings_b.is_empty(),
             ),
-            BooleanOp::Intersection | BooleanOp::Difference => Vec::new(),
+            BooleanOp::Intersection | BooleanOp::Difference => (Vec::new(), false),
         };
     }
     if rings_b.is_empty() {
@@ -1083,32 +1999,70 @@ pub fn boolean_rings(
                     cmds.extend(ring_to_commands(r));
                 }
                 if cmds.is_empty() {
-                    Vec::new()
+                    (Vec::new(), false)
                 } else {
-                    vec![cmds]
+                    (vec![cmds], false)
                 }
             }
-            BooleanOp::Intersection => Vec::new(),
+            BooleanOp::Intersection => (Vec::new(), false),
         };
     }
 
-    let mut segments = rings_to_segments(rings_a);
-    segments.extend(rings_to_segments(rings_b));
-    let graph = PlanarGraph::from_segments(&segments);
+    let (mut segments, map_a) = cull_and_clip_union_segments_with_map(rings_a, rule_a);
+    let offset_b = segments.len();
+    let (segs_b, mut map_b) = cull_and_clip_union_segments_with_map(rings_b, rule_b);
+    if matches!(op, BooleanOp::Difference | BooleanOp::Intersection)
+        && let Some(bbox_a) = rings_bounds(rings_a)
+    {
+        let pad = SNAP_EPS * 4.0;
+        let mut filtered_segs_b = Vec::new();
+        let mut remap = vec![None; segs_b.len()];
+        for (old_idx, &(b0, b1)) in segs_b.iter().enumerate() {
+            let b_min = [b0[0].min(b1[0]), b0[1].min(b1[1])];
+            let b_max = [b0[0].max(b1[0]), b0[1].max(b1[1])];
+            if bounds_overlap(bbox_a, (b_min, b_max), pad) {
+                let new_idx = filtered_segs_b.len();
+                filtered_segs_b.push((b0, b1));
+                remap[old_idx] = Some(new_idx);
+            }
+        }
+        for r_edges in &mut map_b {
+            for edge_opt in r_edges {
+                if let Some(old_idx) = *edge_opt {
+                    *edge_opt = remap[old_idx];
+                }
+            }
+        }
+        segments.extend(filtered_segs_b);
+    } else {
+        segments.extend(segs_b);
+    }
+    let (graph, seg_chains) = PlanarGraph::from_segments_with_chains(&segments);
+    let snapped_a = build_snapped_rings(rings_a, &map_a, 0, &graph.vertices, &seg_chains);
+    let snapped_b = build_snapped_rings(rings_b, &map_b, offset_b, &graph.vertices, &seg_chains);
+    let prepared_a = PreparedRings::new(&snapped_a, rule_a);
+    let prepared_b = PreparedRings::new(&snapped_b, rule_b);
 
     let mut boundary_half_edges = Vec::new();
+    let mut interacted = false;
     for edge_idx in 0..graph.edges.len() {
         let Some((p_left, p_right)) = graph.probe_points(edge_idx) else {
             continue;
         };
-        let keep_left = op.eval(
-            point_in_rings(p_left, rings_a, rule_a),
-            point_in_rings(p_left, rings_b, rule_b),
-        );
-        let keep_right = op.eval(
-            point_in_rings(p_right, rings_a, rule_a),
-            point_in_rings(p_right, rings_b, rule_b),
-        );
+        let in_a_left = prepared_a.contains(p_left);
+        let in_b_left = prepared_b.contains(p_left);
+        let in_a_right = prepared_a.contains(p_right);
+        let in_b_right = prepared_b.contains(p_right);
+        match op {
+            BooleanOp::Difference | BooleanOp::Intersection => {
+                interacted |= (in_a_left && in_b_left) || (in_a_right && in_b_right);
+            }
+            BooleanOp::Union | BooleanOp::Xor => {
+                interacted |= (in_a_left || in_a_right) && (in_b_left || in_b_right);
+            }
+        }
+        let keep_left = op.eval(in_a_left, in_b_left);
+        let keep_right = op.eval(in_a_right, in_b_right);
         let (u, v) = graph.edges[edge_idx];
         if keep_left && !keep_right {
             boundary_half_edges.push((u, v));
@@ -1127,7 +2081,7 @@ pub fn boolean_rings(
                 .collect()
         })
         .collect();
-    assemble_shells_and_holes(rings)
+    (assemble_shells_and_holes(rings), interacted)
 }
 
 /// Slice a filled multi-contour path with one or more stroke polylines.
@@ -1165,17 +2119,16 @@ pub fn slice_fill_rings_with_polylines(
         return vec![cmds];
     }
 
-    // Quick bounding-box check before building planar graph.
-    let mut any_overlap = false;
-    for &(a, b) in &stroke_segs {
-        let s_min = [a[0].min(b[0]), a[1].min(b[1])];
-        let s_max = [a[0].max(b[0]), a[1].max(b[1])];
-        if bounds_overlap(fill_bbox, (s_min, s_max), SNAP_EPS * 2.0) {
-            any_overlap = true;
-            break;
-        }
-    }
-    if !any_overlap {
+    // Filter stroke segments to those overlapping the fill's bounding box.
+    let overlapping_stroke_segs: Vec<([f64; 2], [f64; 2])> = stroke_segs
+        .into_iter()
+        .filter(|&(a, b)| {
+            let s_min = [a[0].min(b[0]), a[1].min(b[1])];
+            let s_max = [a[0].max(b[0]), a[1].max(b[1])];
+            bounds_overlap(fill_bbox, (s_min, s_max), SNAP_EPS * 2.0)
+        })
+        .collect();
+    if overlapping_stroke_segs.is_empty() {
         let mut cmds = Vec::new();
         for r in fill_rings {
             cmds.extend(ring_to_commands(r));
@@ -1183,17 +2136,20 @@ pub fn slice_fill_rings_with_polylines(
         return vec![cmds];
     }
 
-    let mut all_segs = rings_to_segments(fill_rings);
-    all_segs.extend_from_slice(&stroke_segs);
-    let graph = PlanarGraph::from_segments(&all_segs);
+    let (mut all_segs, fill_map) = cull_and_clip_union_segments_with_map(fill_rings, fill_rule);
+    all_segs.extend_from_slice(&overlapping_stroke_segs);
+    let (graph, seg_chains) = PlanarGraph::from_segments_with_chains(&all_segs);
+    let snapped_fill = build_snapped_rings(fill_rings, &fill_map, 0, &graph.vertices, &seg_chains);
+    let prepared_fill = PreparedRings::new(&snapped_fill, fill_rule);
+    let stroke_bvh = SegmentBvh::from_segments(&overlapping_stroke_segs);
 
     let mut active_half_edges: Vec<(usize, usize)> = Vec::new();
     for edge_idx in 0..graph.edges.len() {
         let Some((p_left, p_right)) = graph.probe_points(edge_idx) else {
             continue;
         };
-        let left_in = point_in_rings(p_left, fill_rings, fill_rule);
-        let right_in = point_in_rings(p_right, fill_rings, fill_rule);
+        let left_in = prepared_fill.contains(p_left);
+        let right_in = prepared_fill.contains(p_right);
         let (u, v) = graph.edges[edge_idx];
         // An internal contour edge is not a cut. Only an actual stroke may divide two filled
         // faces. The graph has already split edges at every intersection, so its midpoint
@@ -1202,9 +2158,7 @@ pub fn slice_fill_rings_with_polylines(
             let a = graph.vertices[u];
             let b = graph.vertices[v];
             let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
-            stroke_segs
-                .iter()
-                .any(|&(s0, s1)| point_to_segment_projection(mid, s0, s1).1 <= SNAP_EPS)
+            stroke_bvh.any_within_distance(&overlapping_stroke_segs, mid, SNAP_EPS)
         } else {
             false
         };
@@ -1275,10 +2229,35 @@ pub fn trim_polyline_inside_fill(
         return vec![poly.to_vec()];
     }
     let fill_segs = fill_boundary_segments(fill_rings, fill_rule);
+    let fill_bvh = SegmentBvh::from_segments(&fill_segs);
+    let prepared_fill = PreparedRings::new(fill_rings, fill_rule);
+    trim_polyline_inside_prepared_fill(poly, &fill_segs, &fill_bvh, &prepared_fill)
+}
+
+fn trim_polyline_inside_prepared_fill(
+    poly: &[[f64; 2]],
+    fill_segs: &[([f64; 2], [f64; 2])],
+    fill_bvh: &SegmentBvh,
+    prepared_fill: &PreparedRings,
+) -> Vec<Vec<[f64; 2]>> {
+    let Some(poly_bbox) = ring_bounds(poly) else {
+        return Vec::new();
+    };
+    let Some(fill_bbox) = prepared_fill.bounds else {
+        return vec![poly.to_vec()];
+    };
+    if !bounds_overlap(poly_bbox, fill_bbox, SNAP_EPS * 2.0) {
+        return vec![poly.to_vec()];
+    }
     let cutters: Vec<_> = fill_segs
         .iter()
         .copied()
-        .filter(|&segment| !segment_lies_on_polyline(segment, poly))
+        .filter(|&(a, b)| {
+            let s_min = [a[0].min(b[0]), a[1].min(b[1])];
+            let s_max = [a[0].max(b[0]), a[1].max(b[1])];
+            bounds_overlap(poly_bbox, (s_min, s_max), SNAP_EPS * 2.0)
+                && !segment_lies_on_polyline((a, b), poly)
+        })
         .collect();
     let sub_segments = split_polyline_into_subsegments(poly, &cutters, false);
 
@@ -1290,11 +2269,8 @@ pub fn trim_polyline_inside_fill(
             result.push(std::mem::take(&mut current));
         }
         let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
-        let on_boundary = fill_segs.iter().any(|&(s0, s1)| {
-            let (_, d) = point_to_segment_projection(mid, s0, s1);
-            d <= SNAP_EPS * 2.0
-        });
-        let strictly_inside = !on_boundary && point_in_rings(mid, fill_rings, fill_rule);
+        let on_boundary = fill_bvh.any_within_distance(fill_segs, mid, SNAP_EPS * 2.0);
+        let strictly_inside = !on_boundary && prepared_fill.contains(mid);
         if strictly_inside {
             if current.len() >= 2 {
                 result.push(std::mem::take(&mut current));
@@ -1382,6 +2358,11 @@ fn split_polyline_into_subsegments(
                 }
                 let b0 = poly[j];
                 let b1 = poly[j + 1];
+                let b_min = [b0[0].min(b1[0]), b0[1].min(b1[1])];
+                let b_max = [b0[0].max(b1[0]), b0[1].max(b1[1])];
+                if !bounds_overlap((a_min, a_max), (b_min, b_max), SNAP_EPS * 2.0) {
+                    continue;
+                }
                 for (t, u) in segment_intersections(a0, a1, b0, b1) {
                     cut_params[i].push(t);
                     cut_params[j].push(u);
@@ -1426,10 +2407,51 @@ fn split_polyline_into_subsegments(
     out
 }
 
+fn is_already_normalized_merge_part(el: &Element) -> bool {
+    if !el.merge || !is_identity_transform(&el.transform) {
+        return false;
+    }
+    let (ElementKind::Path {
+        commands,
+        stroke_width,
+        ..
+    }
+    | ElementKind::PaintedPath {
+        commands,
+        stroke_width,
+        ..
+    }) = &el.kind
+    else {
+        return false;
+    };
+    if commands.is_empty() {
+        return false;
+    }
+    let has_fill = extract_fill_paint(&el.kind).is_some();
+    let has_stroke = extract_stroke_paint(&el.kind).is_some();
+    if has_fill && !has_stroke && *stroke_width == 0.0 {
+        return true;
+    }
+    if !has_fill && has_stroke {
+        let move_tos = commands
+            .iter()
+            .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+            .count();
+        return move_tos <= 1;
+    }
+    false
+}
+
 fn ensure_existing_merge_normalized(elements: &mut Vec<Element>) {
+    if elements
+        .iter()
+        .all(|el| !el.merge || is_already_normalized_merge_part(el))
+    {
+        return;
+    }
     let mut normalized = Vec::with_capacity(elements.len());
     for el in elements.drain(..) {
-        if !el.merge {
+        if !el.merge || is_already_normalized_merge_part(&el) {
             normalized.push(el);
             continue;
         }
@@ -1473,21 +2495,49 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
         if !new_rings.is_empty()
             && let Some(new_fp) = &new_paint
         {
+            // Dissolve internal overlaps of compound / Brush strokes up front so the stroke
+            // stores and tests only its clean exterior boundary and holes.
+            if new_rings.len() > 1 {
+                let dissolved = dissolve_rings_to_islands(&new_rings, new_rule);
+                if !dissolved.is_empty() {
+                    new_cmds = dissolved.into_iter().flatten().collect();
+                    new_rule = FillRule::NonZero;
+                    new_rings = flatten_closed_rings(&new_cmds);
+                }
+            }
+            let new_bbox_opt = rings_bounds(&new_rings);
+            let mut cached_trim_fill: Option<(
+                Vec<([f64; 2], [f64; 2])>,
+                SegmentBvh,
+                PreparedRings,
+            )> = None;
+            let mut pending_union_rings: Vec<Vec<[f64; 2]>> = Vec::new();
+
             let mut next_elements = Vec::with_capacity(elements.len() + 2);
             for existing in elements.drain(..) {
                 if !existing.merge {
                     next_elements.push(existing);
                     continue;
                 }
+                let Some(new_bbox) = new_bbox_opt else {
+                    next_elements.push(existing);
+                    continue;
+                };
                 if is_merge_fill(&existing) {
+                    let Some(ex_fast_bbox) = element_fast_world_bounds(&existing) else {
+                        next_elements.push(existing);
+                        continue;
+                    };
+                    if !bounds_overlap(ex_fast_bbox, new_bbox, SNAP_EPS * 2.0) {
+                        next_elements.push(existing);
+                        continue;
+                    }
                     let Some((ex_cmds, ex_rule)) = element_world_commands(&existing) else {
                         next_elements.push(existing);
                         continue;
                     };
                     let ex_rings = flatten_closed_rings(&ex_cmds);
-                    let (Some(ex_bbox), Some(new_bbox)) =
-                        (rings_bounds(&ex_rings), rings_bounds(&new_rings))
-                    else {
+                    let Some(ex_bbox) = rings_bounds(&ex_rings) else {
                         next_elements.push(existing);
                         continue;
                     };
@@ -1495,31 +2545,53 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                         next_elements.push(existing);
                         continue;
                     }
+                    let (fill_segs, fill_bvh, prepared_fill) =
+                        cached_trim_fill.get_or_insert_with(|| {
+                            let segs = if new_rule == FillRule::NonZero {
+                                rings_to_segments(&new_rings)
+                            } else {
+                                fill_boundary_segments(&new_rings, new_rule)
+                            };
+                            let bvh = SegmentBvh::from_segments(&segs);
+                            let prep = PreparedRings::new(&new_rings, new_rule);
+                            (segs, bvh, prep)
+                        });
+                    if !rings_interact_with_prepared(
+                        &ex_rings,
+                        ex_rule,
+                        ex_bbox,
+                        fill_segs,
+                        fill_bvh,
+                        prepared_fill,
+                        &new_rings,
+                    ) {
+                        next_elements.push(existing);
+                        continue;
+                    }
                     let same_paint = extract_fill_paint(&existing.kind).as_ref() == Some(new_fp);
                     if !has_own_stroke && same_paint {
-                        let unioned = boolean_rings(
-                            &ex_rings,
-                            ex_rule,
-                            &new_rings,
-                            new_rule,
-                            BooleanOp::Union,
-                        );
-                        if unioned.len() == 1 {
-                            new_cmds = unioned.into_iter().next().unwrap();
-                            new_rule = FillRule::NonZero;
-                            new_rings = flatten_closed_rings(&new_cmds);
-                            continue;
+                        if ex_rule == FillRule::NonZero {
+                            pending_union_rings.extend(ex_rings);
+                        } else {
+                            for island in dissolve_rings_to_islands(&ex_rings, ex_rule) {
+                                pending_union_rings.extend(flatten_closed_rings(&island));
+                            }
                         }
+                        continue;
                     }
                     // Different colour (or separated by new shape's outline stroke): subtract
                     // `new_fill` from `existing`.
-                    let diff = boolean_rings(
+                    let (diff, interacted) = boolean_rings_with_interaction(
                         &ex_rings,
                         ex_rule,
                         &new_rings,
                         new_rule,
                         BooleanOp::Difference,
                     );
+                    if !interacted {
+                        next_elements.push(existing);
+                        continue;
+                    }
                     if let Some(ex_fp) = extract_fill_paint(&existing.kind) {
                         for (idx, piece_cmds) in diff.into_iter().enumerate() {
                             let piece_id = if idx == 0 {
@@ -1538,6 +2610,14 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                         }
                     }
                 } else if is_merge_stroke(&existing) {
+                    let Some(ex_fast_bbox) = element_fast_world_bounds(&existing) else {
+                        next_elements.push(existing);
+                        continue;
+                    };
+                    if !bounds_overlap(ex_fast_bbox, new_bbox, SNAP_EPS * 2.0) {
+                        next_elements.push(existing);
+                        continue;
+                    }
                     let Some((ex_cmds, _)) = element_world_commands(&existing) else {
                         next_elements.push(existing);
                         continue;
@@ -1547,9 +2627,25 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                         next_elements.push(existing);
                         continue;
                     };
+                    let (fill_segs, fill_bvh, prepared_fill) =
+                        cached_trim_fill.get_or_insert_with(|| {
+                            let segs = if new_rule == FillRule::NonZero {
+                                rings_to_segments(&new_rings)
+                            } else {
+                                fill_boundary_segments(&new_rings, new_rule)
+                            };
+                            let bvh = SegmentBvh::from_segments(&segs);
+                            let prep = PreparedRings::new(&new_rings, new_rule);
+                            (segs, bvh, prep)
+                        });
                     let mut piece_idx = 0usize;
                     for poly in polylines {
-                        for trimmed in trim_polyline_inside_fill(&poly, &new_rings, new_rule) {
+                        for trimmed in trim_polyline_inside_prepared_fill(
+                            &poly,
+                            fill_segs,
+                            fill_bvh,
+                            prepared_fill,
+                        ) {
                             let cmds = polyline_to_commands(&trimmed);
                             if cmds.len() >= 2 {
                                 let piece_id = if piece_idx == 0 {
@@ -1566,6 +2662,19 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                     }
                 } else {
                     next_elements.push(existing);
+                }
+            }
+            if !pending_union_rings.is_empty() {
+                let (unioned, _) = boolean_rings_with_interaction(
+                    &pending_union_rings,
+                    FillRule::NonZero,
+                    &new_rings,
+                    new_rule,
+                    BooleanOp::Union,
+                );
+                if !unioned.is_empty() {
+                    new_cmds = unioned.into_iter().flatten().collect();
+                    new_rule = FillRule::NonZero;
                 }
             }
             *elements = next_elements;
@@ -1591,15 +2700,27 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                 stroke_polylines_all.extend(flatten_stroke_polylines(&cmds));
             }
         }
+        let new_stroke_segs = polylines_to_segments(&stroke_polylines_all);
+        let new_strokes_bbox = segments_bounds(&new_stroke_segs);
 
         // 2a. Slice any existing Merge fills crossed by the new stroke(s).
-        if !stroke_polylines_all.is_empty() {
+        if !stroke_polylines_all.is_empty()
+            && let Some(strokes_bbox) = new_strokes_bbox
+        {
             let mut next_elements = Vec::with_capacity(elements.len() + 2);
             for existing in elements.drain(..) {
                 if !existing.merge
                     || !is_merge_fill(&existing)
                     || own_fill_id.as_deref() == Some(existing.id.as_str())
                 {
+                    next_elements.push(existing);
+                    continue;
+                }
+                let Some(ex_fast_bbox) = element_fast_world_bounds(&existing) else {
+                    next_elements.push(existing);
+                    continue;
+                };
+                if !bounds_overlap(ex_fast_bbox, strokes_bbox, SNAP_EPS * 2.0) {
                     next_elements.push(existing);
                     continue;
                 }
@@ -1635,13 +2756,19 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
 
         // 2b. Split existing Merge strokes at intersections with the new stroke(s), and split
         // the new stroke(s) at intersections with existing Merge strokes & fill boundaries.
-        let new_stroke_segs = polylines_to_segments(&stroke_polylines_all);
         let mut existing_stroke_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
         let mut existing_fill_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
 
         let mut next_elements = Vec::with_capacity(elements.len() + new_strokes.len());
         for existing in elements.drain(..) {
             if !existing.merge {
+                next_elements.push(existing);
+                continue;
+            }
+            let overlaps_new_strokes = new_strokes_bbox
+                .zip(element_fast_world_bounds(&existing))
+                .is_some_and(|(sb, eb)| bounds_overlap(eb, sb, SNAP_EPS * 2.0));
+            if !overlaps_new_strokes {
                 next_elements.push(existing);
                 continue;
             }
@@ -1696,13 +2823,35 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
             let polys = flatten_stroke_polylines(&ns_cmds);
             let mut piece_idx = 0usize;
             for poly in polys {
-                let mut cutters = existing_stroke_segs.clone();
-                cutters.extend(
-                    existing_fill_segs
-                        .iter()
-                        .copied()
-                        .filter(|&segment| !segment_lies_on_polyline(segment, &poly)),
-                );
+                let poly_bbox = ring_bounds(&poly);
+                let mut cutters: Vec<([f64; 2], [f64; 2])> = existing_stroke_segs
+                    .iter()
+                    .copied()
+                    .filter(|&(a, b)| {
+                        poly_bbox.is_some_and(|pb| {
+                            bounds_overlap(
+                                pb,
+                                (
+                                    [a[0].min(b[0]), a[1].min(b[1])],
+                                    [a[0].max(b[0]), a[1].max(b[1])],
+                                ),
+                                SNAP_EPS * 2.0,
+                            )
+                        })
+                    })
+                    .collect();
+                cutters.extend(existing_fill_segs.iter().copied().filter(|&(a, b)| {
+                    poly_bbox.is_some_and(|pb| {
+                        bounds_overlap(
+                            pb,
+                            (
+                                [a[0].min(b[0]), a[1].min(b[1])],
+                                [a[0].max(b[0]), a[1].max(b[1])],
+                            ),
+                            SNAP_EPS * 2.0,
+                        )
+                    }) && !segment_lies_on_polyline((a, b), &poly)
+                }));
                 for piece in split_polyline_with_segments(&poly, &cutters, true) {
                     let cmds = polyline_to_commands(&piece);
                     if cmds.len() >= 2 {
@@ -1766,10 +2915,20 @@ pub fn merge_fill_adjacent_stroke_ids(elements: &[Element], fill_id: &str) -> Ve
     if fill_segs.is_empty() {
         return Vec::new();
     }
+    let Some(fill_bbox) = segments_bounds(&fill_segs) else {
+        return Vec::new();
+    };
+    let fill_bvh = SegmentBvh::from_segments(&fill_segs);
 
     let mut result = vec![fill_id.to_string()];
     for el in elements {
         if !is_merge_stroke(el) {
+            continue;
+        }
+        let Some(el_bbox) = element_fast_world_bounds(el) else {
+            continue;
+        };
+        if !bounds_overlap(el_bbox, fill_bbox, ADJACENT_TOL) {
             continue;
         }
         let Some((s_cmds, _)) = element_world_commands(el) else {
@@ -1777,11 +2936,8 @@ pub fn merge_fill_adjacent_stroke_ids(elements: &[Element], fill_id: &str) -> Ve
         };
         let polys = flatten_stroke_polylines(&s_cmds);
         let touches = polys.iter().any(|poly| {
-            poly.iter().all(|&pt| {
-                fill_segs
-                    .iter()
-                    .any(|&(a, b)| point_to_segment_projection(pt, a, b).1 <= ADJACENT_TOL)
-            })
+            poly.iter()
+                .all(|&pt| fill_bvh.any_within_distance(&fill_segs, pt, ADJACENT_TOL))
         });
         if touches {
             result.push(el.id.clone());
@@ -2943,5 +4099,177 @@ mod tests {
             merge_combined.iter().filter(|e| is_merge_stroke(e)).count(),
             1
         );
+    }
+
+    #[test]
+    fn dense_brush_stroke_and_move_complete_without_quadratic_stall() {
+        // Build a 568-dab variable-width Brush stroke (1,136 overlapping disk + quad contours =
+        // 9,651 commands, matching the T-090 tablet repro `object-458`) on a dense keyframe of
+        // 275 Merge elements.
+        let mut elements = Vec::with_capacity(280);
+        for idx in 0..274 {
+            let col = (idx % 20) as f64;
+            let row = (idx / 20) as f64;
+            let color = if idx % 3 == 0 {
+                [212, 162, 249, 255]
+            } else if idx % 3 == 1 {
+                [80, 170, 230, 255]
+            } else {
+                [240, 130, 90, 255]
+            };
+            elements.push(Element {
+                id: format!("existing-{idx}"),
+                name: format!("existing-{idx}"),
+                transform: Transform::default(),
+                kind: ElementKind::Path {
+                    commands: ring_to_commands(&[
+                        [col * 25.0, row * 25.0],
+                        [col * 25.0 + 18.0, row * 25.0],
+                        [col * 25.0 + 18.0, row * 25.0 + 18.0],
+                        [col * 25.0, row * 25.0 + 18.0],
+                    ]),
+                    fill_rule: FillRule::NonZero,
+                    fill: color,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                merge: true,
+                ..Element::default()
+            });
+        }
+
+        let make_heavy_brush_element = |id: &str, offset_x: f64, offset_y: f64| -> Element {
+            let n_points = 568usize;
+            let mut commands = Vec::with_capacity(n_points * 23);
+            let mut prev = [0.0f64, 0.0f64];
+            let mut prev_r = 6.0f64;
+            for i in 0..n_points {
+                let t = i as f64 * 0.06;
+                let pt = [
+                    offset_x + i as f64 * 0.65 + (t * 0.7).sin() * 12.0,
+                    offset_y + (t * 0.35).cos() * 45.0 + 120.0,
+                ];
+                let r = 4.0 + (t * 0.5).sin().abs() * 5.0;
+                let disk: Vec<[f64; 2]> = (0..16)
+                    .map(|k| {
+                        let ang = k as f64 * std::f64::consts::TAU / 16.0;
+                        [pt[0] + ang.cos() * r, pt[1] + ang.sin() * r]
+                    })
+                    .collect();
+                commands.extend(ring_to_commands(&disk));
+                if i > 0 {
+                    let dx = pt[0] - prev[0];
+                    let dy = pt[1] - prev[1];
+                    let len = (dx * dx + dy * dy).sqrt();
+                    if len > 1e-6 {
+                        let nx = -dy / len;
+                        let ny = dx / len;
+                        commands.extend(ring_to_commands(&[
+                            [prev[0] - nx * prev_r, prev[1] - ny * prev_r],
+                            [pt[0] - nx * r, pt[1] - ny * r],
+                            [pt[0] + nx * r, pt[1] + ny * r],
+                            [prev[0] + nx * prev_r, prev[1] + ny * prev_r],
+                        ]));
+                    }
+                }
+                prev = pt;
+                prev_r = r;
+            }
+            Element {
+                id: id.into(),
+                name: id.into(),
+                transform: Transform::default(),
+                kind: ElementKind::Path {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: [212, 162, 249, 255],
+                    stroke: [212, 162, 249, 255],
+                    stroke_width: 0.0,
+                },
+                merge: true,
+                ..Element::default()
+            }
+        };
+
+        let brush_el = make_heavy_brush_element("heavy-brush-1", 20.0, 20.0);
+        let raw_contours =
+            split_commands_into_contours(&element_world_commands(&brush_el).unwrap().0).len();
+        assert_eq!(raw_contours, 1135);
+
+        let t0 = std::time::Instant::now();
+        let created = apply_merge_shape_to_keyframe(&mut elements, brush_el);
+        let draw_elapsed = t0.elapsed();
+        assert_eq!(created.len(), 1);
+        let merged_el = elements.iter().find(|e| e.id == created[0]).unwrap();
+        let merged_contours =
+            split_commands_into_contours(&element_world_commands(merged_el).unwrap().0).len();
+        assert!(
+            merged_contours < 30,
+            "overlapping brush dabs must dissolve into outer boundary + holes, got {merged_contours} contours"
+        );
+
+        // Move the resulting merged brush artwork across the dense keyframe and re-merge.
+        for el in &mut elements {
+            if el.id == created[0] {
+                el.transform.x = 18.0;
+                el.transform.y = -14.0;
+            }
+        }
+        let t1 = std::time::Instant::now();
+        let moved_ids = remerge_moved_elements_in_keyframe(&mut elements, &created);
+        let move_elapsed = t1.elapsed();
+        assert!(!moved_ids.is_empty());
+        assert!(
+            draw_elapsed.as_millis() < 1500 && move_elapsed.as_millis() < 1500,
+            "expected fast draw ({draw_elapsed:?}) and move ({move_elapsed:?})"
+        );
+
+        let repro_json_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/t090-rapid-brush-hang/rapid-brush-after-stall.nflash");
+        if let Ok(raw_json) = std::fs::read_to_string(&repro_json_path) {
+            let project: crate::model::Project = serde_json::from_str(&raw_json).unwrap();
+            let kf_elements = &project.symbols[0].timeline.layers[0]
+                .keyframes
+                .iter()
+                .find(|kf| kf.frame == 55)
+                .unwrap()
+                .elements;
+            assert_eq!(kf_elements.len(), 275);
+
+            // 1. Test moving `object-458` (the 1,136-contour rapid brush stroke) on keyframe 55.
+            let mut moved_kf = kf_elements.clone();
+            for el in &mut moved_kf {
+                if el.id == "object-458" {
+                    el.transform.x = 24.0;
+                    el.transform.y = -16.0;
+                }
+            }
+            let t_repro_move = std::time::Instant::now();
+            let repro_moved_ids =
+                remerge_moved_elements_in_keyframe(&mut moved_kf, &["object-458".to_string()]);
+            let repro_move_elapsed = t_repro_move.elapsed();
+            assert!(!repro_moved_ids.is_empty());
+            assert!(
+                repro_move_elapsed.as_millis() < 1500,
+                "expected fast repro move, got {repro_move_elapsed:?}"
+            );
+
+            // 2. Subsequent move of the now-dissolved stroke is even faster.
+            for el in &mut moved_kf {
+                if repro_moved_ids.contains(&el.id) {
+                    el.transform.x = -12.0;
+                    el.transform.y = 10.0;
+                }
+            }
+            let t_repro_move2 = std::time::Instant::now();
+            let repro_moved_ids2 =
+                remerge_moved_elements_in_keyframe(&mut moved_kf, &repro_moved_ids);
+            let repro_move2_elapsed = t_repro_move2.elapsed();
+            assert!(!repro_moved_ids2.is_empty());
+            assert!(
+                repro_move2_elapsed.as_millis() < 500,
+                "expected sub-500ms second repro move, got {repro_move2_elapsed:?}"
+            );
+        }
     }
 }
