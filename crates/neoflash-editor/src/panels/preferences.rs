@@ -1085,9 +1085,21 @@ fn prefs_clipboard(ui: &mut Ui, draft: &mut PreferencesDraft) {
 #[derive(Clone, Debug, Default)]
 struct ShortcutsUiState {
     search: String,
-    category: Option<crate::commands::CommandCategory>,
+    only_assigned: bool,
+    only_conflicts: bool,
     selected: Option<crate::commands::CommandId>,
     recording: Option<crate::commands::CommandId>,
+    captured: Option<crate::commands::Shortcut>,
+    append_mode: bool,
+    scroll_to: Option<crate::commands::CommandId>,
+}
+
+impl ShortcutsUiState {
+    fn stop_recording(&mut self) {
+        self.recording = None;
+        self.captured = None;
+        self.append_mode = false;
+    }
 }
 
 fn shortcuts_ui_state_id() -> egui::Id {
@@ -1109,7 +1121,8 @@ fn clear_shortcuts_ui_state(ctx: &egui::Context) {
 
 fn cancel_shortcut_recording(ctx: &egui::Context) {
     let mut state = load_shortcuts_ui_state(ctx);
-    if state.recording.take().is_some() {
+    if state.recording.is_some() {
+        state.stop_recording();
         store_shortcuts_ui_state(ctx, state);
     }
 }
@@ -1123,11 +1136,12 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     enum RecordedAction {
         Cancel,
         Clear,
-        Bind(crate::commands::Shortcut),
+        Capture(crate::commands::Shortcut),
     }
 
     let nf = neoflash_ui::palette(ui.ctx());
     let mut state = load_shortcuts_ui_state(ui.ctx());
+    let was_recording = state.recording;
 
     if let Some(recording_cmd) = state.recording {
         let mut action = None;
@@ -1143,17 +1157,17 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 match event {
                     egui::Event::Text(_) => {}
                     egui::Event::Cut => {
-                        action = Some(RecordedAction::Bind(crate::commands::Shortcut::cmd(
+                        action = Some(RecordedAction::Capture(crate::commands::Shortcut::cmd(
                             egui::Key::X,
                         )));
                     }
                     egui::Event::Copy => {
-                        action = Some(RecordedAction::Bind(crate::commands::Shortcut::cmd(
+                        action = Some(RecordedAction::Capture(crate::commands::Shortcut::cmd(
                             egui::Key::C,
                         )));
                     }
                     egui::Event::Paste(_) => {
-                        action = Some(RecordedAction::Bind(crate::commands::Shortcut::cmd(
+                        action = Some(RecordedAction::Capture(crate::commands::Shortcut::cmd(
                             egui::Key::V,
                         )));
                     }
@@ -1172,7 +1186,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                         {
                             action = Some(RecordedAction::Clear);
                         } else {
-                            action = Some(RecordedAction::Bind(
+                            action = Some(RecordedAction::Capture(
                                 crate::commands::Shortcut::from_key_event(
                                     modifiers,
                                     key,
@@ -1188,19 +1202,31 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
         });
         if let Some(act) = action {
             match act {
-                RecordedAction::Cancel => {}
+                RecordedAction::Cancel => {
+                    state.stop_recording();
+                }
                 RecordedAction::Clear => {
                     draft.shortcuts.set_shortcuts(recording_cmd, Vec::new());
+                    state.stop_recording();
                 }
-                RecordedAction::Bind(chord) => {
-                    draft.shortcuts.set_shortcuts(recording_cmd, vec![chord]);
+                RecordedAction::Capture(chord) => {
+                    state.captured = Some(chord);
                 }
             }
-            state.recording = None;
             if let Some(focused) = ui.memory(|m| m.focused()) {
                 ui.memory_mut(|m| m.surrender_focus(focused));
             }
         }
+    } else if let Some(selected_cmd) = state.selected
+        && !ui.ctx().wants_keyboard_input()
+        && !egui::Popup::is_any_open(ui.ctx())
+        && ui
+            .ctx()
+            .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+    {
+        state.recording = Some(selected_cmd);
+        state.captured = None;
+        state.append_mode = false;
     }
 
     section(ui, "Shortcut set");
@@ -1216,22 +1242,22 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     .clicked()
                 {
                     draft.shortcuts.select_set(ShortcutPrefs::DEFAULT_SET_NAME);
-                    state.recording = None;
+                    state.stop_recording();
                 }
                 for name in &set_names {
                     let checked = !is_default && draft.shortcuts.set == *name;
                     if ui.add(c::MenuItem::new(name).checked(checked)).clicked() {
                         draft.shortcuts.select_set(name);
-                        state.recording = None;
+                        state.stop_recording();
                     }
                 }
             });
         if set_resp.clicked() {
-            state.recording = None;
+            state.stop_recording();
         }
         if ui.add(c::Button::ghost("Duplicate")).clicked() {
             draft.shortcuts.duplicate_active_set();
-            state.recording = None;
+            state.stop_recording();
         }
         disabled(ui, |ui| {
             ui.add(c::Button::ghost("Rename"))
@@ -1245,139 +1271,346 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
             .clicked()
         {
             draft.shortcuts.delete_active_set();
-            state.recording = None;
+            state.stop_recording();
         }
     });
-
-    ui.horizontal(|ui| {
-        let search_was_focused = ui
-            .data(|d| d.get_temp::<bool>(egui::Id::new("prefs-shortcuts-search-focused")))
-            .unwrap_or(false);
-        let search_resp = ui.add(c::Search::new(&mut state.search, "Search commands").width(400.0));
-        let search_now_focused = ui.memory(|m| m.has_focus(search_resp.id.with("edit")));
-        ui.data_mut(|d| {
-            d.insert_temp(
-                egui::Id::new("prefs-shortcuts-search-focused"),
-                search_now_focused,
-            );
-        });
-        if search_now_focused && !search_was_focused {
-            state.recording = None;
-        }
-        if c::Select::options(
-            ui,
-            "prefs-shortcut-category",
-            &mut state.category,
-            &crate::commands::CommandCategory::FILTER_OPTIONS,
-            200.0,
-        ) {
-            state.recording = None;
-        }
-    });
-
-    let query = state.search.trim().to_lowercase();
-    let filtered: Vec<crate::commands::CommandId> = crate::commands::CommandId::ALL
-        .iter()
-        .copied()
-        .filter(|&cmd| {
-            if let Some(cat) = state.category
-                && cmd.category() != cat
-            {
-                return false;
-            }
-            if query.is_empty() {
-                return true;
-            }
-            if cmd.title().to_lowercase().contains(&query)
-                || cmd.category().label().to_lowercase().contains(&query)
-                || cmd.search_keywords().to_lowercase().contains(&query)
-            {
-                return true;
-            }
-            crate::commands::effective_shortcuts(&draft.shortcuts, cmd)
-                .iter()
-                .any(|sc| sc.format().to_lowercase().contains(&query))
-        })
-        .collect();
-
-    if state.recording.is_some_and(|rec| !filtered.contains(&rec)) {
-        state.recording = None;
-    }
 
     let conflict_map = crate::commands::conflicts(&draft.shortcuts);
+    let mut chord_owners: std::collections::BTreeMap<crate::commands::Shortcut, usize> =
+        std::collections::BTreeMap::new();
+    for &cmd in crate::commands::CommandId::ALL {
+        for sc in crate::commands::effective_shortcuts(&draft.shortcuts, cmd) {
+            *chord_owners.entry(sc).or_insert(0) += 1;
+        }
+    }
+    let conflict_count = chord_owners.values().filter(|&&n| n > 1).count();
+    if conflict_count == 0 {
+        state.only_conflicts = false;
+    }
+
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), metrics::CONTROL),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            if conflict_count > 0 {
+                let badge_label = if conflict_count == 1 {
+                    "1 conflict".to_owned()
+                } else {
+                    format!("{conflict_count} conflicts")
+                };
+                let badge_resp = ui
+                    .add(c::Badge::new(&badge_label, c::BadgeType::Warning))
+                    .interact(egui::Sense::click());
+                badge_resp.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Button,
+                        true,
+                        state.only_conflicts,
+                        &badge_label,
+                    )
+                });
+                if badge_resp.clicked() {
+                    state.only_conflicts = !state.only_conflicts;
+                    state.stop_recording();
+                }
+            }
+            if ui
+                .add(c::Switch::new(&mut state.only_assigned, "Only assigned"))
+                .changed()
+            {
+                state.stop_recording();
+            }
+            let search_w = ui.available_width();
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let search_was_focused = ui
+                    .data(|d| d.get_temp::<bool>(egui::Id::new("prefs-shortcuts-search-focused")))
+                    .unwrap_or(false);
+                let search_resp =
+                    ui.add(c::Search::new(&mut state.search, "Search commands").width(search_w));
+                let search_now_focused = ui.memory(|m| m.has_focus(search_resp.id.with("edit")));
+                ui.data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::new("prefs-shortcuts-search-focused"),
+                        search_now_focused,
+                    );
+                });
+                if (search_now_focused && !search_was_focused) || search_resp.changed() {
+                    state.stop_recording();
+                }
+            });
+        },
+    );
+
+    let query = state.search.trim().to_lowercase();
+    let any_title_or_path_match = !query.is_empty()
+        && crate::commands::CommandId::ALL.iter().any(|&cmd| {
+            cmd.title().to_lowercase().contains(&query)
+                || cmd.menu_path().to_lowercase().contains(&query)
+                || cmd.row_title().to_lowercase().contains(&query)
+        });
+    let matches_cmd = |cmd: crate::commands::CommandId,
+                       shortcuts: &ShortcutPrefs,
+                       only_assigned: bool,
+                       only_conflicts: bool,
+                       recording: Option<crate::commands::CommandId>|
+     -> bool {
+        if recording == Some(cmd) {
+            return true;
+        }
+        let effective = crate::commands::effective_shortcuts(shortcuts, cmd);
+        if only_assigned && effective.is_empty() {
+            return false;
+        }
+        if only_conflicts && !conflict_map.contains_key(&cmd) {
+            return false;
+        }
+        if query.is_empty() {
+            return true;
+        }
+        if cmd.title().to_lowercase().contains(&query)
+            || cmd.menu_path().to_lowercase().contains(&query)
+            || cmd.row_title().to_lowercase().contains(&query)
+        {
+            return true;
+        }
+        if any_title_or_path_match {
+            return false;
+        }
+        if cmd.category().label().to_lowercase().contains(&query)
+            || cmd.search_keywords().to_lowercase().contains(&query)
+        {
+            return true;
+        }
+        effective
+            .iter()
+            .any(|sc| sc.format().to_lowercase().contains(&query))
+    };
+
+    let mut recorder_rect: Option<egui::Rect> = None;
+    let mut started_recording = false;
+    let mut total_matches = 0usize;
 
     egui::ScrollArea::vertical()
         .id_salt("prefs-shortcuts-list")
         .max_height(232.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for cmd in filtered {
-                let is_recording = state.recording == Some(cmd);
-                let keys: Vec<String> = crate::commands::effective_shortcuts(&draft.shortcuts, cmd)
-                    .first()
-                    .map(crate::commands::Shortcut::key_caps)
-                    .unwrap_or_default();
-                let top = ui.cursor().min;
-                let mut label_clicked = false;
-                ui.horizontal(|ui| {
-                    ui.set_height(32.0);
-                    let label_resp = ui.add_sized(
-                        [260.0, 20.0],
-                        egui::Label::new(rich(cmd.title(), TextStyle::Body).color(nf.text_primary))
-                            .sense(egui::Sense::click()),
-                    );
-                    let enabled = label_resp.enabled();
-                    label_resp.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, cmd.title())
-                    });
-                    label_clicked = label_resp.clicked();
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if is_recording {
-                            let mut empty = String::new();
-                            let r = ui.add(
-                                c::TextField::new(&mut empty, "Press keys…")
-                                    .hint("Press keys…")
-                                    .width(140.0),
-                            );
-                            ui.memory_mut(|m| m.request_focus(c::TextField::edit_id(r.id)));
-                        } else {
-                            for k in keys.iter().rev() {
-                                c::kbd(ui, k, false);
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+            for category in crate::commands::CommandCategory::ALL {
+                let all_in_cat: Vec<crate::commands::CommandId> = crate::commands::CommandId::ALL
+                    .iter()
+                    .copied()
+                    .filter(|cmd| cmd.category() == category)
+                    .collect();
+                let total = all_in_cat.len();
+                let assigned = all_in_cat
+                    .iter()
+                    .filter(|&&cmd| {
+                        !crate::commands::effective_shortcuts(&draft.shortcuts, cmd).is_empty()
+                    })
+                    .count();
+                let matching: Vec<crate::commands::CommandId> = all_in_cat
+                    .into_iter()
+                    .filter(|&cmd| {
+                        matches_cmd(
+                            cmd,
+                            &draft.shortcuts,
+                            state.only_assigned,
+                            state.only_conflicts,
+                            state.recording,
+                        )
+                    })
+                    .collect();
+                if matching.is_empty() {
+                    continue;
+                }
+                total_matches += matching.len();
+
+                let salt = ("prefs-shortcuts-cat", category.label());
+                if state
+                    .scroll_to
+                    .is_some_and(|target| target.category() == category)
+                {
+                    let section_id = ui.id().with(egui::Id::new(("nf2-section", salt)));
+                    ui.data_mut(|d| d.insert_persisted(section_id, true));
+                }
+
+                let header_label = if query.is_empty() {
+                    format!("{} · {assigned} of {total} assigned", category.label())
+                } else if matching.len() == 1 {
+                    format!("{} · 1 match", category.label())
+                } else {
+                    format!("{} · {} matches", category.label(), matching.len())
+                };
+
+                c::SectionHeader::new(&header_label)
+                    .id_salt(salt)
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                        let w = ui.available_width();
+                        for cmd in matching {
+                            if state.recording == Some(cmd) {
+                                let top = ui.cursor().min;
+                                let captured_caps: Vec<String> =
+                                    state.captured.map(|sc| sc.key_caps()).unwrap_or_default();
+                                let captured_refs: Vec<&str> =
+                                    captured_caps.iter().map(String::as_str).collect();
+                                let conflict_other = state.captured.and_then(|sc| {
+                                    crate::commands::first_conflict_for_chord(
+                                        &draft.shortcuts,
+                                        cmd,
+                                        sc,
+                                    )
+                                });
+                                let mut rec = c::ShortcutRecorder::new(cmd.row_title());
+                                if state.captured.is_some() {
+                                    rec = rec.captured(&captured_refs);
+                                }
+                                if let Some(other) = conflict_other {
+                                    rec = rec.conflict_with(other.menu_path());
+                                }
+                                let out = rec.show(ui, w);
+                                let bottom = ui.cursor().min.y;
+                                let r_rect =
+                                    egui::Rect::from_min_max(top, egui::pos2(top.x + w, bottom));
+                                recorder_rect = Some(r_rect);
+                                if state.scroll_to == Some(cmd) {
+                                    ui.scroll_to_rect(r_rect, Some(egui::Align::Center));
+                                    state.scroll_to = None;
+                                }
+                                if out.accept {
+                                    if let Some(chord) = state.captured {
+                                        if state.append_mode {
+                                            let mut list = crate::commands::effective_shortcuts(
+                                                &draft.shortcuts,
+                                                cmd,
+                                            );
+                                            if !list.contains(&chord) {
+                                                list.push(chord);
+                                            }
+                                            draft.shortcuts.set_shortcuts(cmd, list);
+                                        } else {
+                                            draft.shortcuts.set_shortcuts(cmd, vec![chord]);
+                                        }
+                                    }
+                                    state.stop_recording();
+                                } else if out.cancel {
+                                    state.stop_recording();
+                                } else if out.go_to
+                                    && let Some(other) = conflict_other
+                                {
+                                    if !matches_cmd(
+                                        other,
+                                        &draft.shortcuts,
+                                        state.only_assigned,
+                                        state.only_conflicts,
+                                        Some(other),
+                                    ) {
+                                        state.search.clear();
+                                        state.only_conflicts = false;
+                                    }
+                                    state.selected = Some(other);
+                                    state.recording = Some(other);
+                                    state.captured = None;
+                                    state.append_mode = false;
+                                    state.scroll_to = Some(other);
+                                    started_recording = true;
+                                }
+                            } else {
+                                let effective =
+                                    crate::commands::effective_shortcuts(&draft.shortcuts, cmd);
+                                let caps_owned: Vec<Vec<String>> = effective
+                                    .iter()
+                                    .map(crate::commands::Shortcut::key_caps)
+                                    .collect();
+                                let caps_slices: Vec<Vec<&str>> = caps_owned
+                                    .iter()
+                                    .map(|v| v.iter().map(String::as_str).collect())
+                                    .collect();
+                                let chords_ref: Vec<&[&str]> =
+                                    caps_slices.iter().map(Vec::as_slice).collect();
+                                let conflict_note = conflict_map
+                                    .get(&cmd)
+                                    .map(|other| format!("Also on {}", other.title()));
+                                let mut row = c::ShortcutRow::new(cmd.row_title())
+                                    .chords(&chords_ref)
+                                    .selected(state.selected == Some(cmd));
+                                if let Some(note) = conflict_note.as_deref() {
+                                    row = row.conflict(note);
+                                }
+                                let resp = row.show(ui, w);
+                                if state.scroll_to == Some(cmd) {
+                                    resp.row.scroll_to_me(Some(egui::Align::Center));
+                                    state.scroll_to = None;
+                                }
+                                if resp.row.clicked() || resp.cell.clicked() {
+                                    if let Some(focused) = ui.memory(|m| m.focused()) {
+                                        ui.memory_mut(|m| m.surrender_focus(focused));
+                                    }
+                                    state.selected = Some(cmd);
+                                    state.recording = Some(cmd);
+                                    state.captured = None;
+                                    state.append_mode = false;
+                                    started_recording = true;
+                                }
+                                c::context_menu(&resp.row, |ui| {
+                                    if ui.add(c::MenuItem::new("Add another shortcut")).clicked() {
+                                        state.selected = Some(cmd);
+                                        state.recording = Some(cmd);
+                                        state.captured = None;
+                                        state.append_mode = true;
+                                        started_recording = true;
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            !effective.is_empty(),
+                                            c::MenuItem::new("Remove shortcut"),
+                                        )
+                                        .clicked()
+                                    {
+                                        state.selected = Some(cmd);
+                                        draft.shortcuts.set_shortcuts(cmd, Vec::new());
+                                        state.stop_recording();
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            crate::commands::has_override(&draft.shortcuts, cmd),
+                                            c::MenuItem::new("Reset to default"),
+                                        )
+                                        .clicked()
+                                    {
+                                        state.selected = Some(cmd);
+                                        draft.shortcuts.reset_command(cmd);
+                                        state.stop_recording();
+                                    }
+                                });
                             }
                         }
-                        if let Some(&other) = conflict_map.get(&cmd) {
-                            let warning = format!("Conflicts with {}", other.title());
-                            ui.add(c::Badge::new(&warning, c::BadgeType::Warning));
-                        }
                     });
-                });
-                let w = ui.available_width();
-                let row_bottom = ui.cursor().min.y - 2.0;
-                ui.painter().hline(
-                    top.x..=top.x + w,
-                    row_bottom,
-                    egui::Stroke::new(1.0_f32, nf.border_subtle),
+            }
+            if total_matches == 0 {
+                let msg = format!(
+                    "No commands match “{}”. Clear the search or turn off Only assigned.",
+                    state.search.trim()
                 );
-                let row_clicked = if !is_recording {
-                    let full_row = egui::Rect::from_min_size(top, egui::vec2(w, 32.0));
-                    ui.interact(
-                        full_row,
-                        ui.id().with(("shortcut-row", cmd.as_str())),
-                        egui::Sense::click(),
-                    )
-                    .clicked()
-                } else {
-                    false
-                };
-                if label_clicked || row_clicked {
-                    if let Some(focused) = ui.memory(|m| m.focused()) {
-                        ui.memory_mut(|m| m.surrender_focus(focused));
-                    }
-                    state.selected = Some(cmd);
-                    state.recording = Some(cmd);
-                }
+                ui.add_space(space::S3);
+                ui.label(rich(msg, TextStyle::Body).color(nf.text_tertiary));
             }
         });
+
+    if was_recording.is_some()
+        && state.recording.is_some()
+        && !started_recording
+        && let Some(pos) = ui.input(|i| {
+            i.pointer
+                .primary_clicked()
+                .then(|| i.pointer.interact_pos())
+                .flatten()
+        })
+        && recorder_rect.is_none_or(|r| !r.contains(pos))
+    {
+        state.stop_recording();
+    }
 
     ui.horizontal(|ui| {
         let can_reset = state

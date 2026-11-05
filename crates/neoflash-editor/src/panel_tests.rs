@@ -3355,16 +3355,33 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         Some(crate::panels::preferences::PAGE_SHORTCUTS)
     );
 
-    // Search for "keyframe" so Insert ▸ Keyframe and Convert to keyframes are visible together.
+    // Search for "keyframe" so Insert ▸ Keyframe ("Keyframe") and Convert to keyframes are visible together.
     d.click("Search commands");
     d.step(vec![Event::Text("keyframe".into())]);
     d.settle();
-    assert!(d.find("Insert ▸ Keyframe").is_some());
+    assert!(d.find("Keyframe").is_some());
     assert!(d.find("Convert to keyframes").is_some());
+
+    let painted_text = |d: &Driver, needle: &str| -> bool {
+        fn has_text(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
+            shapes.iter().any(|cs| match &cs.shape {
+                egui::Shape::Text(t) => t.galley.job.text == needle,
+                egui::Shape::Vec(v) => v
+                    .iter()
+                    .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.job.text == needle)),
+                _ => false,
+            })
+        }
+        has_text(&d.out.shapes, needle)
+    };
 
     // Clicking a row enters recording ("Press keys…"); Esc cancels recording without closing Preferences.
     d.click("Convert to keyframes");
-    assert!(d.find("Press keys…").is_some());
+    assert!(
+        d.find("Recording shortcut for Convert to keyframes")
+            .is_some()
+    );
+    assert!(painted_text(&d, "Press keys…"));
     d.step(vec![Event::Key {
         key: egui::Key::Escape,
         physical_key: Some(egui::Key::Escape),
@@ -3377,9 +3394,14 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         d.editor.preferences.is_some(),
         "Esc cancels recording instead of closing Preferences"
     );
-    assert!(d.find("Press keys…").is_none());
+    assert!(
+        d.find("Recording shortcut for Convert to keyframes")
+            .is_none()
+    );
 
-    // Recording F6 on Convert to keyframes flags a conflict with Insert ▸ Keyframe.
+    // Recording F6 on Convert to keyframes shows the conflict strip with "Go to Insert ▸ Keyframe"
+    // (which jumps to Keyframe's recorder; Cancel exits it), and clicking Accept keeps both and flags
+    // both rows with "Also on …" plus the "1 conflict" badge.
     d.click("Convert to keyframes");
     d.step(vec![Event::Key {
         key: egui::Key::F6,
@@ -3389,19 +3411,38 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         modifiers: egui::Modifiers::NONE,
     }]);
     d.settle();
-    assert!(
-        d.texts()
-            .iter()
-            .any(|t| t == "Conflicts with Insert ▸ Keyframe")
+    assert!(d.find("Go to Insert ▸ Keyframe").is_some());
+    d.click("Go to Insert ▸ Keyframe");
+    let rec_rect = d.find("Recording shortcut for Keyframe").unwrap();
+    d.press(
+        Pos2::new(rec_rect.right() - 28.0, rec_rect.center().y),
+        egui::PointerButton::Primary,
     );
-    assert!(
-        d.texts()
-            .iter()
-            .any(|t| t == "Conflicts with Convert to keyframes")
-    );
+    assert!(d.find("Recording shortcut for Keyframe").is_none());
+
+    d.click("Convert to keyframes");
+    d.step(vec![Event::Key {
+        key: egui::Key::F6,
+        physical_key: Some(egui::Key::F6),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    d.click("Accept");
+    assert!(d.find("1 conflict").is_some());
+    assert!(painted_text(&d, "Also on Insert ▸ Keyframe"));
+    assert!(painted_text(&d, "Also on Convert to keyframes"));
+    // Clicking the "1 conflict" badge filters to only the conflicting commands; clicking again restores all matches.
+    d.click("1 conflict");
+    assert!(d.find("Blank keyframe").is_none());
+    assert!(d.find("Keyframe").is_some());
+    assert!(d.find("Convert to keyframes").is_some());
+    d.click("1 conflict");
+    assert!(d.find("Blank keyframe").is_some());
 
     // Backspace while recording clears Insert ▸ Keyframe and resolves the conflict; Reset command restores Convert to keyframes.
-    d.click("Insert ▸ Keyframe");
+    d.click("Keyframe");
     d.step(vec![Event::Key {
         key: egui::Key::Backspace,
         physical_key: Some(egui::Key::Backspace),
@@ -3410,19 +3451,19 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         modifiers: egui::Modifiers::NONE,
     }]);
     d.settle();
-    assert!(
-        !d.texts()
-            .iter()
-            .any(|t| t == "Conflicts with Insert ▸ Keyframe")
-    );
+    assert!(d.find("1 conflict").is_none());
+    assert!(!painted_text(&d, "Also on Insert ▸ Keyframe"));
 
     d.click("Convert to keyframes");
     d.click("Reset command");
-    assert!(d.find("Press keys…").is_none());
+    assert!(
+        d.find("Recording shortcut for Convert to keyframes")
+            .is_none()
+    );
 
     // Bind Insert ▸ Keyframe to ⌥F6.
-    d.click("Insert ▸ Keyframe");
-    assert!(d.find("Press keys…").is_some());
+    d.click("Keyframe");
+    assert!(d.find("Recording shortcut for Keyframe").is_some());
     d.step(vec![Event::Key {
         key: egui::Key::F6,
         physical_key: Some(egui::Key::F6),
@@ -3431,6 +3472,7 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         modifiers: egui::Modifiers::ALT,
     }]);
     d.settle();
+    d.click("Accept");
     assert_eq!(
         d.editor
             .preferences
@@ -3464,31 +3506,21 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
     d.click("NeoFlash default");
     d.click("NeoFlash default copy");
 
-    // Clear search via the NF2/Search clear ✕ button, filter by Tools category + "pencil", and rebind Tools ▸ Pencil from Y to ⇧Y.
+    // Clear search via the NF2/Search clear ✕ button, toggle Only assigned, search "pencil", and rebind Tools ▸ Pencil from Y to ⇧Y.
     let search_rect = d.find("Search commands").unwrap();
     d.press(
         Pos2::new(search_rect.right() - 20.0, search_rect.center().y),
         egui::PointerButton::Primary,
     );
-    let cat_rect = d.find("All commands").unwrap();
-    d.click("All commands");
-    let tools_item = named_bounds_in(
-        &d.out,
-        "Tools",
-        Rect::from_min_size(
-            Pos2::new(cat_rect.left() - 16.0, cat_rect.bottom()),
-            Vec2::new(240.0, 320.0),
-        ),
-    )
-    .expect("Tools category option in popup");
-    d.press(tools_item.center(), egui::PointerButton::Primary);
-    assert!(d.find("Insert ▸ Frame").is_none());
-    assert!(d.find("Tools ▸ Selection").is_some());
+    d.click("Only assigned");
+    assert!(d.find("Revert").is_none());
+    d.click("Only assigned");
 
     d.click("Search commands");
     d.step(vec![Event::Text("pencil".into())]);
     d.settle();
-    d.click("Tools ▸ Pencil");
+    assert!(d.find("Frame").is_none());
+    d.click("Pencil");
     d.step(vec![Event::Key {
         key: egui::Key::Y,
         physical_key: Some(egui::Key::Y),
@@ -3497,6 +3529,7 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
         modifiers: egui::Modifiers::SHIFT,
     }]);
     d.settle();
+    d.click("Accept");
 
     // Save Preferences and verify live shortcut dispatch + dynamic menu/tool labels.
     d.click("Save");

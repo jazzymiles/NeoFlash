@@ -34,18 +34,6 @@ impl CommandCategory {
         Self::Tools,
     ];
 
-    pub const FILTER_OPTIONS: [(Option<Self>, &'static str); 9] = [
-        (None, "All commands"),
-        (Some(Self::File), "File"),
-        (Some(Self::Edit), "Edit"),
-        (Some(Self::View), "View"),
-        (Some(Self::Insert), "Insert"),
-        (Some(Self::Modify), "Modify"),
-        (Some(Self::Control), "Control"),
-        (Some(Self::Window), "Window"),
-        (Some(Self::Tools), "Tools"),
-    ];
-
     pub const fn label(self) -> &'static str {
         match self {
             Self::File => "File",
@@ -2049,6 +2037,27 @@ impl CommandId {
         self.meta().title
     }
 
+    /// Full `"<Menu> ▸ …"` path used by search, the recorder conflict strip and `"Go to <menu path>"`.
+    pub const fn menu_path(self) -> &'static str {
+        match self {
+            Self::ModifyTimelineClearKeyframe => "Modify ▸ Timeline ▸ Clear keyframe",
+            Self::ModifyTimelineConvertToKeyframes => "Modify ▸ Timeline ▸ Convert to keyframes",
+            _ => self.meta().title,
+        }
+    }
+
+    /// Command title inside its `<Menu>` group in `Preferences ▸ Shortcuts` (R-046).
+    pub fn row_title(self) -> &'static str {
+        let title = self.meta().title;
+        if let Some((head, tail)) = title.split_once(" ▸ ")
+            && head == self.category().label()
+        {
+            tail
+        } else {
+            title
+        }
+    }
+
     pub const fn search_keywords(self) -> &'static str {
         self.meta().keywords
     }
@@ -2190,6 +2199,19 @@ pub fn conflicts(prefs: &ShortcutPrefs) -> BTreeMap<CommandId, CommandId> {
         }
     }
     out
+}
+
+/// First command other than `cmd` in [`CommandId::ALL`] order whose effective shortcuts in `prefs`
+/// include `chord`.
+pub fn first_conflict_for_chord(
+    prefs: &ShortcutPrefs,
+    cmd: CommandId,
+    chord: Shortcut,
+) -> Option<CommandId> {
+    CommandId::ALL
+        .iter()
+        .copied()
+        .find(|&other| other != cmd && effective_shortcuts(prefs, other).contains(&chord))
 }
 
 fn escape_html(raw: &str) -> String {
