@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Pencil stroke-width presets now display fractional values correctly even when the current width is a whole number.
+
 - Corrected coverage classifications and known limits for authoring/runtime gaps, timeline and layer editing, Lottie, AS3 reflection/video, AS2/AS3 authored-source masks and legacy playback. The registry now distinguishes useful partial paths from completed functions; earlier percentage claims below are historical classifications, not current compatibility guarantees.
 - Coverage percentages no longer round an incomplete total to `100.0%`; near-complete shares show `<100%` alongside their exact counts.
 

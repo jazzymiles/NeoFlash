@@ -784,7 +784,7 @@
         },
         {
           "id": "pencil-modes",
-          "title": "Pencil Straighten, Smooth and Ink modes with smoothing strength",
+          "title": "Pencil modes, smoothing and fractional stroke-width presets",
           "status": "working"
         },
         {

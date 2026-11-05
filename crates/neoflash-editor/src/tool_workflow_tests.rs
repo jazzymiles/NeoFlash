@@ -138,6 +138,68 @@ fn tool_workflows_document_units_shapes_pressure_and_pencil_modes_keep_one_undo(
             .iter()
             .all(|c| matches!(c, PathCommand::MoveTo { .. } | PathCommand::LineTo { .. }))
     );
+
+    // An integral current width must not round fractional dropdown presets to zero.
+    for theme in [
+        crate::theme::ThemeMode::Dark,
+        crate::theme::ThemeMode::Light,
+    ] {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.set_theme(&ctx, theme);
+        editor.set_tool(Tool::Pencil);
+        editor.stroke_width = 1.;
+        let before = editor.project.clone();
+        let frame = |editor: &mut Editor, time, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(320., 800.),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| editor.pencil_tool_contents(ui));
+                },
+            )
+        };
+        frame(&mut editor, 1., vec![]);
+        let output = frame(&mut editor, 1.1, vec![]);
+        let point = named_bounds(&output, "Presets").unwrap().center();
+        frame(
+            &mut editor,
+            1.2,
+            vec![
+                egui::Event::PointerMoved(point),
+                primary_button(point, true),
+                primary_button(point, false),
+            ],
+        );
+        let output = frame(&mut editor, 1.3, vec![]);
+        let quarter = named_bounds(&output, "0.25").expect("quarter-width preset label");
+        assert!(
+            named_bounds(&output, "0.50").is_some(),
+            "half-width preset label"
+        );
+        let point = quarter.center();
+        frame(
+            &mut editor,
+            1.4,
+            vec![
+                egui::Event::PointerMoved(point),
+                primary_button(point, true),
+                primary_button(point, false),
+            ],
+        );
+        assert_eq!(editor.stroke_width, 0.25);
+        assert_eq!(editor.tool, Tool::Pencil);
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+    }
 }
 #[test]
 fn customize_tools_drafts_persist_globally_without_document_or_layout_changes() {

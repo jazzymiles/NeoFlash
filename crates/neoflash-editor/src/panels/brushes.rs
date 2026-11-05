@@ -243,14 +243,9 @@ impl Editor {
         nf::SectionHeader::new("Stroke").show(ui, |ui| {
             ui.horizontal(|ui| {
                 self.tool_color_well(ui, true);
-                let decimals = if self.stroke_width.fract() == 0. {
-                    0
-                } else {
-                    2
-                };
                 ui.add(
                     nf::Field::new(&mut self.stroke_width, "Stroke width")
-                        .decimals(decimals)
+                        .decimals(2)
                         .step(0.25)
                         .range(0.1..=100.)
                         .presets(&[0.25, 0.5, 1., 2., 4., 8.])
