@@ -99,6 +99,7 @@ crates/neoflash-editor
 | `unavailable.rs` | "Not available yet" tooltip for disabled controls |
 | `surface.rs` | Surfaces (App, Panel, Floating, Popover, Dialog, Canvas), scrim, dialog footer, status bar, Zoom Control, Dock Zone, Dock Compass, Drop Indicator, Splitter, Drag Ghost |
 | `docking.rs` | dock target and drag ghost helpers |
+| `shortcuts.rs` | Preferences ▸ Shortcuts (R-046): `ShortcutRow` (title, “Also on …” note, Kbd chips joined by “or”, “—” / “Add shortcut”), `ShortcutRecorder` (“Press keys…”, captured chips, Cancel / Accept), `conflict_strip` (warning + “Go to …”); menu paths draw “▸” as “›” |
 | `timeline.rs` | TL Layer (optional Mode cell + Solo toggle: `LayerColumns`, `ModeCell`, `show_with` / `paint_at_with`, `paint_solo_toggle`, `BLEND_MODE_GROUPS`; R-040 / R-045, 372 pt column `LAYER_COLUMN_MODE_SOLO`), TL Toggle, TL Layers Header (`layers_header_with`), TL Grid, TL Grid Lines, TL Span (incl. Sound decoded peaks, `paint_sound_peaks`), TL Marker, TL Frame Label, TL Ruler, TL Onion Range, TL Playhead |
 | `code.rs` | Code Editor: syntax highlighter (NF2 syntax tokens), gutter, markers, current line, script status, compiler messages, log lines, range underline, Error peek (error / warning) |
 | `weight.rs` | Publish weight bar, legend and totals |

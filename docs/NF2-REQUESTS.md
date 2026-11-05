@@ -594,7 +594,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   outline and `Replace on all keyframes of “<layer>”`. No new cursor. Release = one Undo step; Esc cancels.
 
 ### R-042 · Timeline-synchronized layer crop (`Sync layer to timeline`) and MovieClip/Graphic `First frame` ("Start from") controls
-- **Status:** answered
+- **Status:** resolved
 - **Requested by / for:** implementation track (`gemini`) · PR-07 / T-038 (`LayerProperties.sync_timeline` and instance `First frame`)
 - **Where:** `authoring_symbols.rs::instance_playback_ui` (`Properties` symbol playback section), `panels/layer_properties.rs`, `layer_controls.rs`, and `panels/timeline_controls.rs` (`timeline_frame_view_menu` `⋯` dropdown).
 - **Need:** Design review and UX confirmation after human testing for: (1) exposing `First frame` (`1..=frame_count`, Flash "Start from") in `Properties` for both `Graphic` and `MovieClip` instances (and whether `MovieClip` instances should show a dedicated `"Start from frame"` label or the shared `Playback` + `First frame` rows), (2) placement of the layer-level `Sync layer to timeline` (`LayerProperties.sync_timeline`) checkbox in the Timeline `⋯` dropdown, layer context menu, and `Layer properties` dialog, and (3) whether a synced layer whose early frames (`1..6`) are blank should display a distinct span marker/crop indicator on the timeline grid at the frame (`7`) where the symbol enters at its synchronized frame `7`.
@@ -676,7 +676,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `paint_solo_toggle`, `BLEND_MODE_GROUPS`, `metrics::{LAYER_MODE, LAYER_COLUMN_MODE_SOLO}`; gallery section `timeline`.
 
 ### R-046 · Preferences ▸ Shortcuts: grouped list, search, Only assigned, recorder with Accept / Cancel and conflicts
-- **Status:** answered
+- **Status:** resolved
 - **Requested by / for:** project owner · DL-01 / W3.7 (`prefs_shortcuts`); replaces the flat table and category Select
 - **Where:** `crates/neoflash-editor/src/panels/preferences.rs` (`prefs_shortcuts`), `commands.rs` (`CommandCategory`, `conflicts`).
 - **Need:** a macOS-style shortcut editor: visible combinations, click to record, Accept or Cancel, conflict warning with a way to
@@ -701,4 +701,6 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   shortcut, Reset to default. Empty result: tertiary “No commands match “<query>”. Clear the search or turn off Only
   assigned.” Footer and Reset command / Export as HTML… are unchanged; Save keeps conflicts (they are warnings, not errors).
   Shared pieces for `neoflash-ui`: shortcut row (title, note, chip cell) and shortcut recorder field.
-
+  Available in `neoflash-ui`: `shortcuts::{ShortcutRow (new/chords/conflict/selected → row, cell), ShortcutRecorder
+  (new/captured/conflict_with → accept, cancel, go_to), conflict_strip}` and `SHORTCUT_ROW / SHORTCUT_INDENT / SHORTCUT_CELL /
+  SHORTCUT_RECORDER`; “▸” in titles is drawn as “›” (NF2 fonts lack U+25B8). Gallery section `shortcuts`.

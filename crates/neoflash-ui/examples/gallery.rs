@@ -6,6 +6,7 @@
 //! cargo run -p neoflash-ui --example gallery -- dark  target/ui-shots/gallery-dark.png   # save a PNG and quit
 //! NF2_GALLERY_SECTION=answers cargo run -p neoflash-ui --example gallery -- dark x.png  # design-answer pieces
 //! NF2_GALLERY_SECTION=timeline cargo run -p neoflash-ui --example gallery -- dark x.png # Mode & Solo + timeline
+//! NF2_GALLERY_SECTION=shortcuts cargo run -p neoflash-ui --example gallery -- dark x.png # Preferences shortcuts
 //! ```
 //! Compare the PNG with `interface/design-system/docs/illustrations/*.png`.
 use eframe::egui;
@@ -332,6 +333,43 @@ impl eframe::App for Gallery {
                             selected: Some(1),
                         }
                         .show(ui);
+                    });
+
+                    // `NF2_GALLERY_SECTION=shortcuts` scrolls here so the PNG capture shows this section.
+                    if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "shortcuts") {
+                        ui.scroll_to_cursor_animation(
+                            Some(egui::Align::TOP),
+                            egui::style::ScrollAnimation::none(),
+                        );
+                    }
+                    title(ui, "Preferences › Shortcuts (R-046)");
+                    c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                        let w = 650.0;
+                        c::ShortcutRow::new("Frame").chords(&[&["F5"]]).show(ui, w);
+                        c::ShortcutRow::new("Keyframe")
+                            .chords(&[&["F6"]])
+                            .conflict("Also on Convert to keyframes")
+                            .show(ui, w);
+                        c::ShortcutRow::new("Clear keyframe")
+                            .chords(&[&["⇧", "F6"]])
+                            .show(ui, w);
+                        c::ShortcutRow::new("Motion tween").show(ui, w);
+                        c::ShortcutRow::new("Classic tween").selected(true).show(ui, w);
+                        c::ShortcutRow::new("Arrange ▸ Bring to front")
+                            .chords(&[&["⇧", "⌘", "↑"], &["⇧", "⌘", "]"]])
+                            .show(ui, w);
+                        ui.add_space(8.0);
+                        c::ShortcutRecorder::new("Classic tween").show(ui, w);
+                        ui.add_space(8.0);
+                        c::ShortcutRecorder::new("Classic tween")
+                            .captured(&["⌥", "⌘", "T"])
+                            .show(ui, w);
+                        ui.add_space(8.0);
+                        c::ShortcutRecorder::new("Classic tween")
+                            .captured(&["F6"])
+                            .conflict_with("Insert ▸ Keyframe")
+                            .show(ui, w);
                     });
 
                     // `NF2_GALLERY_SECTION=timeline` scrolls here so the PNG capture shows this section.

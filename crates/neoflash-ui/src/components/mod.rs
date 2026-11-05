@@ -57,6 +57,7 @@ pub mod inspector;
 pub mod menu;
 pub mod motion;
 pub mod segmented;
+pub mod shortcuts;
 pub mod surface;
 pub mod swatches;
 pub mod text_area;
@@ -101,6 +102,9 @@ pub use menu::{
 };
 pub use motion::{LaneKey, paint_curve_lane, paint_frame_scale, paint_lane_playhead};
 pub use segmented::Segmented;
+pub use shortcuts::{
+    ShortcutRecorder, ShortcutRecorderResponse, ShortcutRow, ShortcutRowResponse, conflict_strip,
+};
 pub use surface::{Surface, ZoomControl};
 pub use swatches::{GradientSwatch, SwatchesPopover, SwatchesResponse, default_palette};
 pub use text_area::TextArea;
