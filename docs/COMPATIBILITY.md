@@ -40,6 +40,8 @@ Button authoring uses Up/Over/Down/Hit; Hit is input-only in HTML5. AS2 object c
 
 ## Runtime scope
 
+Scripted cached masks support dynamic vector/gradient and decoded bitmap sources, including compound groups. Assigning an authored gradient source currently loses its opacity ramp; assigning an authored PNG source is rejected. In AS2, that PNG refusal can bypass ordinary `try/catch` and stop the frame script. Timeline masks currently use geometric coverage; explicit gradient/PNG alpha masking remains unfinished.
+
 AS2 and AS3 support is partial. The [complete declaration audit](progress/ACTIONSCRIPT.md) separates implemented subsets, partial support, missing entries and review gaps. [Verification scope](VERIFICATION.md) distinguishes observed browser behavior from native/compiler checks; a successful example does not establish full language or API conformance.
 
 Shared Rust services provide display, geometry, media, data, binding, strings and image behavior. Browser adapters connect viewport, capture, messaging, HTTP and printing. Hardware camera/microphone capture and system print-preview acceptance remain unverified. Raw TCP/RTMP, remote SharedObject and full historical prototype/coercion semantics remain unsupported. Authored AS2 still compiles to JavaScript that calls Rust/WASM services; there is no complete Rust bytecode VM.

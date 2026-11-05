@@ -2,7 +2,7 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
-- Corrected coverage classifications and known limits for authoring/runtime gaps, timeline and layer editing, Lottie, AS3 reflection/video/masks and legacy playback. The registry now distinguishes useful partial paths from completed functions; earlier percentage claims below are historical classifications, not current compatibility guarantees.
+- Corrected coverage classifications and known limits for authoring/runtime gaps, timeline and layer editing, Lottie, AS3 reflection/video, AS2/AS3 authored-source masks and legacy playback. The registry now distinguishes useful partial paths from completed functions; earlier percentage claims below are historical classifications, not current compatibility guarantees.
 
 - Paint Bucket now offers small/medium/large gap closing in tool options, and Eraser adds Cut strokes while retaining the Whole modes. Unsupported mixed-target cuts cancel the entire gesture without changing artwork or Undo; a Warning notification, status and Output explain the refusal. The Test Movie debugger distinguishes Connecting, Running, Paused and Disconnected, offers Restart after disconnect, and hides stale inspection data when no frame is paused.
 

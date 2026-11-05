@@ -31,14 +31,14 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 3. MovieClip and timeline | 123 | 123 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 3. MovieClip and timeline | 123 | 122 | 1 | 0 | 0 | 99.2% | 100.0% |
 | 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
-| **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,204 | 34 | 0 | 0 | 97.3% | 100.0% |
+| **Now: areas 1–6** | 925 | 924 | 1 | 0 | 0 | 99.9% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,203 | 35 | 0 | 0 | 97.2% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 
@@ -53,7 +53,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS2 | framework | 15 | 0 | 15 | 0 | 0 |
 | AS2 | language | 185 | 184 | 1 | 0 | 0 |
 | AS2 | platform_extension | 10 | 0 | 0 | 10 | 0 |
-| AS2 | runtime | 908 | 875 | 33 | 0 | 0 |
+| AS2 | runtime | 908 | 874 | 34 | 0 | 0 |
 | AS3 | component | 2,039 | 0 | 124 | 1,915 | 0 |
 | AS3 | core | 376 | 376 | 0 | 0 | 0 |
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS2-MASK-EVIDENCE-20261105` | 2026-11-05 | `395cfc5205e6` | 1 → partial |
 | `AS3-EVIDENCE-CALIBRATION-20261105` | 2026-11-05 | `395cfc5205e6` | 1 → missing, 5 → partial |
 | `AS3-WAVE7-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `78039420e419` | 113 → working |
 | `AS2-WAVE7-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `78039420e419` | 183 → working |
@@ -12811,3 +12812,13 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:property:flash/display/DisplayObject.html#mask` — **partial**: Vector and cached dynamic gradient/bitmap masks work; cached authored gradient masks lose their opacity ramp, and authored bitmap sources are rejected.
 
 Evidence: [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [web/tests/as3-net-sys.test.cjs](../../web/tests/as3-net-sys.test.cjs), [web/tests/dom-layout-and-portability.test.cjs](../../web/tests/dom-layout-and-portability.test.cjs)
+
+### AS2-MASK-EVIDENCE-20261105 — Keep authored-source mask limitations explicit in AS2 coverage
+
+Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `as2:MovieClip.html#setMask()` — **partial**: Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling.
+
+Evidence: [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs), [web/tests/dom-layout-and-portability.test.cjs](../../web/tests/dom-layout-and-portability.test.cjs)

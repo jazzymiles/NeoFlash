@@ -38,14 +38,14 @@ Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, compo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 3. MovieClip and timeline | 123 | 123 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 3. MovieClip and timeline | 123 | 122 | 1 | 0 | 0 | 99.2% | 100.0% |
 | 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
-| **Now: areas 1–6** | 925 | 925 | 0 | 0 | 0 | 100.0% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,204 | 34 | 0 | 0 | 97.3% | 100.0% |
+| **Now: areas 1–6** | 925 | 924 | 1 | 0 | 0 | 99.9% | 100.0% |
+| **All Flash Player areas** | 1,238 | 1,203 | 35 | 0 | 0 | 97.2% | 100.0% |
 
 Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
 

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "cb253d2efdaedde6b5ed9663063987e3ba6497f1521ba5b83e8dabb03d11af57",
+  "reviews": [
+    {
+      "id": "AS2-MASK-EVIDENCE-20261105",
+      "date": "2026-11-05",
+      "commit": "395cfc5205e640c3d082a6af652712dc5b2c8060",
+      "title": "Keep authored-source mask limitations explicit in AS2 coverage",
+      "summary": "Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.",
+      "tests": [
+        "crates/neoflash-script/tests/clipped-scene.mjs",
+        "web/tests/dom-layout-and-portability.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "note": "Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling."
+        }
+      ]
+    }
+  ]
+}

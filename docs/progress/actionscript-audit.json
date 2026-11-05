@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "cb253d2efdaedde6b5ed9663063987e3ba6497f1521ba5b83e8dabb03d11af57",
+  "catalogSha256": "6a61f5d82b869d61e7cd6a15aa5da63ee547a6395c554f7e252f4458f6d77ebb",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35485,6 +35485,14 @@
         "reviewIds": [
           "AS3-EVIDENCE-CALIBRATION-20261105"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-05-as2-masks.json",
+        "sha256": "bfe2501cb765de4aa083fe9cd0d52e8cfae493dfa9058ce006280fa827d337db",
+        "baseCatalogSha256": "cb253d2efdaedde6b5ed9663063987e3ba6497f1521ba5b83e8dabb03d11af57",
+        "reviewIds": [
+          "AS2-MASK-EVIDENCE-20261105"
+        ]
       }
     ],
     "statusReviews": [
@@ -35751,21 +35759,30 @@
           "missing": 1,
           "partial": 5
         }
+      },
+      {
+        "id": "AS2-MASK-EVIDENCE-20261105",
+        "date": "2026-11-05",
+        "commit": "395cfc5205e640c3d082a6af652712dc5b2c8060",
+        "path": "docs/progress/reviews/2026-11-05-as2-masks.json",
+        "changes": {
+          "partial": 1
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5793,
-      "partial": 1623,
+      "implemented_subset": 5792,
+      "partial": 1624,
       "missing": 38631,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1204,
-        "partial": 465,
+        "implemented_subset": 1203,
+        "partial": 466,
         "missing": 638,
         "needs_review": 0,
         "total": 2307
@@ -35815,8 +35832,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4964,
-        "partial": 1067,
+        "implemented_subset": 4963,
+        "partial": 1068,
         "missing": 127,
         "needs_review": 0,
         "total": 6158
@@ -35860,8 +35877,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 875,
-          "partial": 33,
+          "implemented_subset": 874,
+          "partial": 34,
           "missing": 0,
           "needs_review": 0,
           "total": 908
@@ -173583,6 +173600,37 @@
           "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
           "status": "implemented_subset",
           "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-MASK-EVIDENCE-20261105",
+      "title": "Keep authored-source mask limitations explicit in AS2 coverage",
+      "reason": "Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+          "sha256": "ddf2c399bcbfeca2f30439fff401f0cc5867829d8a45ed166f53802688a4b175"
+        },
+        {
+          "path": "web/tests/dom-layout-and-portability.test.cjs",
+          "sha256": "0507405df0248880ab1b40136fec59f2163f843dc89969c0364e7c39cb21fb07"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "scopeNote": "Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
           "evidenceKind": "test_backed_review"
         }
       ]
