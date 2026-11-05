@@ -402,7 +402,8 @@ Frame `NF2 / Editor — Main`, 1920 × 1080. Regions (top to bottom, left to rig
 
 | Region | Size | Content |
 |---|---|---|
-| Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Modify · Insert · Control · Window (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
+| Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Modify · Insert · Control · Window (ghost buttons, open as dropdowns, §8); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). No document title here: open documents live in the Document bar. |
+| Document bar | 1544 × 40 | Directly below the menu bar, between the Tools rail and the Inspector (owner directive R-050): `bg/app`, 12 pt sides, 1 pt `border/subtle` bottom line; `NF2/Document Tab`s left-aligned (active "Ideas in motion" with the unsaved dot) and the ⌄ all-documents `Icon Button` right after the last tab. Its 40 pt height lines up with the Properties panel header. The canvas starts below it. |
 | Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools (long-press opens the group menu built from `NF2/Tool Flyout Item`; all groups and their shortcuts are on the board “Tools — flyout groups”, §6; the rail is edited in “Customize tools panel”, §9), fill/stroke chip, swap/default colours, snap toggle at the bottom. |
 | Canvas | 1544 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
 | Inspector | 320 × 588 | **Properties** (`Panel Header`, `Segmented Control` Selection / Tool; sections Stage: Name, W × H with link, Background swatch + hex + α; Playback: FPS, Frames; Publish: target badge "HTML5 · Rust / WebAssembly" + "Publish settings…") and **Library** (search, tree). Content changes with the selection (see §6 Properties variants). |
@@ -460,7 +461,7 @@ frame view ⋯ · zoom − slider +.
 | Item | Value |
 |---|---|
 | Frame width | 12 px (Normal). View modes: Tiny 6, Small 9, Normal 12, Medium 16, Large 22 px/frame. |
-| Row height | 28 px (Short mode: 18 px). |
+| Row height | 28 px (Short mode: 18 px, Compact: 14 px). Short and Compact rows use `NF2/TL Layer` `Size=Compact`. |
 | Ruler | `NF2/TL Ruler`, 32 px: seconds row on top (`0s 1s 2s …` at 24 fps), frame numbers row below (1, 5, 10, …) with ticks. |
 | Layer column | 280 px (`NF2/TL Layers Header` + `NF2/TL Layer` rows). |
 | Grid | `NF2/TL Grid` 1440 px = 120 frames: frame dividers are **short ticks at the bottom** of the row (1 × 4 px, Flash style), not full-height lines; every 5th frame shaded (`timeline/empty-5th`); row line at the bottom. `NF2/TL Grid Lines` (the same ticks) sits directly above `TL Grid` and **below** spans, so static and tween spans stay continuous. |
@@ -470,7 +471,7 @@ frame view ⋯ · zoom − slider +.
 ### 5.2 Layers
 
 `NF2/TL Layer` variants `Type` = Layer · Masked · Folder Open · Folder Closed · Guide · Motion Guide · Mask · Sound ·
-Video · Armature, `Selected` = True/False; booleans `Indent 1`, `Indent 2` (nesting under folders, guides, masks),
+Video · Armature, `Selected` = True/False, `Size` = Default (28 pt row, 16 pt icons) · Compact (18 pt row for Frame View ▸ Short, also used at the 14 pt Compact height: 12 pt icons, 4 pt gaps, `NF2/Small` label, toggle columns stay 20 pt wide so the header icons line up); booleans `Indent 1`, `Indent 2` (nesting under folders, guides, masks),
 `Editing` (pencil = current layer); text `Label`.
 
 | Type | Icon | Rule |

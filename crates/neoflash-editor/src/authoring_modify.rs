@@ -2528,7 +2528,9 @@ impl Editor {
         // Which paint the wells edit: remembered per panel, Fill by default.
         let active_id = egui::Id::new("color-panel-active-stroke");
         let mut stroke_active = ui.data(|d| d.get_temp::<bool>(active_id).unwrap_or(false));
-        if !self.authoring_modify.color_selection {
+        // Flash behaviour: with nothing selected the Color panel edits the tool (drawing) colours
+        // instead of going blank; the scope control and the "0 objects" count stay as they are.
+        if !self.authoring_modify.color_selection || targets.is_empty() {
             let fill_grad = self.authoring_modify.drawing_fill_gradient.clone();
             let stroke_grad = self.authoring_modify.drawing_stroke_gradient.clone();
             let action = color_wells_and_actions(

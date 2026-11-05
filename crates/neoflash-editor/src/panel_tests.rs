@@ -621,10 +621,13 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
                 vec![],
             );
         }
+        // NF2 v2.2: keys sit on the glyph line (9 pt above the row bottom); compare row centres.
+        let glyph_below_centre = crate::timeline_paint::ROW_HEIGHT / 2.
+            - neoflash_ui::components::timeline::GLYPH_LINE_FROM_BOTTOM;
         let keys: Vec<_> = out
             .shapes
             .iter()
-            .filter_map(|s| key_marker(s, &ctx).map(|c| c.y))
+            .filter_map(|s| key_marker(s, &ctx).map(|c| c.y - glyph_below_centre))
             .collect();
         let row_top = keys.iter().copied().fold(f32::INFINITY, f32::min)
             - crate::timeline_paint::ROW_HEIGHT / 2.;
@@ -672,7 +675,9 @@ fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
             .iter()
             .filter_map(|shape| key_marker(shape, &ctx))
             .filter(|center| {
-                (center.y - row_top - crate::timeline_paint::ROW_HEIGHT / 2.).abs() < 1.
+                (center.y - glyph_below_centre - row_top - crate::timeline_paint::ROW_HEIGHT / 2.)
+                    .abs()
+                    < 1.
             })
             .max_by(|a, b| a.x.total_cmp(&b.x))
             .unwrap();

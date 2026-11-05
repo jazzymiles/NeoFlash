@@ -1039,7 +1039,7 @@ impl Editor {
                     );
                 }
             }
-            tl::paint_grid_lines(&rp, &ctx, row, &geo, p.timeline_grid);
+            // NF2 v2.2: frame ticks (`TL Grid Lines`) belong to `paint_grid`, below spans.
             let selected = selection
                 .as_ref()
                 .filter(|range| range.layers.contains(&layer.id))

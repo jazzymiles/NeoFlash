@@ -215,6 +215,14 @@ impl Editor {
                 .set_dir(crate::recovery::RecoveryManager::default_recovery_dir());
             s.check_recovery_on_launch();
         }
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_ROWS=short|compact` captures the Frame View row heights.
+        if is_screenshot {
+            match std::env::var("NEOFLASH_SCREENSHOT_ROWS").as_deref() {
+                Ok("short") => s.workspace.timeline.short_rows = true,
+                Ok("compact") => s.workspace.timeline.compact_rows = true,
+                _ => {}
+            }
+        }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_FRAME=<layer row>,<frame>` selects that frame
         // (zero-based), so captures show frame Properties (e.g. Properties ▸ Sound).
         if let Some((layer, frame)) =
@@ -290,6 +298,7 @@ impl Editor {
                     "history" => Some(PanelId::History),
                     "brushes" => Some(PanelId::Brushes),
                     "swatches" => Some(PanelId::Swatches),
+                    "color" => Some(PanelId::Color),
                     "info" => Some(PanelId::Info),
                     "project" => Some(PanelId::Project),
                     "ease" => Some(PanelId::Ease),

@@ -241,17 +241,22 @@ impl LayerRow<'_> {
         );
         let mut x = rect.left() + space::S2 + self.indent as f32 * LAYER_INDENT;
         let cy = rect.center().y;
+        // `Size=Compact` (Figma 166:1038…): Short 18 pt / Compact 14 pt rows use 12 pt icons, 4 pt gaps
+        // and NF2/Small labels; toggle columns keep their 20 pt width so the header icons line up.
+        let compact = layer_row_is_compact(rect.height());
+        let icon = layer_row_icon(rect.height());
         let mut disclosure = false;
         if self.kind.is_folder() {
-            let r = Rect::from_center_size(egui::pos2(x + 8.0, cy), egui::vec2(16.0, 16.0));
+            let r = Rect::from_center_size(egui::pos2(x + icon / 2.0, cy), egui::vec2(icon, icon));
             let c = ui.interact(r.expand(4.0), row.id.with("disclosure"), Sense::click());
             disclosure = c.clicked();
             let open = matches!(self.kind, LayerKind::FolderOpen);
-            icons::paint(
+            icons::paint_sized(
                 ui.painter(),
                 ui.ctx(),
                 r,
                 if open { i16::CHEVDOWN } else { i16::CHEVRIGHT },
+                icon,
                 p.text_secondary,
             );
             a11y(
@@ -265,20 +270,21 @@ impl LayerRow<'_> {
                 None,
             );
         }
-        x += 16.0 + 2.0;
+        x += icon + if compact { space::S1 } else { 2.0 };
         let ic = if self.selected {
             p.accent_default
         } else {
             self.kind.icon_color(p)
         };
-        icons::paint(
+        icons::paint_sized(
             ui.painter(),
             ui.ctx(),
-            Rect::from_center_size(egui::pos2(x + 8.0, cy), egui::vec2(16.0, 16.0)),
+            Rect::from_center_size(egui::pos2(x + icon / 2.0, cy), egui::vec2(icon, icon)),
             self.kind.icon(),
+            icon,
             ic,
         );
-        x += 16.0 + space::S2;
+        x += icon + if compact { space::S1 } else { space::S2 };
         let toggle_count = if columns.solo.is_some() { 4.0 } else { 3.0 };
         let toggles_left = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
         let toggles_w = toggle_count * LAYER_TOGGLE + space::S2 + 8.0;
@@ -288,7 +294,7 @@ impl LayerRow<'_> {
             // Cell + 4 pt to the toggles + 4 pt to the label: 92 pt with the Solo column (Figma 143:22609).
             LAYER_MODE + space::S2
         };
-        let pencil_w = if self.editing { 20.0 } else { 0.0 };
+        let pencil_w = if self.editing { icon + 4.0 } else { 0.0 };
         let label_right = rect.right() - toggles_w - mode_w - pencil_w;
         let fg = if self.selected {
             p.text_primary
@@ -299,16 +305,25 @@ impl LayerRow<'_> {
             egui::pos2(x, rect.top()),
             egui::pos2(label_right, rect.bottom()),
         );
-        let g = galley(ui, self.label, TextStyle::Body, fg);
+        let label_style = if compact {
+            TextStyle::Small
+        } else {
+            TextStyle::Body
+        };
+        let g = galley(ui, self.label, label_style, fg);
         ui.painter()
             .with_clip_rect(label_rect)
             .galley(egui::pos2(x, cy - g.size().y / 2.0), g, fg);
         if self.editing {
-            icons::paint(
+            icons::paint_sized(
                 ui.painter(),
                 ui.ctx(),
-                Rect::from_center_size(egui::pos2(label_right + 10.0, cy), egui::vec2(16.0, 16.0)),
+                Rect::from_center_size(
+                    egui::pos2(label_right + pencil_w / 2.0, cy),
+                    egui::vec2(icon, icon),
+                ),
                 i16::PENCIL,
+                icon,
                 p.accent_default,
             );
         }
@@ -316,9 +331,10 @@ impl LayerRow<'_> {
         let mut mode = false;
         let mut mode_rect = None;
         if columns.mode != ModeCell::Hidden {
+            let mode_h = 20.0_f32.min(rect.height());
             let r = Rect::from_min_size(
-                egui::pos2(toggles_left - space::S1 - LAYER_MODE, cy - 10.0),
-                egui::vec2(LAYER_MODE, 20.0),
+                egui::pos2(toggles_left - space::S1 - LAYER_MODE, cy - mode_h / 2.0),
+                egui::vec2(LAYER_MODE, mode_h),
             );
             mode_rect = Some(r);
             if let ModeCell::Mode(name) = columns.mode {
@@ -407,6 +423,20 @@ impl LayerRow<'_> {
     }
 }
 
+/// `NF2/TL Layer` `Size=Compact` applies to rows shorter than the 28 pt default (Short 18, Compact 14).
+pub fn layer_row_is_compact(height: f32) -> bool {
+    height < LAYER_ROW - 0.5
+}
+
+/// Icon side in a layer row: 16 pt (Default) or 12 pt (Compact).
+pub fn layer_row_icon(height: f32) -> f32 {
+    if layer_row_is_compact(height) {
+        12.0
+    } else {
+        16.0
+    }
+}
+
 /// Paint the Solo toggle (R-045): 8 pt dot — off = 1.5 pt ring (`text/tertiary`, `text/primary` on
 /// hover), on = `accent/default` fill.
 pub fn paint_solo_toggle(
@@ -464,6 +494,7 @@ pub fn paint_toggle(
 ) {
     let p = palette(ctx);
     let c = rect.center();
+    let compact = layer_row_is_compact(rect.height());
     let dot = if hovered {
         p.text_primary
     } else {
@@ -475,12 +506,21 @@ pub fn paint_toggle(
         }
         (ToggleKind::Visibility, true) => {
             let s = Stroke::new(1.5_f32, p.danger_default);
-            painter.line_segment([c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)], s);
-            painter.line_segment([c + egui::vec2(4.0, -4.0), c + egui::vec2(-4.0, 4.0)], s);
+            let d = if compact { 3.0 } else { 4.0 };
+            painter.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], s);
+            painter.line_segment([c + egui::vec2(d, -d), c + egui::vec2(-d, d)], s);
         }
-        (ToggleKind::Lock, true) => icons::paint(painter, ctx, rect, i16::LOCK, p.text_primary),
+        (ToggleKind::Lock, true) => icons::paint_sized(
+            painter,
+            ctx,
+            rect,
+            i16::LOCK,
+            layer_row_icon(rect.height()),
+            p.text_primary,
+        ),
         (ToggleKind::Outline, outline) => {
-            let r = Rect::from_center_size(c, egui::vec2(10.0, 10.0));
+            let side = if compact { 9.0 } else { 10.0 };
+            let r = Rect::from_center_size(c, egui::vec2(side, side));
             if outline {
                 painter.rect_stroke(
                     r,
@@ -619,7 +659,31 @@ pub enum GridKind {
     Folder,
 }
 
-/// `NF2/TL Grid` — empty-frame cells of one row, every 5th frame shaded. Paints only `row ∩ clip`.
+/// Distance from the bottom of a timeline row to the NF2 glyph line: `y 19` of the 28 pt row
+/// (27 pt cell + 1 pt row line). Keyframe glyphs, tween lines and arrowheads share this line in every
+/// Frame View row height (Normal, Short, Compact, Preview, Layer height 200/300 %).
+pub const GLYPH_LINE_FROM_BOTTOM: f32 = 9.0;
+/// `NF2/TL Grid` frame tick: 1 × 4 pt at the bottom of the cell, directly above the row line.
+pub const FRAME_TICK: f32 = 4.0;
+/// `NF2/TL Marker` Keyframe / Blank Keyframe / Action dot diameter (fixed, independent of zoom).
+pub const MARKER_DOT: f32 = 6.0;
+/// `NF2/TL Marker` Span End rectangle.
+pub const SPAN_END: egui::Vec2 = egui::vec2(5.0, 8.0);
+/// `NF2/TL Marker` Property Keyframe diamond (bounding square).
+pub const PROPERTY_DIAMOND: f32 = 7.0;
+/// `NF2/TL Span` tween line: starts 11 pt after the span's left edge, arrowhead (4 × 5) ends 9 pt
+/// before its right edge (the next keyframe).
+pub const TWEEN_LINE_START: f32 = 11.0;
+pub const TWEEN_ARROW_END: f32 = 9.0;
+pub const TWEEN_ARROW: egui::Vec2 = egui::vec2(4.0, 5.0);
+
+/// y of the glyph line inside a row (or a cell of that row).
+pub fn glyph_line_y(row: Rect) -> f32 {
+    row.bottom() - GLYPH_LINE_FROM_BOTTOM
+}
+
+/// `NF2/TL Grid` — empty-frame cells of one row, every 5th frame shaded, 1 × 4 frame ticks at the
+/// bottom (Flash style) and the row line. Paints only `row ∩ clip`.
 pub fn paint_grid(
     painter: &Painter,
     ctx: &egui::Context,
@@ -648,11 +712,13 @@ pub fn paint_grid(
     painter.hline(
         clip.x_range(),
         row.bottom() - 0.5,
-        Stroke::new(1.0_f32, p.timeline_line),
+        Stroke::new(1.0_f32, p.timeline_grid),
     );
 }
 
-/// `NF2/TL Grid Lines` — per-frame dividers drawn over spans so filled frames stay countable.
+/// `NF2/TL Grid Lines` — the frame ticks only (1 × 4 pt at the bottom of each frame's right edge).
+/// Paint it directly above [`paint_grid`] and **below** spans, so static and tween spans stay
+/// continuous; never paint it over spans.
 pub fn paint_grid_lines(
     painter: &Painter,
     ctx: &egui::Context,
@@ -665,10 +731,11 @@ pub fn paint_grid_lines(
         return;
     }
     let clip = row.intersect(painter.clip_rect());
-    let y = row.y_range();
+    let bottom = row.bottom() - 1.0;
+    let ticks = (bottom - FRAME_TICK)..=bottom;
     for n in geo.visible(clip) {
         let x = geo.frame_x(n + 1) - 0.5;
-        painter.vline(x, y, Stroke::new(1.0_f32, color));
+        painter.vline(x, ticks.clone(), Stroke::new(1.0_f32, color));
     }
 }
 
@@ -753,28 +820,43 @@ pub fn paint_span(
         (SpanType::MotionTween, true) => p.timeline_motion_tween,
     };
     painter.rect_filled(body, 0.0, fill);
+    // Static, motion, selected, sound and video spans close with 1 pt `timeline/grid` edges; classic,
+    // shape and broken tweens are one undivided band.
+    if !matches!(
+        kind,
+        SpanType::ClassicTween | SpanType::ShapeTween | SpanType::BrokenTween
+    ) && body.width() >= 3.0
+    {
+        let edge = Stroke::new(1.0_f32, p.timeline_grid);
+        painter.vline(body.left() + 0.5, body.y_range(), edge);
+        painter.vline(body.right() - 0.5, body.y_range(), edge);
+    }
     let y = body.center().y;
+    // Tween line on the glyph line: 1 pt stroke whose pixel row ends at the glyph centre.
+    let glyph = glyph_line_y(rect);
+    let line_y = glyph - 0.5;
     let arrow = Stroke::new(1.0_f32, p.timeline_marker);
+    let (a, tip) = (
+        body.left() + TWEEN_LINE_START,
+        body.right() - TWEEN_ARROW_END,
+    );
     match kind {
-        SpanType::ClassicTween | SpanType::ShapeTween if body.width() > 24.0 => {
-            let (a, b) = (body.left() + 10.0, body.right() - 8.0);
-            painter.hline(a..=b, y, arrow);
+        SpanType::ClassicTween | SpanType::ShapeTween if tip - TWEEN_ARROW.x > a => {
+            let base = tip - TWEEN_ARROW.x;
+            painter.hline(a..=base, line_y, arrow);
             painter.add(egui::Shape::convex_polygon(
                 vec![
-                    egui::pos2(b + 3.0, y),
-                    egui::pos2(b - 2.0, y - 3.0),
-                    egui::pos2(b - 2.0, y + 3.0),
+                    egui::pos2(base, glyph - TWEEN_ARROW.y / 2.0),
+                    egui::pos2(tip, glyph),
+                    egui::pos2(base, glyph + TWEEN_ARROW.y / 2.0),
                 ],
                 p.timeline_marker,
                 Stroke::NONE,
             ));
         }
-        SpanType::BrokenTween if body.width() > 24.0 => {
+        SpanType::BrokenTween if tip > a => {
             painter.extend(egui::Shape::dashed_line(
-                &[
-                    egui::pos2(body.left() + 10.0, y),
-                    egui::pos2(body.right() - 6.0, y),
-                ],
+                &[egui::pos2(a, line_y), egui::pos2(tip, line_y)],
                 arrow,
                 3.0,
                 3.0,
@@ -858,36 +940,33 @@ pub fn paint_marker(
     } else {
         p.timeline_empty
     };
-    let r = (cell.width().min(cell.height()) * 0.25).clamp(1.5, 3.5);
     let action = matches!(
         kind,
         MarkerKind::ActionKeyframe | MarkerKind::ActionBlankKeyframe
     );
-    // Markers sit on the row centre (legend); an action keyframe drops its dot below the "a".
-    let c = if action {
-        egui::pos2(cell.center().x, cell.center().y + r + 1.0)
-    } else {
-        cell.center()
-    };
+    // Locked 12 × 27 master: every glyph is centred on the glyph line (x 6, y 19) with a fixed size,
+    // whatever the frame width or row height; the action "a" sits at the top of the cell.
+    let c = egui::pos2(cell.center().x, glyph_line_y(cell));
+    let r = MARKER_DOT / 2.0;
     match kind {
         MarkerKind::Keyframe | MarkerKind::ActionKeyframe => {
             painter.circle_filled(c, r, fg);
         }
         MarkerKind::BlankKeyframe | MarkerKind::ActionBlankKeyframe => {
-            painter.circle(c, r - 0.5, bg, Stroke::new(1.0_f32, fg));
+            // 1.2 pt ring whose outer edge is the 6 pt dot.
+            painter.circle(c, r - 0.6, bg, Stroke::new(1.2_f32, fg));
         }
         MarkerKind::SpanEnd => {
-            let rr = Rect::from_center_size(c, egui::vec2(r * 1.6, r * 2.6));
             painter.rect(
-                rr,
-                cr(0.5),
+                Rect::from_center_size(c, SPAN_END),
+                0.0,
                 bg,
                 Stroke::new(1.0_f32, fg),
                 StrokeKind::Inside,
             );
         }
         MarkerKind::PropertyKeyframe => {
-            let d = r + 0.5;
+            let d = PROPERTY_DIAMOND / 2.0;
             painter.add(egui::Shape::convex_polygon(
                 vec![
                     c + egui::vec2(0.0, -d),
@@ -900,15 +979,25 @@ pub fn paint_marker(
             ));
         }
     }
-    if action && cell.width() >= 8.0 {
+    // "a" (Inter Semi Bold 9/9) at y 1; Compact rows have no room above the dot.
+    if action && cell.width() >= 6.0 && cell.height() >= 17.0 {
+        let top = if cell.height() >= 24.0 { 1.0 } else { 0.0 };
         painter.text(
-            egui::pos2(c.x, c.y - r - 1.0),
-            egui::Align2::CENTER_BOTTOM,
+            egui::pos2(c.x, cell.top() + top),
+            egui::Align2::CENTER_TOP,
             "a",
-            crate::typography::font(TextStyle::MonoSmall),
+            action_font(),
             fg,
         );
     }
+}
+
+/// `NF2/TL Marker` action "a": Inter Semi Bold 9/9.
+fn action_font() -> egui::FontId {
+    egui::FontId::new(
+        9.0,
+        egui::FontFamily::Name(crate::typography::INTER_SEMIBOLD.into()),
+    )
 }
 
 /// `Kind` of `NF2/TL Frame Label`.
@@ -932,42 +1021,66 @@ pub fn paint_frame_label(
     max_right: f32,
 ) {
     let p = palette(ctx);
-    let (color, icon) = match kind {
-        FrameLabelKind::Label => (p.timeline_label, Some(i16::FLAG)),
-        FrameLabelKind::Comment => (p.timeline_comment, None),
-        FrameLabelKind::Anchor => (p.text_primary, Some(i16::ANCHOR)),
+    let color = match kind {
+        FrameLabelKind::Label => p.timeline_label,
+        FrameLabelKind::Comment => p.timeline_comment,
+        FrameLabelKind::Anchor => p.timeline_marker,
     };
-    let clip = Rect::from_min_max(
-        egui::pos2(cell.left() + 2.0, cell.top()),
-        egui::pos2(max_right, cell.bottom()),
-    );
+    // The 27 pt label starts 1 pt after the keyframe cell and sits at the top of the row: icon at
+    // (1, 3), text (Mono Small 11/14) at (11, 1), Anchor text at (12, 1).
+    let o = egui::pos2(cell.right() + 1.0, cell.top());
+    let clip = Rect::from_min_max(o, egui::pos2(max_right, cell.bottom()));
     let painter = painter.with_clip_rect(clip.intersect(painter.clip_rect()));
-    // Vertically centred on the row, starting right after the keyframe marker.
-    let y = cell.center().y;
-    let mut x = cell.right();
-    if let Some(icon) = icon {
-        icons::paint_sized(
-            &painter,
-            ctx,
-            Rect::from_min_size(egui::pos2(x - 2.0, y - 6.0), egui::vec2(12.0, 12.0)),
-            icon,
-            12.0,
-            color,
-        );
-        x += 11.0;
-    } else {
-        painter.text(
-            egui::pos2(x + 1.0, y),
-            egui::Align2::LEFT_CENTER,
-            "//",
-            crate::typography::font(TextStyle::MonoSmall),
-            color,
-        );
-        x += 15.0;
+    let at = |x: f32, y: f32| o + egui::vec2(1.0 + x, 3.0 + y);
+    let line = |w: f32| Stroke::new(w, color);
+    match kind {
+        FrameLabelKind::Label => {
+            // Flag: 1 pt pole + pennant with a notch (two convex halves).
+            painter.vline(o.x + 1.5, (o.y + 3.0)..=(o.y + 13.0), line(1.0));
+            for half in [
+                [at(1.0, 0.5), at(7.0, 0.5), at(5.5, 2.75), at(1.0, 2.75)],
+                [at(1.0, 2.75), at(5.5, 2.75), at(7.0, 5.0), at(1.0, 5.0)],
+            ] {
+                painter.add(egui::Shape::convex_polygon(
+                    half.to_vec(),
+                    color,
+                    Stroke::NONE,
+                ));
+            }
+        }
+        FrameLabelKind::Comment => {
+            painter.line_segment([at(3.0, 1.0), at(1.0, 9.0)], line(1.1));
+            painter.line_segment([at(6.5, 1.0), at(4.5, 9.0)], line(1.1));
+        }
+        FrameLabelKind::Anchor => {
+            painter.circle_stroke(at(4.0, 1.5), 1.2, line(1.0));
+            painter.line_segment([at(4.0, 2.7), at(4.0, 9.5)], line(1.0));
+            for (c1, c2, end) in [
+                ((2.6, 9.5), (1.3, 8.5), (1.0, 6.5)),
+                ((5.4, 9.5), (6.7, 8.5), (7.0, 6.5)),
+            ] {
+                painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+                    [
+                        at(4.0, 9.5),
+                        at(c1.0, c1.1),
+                        at(c2.0, c2.1),
+                        at(end.0, end.1),
+                    ],
+                    false,
+                    Color32::TRANSPARENT,
+                    line(1.0),
+                ));
+            }
+        }
     }
+    let text_x = if kind == FrameLabelKind::Anchor {
+        12.0
+    } else {
+        11.0
+    };
     painter.text(
-        egui::pos2(x, y),
-        egui::Align2::LEFT_CENTER,
+        o + egui::vec2(text_x, 1.0),
+        egui::Align2::LEFT_TOP,
         text,
         crate::typography::font(TextStyle::MonoSmall),
         color,
@@ -991,11 +1104,8 @@ pub fn paint_ruler(
         Stroke::new(1.0_f32, p.border_subtle),
     );
     let mono = crate::typography::font(TextStyle::MonoSmall);
-    let seconds_h = if show_seconds {
-        rect.height() * 0.45
-    } else {
-        0.0
-    };
+    let digits_top = ruler_digits_top(rect, show_seconds);
+    let seconds_h = digits_top - 1.0 - rect.top();
     let clip = rect.intersect(painter.clip_rect());
     // Label step adapts to the frame width so numbers never overlap.
     let step = match geo.frame_width {
@@ -1018,7 +1128,7 @@ pub fn paint_ruler(
         );
         if n == 1 || n % step == 0 {
             painter.text(
-                egui::pos2(x + 1.0, rect.top() + seconds_h + 1.0),
+                egui::pos2(x + 1.0, digits_top),
                 egui::Align2::LEFT_TOP,
                 n.to_string(),
                 mono.clone(),
@@ -1040,6 +1150,16 @@ pub fn paint_ruler(
             );
         }
     }
+}
+
+/// Top line of the ruler's frame digits (Mono Small 11/14). The playhead's frame chip shares it.
+pub fn ruler_digits_top(ruler: Rect, show_seconds: bool) -> f32 {
+    let seconds_h = if show_seconds {
+        ruler.height() * 0.45
+    } else {
+        0.0
+    };
+    ruler.top() + seconds_h + 1.0
 }
 
 /// `NF2/TL Onion Range` on the ruler: accent band with draggable handles at both ends.
@@ -1088,30 +1208,46 @@ pub fn paint_playhead(
 ) {
     let p = palette(ctx);
     let cx = x + geo.frame_width / 2.0;
-    painter.vline(
-        cx,
-        (ruler.bottom() - 4.0)..=full.bottom(),
-        Stroke::new(1.0_f32, p.timeline_playhead),
-    );
+    // Frame chip: Mono 11/14 on the ruler digits' top line (1 pt padding), 3 pt sides, min width 20,
+    // radius 4. Time chip: quiet 13 pt chip at the top of the seconds row.
     let mono = crate::typography::font(TextStyle::MonoSmall);
     let label = frame.to_string();
-    let w = (label.len() as f32 * 7.0 + 8.0).max(geo.frame_width + 4.0);
-    let chip = Rect::from_center_size(egui::pos2(cx, ruler.bottom() - 8.0), egui::vec2(w, 14.0));
-    painter.rect_filled(chip, cr(radius::SM), p.timeline_playhead);
+    let text_w = painter
+        .layout_no_wrap(label.clone(), mono.clone(), p.timeline_marker_inverse)
+        .size()
+        .x;
+    let digits_top = ruler_digits_top(ruler, time.is_some());
+    let chip = Rect::from_min_size(
+        egui::pos2(cx - (text_w + 6.0).max(20.0) / 2.0, digits_top - 1.0),
+        egui::vec2((text_w + 6.0).max(20.0), 16.0),
+    );
+    painter.vline(
+        cx,
+        chip.bottom()..=full.bottom(),
+        Stroke::new(1.5_f32, p.timeline_playhead),
+    );
+    painter.rect_filled(chip, cr(4.0), p.timeline_playhead);
     painter.text(
-        chip.center(),
-        egui::Align2::CENTER_CENTER,
+        egui::pos2(cx, chip.top() + 1.0),
+        egui::Align2::CENTER_TOP,
         label,
-        mono.clone(),
+        mono,
         p.timeline_marker_inverse,
     );
     if let Some(t) = time {
-        let tw = t.len() as f32 * 6.6 + 6.0;
-        let tchip = Rect::from_center_size(egui::pos2(cx, ruler.top() + 6.0), egui::vec2(tw, 12.0));
-        painter.rect_filled(tchip, cr(radius::SM), p.bg_panel);
+        let small = egui::FontId::new(10.0, egui::FontFamily::Monospace);
+        let tw = painter
+            .layout_no_wrap(t.to_owned(), small.clone(), p.timeline_playhead)
+            .size()
+            .x;
+        let tchip = Rect::from_center_size(
+            egui::pos2(cx, ruler.top() + 6.5),
+            egui::vec2(tw + 8.0, 13.0),
+        );
+        painter.rect_filled(tchip, cr(3.0), p.bg_panel);
         painter.rect_stroke(
             tchip,
-            cr(radius::SM),
+            cr(3.0),
             Stroke::new(1.0_f32, p.timeline_playhead),
             StrokeKind::Inside,
         );
@@ -1119,7 +1255,7 @@ pub fn paint_playhead(
             tchip.center(),
             egui::Align2::CENTER_CENTER,
             t,
-            mono,
+            small,
             p.timeline_playhead,
         );
     }
