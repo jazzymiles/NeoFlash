@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "d5cf9ace03f1fb9846d07773b3ed9a5769ddd72aabe65aa10dcb4b85ac1c138c",
+  "reviews": [
+    {
+      "id": "AS3-EVIDENCE-CALIBRATION-20261105",
+      "date": "2026-11-05",
+      "commit": "395cfc5205e640c3d082a6af652712dc5b2c8060",
+      "title": "Correct reflection, media and authored-source mask coverage",
+      "summary": "Source reflection and volume-only video transforms remain partial; displayed-frame-rate measurement is missing. Cached masks preserve dynamic alpha sources but lose authored gradients or reject authored bitmaps. Positive shared tests and targeted WASM/browser probes distinguish these boundaries.",
+      "tests": [
+        "crates/neoflash-core/src/as3_object.rs",
+        "web/tests/as3-net-sys.test.cjs",
+        "web/tests/dom-layout-and-portability.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "partial",
+          "note": "Public ordinary AS3 source classes are described; native-base, interface and rest-signature descriptions remain unsupported."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "note": "Source-class and selected primitive/class names work; primitive numeric values and native display instances diagnose instead of returning their qualified names."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "note": "Source-class and selected built-in superclass names work; primitive numeric values and native display instances are unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "missing",
+          "note": "Displayed-frame-rate measurement is unimplemented; the getter echoes the requested receiveVideoFPS value while playing, including before any frame is decoded."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "note": "Volume is connected to playback; nonzero stereo pan is rejected and stereo matrix settings are not applied."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "note": "Vector and cached dynamic gradient/bitmap masks work; cached authored gradient masks lose their opacity ramp, and authored bitmap sources are rejected."
+        }
+      ]
+    }
+  ]
+}

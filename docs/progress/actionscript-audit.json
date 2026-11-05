@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "d5cf9ace03f1fb9846d07773b3ed9a5769ddd72aabe65aa10dcb4b85ac1c138c",
+  "catalogSha256": "cb253d2efdaedde6b5ed9663063987e3ba6497f1521ba5b83e8dabb03d11af57",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35477,6 +35477,14 @@
         "reviewIds": [
           "AS3-WAVE7-GENUINE-CONFORMANCE-20261102"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-05-as3-evidence.json",
+        "sha256": "4bc943837bf6863a52dd6db5be101d78eb0eea72b9b3878ebdd7ad932f425d4b",
+        "baseCatalogSha256": "d5cf9ace03f1fb9846d07773b3ed9a5769ddd72aabe65aa10dcb4b85ac1c138c",
+        "reviewIds": [
+          "AS3-EVIDENCE-CALIBRATION-20261105"
+        ]
       }
     ],
     "statusReviews": [
@@ -35733,14 +35741,24 @@
         "changes": {
           "working": 113
         }
+      },
+      {
+        "id": "AS3-EVIDENCE-CALIBRATION-20261105",
+        "date": "2026-11-05",
+        "commit": "395cfc5205e640c3d082a6af652712dc5b2c8060",
+        "path": "docs/progress/reviews/2026-11-05-as3-evidence.json",
+        "changes": {
+          "missing": 1,
+          "partial": 5
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5799,
-      "partial": 1618,
-      "missing": 38630,
+      "implemented_subset": 5793,
+      "partial": 1623,
+      "missing": 38631,
       "needs_review": 0,
       "total": 46047
     },
@@ -35753,9 +35771,9 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4595,
-        "partial": 1153,
-        "missing": 37992,
+        "implemented_subset": 4589,
+        "partial": 1158,
+        "missing": 37993,
         "needs_review": 0,
         "total": 43740
       }
@@ -35797,9 +35815,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4970,
-        "partial": 1062,
-        "missing": 126,
+        "implemented_subset": 4964,
+        "partial": 1067,
+        "missing": 127,
         "needs_review": 0,
         "total": 6158
       }
@@ -35886,9 +35904,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4095,
-          "partial": 1029,
-          "missing": 126,
+          "implemented_subset": 4089,
+          "partial": 1034,
+          "missing": 127,
           "needs_review": 0,
           "total": 5250
         }
@@ -173475,6 +173493,96 @@
           "catalogId": "AS3:statement:statements.html#native",
           "status": "partial",
           "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-EVIDENCE-CALIBRATION-20261105",
+      "title": "Correct reflection, media and authored-source mask coverage",
+      "reason": "Source reflection and volume-only video transforms remain partial; displayed-frame-rate measurement is missing. Cached masks preserve dynamic alpha sources but lose authored gradients or reject authored bitmaps. Positive shared tests and targeted WASM/browser probes distinguish these boundaries.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as3_object.rs",
+          "sha256": "dc509d88a7b9e9550a392c74f48483b6a4b8e83cc023d6073ca099a0b3bac2b9"
+        },
+        {
+          "path": "web/tests/as3-net-sys.test.cjs",
+          "sha256": "a860780911b0b4fb57e4639f88f4170ae4819b2c9f10d9a11d8d3d4d8ba17e31"
+        },
+        {
+          "path": "web/tests/dom-layout-and-portability.test.cjs",
+          "sha256": "0507405df0248880ab1b40136fec59f2163f843dc89969c0364e7c39cb21fb07"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "partial",
+          "scopeNote": "Public ordinary AS3 source classes are described; native-base, interface and rest-signature descriptions remain unsupported."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "scopeNote": "Source-class and selected primitive/class names work; primitive numeric values and native display instances diagnose instead of returning their qualified names."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "scopeNote": "Source-class and selected built-in superclass names work; primitive numeric values and native display instances are unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "missing",
+          "scopeNote": "Displayed-frame-rate measurement is unimplemented; the getter echoes the requested receiveVideoFPS value while playing, including before any frame is decoded."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "scopeNote": "Volume is connected to playback; nonzero stereo pan is rejected and stereo matrix settings are not applied."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "scopeNote": "Vector and cached dynamic gradient/bitmap masks work; cached authored gradient masks lose their opacity ramp, and authored bitmap sources are rejected."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
           "evidenceKind": "test_backed_review"
         }
       ]
