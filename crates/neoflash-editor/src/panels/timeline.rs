@@ -303,7 +303,21 @@ impl Editor {
                                     }
                                     if row.solo {
                                         let alt = ui.input(|i| i.modifiers.alt);
-                                        self.toggle_layer_solo(idx, alt);
+                                        if !alt && self.is_layer_row_selected(idx) {
+                                            let targets = self.target_layer_indices(idx);
+                                            if targets.len() > 1 {
+                                                let target_solo = !self.is_layer_soloed(idx);
+                                                for ti in targets {
+                                                    if self.is_layer_soloed(ti) != target_solo {
+                                                        self.toggle_layer_solo(ti, false);
+                                                    }
+                                                }
+                                            } else {
+                                                self.toggle_layer_solo(idx, false);
+                                            }
+                                        } else {
+                                            self.toggle_layer_solo(idx, alt);
+                                        }
                                     }
                                     if row.lock {
                                         self.toggle_selected_layers_lock(idx);
@@ -317,6 +331,7 @@ impl Editor {
                                                 ui,
                                                 row.row.id,
                                                 mode_rect,
+                                                row_rect,
                                                 idx,
                                                 layer.properties.mask_mode,
                                                 layer.properties.mask_invert,
@@ -358,10 +373,15 @@ impl Editor {
                                     let swatch = ui.interact(swatch, row.row.id.with(ToggleKind::Outline as u8), Sense::click());
                                     self.layer_outline_menu(&swatch, layer);
                                     if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
+                                        let rename_style = if row_height < 18.0 {
+                                            TextStyle::Small
+                                        } else {
+                                            TextStyle::Body
+                                        };
                                         let field = ui.put(row.label_rect,
                                             egui::TextEdit::singleline(&mut draft.text)
                                                 .id(ui.id().with(("layer-name", &layer.id)))
-                                                .font(typography::font(TextStyle::Body))
+                                                .font(typography::font(rename_style))
                                                 .vertical_align(egui::Align::Center)
                                                 .hint_text("Layer name"));
                                         if draft.focus {
@@ -386,15 +406,13 @@ impl Editor {
                                         }
                                         continue;
                                     }
-                                    // Name area (left of Mode + column toggles) starts a reorder drag.
-                                    let grab_right = row
-                                        .mode_rect
-                                        .map_or(row_rect.right() - space::S2 - 4. * LAYER_TOGGLE, |r| {
-                                            r.left() - space::S1
-                                        });
+                                    // Name area (left of the column toggles) starts a reorder drag.
                                     let grab = Rect::from_min_max(
                                         row_rect.min,
-                                        Pos2::new(grab_right, row_rect.bottom()),
+                                        Pos2::new(
+                                            row_rect.right() - space::S2 - 4. * LAYER_TOGGLE,
+                                            row_rect.bottom(),
+                                        ),
                                     );
                                     if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| grab.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
                                         let mods = ui.input(|i| i.modifiers);
@@ -586,51 +604,61 @@ impl Editor {
                                 let boundary = (rel_y.round().max(0.) as usize).min(layers.len());
                                 let y = (grid_rect.top() + boundary as f32 * row_height)
                                     .clamp(names_view.top(), names_view.bottom());
+                                let above = boundary.checked_sub(1).and_then(|i| layers.get(i));
+                                let below = layers.get(boundary);
+                                let dragged_parent = layers
+                                    .iter()
+                                    .find(|l| l.id == drag.layer)
+                                    .and_then(|l| l.properties.parent.clone());
+                                let new_parent = if let Some(a) = above
+                                    && a.properties.role == LayerRole::Folder
+                                    && !a.properties.collapsed
+                                    && a.id != drag.layer
+                                {
+                                    Some(Some(a.id.clone()))
+                                } else if let Some(b) = below
+                                    && b.properties.parent.is_some()
+                                    && above
+                                        .is_some_and(|a| a.properties.parent == b.properties.parent)
+                                {
+                                    Some(b.properties.parent.clone())
+                                } else if let Some(a) = above
+                                    && a.properties.parent.is_some()
+                                    && below.is_none_or(|b| {
+                                        b.properties.parent != a.properties.parent
+                                    })
+                                {
+                                    if dragged_parent == a.properties.parent
+                                        || position.x < names_view.left() + 44.0
+                                    {
+                                        Some(below.and_then(|b| b.properties.parent.clone()))
+                                    } else {
+                                        Some(a.properties.parent.clone())
+                                    }
+                                } else if below.is_none_or(|b| b.properties.parent.is_none())
+                                    && above.is_none_or(|a| {
+                                        a.properties.parent.is_none()
+                                            && (a.properties.role != LayerRole::Folder
+                                                || a.properties.collapsed)
+                                    })
+                                {
+                                    Some(None)
+                                } else {
+                                    None
+                                };
+                                let indicator_left =
+                                    if new_parent.as_ref().is_some_and(|p| p.is_some()) {
+                                        names_view.left() + 20.0
+                                    } else {
+                                        names_view.left()
+                                    };
                                 nf::surface::drop_indicator(
                                     ui.painter(),
                                     &ctx,
-                                    Pos2::new(names_view.left(), y),
+                                    Pos2::new(indicator_left, y),
                                     Pos2::new(rows.inner_rect.right(), y),
                                 );
                                 if released.is_some() {
-                                    let above = boundary.checked_sub(1).and_then(|i| layers.get(i));
-                                    let below = layers.get(boundary);
-                                    let new_parent = if let Some(a) = above
-                                        && a.properties.role == LayerRole::Folder
-                                        && !a.properties.collapsed
-                                        && a.id != drag.layer
-                                    {
-                                        Some(Some(a.id.clone()))
-                                    } else if let Some(b) = below
-                                        && b.properties.parent.is_some()
-                                        && above.is_some_and(|a| {
-                                            a.properties.parent == b.properties.parent
-                                        })
-                                    {
-                                        Some(b.properties.parent.clone())
-                                    } else if let Some(a) = above
-                                        && a.properties.parent.is_some()
-                                        && below.map_or(true, |b| {
-                                            b.properties.parent != a.properties.parent
-                                        })
-                                    {
-                                        if position.x >= names_view.left() + 28.0 {
-                                            Some(a.properties.parent.clone())
-                                        } else {
-                                            Some(None)
-                                        }
-                                    } else if below
-                                        .map_or(true, |b| b.properties.parent.is_none())
-                                        && above.map_or(true, |a| {
-                                            a.properties.parent.is_none()
-                                                && (a.properties.role != LayerRole::Folder
-                                                    || a.properties.collapsed)
-                                        })
-                                    {
-                                        Some(None)
-                                    } else {
-                                        None
-                                    };
                                     commit_reorder = Some((
                                         drag.layer.clone(),
                                         below.map(|layer| layer.id.clone()),
@@ -666,6 +694,15 @@ impl Editor {
                 let rp = ui.painter_at(ruler);
                 rp.rect_filled(ruler, 0, p.bg_panel);
                 rp.hline(ruler.x_range(), ruler.bottom() - 0.5, Stroke::new(1.0_f32, p.border_subtle));
+                let show_onion_range = self.onion || self.timeline_edit.edit_multiple;
+                let onion_handles = if show_onion_range {
+                    let (start, end) = self.onion_range();
+                    let (x0, x1) = (geo.frame_x(start + 1), geo.frame_x(end + 2));
+                    let handles = tl::paint_onion_range(&rp, &ctx, ruler, x0, x1);
+                    Some((x0, x1, handles))
+                } else {
+                    None
+                };
                 let seconds_row = if view.show_seconds && !button_states { RULER_HEIGHT * 0.45 } else { 0. };
                 if button_states {
                     // Button symbols: Up · Over · Down · Hit instead of frame numbers.
@@ -695,7 +732,61 @@ impl Editor {
                 }
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
-                if (response.clicked() || response.dragged())
+                let mut onion_handle_busy = false;
+                if let Some((x0, x1, handles)) = onion_handles {
+                    for bar_x in [x0..=x0 + 3.0, x1 - 3.0..=x1] {
+                        let clip = Rect::from_x_y_ranges(bar_x, ruler.y_range()).intersect(ruler);
+                        if clip.is_positive() {
+                            tl::paint_onion_range(&rp.with_clip_rect(clip), &ctx, ruler, x0, x1);
+                        }
+                    }
+                    let mid = (x0 + x1) * 0.5;
+                    let r0 = Rect::from_min_max(
+                        handles.0.min,
+                        Pos2::new(handles.0.max.x.min(mid), handles.0.max.y),
+                    );
+                    let r1 = Rect::from_min_max(
+                        Pos2::new(handles.1.min.x.max(mid), handles.1.min.y),
+                        handles.1.max,
+                    );
+                    let last = count.saturating_sub(1);
+                    for (is_start, r) in [(true, r0), (false, r1)] {
+                        let handle = ui.interact(
+                            r.intersect(ruler),
+                            ui.id().with(("onion", is_start)),
+                            Sense::click_and_drag(),
+                        );
+                        if handle.hovered() || handle.dragged() || handle.clicked() {
+                            onion_handle_busy = true;
+                            ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        }
+                        if handle.dragged()
+                            && let Some(pos) = handle.interact_pointer_pos()
+                        {
+                            let raw = (pos.x - grid_rect.left()) / cell_width
+                                - if is_start { 0.0 } else { 1.0 };
+                            let f = (raw.round().max(0.) as u32).min(last);
+                            if self.onion_anchor {
+                                if is_start {
+                                    self.anchored_range.0 = f.min(self.anchored_range.1.min(last));
+                                } else {
+                                    self.anchored_range.1 =
+                                        f.min(last).max(self.anchored_range.0.min(last));
+                                }
+                                self.onion_before =
+                                    self.frame.saturating_sub(self.anchored_range.0);
+                                self.onion_after =
+                                    self.anchored_range.1.saturating_sub(self.frame);
+                            } else if is_start {
+                                self.onion_before = self.frame.saturating_sub(f.min(self.frame));
+                            } else {
+                                self.onion_after = f.max(self.frame).saturating_sub(self.frame);
+                            }
+                        }
+                    }
+                }
+                if !onion_handle_busy
+                    && (response.clicked() || response.dragged())
                     && let Some(pos) = response.interact_pointer_pos()
                 {
                     self.finish_edits();
@@ -712,39 +803,6 @@ impl Editor {
                         self.select_frame_range(FrameRange { layers: vec![self.symbol().timeline.layers[self.layer].id.clone()], start: self.frame, end: self.frame });
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
-                    }
-                }
-                if self.onion {
-                    let (start, end) = self.onion_range();
-                    let handles = tl::paint_onion_range(&rp, &ctx, ruler, geo.frame_x(start + 1), geo.frame_x(end + 2));
-                    for (is_start, r) in [(true, handles.0), (false, handles.1)] {
-                        let handle = ui.interact(
-                            r.intersect(ruler),
-                            ui.id().with(("onion", is_start)),
-                            Sense::drag(),
-                        );
-                        if handle.hovered() || handle.dragged() {
-                            ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                        }
-                        if handle.dragged()
-                            && let Some(pos) = handle.interact_pointer_pos()
-                        {
-                            let f = (((pos.x - grid_rect.left()) / cell_width)
-                                .round()
-                                .max(0.) as u32)
-                                .min(count - 1);
-                            if self.onion_anchor {
-                                if is_start {
-                                    self.anchored_range.0 = f.min(self.anchored_range.1);
-                                } else {
-                                    self.anchored_range.1 = f.max(self.anchored_range.0);
-                                }
-                            } else if is_start {
-                                self.onion_before = self.frame.saturating_sub(f);
-                            } else {
-                                self.onion_after = f.saturating_sub(self.frame);
-                            }
-                        }
                     }
                 }
                 // NF2/TL Playhead over ruler and rows: frame chip, time chip on the seconds row.
@@ -1269,57 +1327,97 @@ impl Editor {
     }
 
     pub fn onion_range(&self) -> (u32, u32) {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        let current = self.frame.min(last);
         if self.onion_anchor {
-            self.anchored_range
+            let start = self.anchored_range.0.min(last);
+            let end = self.anchored_range.1.min(last).max(start);
+            (start, end)
         } else {
             (
-                self.frame.saturating_sub(self.onion_before),
-                (self.frame + self.onion_after).min(self.symbol().timeline.frame_count - 1),
+                current.saturating_sub(self.onion_before),
+                (current + self.onion_after).min(last),
             )
         }
     }
 
     /// Paint the compact Mode label plus the 2 inline AE-style 16×16 mask icons (`R-049`:
     /// 1. Mask Channel: Alpha / Color-Luminance / Geometry; 2. Mask Invert) right after `Mode`
-    /// on a `LayerRole::Mask` row.
+    ///    on a `LayerRole::Mask` row.
     #[allow(clippy::too_many_arguments)]
     fn paint_mask_row_mode_and_icons(
         &mut self,
         ui: &mut egui::Ui,
         row_id: egui::Id,
         mode_rect: Rect,
+        row_rect: Rect,
         idx: usize,
         mask_mode: MaskMode,
         mask_invert: bool,
         row_selected: bool,
     ) {
         let p = neoflash_ui::palette(ui.ctx());
-        let mode_btn_rect = Rect::from_min_size(
-            mode_rect.min,
-            Vec2::new(space::S6 + space::S1, mode_rect.height()),
+        let cell_rect = Rect::from_min_max(
+            Pos2::new(mode_rect.left(), mode_rect.top().max(row_rect.top())),
+            Pos2::new(mode_rect.right(), mode_rect.bottom().min(row_rect.bottom())),
         );
-        let icon_y = mode_rect.center().y - space::S2;
         let half_s1 = space::S1 * 0.5;
-        let channel_icon_rect = Rect::from_min_size(
-            Pos2::new(mode_btn_rect.right() + half_s1, icon_y),
-            Vec2::splat(space::S4),
-        );
+        let icon_w = space::S4;
+        let icon_h = space::S4.min(row_rect.height());
+        let icon_y = cell_rect.center().y - icon_h * 0.5;
         let invert_icon_rect = Rect::from_min_size(
-            Pos2::new(channel_icon_rect.right() + half_s1, icon_y),
-            Vec2::splat(space::S4),
+            Pos2::new(cell_rect.right() - icon_w, icon_y),
+            Vec2::new(icon_w, icon_h),
+        );
+        let channel_icon_rect = Rect::from_min_size(
+            Pos2::new(invert_icon_rect.left() - half_s1 - icon_w, icon_y),
+            Vec2::new(icon_w, icon_h),
+        );
+        let mode_btn_rect = Rect::from_min_max(
+            cell_rect.min,
+            Pos2::new(
+                (channel_icon_rect.left() - half_s1).max(cell_rect.left()),
+                cell_rect.bottom(),
+            ),
         );
 
-        let mode_resp = ui.interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click());
-        let channel_resp = ui.interact(
-            channel_icon_rect,
-            row_id.with("mask-channel-icon"),
-            Sense::click(),
-        );
-        let invert_resp = ui.interact(
-            invert_icon_rect,
-            row_id.with("mask-invert-icon"),
-            Sense::click(),
-        );
+        let mode_resp = ui
+            .interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click())
+            .on_hover_text(format!("Mask mode: {}", mask_mode.label()));
+        mode_resp.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                true,
+                format!("Mask mode: {}", mask_mode.label()),
+            )
+        });
+        let channel_resp = ui
+            .interact(
+                channel_icon_rect,
+                row_id.with("mask-channel-icon"),
+                Sense::click(),
+            )
+            .on_hover_text(format!(
+                "Mask channel: {} (click to cycle Geometry / Alpha / Luminance)",
+                mask_mode.label()
+            ));
+        channel_resp.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Mask channel")
+        });
+        let invert_resp = ui
+            .interact(
+                invert_icon_rect,
+                row_id.with("mask-invert-icon"),
+                Sense::click(),
+            )
+            .on_hover_text(if mask_invert {
+                "Invert mask: On"
+            } else {
+                "Invert mask: Off"
+            });
+        invert_resp.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Invert mask")
+        });
 
         let short_label = match mask_mode {
             MaskMode::Geometry => "Geo",

@@ -1978,30 +1978,33 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
                 .len(),
             1
         );
-        let combined_el = &editor.symbol().timeline.layers[1].keyframes[0].elements[0];
-        assert!((combined_el.transform.x - expected_x).abs() < 1e-6);
-        assert!((combined_el.transform.y - 50.0).abs() < 1e-6);
-        let ElementKind::Path {
-            commands,
-            fill,
-            stroke,
-            stroke_width,
-            ..
-        } = &combined_el.kind
-        else {
-            panic!("expected combined Path");
+        let combined_id = {
+            let combined_el = &editor.symbol().timeline.layers[1].keyframes[0].elements[0];
+            assert!((combined_el.transform.x - expected_x).abs() < 1e-6);
+            assert!((combined_el.transform.y - 50.0).abs() < 1e-6);
+            let ElementKind::Path {
+                commands,
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } = &combined_el.kind
+            else {
+                panic!("expected combined Path");
+            };
+            assert_eq!(*fill, [100, 100, 240, 255]);
+            assert_eq!(*stroke, [20, 30, 40, 255]);
+            assert!((*stroke_width - 2.0).abs() < 1e-6);
+            let b = neoflash_core::path_bounds(commands).unwrap().unwrap();
+            assert!(b.x_min.abs() < 1e-6 && b.y_min.abs() < 1e-6);
+            assert!((b.width() - expected_w).abs() < 1e-6);
+            combined_el.id.clone()
         };
-        assert_eq!(*fill, [100, 100, 240, 255]);
-        assert_eq!(*stroke, [20, 30, 40, 255]);
-        assert!((*stroke_width - 2.0).abs() < 1e-6);
-        let b = neoflash_core::path_bounds(commands).unwrap().unwrap();
-        assert!(b.x_min.abs() < 1e-6 && b.y_min.abs() < 1e-6);
-        assert!((b.width() - expected_w).abs() < 1e-6);
 
         // Downstream edits on the combined shape: Subselect point deletion and Break Apart.
         let before_point_del = editor.project.clone();
         editor.set_tool(Tool::Subselect);
-        editor.vector.selected_anchors = Some((combined_el.id.clone(), vec![1]));
+        editor.vector.selected_anchors = Some((combined_id, vec![1]));
         assert!(editor.delete_selected_vector_points());
         editor.project.validate().unwrap();
         editor.undo();

@@ -238,6 +238,17 @@ impl Editor {
                 end: s.frame,
             });
         }
+        match std::env::var("NEOFLASH_SCREENSHOT_ONION").as_deref() {
+            Ok("outlines") => {
+                s.onion = true;
+                s.onion_outlines = true;
+            }
+            Ok("solid" | "1" | "true") => {
+                s.onion = true;
+                s.onion_outlines = false;
+            }
+            _ => {}
+        }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect|brush|pencil`
         // selects every editable object on the current frame with that tool, so captures show the
         // NF2 selection boxes or the transform box.

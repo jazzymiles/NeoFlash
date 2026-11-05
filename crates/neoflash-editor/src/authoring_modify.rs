@@ -1242,8 +1242,8 @@ impl Editor {
 
     pub(crate) fn can_combine_objects(&self) -> bool {
         let sampled = self.sampled_targets();
-        sampled.len() >= 2
-            && sampled.iter().all(|(target, el)| {
+        if sampled.len() < 2
+            || !sampled.iter().all(|(target, el)| {
                 self.target_editable(target)
                     && matches!(
                         el.kind,
@@ -1253,6 +1253,24 @@ impl Editor {
                             | ElementKind::PaintedPath { .. }
                     )
             })
+        {
+            return false;
+        }
+        let closed_non_merge_stroke = sampled
+            .iter()
+            .filter(|(_, el)| {
+                !is_merge_stroke(el)
+                    && element_world_commands(el)
+                        .is_some_and(|(cmds, _)| !flatten_closed_rings(&cmds).is_empty())
+            })
+            .count();
+        if closed_non_merge_stroke >= 2 {
+            return true;
+        }
+        sampled.iter().all(|(_, el)| {
+            element_world_commands(el)
+                .is_some_and(|(cmds, _)| !flatten_closed_rings(&cmds).is_empty())
+        })
     }
 
     pub(crate) fn combine_objects_selection(&mut self, op: BooleanOp, crop_by_top: bool) {
@@ -1279,14 +1297,22 @@ impl Editor {
             self.message("Combine objects requires at least two closed vector shapes.");
             return;
         };
+        let uses_painted_path = combined.iter().any(|e| {
+            matches!(e.kind, ElementKind::PaintedPath { .. })
+                || e.transform.skew != 0.0
+                || !e.transform.color_transform.is_identity()
+        });
+        let combined_ids: Vec<Id> = combined.iter().map(|e| e.id.clone()).collect();
+        self.vector.selected_anchors = None;
         self.playing = false;
         self.transact_named("Combine objects", |editor| {
+            if uses_painted_path {
+                editor.project.format_version = editor.project.format_version.max(5);
+            }
             editor.ensure_key_for(&target_layer, false);
             let frame = editor.frame;
-            let elements = &mut editor.symbol_mut().timeline.layers[layer_idx]
-                .key_at_mut(frame)
-                .unwrap()
-                .elements;
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            let elements = &mut layer.key_at_mut(frame).unwrap().elements;
             let insert_pos = elements
                 .iter()
                 .position(|e| selected_ids.contains(&e.id))
@@ -1301,6 +1327,18 @@ impl Editor {
                 })
                 .collect();
             elements.splice(pos..pos, combined);
+            if let Some(first_id) = combined_ids.first() {
+                for group in &mut layer.properties.groups {
+                    if let Some(gpos) = group.members.iter().position(|id| id == first_id) {
+                        for (offset, extra_id) in combined_ids.iter().skip(1).enumerate() {
+                            if !group.members.contains(extra_id) {
+                                group.members.insert(gpos + 1 + offset, extra_id.clone());
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
             editor.prune_authoring_groups();
             editor.set_selection(new_targets);
         });

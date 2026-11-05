@@ -1242,20 +1242,39 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 // Tweens crossing either boundary are baked; tweens inside are kept.
                 bake_touched(timeline, &mut layer, range.start, range.start, &mut budget)?;
                 bake_touched(timeline, &mut layer, last, last, &mut budget)?;
-                // Motion curves fully inside the range also need sampled poses before
-                // reversing; merely reversing their keys would replace the curve by chords.
-                let curved_spans: Vec<_> = layer
-                    .keyframes
-                    .iter()
-                    .filter(|key| key.motion_path.is_some())
-                    .filter_map(|key| {
-                        motion_span(&layer, key.frame)
-                            .map(|(_, _, end)| (key.frame, end.unwrap_or(last)))
-                    })
-                    .filter(|(start, end)| *start < last && *end > range.start)
-                    .collect();
-                for (start, end) in curved_spans {
-                    bake_touched(timeline, &mut layer, start, end, &mut budget)?;
+                // Motion curves and one-way Bounce/Elastic eases inside the range need sampled
+                // poses before reversing; otherwise reversing keys would replace a spatial curve by
+                // chords or play Bounce/Elastic ease-out forward instead of time-reversed.
+                let mut bake_ranges: Vec<(u32, u32)> = Vec::new();
+                for (i, key) in layer.keyframes.iter().enumerate() {
+                    let has_non_invertible_ease =
+                        matches!(key.tween, Some(Easing::Bounce | Easing::Elastic))
+                            || key
+                                .property_eases
+                                .iter()
+                                .any(|(_, ease)| matches!(ease, Easing::Bounce | Easing::Elastic));
+                    if key.motion_path.is_some() {
+                        if let Some((_, _, span_end)) = motion_span(&layer, key.frame) {
+                            let span_end = span_end.unwrap_or(last);
+                            if key.frame < last && span_end > range.start {
+                                bake_ranges.push((key.frame, span_end));
+                            }
+                        }
+                    } else if has_non_invertible_ease {
+                        let span_end = if key.tween_kind == TweenKind::Motion {
+                            motion_span(&layer, key.frame)
+                                .and_then(|(_, _, end)| end)
+                                .unwrap_or(last)
+                        } else {
+                            layer.keyframes.get(i + 1).map_or(last, |next| next.frame)
+                        };
+                        if key.frame < last && span_end > range.start {
+                            bake_ranges.push((key.frame, span_end));
+                        }
+                    }
+                }
+                for (start, span_end) in bake_ranges {
+                    bake_touched(timeline, &mut layer, start, span_end, &mut budget)?;
                 }
                 let original = layer.clone();
                 for frame in [range.start, last - 1, last] {
@@ -1416,6 +1435,8 @@ mod tests {
                 x2: 0.25,
                 y2: 1.0,
             },
+            Easing::Bounce,
+            Easing::Elastic,
         ] {
             let mut p = Project::blank();
             p.format_version = 6;

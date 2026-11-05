@@ -515,6 +515,22 @@ impl Editor {
                         .is_some_and(|g| target_set.contains(g));
                 if target_set.contains(&layer.id) || linked_to_target {
                     layer.properties.parent = new_parent.clone();
+                    if layer
+                        .properties
+                        .mask
+                        .as_ref()
+                        .is_some_and(|m| !target_set.contains(m))
+                    {
+                        layer.properties.mask = None;
+                    }
+                    if layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .is_some_and(|g| !target_set.contains(g))
+                    {
+                        layer.properties.motion_guide = None;
+                    }
                 }
             }
         });
@@ -533,7 +549,11 @@ impl Editor {
         let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
             return;
         };
-        let moved: HashSet<_> = group_indices(layers, index).into_iter().collect();
+        let targets = self.target_layer_indices(index);
+        let moved: HashSet<_> = targets
+            .into_iter()
+            .flat_map(|ti| group_indices(layers, ti))
+            .collect();
         let insertion = if let Some(target) = before {
             let Some(target) = layers.iter().position(|layer| layer.id == target) else {
                 return;
@@ -799,10 +819,15 @@ impl Editor {
         let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
             return;
         };
-        let group = group_indices(layers, index);
-        let moved_ids: HashSet<_> = group
+        let targets = self.target_layer_indices(index);
+        let direct_target_ids: HashSet<Id> = targets
             .iter()
-            .map(|index| layers[*index].id.clone())
+            .filter_map(|&ti| layers.get(ti).map(|l| l.id.clone()))
+            .collect();
+        let moved_ids: HashSet<_> = targets
+            .into_iter()
+            .flat_map(|ti| group_indices(layers, ti))
+            .map(|i| layers[i].id.clone())
             .collect();
         if before.is_some_and(|id| moved_ids.contains(id)) {
             if let Some(parent_opt) = new_parent {
@@ -830,19 +855,44 @@ impl Editor {
         };
         if let Some(parent_opt) = &new_parent {
             if let Some(fid) = parent_opt.as_deref() {
-                if folder_is_descendant_of(layers, fid, layer_id) {
-                    return;
+                for tid in &direct_target_ids {
+                    if folder_is_descendant_of(layers, fid, tid) {
+                        return;
+                    }
                 }
                 if let Some(folder) = remaining.iter_mut().find(|l| l.id == fid) {
                     folder.properties.collapsed = false;
                 }
             }
             for layer in &mut moving {
-                if layer.id == layer_id
-                    || layer.properties.mask.as_deref() == Some(layer_id)
-                    || layer.properties.motion_guide.as_deref() == Some(layer_id)
-                {
+                let linked_to_direct = layer
+                    .properties
+                    .mask
+                    .as_ref()
+                    .is_some_and(|m| direct_target_ids.contains(m))
+                    || layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .is_some_and(|g| direct_target_ids.contains(g));
+                if direct_target_ids.contains(&layer.id) || linked_to_direct {
                     layer.properties.parent = parent_opt.clone();
+                    if layer
+                        .properties
+                        .mask
+                        .as_ref()
+                        .is_some_and(|m| !moved_ids.contains(m))
+                    {
+                        layer.properties.mask = None;
+                    }
+                    if layer
+                        .properties
+                        .motion_guide
+                        .as_ref()
+                        .is_some_and(|g| !moved_ids.contains(g))
+                    {
+                        layer.properties.motion_guide = None;
+                    }
                 }
             }
         }
@@ -1234,18 +1284,26 @@ impl Editor {
         });
     }
     pub(crate) fn lock_other_layers(&mut self, index: usize) {
-        self.layer_change(|p, id| {
+        let targets = self.target_layer_indices(index);
+        self.layer_change(move |p, id| {
             let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
-            let selected = group_indices(layers, index);
+            let selected: HashSet<usize> = targets
+                .into_iter()
+                .flat_map(|ti| group_indices(layers, ti))
+                .collect();
             for (i, l) in layers.iter_mut().enumerate() {
                 l.locked = !selected.contains(&i) && l.properties.role != LayerRole::Folder;
             }
         });
     }
     pub(crate) fn hide_other_layers(&mut self, index: usize) {
-        self.layer_change(|p, id| {
+        let targets = self.target_layer_indices(index);
+        self.layer_change(move |p, id| {
             let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
-            let selected = group_indices(layers, index);
+            let selected: HashSet<usize> = targets
+                .into_iter()
+                .flat_map(|ti| group_indices(layers, ti))
+                .collect();
             let keep_masks: HashSet<Id> = selected
                 .iter()
                 .filter_map(|&i| layers[i].properties.mask.clone())

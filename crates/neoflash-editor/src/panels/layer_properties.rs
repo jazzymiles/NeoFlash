@@ -217,6 +217,7 @@ fn layer_can_be_mask_with_mode(
 fn layer_can_be_mask(project: &Project, symbol_id: &str, layer_index: usize) -> bool {
     layer_can_be_mask_with_mode(project, symbol_id, layer_index, MaskMode::Geometry)
         || layer_can_be_mask_with_mode(project, symbol_id, layer_index, MaskMode::Alpha)
+        || layer_can_be_mask_with_mode(project, symbol_id, layer_index, MaskMode::Luminance)
 }
 
 impl Editor {

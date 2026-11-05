@@ -455,19 +455,37 @@ impl Editor {
             |ui| {
                 ui.spacing_mut().item_spacing.x = GROUP_GAP;
                 if ui
-                    .add(IconButton::new(i16::ONION, "Onion skin").selected(self.onion))
+                    .add(
+                        IconButton::new(i16::ONION, "Onion skin")
+                            .selected(self.onion && !self.onion_outlines),
+                    )
                     .clicked()
                 {
-                    self.onion = !self.onion;
+                    if !self.onion {
+                        self.onion = true;
+                        self.onion_outlines = false;
+                    } else if self.onion_outlines {
+                        self.onion_outlines = false;
+                    } else {
+                        self.onion = false;
+                    }
                 }
                 if ui
                     .add(
                         IconButton::new(i16::ONIONOUTLINE, "Onion skin outlines")
-                            .selected(self.onion_outlines),
+                            .selected(self.onion && self.onion_outlines),
                     )
                     .clicked()
                 {
-                    self.onion_outlines = !self.onion_outlines;
+                    if !self.onion {
+                        self.onion = true;
+                        self.onion_outlines = true;
+                    } else if !self.onion_outlines {
+                        self.onion_outlines = true;
+                    } else {
+                        self.onion = false;
+                        self.onion_outlines = false;
+                    }
                 }
                 let multiple = self.timeline_edit.edit_multiple;
                 if ui
@@ -499,22 +517,39 @@ impl Editor {
                 ui.spacing_mut().item_spacing = Vec2::new(space::S3, space::S2);
                 ui.set_width(232.);
                 nf::menu_section(ui, "Onion skin");
+                let last = self.symbol().timeline.frame_count.saturating_sub(1);
                 ui.horizontal(|ui| {
-                    ui.add(nf::Checkbox::new(&mut self.onion_outlines, "Outlines"));
+                    if ui
+                        .add(nf::Checkbox::new(&mut self.onion_outlines, "Outlines"))
+                        .changed()
+                        && self.onion_outlines
+                    {
+                        self.onion = true;
+                    }
                     if ui
                         .add(nf::Checkbox::new(&mut self.onion_anchor, "Anchor"))
                         .changed()
                     {
-                        self.anchored_range = (
-                            self.frame.saturating_sub(self.onion_before),
-                            (self.frame + self.onion_after)
-                                .min(self.symbol().timeline.frame_count.saturating_sub(1)),
-                        );
+                        if self.onion_anchor {
+                            self.anchored_range = (
+                                self.frame.saturating_sub(self.onion_before),
+                                (self.frame + self.onion_after).min(last),
+                            );
+                        } else {
+                            self.onion_before =
+                                self.frame.saturating_sub(self.anchored_range.0.min(last));
+                            self.onion_after =
+                                self.anchored_range.1.min(last).saturating_sub(self.frame);
+                        }
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S2;
-                    let mut before = self.onion_before as f64;
+                    let mut before = if self.onion_anchor {
+                        self.frame.saturating_sub(self.anchored_range.0.min(last))
+                    } else {
+                        self.onion_before
+                    } as f64;
                     if ui
                         .add(
                             nf::Field::new(&mut before, "Onion frames before")
@@ -525,9 +560,20 @@ impl Editor {
                         )
                         .changed()
                     {
-                        self.onion_before = before.round() as u32;
+                        let v = before.round().max(0.0) as u32;
+                        self.onion_before = v;
+                        if self.onion_anchor {
+                            self.anchored_range.0 = self
+                                .frame
+                                .saturating_sub(v)
+                                .min(self.anchored_range.1.min(last));
+                        }
                     }
-                    let mut after = self.onion_after as f64;
+                    let mut after = if self.onion_anchor {
+                        self.anchored_range.1.min(last).saturating_sub(self.frame)
+                    } else {
+                        self.onion_after
+                    } as f64;
                     if ui
                         .add(
                             nf::Field::new(&mut after, "Onion frames after")
@@ -538,7 +584,13 @@ impl Editor {
                         )
                         .changed()
                     {
-                        self.onion_after = after.round() as u32;
+                        let v = after.round().max(0.0) as u32;
+                        self.onion_after = v;
+                        if self.onion_anchor {
+                            self.anchored_range.1 = (self.frame + v)
+                                .min(last)
+                                .max(self.anchored_range.0.min(last));
+                        }
                     }
                 });
                 ui.horizontal(|ui| {
@@ -628,28 +680,39 @@ impl Editor {
                 .add(MenuItem::new(label).checked(view.preview == mode))
                 .clicked()
             {
-                view.preview = if view.preview == mode {
-                    FramePreview::Off
+                if view.preview == mode {
+                    view.preview = FramePreview::Off;
                 } else {
-                    mode
-                };
+                    view.preview = mode;
+                    view.short_rows = false;
+                    view.compact_rows = false;
+                }
             }
         }
+        let short_active =
+            view.preview == FramePreview::Off && view.short_rows && !view.compact_rows;
         if ui
-            .add(MenuItem::new("Short").checked(view.short_rows && !view.compact_rows))
+            .add(MenuItem::new("Short").checked(short_active))
             .clicked()
         {
-            view.short_rows = !(view.short_rows && !view.compact_rows);
-            if view.short_rows {
+            if short_active {
+                view.short_rows = false;
+            } else {
+                view.preview = FramePreview::Off;
+                view.short_rows = true;
                 view.compact_rows = false;
             }
         }
+        let compact_active = view.preview == FramePreview::Off && view.compact_rows;
         if ui
-            .add(MenuItem::new("Compact").checked(view.compact_rows))
+            .add(MenuItem::new("Compact").checked(compact_active))
             .clicked()
         {
-            view.compact_rows = !view.compact_rows;
-            if view.compact_rows {
+            if compact_active {
+                view.compact_rows = false;
+            } else {
+                view.preview = FramePreview::Off;
+                view.compact_rows = true;
                 view.short_rows = false;
             }
         }

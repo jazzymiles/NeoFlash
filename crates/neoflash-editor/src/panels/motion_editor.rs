@@ -36,6 +36,13 @@ const SKEW_ROW: MotionRow = MotionRow::Property {
     decimals: 1,
 };
 
+const COLOR_ROW: MotionRow = MotionRow::Property {
+    name: "Tint / Colour",
+    property: TweenProperty::Color,
+    unit: "%",
+    decimals: 0,
+};
+
 const MOTION_ROWS: &[MotionRow] = &[
     MotionRow::Section("Basic motion"),
     MotionRow::Property {
@@ -95,6 +102,7 @@ struct MotionEditorState {
     expanded: f64,
     drag: Option<LaneDrag>,
     show_skew: bool,
+    show_color: bool,
 }
 
 impl Default for MotionEditorState {
@@ -105,6 +113,7 @@ impl Default for MotionEditorState {
             expanded: 70.,
             drag: None,
             show_skew: false,
+            show_color: false,
         }
     }
 }
@@ -189,10 +198,14 @@ impl Editor {
         let (header, _) =
             ui.allocate_exact_size(egui::vec2(width, metrics::ROW), egui::Sense::hover());
         // Children via `new_child` so the row allocations above stay the only layout advance.
-        ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
-            header.min,
-            egui::vec2(LEFT, metrics::ROW),
-        )))
+        ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("motion-editor-header")
+                .max_rect(egui::Rect::from_min_size(
+                    header.min,
+                    egui::vec2(LEFT, metrics::ROW),
+                )),
+        )
         .add(c::TableRow {
             cells: &["Property", "Value", "Ease", "Keyframe"],
             kind: c::TableRowKind::Header,
@@ -214,7 +227,15 @@ impl Editor {
             })
             || span.property_override(TweenProperty::Skew).is_some();
         let show_skew = state.show_skew || state.selected == TweenProperty::Skew || has_skew;
-        let mut rows: Vec<MotionRow> = Vec::with_capacity(MOTION_ROWS.len() + 1);
+        let color_keys = self.motion_key_frames(&span, TweenProperty::Color);
+        let has_color = color_keys.len() > 1
+            || color_keys.iter().any(|f| {
+                self.motion_key_value(&span, TweenProperty::Color, *f)
+                    .is_some_and(|v| v.abs() > 1e-6)
+            })
+            || span.property_override(TweenProperty::Color).is_some();
+        let show_color = state.show_color || state.selected == TweenProperty::Color || has_color;
+        let mut rows: Vec<MotionRow> = Vec::with_capacity(MOTION_ROWS.len() + 2);
         for row in MOTION_ROWS {
             rows.push(*row);
             if show_skew
@@ -228,6 +249,17 @@ impl Editor {
             {
                 rows.push(SKEW_ROW);
             }
+            if show_color
+                && matches!(
+                    row,
+                    MotionRow::Property {
+                        property: TweenProperty::Alpha,
+                        ..
+                    }
+                )
+            {
+                rows.push(COLOR_ROW);
+            }
         }
         let mut seek = None;
         for row in &rows {
@@ -237,10 +269,14 @@ impl Editor {
                         egui::vec2(width, metrics::SECTION_HEADER),
                         egui::Sense::hover(),
                     );
-                    ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
-                        rect.min,
-                        egui::vec2(LEFT - space::S2, rect.height()),
-                    )))
+                    ui.new_child(
+                        egui::UiBuilder::new()
+                            .id_salt(("motion-section-row", *label))
+                            .max_rect(egui::Rect::from_min_size(
+                                rect.min,
+                                egui::vec2(LEFT - space::S2, rect.height()),
+                            )),
+                    )
                     .horizontal(|ui| {
                         ui.allocate_ui(egui::vec2(LEFT - 48.0, rect.height()), |ui| {
                             c::SectionHeader::new(label)
@@ -292,21 +328,21 @@ impl Editor {
                                         }
                                         c::menu_separator(ui);
                                         if ui
-                                            .add_enabled(
-                                                !has_skew,
-                                                c::MenuItem::new("Skew").checked(show_skew),
-                                            )
+                                            .add(c::MenuItem::new("Skew").checked(show_skew))
                                             .clicked()
                                         {
-                                            state.show_skew = !show_skew;
-                                            if state.show_skew {
+                                            if !show_skew || has_skew {
+                                                state.show_skew = true;
                                                 state.selected = TweenProperty::Skew;
                                                 self.ensure_motion_property_track(
                                                     &span,
                                                     TweenProperty::Skew,
                                                 );
-                                            } else if state.selected == TweenProperty::Skew {
-                                                state.selected = TweenProperty::X;
+                                            } else {
+                                                state.show_skew = false;
+                                                if state.selected == TweenProperty::Skew {
+                                                    state.selected = TweenProperty::X;
+                                                }
                                             }
                                             ui.close();
                                         }
@@ -329,19 +365,26 @@ impl Editor {
                                             );
                                             ui.close();
                                         }
-                                        let has_color = self
-                                            .motion_key_frames(&span, TweenProperty::Color)
-                                            .len()
-                                            > 1;
                                         if ui
                                             .add(
                                                 c::MenuItem::new("Tint / Colour")
-                                                    .checked(has_color),
+                                                    .checked(show_color),
                                             )
                                             .clicked()
                                         {
-                                            state.selected = TweenProperty::Alpha;
-                                            self.toggle_motion_key(&span, TweenProperty::Color);
+                                            if !show_color || has_color {
+                                                state.show_color = true;
+                                                state.selected = TweenProperty::Color;
+                                                self.ensure_motion_property_track(
+                                                    &span,
+                                                    TweenProperty::Color,
+                                                );
+                                            } else {
+                                                state.show_color = false;
+                                                if state.selected == TweenProperty::Color {
+                                                    state.selected = TweenProperty::Alpha;
+                                                }
+                                            }
                                             ui.close();
                                         }
                                     });
@@ -531,6 +574,7 @@ impl Editor {
                     );
                     ui.new_child(
                         egui::UiBuilder::new()
+                            .id_salt(("motion-prop-row", *name))
                             .max_rect(left.shrink2(egui::vec2(space::S3, space::S1)))
                             .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     )
@@ -553,6 +597,7 @@ impl Editor {
                             self.motion_value(&span, property, self.frame).unwrap_or(0.);
                         let range = match property {
                             TweenProperty::Alpha => 0.0..=100.0,
+                            TweenProperty::Color => -100.0..=100.0,
                             _ => -1e6..=1e6,
                         };
                         let response = ui.add_enabled(

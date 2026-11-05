@@ -791,6 +791,7 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
         )
     });
     row(ui, "Default frame view", |ui| {
+        let prev_preview = draft.timeline.preview;
         c::Select::options(
             ui,
             "prefs-frame-view",
@@ -802,13 +803,18 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ],
             160.0,
         );
-        let mut row_mode = if draft.timeline.compact_rows {
+        if draft.timeline.preview != prev_preview && draft.timeline.preview != FramePreview::Off {
+            draft.timeline.short_rows = false;
+            draft.timeline.compact_rows = false;
+        }
+        let prev_row_mode = if draft.timeline.compact_rows {
             2_u8
         } else if draft.timeline.short_rows {
             1_u8
         } else {
             0_u8
         };
+        let mut row_mode = prev_row_mode;
         c::Select::options(
             ui,
             "prefs-frame-rows",
@@ -816,6 +822,9 @@ fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
             &[(0, "Row: Normal"), (1, "Row: Short"), (2, "Row: Compact")],
             160.0,
         );
+        if row_mode != prev_row_mode {
+            draft.timeline.preview = FramePreview::Off;
+        }
         draft.timeline.short_rows = row_mode == 1;
         draft.timeline.compact_rows = row_mode == 2;
     });

@@ -602,10 +602,18 @@ impl Editor {
             }
             let frame = editor.frame;
             let sym = editor.symbol().clone();
+            let soloed_ids: std::collections::HashSet<String> = sym
+                .timeline
+                .layers
+                .iter()
+                .filter(|l| editor.is_layer_id_effectively_soloed(&l.id))
+                .map(|l| l.id.clone())
+                .collect();
             for layer in &mut editor.symbol_mut().timeline.layers {
                 if layer.properties.role == LayerRole::Folder
                     || !layer_effectively_visible(&sym.timeline, layer)
                     || layer_effectively_locked(&sym.timeline, layer)
+                    || !soloed_ids.contains(&layer.id)
                 {
                     continue;
                 }

@@ -155,7 +155,7 @@ impl MaskMesh {
     }
 }
 
-pub(crate) struct ClipMeshes(HashMap<String, MaskMesh>);
+pub(crate) struct ClipMeshes(HashMap<String, (MaskMesh, bool)>);
 impl ClipMeshes {
     /// The same fill/stroke silhouette used to paint vector artwork, including holes.
     /// This clips the existing NF2 hatch; it does not define another selection style.
@@ -172,7 +172,7 @@ impl ClipMeshes {
             .unwrap_or_default();
         Ok(Self(HashMap::from([(
             item.element_id.clone(),
-            MaskMesh::new(triangles)?,
+            (MaskMesh::new(triangles)?, false),
         )])))
     }
 
@@ -199,10 +199,13 @@ impl ClipMeshes {
     pub(crate) fn clip_mesh(&self, mesh: &Mesh, ids: &[String]) -> Result<Mesh, String> {
         let mut result = mesh.clone();
         for id in ids {
-            let mask = self
+            let (mask, invert) = self
                 .0
                 .get(id)
                 .ok_or_else(|| format!("Missing authored mask {id}"))?;
+            if *invert {
+                continue;
+            }
             result = intersect_mesh(&result, mask)?;
         }
         Ok(result)
@@ -214,7 +217,7 @@ fn prepare_mask(
     clips: &[RuntimeClip],
     origin: Pos2,
     zoom: f32,
-    map: &mut HashMap<String, MaskMesh>,
+    map: &mut HashMap<String, (MaskMesh, bool)>,
     active: &mut Vec<String>,
 ) -> Result<(), String> {
     if map.contains_key(id) {
@@ -248,7 +251,10 @@ fn prepare_mask(
         mesh.indices = tess.indices;
         for dependency in &component.clip_ids {
             prepare_mask(dependency, clips, origin, zoom, map, active)?;
-            mesh = intersect_mesh(&mesh, &map[dependency])?;
+            let (dep_mask, dep_invert) = &map[dependency];
+            if !*dep_invert {
+                mesh = intersect_mesh(&mesh, dep_mask)?;
+            }
         }
         triangles.extend(
             mesh.indices
@@ -259,7 +265,7 @@ fn prepare_mask(
         );
     }
     active.pop();
-    map.insert(id.into(), MaskMesh::new(triangles)?);
+    map.insert(id.into(), (MaskMesh::new(triangles)?, clip.invert));
     Ok(())
 }
 

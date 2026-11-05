@@ -621,18 +621,99 @@ impl Editor {
                     );
                 }
                 let id = self.symbol_id().to_owned();
+                let simple_button_consumed = self.update_simple_buttons_stage(ui, &p, rect, origin);
+                let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
                 // Edit multiple frames shows every keyframe in the onion range opaque.
                 let multiple = self.timeline_edit.edit_multiple;
                 if self.onion || multiple {
                     let (start, end) = self.onion_range();
+                    let last = self.symbol().timeline.frame_count.saturating_sub(1);
                     let frames: Vec<u32> = if multiple {
                         self.edit_multiple_key_frames()
                     } else {
-                        (start..=end.min(self.symbol().timeline.frame_count - 1)).collect()
+                        (start..=end.min(last)).collect()
                     };
-                    for frame in frames {
-                        if frame == self.frame {
-                            continue;
+                    let eval_project = self.project_for_stage_eval();
+                    let masking = self.show_layer_masking(ctx);
+                    let raw_ghosts: Vec<(u32, AuthoredScene)> = frames
+                        .into_iter()
+                        .filter(|&frame| frame != self.frame)
+                        .map(|frame| {
+                            (
+                                frame,
+                                evaluate_scene(&eval_project, &id, frame, true, masking),
+                            )
+                        })
+                        .collect();
+                    let outlines = self.onion_outlines && !multiple;
+                    let backdrop_len = if outlines || multiple || raw_ghosts.is_empty() {
+                        0
+                    } else {
+                        let count = authored_scene
+                            .draws
+                            .iter()
+                            .take_while(|cur| {
+                                raw_ghosts.iter().any(|(_, g)| {
+                                    g.draws
+                                        .iter()
+                                        .any(|d| d.item == cur.item && d.clip_ids == cur.clip_ids)
+                                })
+                            })
+                            .count();
+                        if count < authored_scene.draws.len() {
+                            count
+                        } else {
+                            0
+                        }
+                    };
+                    if outlines {
+                        self.paint_authored_scene(
+                            &content,
+                            &authored_scene,
+                            DrawStyle {
+                                origin,
+                                zoom: self.zoom,
+                                opacity: 1.,
+                                tint: None,
+                                outlines: false,
+                                bitmap_texture: None,
+                            },
+                        );
+                    } else if backdrop_len > 0 {
+                        let backdrop_scene = AuthoredScene {
+                            draws: authored_scene.draws[..backdrop_len].to_vec(),
+                            clips: authored_scene.clips.clone(),
+                            mask_groups: authored_scene.mask_groups.clone(),
+                        };
+                        self.paint_authored_scene(
+                            &content,
+                            &backdrop_scene,
+                            DrawStyle {
+                                origin,
+                                zoom: self.zoom,
+                                opacity: 1.,
+                                tint: None,
+                                outlines: false,
+                                bitmap_texture: None,
+                            },
+                        );
+                    }
+                    for (frame, mut ghost) in raw_ghosts {
+                        if !multiple {
+                            let filtered: Vec<_> = ghost
+                                .draws
+                                .iter()
+                                .filter(|d| {
+                                    !authored_scene
+                                        .draws
+                                        .iter()
+                                        .any(|cur| cur.item == d.item && cur.clip_ids == d.clip_ids)
+                                })
+                                .cloned()
+                                .collect();
+                            if !filtered.is_empty() {
+                                ghost.draws = filtered;
+                            }
                         }
                         let opacity = self.onion_frame_opacity(frame);
                         let tint = if multiple {
@@ -642,16 +723,6 @@ impl Editor {
                         } else {
                             Some(palette.onion_after)
                         };
-                        let ghost = {
-                            let eval_project = self.project_for_stage_eval();
-                            evaluate_scene(
-                                &eval_project,
-                                &id,
-                                frame,
-                                true,
-                                self.show_layer_masking(ctx),
-                            )
-                        };
                         self.paint_authored_scene(
                             &content,
                             &ghost,
@@ -660,26 +731,48 @@ impl Editor {
                                 zoom: self.zoom,
                                 opacity,
                                 tint,
-                                outlines: self.onion_outlines && !multiple,
+                                outlines,
                                 bitmap_texture: None,
                             },
                         );
                     }
+                    if !outlines {
+                        let fg_scene = if backdrop_len > 0 {
+                            AuthoredScene {
+                                draws: authored_scene.draws[backdrop_len..].to_vec(),
+                                clips: authored_scene.clips.clone(),
+                                mask_groups: authored_scene.mask_groups.clone(),
+                            }
+                        } else {
+                            authored_scene.clone()
+                        };
+                        self.paint_authored_scene(
+                            &content,
+                            &fg_scene,
+                            DrawStyle {
+                                origin,
+                                zoom: self.zoom,
+                                opacity: 1.,
+                                tint: None,
+                                outlines: false,
+                                bitmap_texture: None,
+                            },
+                        );
+                    }
+                } else {
+                    self.paint_authored_scene(
+                        &content,
+                        &authored_scene,
+                        DrawStyle {
+                            origin,
+                            zoom: self.zoom,
+                            opacity: 1.,
+                            tint: None,
+                            outlines: false,
+                            bitmap_texture: None,
+                        },
+                    );
                 }
-                let simple_button_consumed = self.update_simple_buttons_stage(ui, &p, rect, origin);
-                let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
-                self.paint_authored_scene(
-                    &content,
-                    &authored_scene,
-                    DrawStyle {
-                        origin,
-                        zoom: self.zoom,
-                        opacity: 1.,
-                        tint: None,
-                        outlines: false,
-                        bitmap_texture: None,
-                    },
-                );
                 let interactive_scene =
                     self.interactive_authored_scene(authored_scene, self.show_layer_masking(ctx));
                 let scene: Vec<_> = interactive_scene
@@ -1054,11 +1147,12 @@ impl Editor {
         scene: &AuthoredScene,
         style: DrawStyle,
     ) {
-        if scene
-            .clips
-            .iter()
-            .any(|clip| clip.alpha_components.is_some() || clip.invert)
-            || (!style.outlines && style.tint.is_none() && scene.has_blend_modes())
+        if !style.outlines
+            && (scene
+                .clips
+                .iter()
+                .any(|clip| clip.alpha_components.is_some() || clip.invert)
+                || (style.tint.is_none() && scene.has_blend_modes()))
         {
             if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
                 self.message(error);

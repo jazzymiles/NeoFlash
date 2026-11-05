@@ -5088,3 +5088,116 @@ fn document_strip_list_close_cancel_empty_state_and_shortcuts_work_in_both_theme
         assert!(!d.editor.history.can_undo());
     }
 }
+
+#[test]
+fn onion_skin_outline_mode_and_ruler_range_handles_work_without_off_by_one() {
+    let mut d = Driver::new();
+    d.editor.frame = 5;
+    d.editor.onion_before = 3;
+    d.editor.onion_after = 3;
+    assert!(!d.editor.onion && !d.editor.onion_outlines);
+    d.settle();
+
+    // 1. Clicking "Onion skin outlines" directly from off turns on both onion skin and outlines.
+    d.click("Onion skin outlines");
+    assert!(
+        d.editor.onion && d.editor.onion_outlines,
+        "clicking Onion skin outlines from off must enable onion skin in outline mode"
+    );
+    assert_eq!(d.editor.onion_range(), (2, 8));
+
+    // 2. Clicking "Onion skin" switches from outlines to solid onion skin without turning it off.
+    d.click("Onion skin");
+    assert!(
+        d.editor.onion && !d.editor.onion_outlines,
+        "clicking Onion skin while in outline mode must switch to solid mode"
+    );
+
+    // 3. Clicking "Onion skin outlines" switches back to outline mode; clicking it again turns onion skin off.
+    d.click("Onion skin outlines");
+    assert!(d.editor.onion && d.editor.onion_outlines);
+    d.click("Onion skin outlines");
+    assert!(
+        !d.editor.onion && !d.editor.onion_outlines,
+        "clicking active Onion skin outlines button must turn onion skin off"
+    );
+
+    // 4. Checking "Outlines" inside the Onion skin options popover also activates onion skin.
+    d.click("Onion skin options");
+    d.click("Outlines");
+    assert!(
+        d.editor.onion && d.editor.onion_outlines,
+        "checking Outlines in the options popover must enable onion skin"
+    );
+    // Close the popover by clicking the options button again.
+    d.click("Onion skin options");
+    d.settle();
+
+    // 5. Verify the painted onion range handles on the ruler and drag both handles without
+    // off-by-one jumps or playhead seek hijacking.
+    let onion_color = neoflash_ui::palette(&d.ctx).timeline_onion;
+    let handle_rects = |out: &egui::FullOutput| -> Vec<Rect> {
+        let mut rects: Vec<Rect> = out
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Rect(r)
+                    if r.fill == onion_color && (r.rect.width() - 3.0).abs() < 0.2 =>
+                {
+                    Some(r.rect)
+                }
+                _ => None,
+            })
+            .collect();
+        rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        rects.dedup_by(|a, b| (a.left() - b.left()).abs() < 0.5);
+        rects
+    };
+    let bars = handle_rects(&d.out);
+    assert_eq!(
+        bars.len(),
+        2,
+        "must paint start and end onion range handles"
+    );
+    let cw = d.editor.timeline_cell;
+    let span_width = bars[1].right() - bars[0].left();
+    assert!(
+        (span_width - 7.0 * cw).abs() < 0.5,
+        "range 2..=8 (7 frames) must span 7 * cell_width, got {span_width} (cw={cw})"
+    );
+
+    // Drag right handle by +2 frames: onion_after must become 5 (end = 10), not 6, and frame stays 5.
+    let right_from = bars[1].center();
+    let right_to = right_from + Vec2::new(2.0 * cw, 0.0);
+    d.step(vec![
+        Event::PointerMoved(right_from),
+        primary_button(right_from, true),
+    ]);
+    d.step(vec![Event::PointerMoved(right_to)]);
+    d.step(vec![primary_button(right_to, false)]);
+    d.settle();
+    assert_eq!(
+        d.editor.frame, 5,
+        "dragging onion handle must not seek playhead"
+    );
+    assert_eq!(
+        d.editor.onion_after, 5,
+        "right handle drag must not have +1 frame off-by-one error"
+    );
+    assert_eq!(d.editor.onion_range(), (2, 10));
+
+    // Drag left handle by -1 frame: onion_before must become 4 (start = 1), and frame stays 5.
+    let bars = handle_rects(&d.out);
+    let left_from = bars[0].center();
+    let left_to = left_from - Vec2::new(1.0 * cw, 0.0);
+    d.step(vec![
+        Event::PointerMoved(left_from),
+        primary_button(left_from, true),
+    ]);
+    d.step(vec![Event::PointerMoved(left_to)]);
+    d.step(vec![primary_button(left_to, false)]);
+    d.settle();
+    assert_eq!(d.editor.frame, 5);
+    assert_eq!(d.editor.onion_before, 4);
+    assert_eq!(d.editor.onion_range(), (1, 10));
+}

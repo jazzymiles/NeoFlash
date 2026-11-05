@@ -12,11 +12,14 @@ use neoflash_core::*;
 use neoflash_ui::components as c;
 use neoflash_ui::tokens::space;
 
-/// Value of a motion property in the units the panels show: px, degrees, or percent for scale and
-/// alpha.
+/// Value of a motion property in the units the panels show: px, degrees, or percent for scale,
+/// alpha and brightness/tint colour offset.
 pub(crate) fn to_display(property: TweenProperty, value: f64) -> f64 {
     match property {
-        TweenProperty::ScaleX | TweenProperty::ScaleY | TweenProperty::Alpha => value * 100.,
+        TweenProperty::ScaleX
+        | TweenProperty::ScaleY
+        | TweenProperty::Alpha
+        | TweenProperty::Color => value * 100.,
         _ => value,
     }
 }
@@ -26,8 +29,48 @@ pub(crate) fn from_display(property: TweenProperty, value: f64) -> f64 {
     match property {
         TweenProperty::ScaleX | TweenProperty::ScaleY => (value / 100.).clamp(-1e4, 1e4),
         TweenProperty::Alpha => (value / 100.).clamp(0., 1.),
+        TweenProperty::Color => (value / 100.).clamp(-1., 1.),
         TweenProperty::Rotation | TweenProperty::Skew => value.clamp(-1e9, 1e9),
         _ => value.clamp(-1e12, 1e12),
+    }
+}
+
+fn color_brightness(ct: ColorTransform) -> f64 {
+    let avg_off = (ct.offsets[0] + ct.offsets[1] + ct.offsets[2]) / (3.0 * 255.0);
+    if avg_off.abs() > 1e-6 {
+        avg_off.clamp(-1.0, 1.0)
+    } else {
+        let avg_mul = (ct.multipliers[0] + ct.multipliers[1] + ct.multipliers[2]) / 3.0;
+        (avg_mul - 1.0).clamp(-1.0, 1.0)
+    }
+}
+
+fn color_transform_from_brightness(
+    brightness: f64,
+    alpha_mul: f64,
+    alpha_off: f64,
+) -> ColorTransform {
+    let b = brightness.clamp(-1.0, 1.0);
+    if b >= 0.0 {
+        let m = 1.0 - b;
+        let o = 255.0 * b;
+        ColorTransform {
+            multipliers: [m, m, m, alpha_mul],
+            offsets: [o, o, o, alpha_off],
+        }
+    } else {
+        let m = 1.0 + b;
+        ColorTransform {
+            multipliers: [m, m, m, alpha_mul],
+            offsets: [0.0, 0.0, 0.0, alpha_off],
+        }
+    }
+}
+
+fn transform_property_value(transform: &Transform, property: TweenProperty) -> f64 {
+    match property {
+        TweenProperty::Color => color_brightness(transform.color_transform),
+        _ => property_value(transform, property),
     }
 }
 
@@ -40,7 +83,13 @@ fn set_value(transform: &mut Transform, property: TweenProperty, value: f64) {
         TweenProperty::Rotation => transform.rotation = value,
         TweenProperty::Skew => transform.skew = value,
         TweenProperty::Alpha => transform.alpha = value,
-        TweenProperty::Color => {}
+        TweenProperty::Color => {
+            transform.color_transform = color_transform_from_brightness(
+                value,
+                transform.color_transform.multipliers[3],
+                transform.color_transform.offsets[3],
+            );
+        }
     }
 }
 
@@ -120,7 +169,7 @@ impl Editor {
         let layer = self.span_layer(span)?;
         sample_layer_in(&self.symbol().timeline, layer, frame)
             .first()
-            .map(|e| to_display(property, property_value(&e.transform, property)))
+            .map(|e| to_display(property, transform_property_value(&e.transform, property)))
     }
 
     /// Stored value of `property` (display units) on the key at `frame`.
@@ -137,7 +186,7 @@ impl Editor {
             .find(|k| k.frame == frame)?;
         key.elements
             .first()
-            .map(|e| to_display(property, property_value(&e.transform, property)))
+            .map(|e| to_display(property, transform_property_value(&e.transform, property)))
     }
 
     /// Run a motion edit as one Undo step, or — with `control` — inside the property-edit session
@@ -498,18 +547,16 @@ impl Editor {
         if span.kind != TweenKind::Motion || !self.layer_editable() {
             return false;
         }
+        let existing = self.motion_key_frames(span, property);
         let target_frame = if self.frame > span.start && self.frame < span.end {
             self.frame
         } else if span.end > span.start + 1 {
             span.end - 1
         } else {
-            return false;
+            return !existing.is_empty();
         };
-        if self
-            .motion_key_frames(span, property)
-            .contains(&target_frame)
-        {
-            return false;
+        if existing.contains(&target_frame) {
+            return true;
         }
         let span = span.clone();
         self.finish_edits();
@@ -535,11 +582,21 @@ impl Editor {
         if span.kind != TweenKind::Motion || !self.layer_editable() {
             return false;
         }
-        let has_elements = self
+        let Some(start_key) = self
             .span_layer(span)
             .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start))
-            .is_some_and(|k| !k.elements.is_empty());
-        if !has_elements {
+        else {
+            return false;
+        };
+        if start_key.elements.is_empty() {
+            return false;
+        }
+        if start_key
+            .elements
+            .iter()
+            .any(|e| e.filters.len() >= neoflash_core::MAX_OBJECT_FILTERS)
+        {
+            self.message("An object can have at most 8 filters.");
             return false;
         }
         let span = span.clone();
@@ -555,12 +612,14 @@ impl Editor {
                 for key in &mut layer.keyframes {
                     if key.frame >= span.start && key.frame < span.end {
                         for element in &mut key.elements {
-                            element.filters.push(filter.clone());
+                            if element.filters.len() < neoflash_core::MAX_OBJECT_FILTERS {
+                                element.filters.push(filter.clone());
+                            }
                         }
                     }
                 }
             }
-            s.project.format_version = s.project.format_version.max(8);
+            s.project.format_version = s.project.format_version.max(7);
         });
         true
     }

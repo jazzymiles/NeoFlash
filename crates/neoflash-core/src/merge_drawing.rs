@@ -963,11 +963,22 @@ fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>>
     shells.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
     for hole in holes {
-        let sample = hole[0];
-        if let Some((_, _, shell_holes)) = shells
-            .iter_mut()
-            .find(|(shell, _, _)| ring_winding_number(sample, shell) != 0)
-        {
+        let hole_area = signed_ring_area(&hole).abs();
+        let sample = hole
+            .iter()
+            .copied()
+            .find(|&pt| {
+                !shells.iter().any(|(shell, _, _)| {
+                    (0..shell.len()).any(|i| {
+                        point_to_segment_projection(pt, shell[i], shell[(i + 1) % shell.len()]).1
+                            <= SNAP_EPS
+                    })
+                })
+            })
+            .unwrap_or(hole[0]);
+        if let Some((_, _, shell_holes)) = shells.iter_mut().find(|(shell, shell_area, _)| {
+            *shell_area > hole_area && ring_winding_number(sample, shell) != 0
+        }) {
             shell_holes.push(hole);
         }
     }
@@ -1789,6 +1800,134 @@ pub fn merge_connected_stroke_ids(elements: &[Element], stroke_id: &str) -> Vec<
     result
 }
 
+fn translate_path_commands(commands: &[PathCommand], dx: f64, dy: f64) -> Vec<PathCommand> {
+    if dx.abs() <= 1e-12 && dy.abs() <= 1e-12 {
+        return commands.to_vec();
+    }
+    commands
+        .iter()
+        .map(|cmd| match *cmd {
+            PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                x: x + dx,
+                y: y + dy,
+            },
+            PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                x: x + dx,
+                y: y + dy,
+            },
+            PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+                cx: cx + dx,
+                cy: cy + dy,
+                x: x + dx,
+                y: y + dy,
+            },
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => PathCommand::CubicTo {
+                cx1: cx1 + dx,
+                cy1: cy1 + dy,
+                cx2: cx2 + dx,
+                cy2: cy2 + dy,
+                x: x + dx,
+                y: y + dy,
+            },
+            PathCommand::Close => PathCommand::Close,
+        })
+        .collect()
+}
+
+fn shift_gradient(mut gradient: GradientPaint, dx: f64, dy: f64) -> GradientPaint {
+    gradient.matrix = affine_multiply([1.0, 0.0, 0.0, 1.0, dx, dy], gradient.matrix);
+    gradient
+}
+
+fn build_combined_shape_element(
+    template: &Element,
+    id: Id,
+    world_cmds: Vec<PathCommand>,
+    fill_rule: FillRule,
+    fp: &FillPaint,
+    sp: Option<&StrokePaint>,
+) -> Element {
+    if template.merge {
+        return build_fill_element(template, id, world_cmds, fill_rule, fp, true);
+    }
+    let (ox, oy, local_cmds) = if let Ok(Some(bounds)) = crate::path_bounds(&world_cmds)
+        && bounds.x_min.is_finite()
+        && bounds.y_min.is_finite()
+    {
+        let ox = bounds.x_min;
+        let oy = bounds.y_min;
+        (ox, oy, translate_path_commands(&world_cmds, -ox, -oy))
+    } else {
+        (0.0, 0.0, world_cmds)
+    };
+    let fill_color = match fp {
+        FillPaint::Solid(color) => *color,
+        FillPaint::Gradient(grad) => match &template.kind {
+            ElementKind::PaintedPath { fill, .. } => *fill,
+            _ => grad.stops.first().map_or([0, 0, 0, 255], |s| s.color),
+        },
+    };
+    let fill_gradient = match fp {
+        FillPaint::Solid(_) => None,
+        FillPaint::Gradient(grad) => Some(shift_gradient(world_gradient(template, grad), -ox, -oy)),
+    };
+    let (stroke_color, stroke_width, stroke_gradient) = match sp {
+        Some(s) => (
+            s.color,
+            s.width,
+            s.gradient
+                .as_ref()
+                .map(|g| shift_gradient(world_gradient(template, g), -ox, -oy)),
+        ),
+        None => ([0; 4], 0.0, None),
+    };
+    let kind = if fill_gradient.is_some() || stroke_gradient.is_some() {
+        ElementKind::PaintedPath {
+            commands: local_cmds,
+            fill_rule,
+            fill: fill_color,
+            stroke: stroke_color,
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+        }
+    } else {
+        ElementKind::Path {
+            commands: local_cmds,
+            fill_rule,
+            fill: fill_color,
+            stroke: stroke_color,
+            stroke_width,
+        }
+    };
+    Element {
+        id,
+        name: template.name.clone(),
+        transform: Transform {
+            x: ox,
+            y: oy,
+            alpha: template.transform.alpha,
+            color_transform: template.transform.color_transform,
+            ..Transform::default()
+        },
+        kind,
+        scripts: template.scripts.clone(),
+        accessibility: template.accessibility.clone(),
+        visible: template.visible,
+        cache_as_bitmap: template.cache_as_bitmap,
+        blend_mode: template.blend_mode,
+        filters: template.filters.clone(),
+        merge: false,
+    }
+}
+
 /// Combine two or more vector shapes using `BooleanOp` (`Modify ▸ Combine objects`).
 ///
 /// - `Union`: merges all selected shapes into unified shape(s) using the bottom-most shape's
@@ -1806,14 +1945,40 @@ pub fn combine_elements_boolean(
     if selected.len() < 2 {
         return None;
     }
+    let fallback_merge_stroke: Option<(Element, StrokePaint)> = selected
+        .iter()
+        .filter(|el| is_merge_stroke(el))
+        .find_map(|el| {
+            let mut sp = extract_stroke_paint(&el.kind)?;
+            sp.width *= transform_scale_factor(&el.transform);
+            Some(((*el).clone(), sp))
+        });
+    let closed_non_merge_stroke_count = selected
+        .iter()
+        .filter(|el| {
+            !is_merge_stroke(el)
+                && element_world_commands(el)
+                    .is_some_and(|(cmds, _)| !flatten_closed_rings(&cmds).is_empty())
+        })
+        .count();
+
     let mut shapes = Vec::with_capacity(selected.len());
     for el in selected {
+        if closed_non_merge_stroke_count >= 2 && is_merge_stroke(el) {
+            continue;
+        }
         let (cmds, rule) = element_world_commands(el)?;
         let rings = flatten_closed_rings(&cmds);
         if rings.is_empty() {
+            if closed_non_merge_stroke_count >= 2 {
+                continue;
+            }
             return None;
         }
         shapes.push((el, rings, rule));
+    }
+    if shapes.len() < 2 {
+        return None;
     }
 
     if crop_by_top || op == BooleanOp::Difference {
@@ -1825,38 +1990,45 @@ pub fn combine_elements_boolean(
             BooleanOp::Difference
         };
         let mut out = Vec::new();
+        let mut out_strokes = Vec::new();
         for (base_el, base_rings, base_rule) in shapes {
             let pieces = boolean_rings(&base_rings, base_rule, &top_rings, top_rule, clip_op);
             let fp = extract_fill_paint(&base_el.kind).unwrap_or(FillPaint::Solid([0; 4]));
-            let sp = extract_stroke_paint(&base_el.kind);
+            let mut sp = extract_stroke_paint(&base_el.kind);
+            if let Some(sp) = &mut sp {
+                sp.width *= transform_scale_factor(&base_el.transform);
+            }
             for (idx, cmds) in pieces.into_iter().enumerate() {
                 let id = if idx == 0 {
                     base_el.id.clone()
                 } else {
                     new_id("element")
                 };
-                let mut el = build_fill_element(
+                if base_el.merge
+                    && let Some((ref stroke_tpl, ref msp)) = fallback_merge_stroke
+                {
+                    for contour_cmds in split_commands_into_contours(&cmds) {
+                        out_strokes.push(build_stroke_element(
+                            stroke_tpl,
+                            new_id("element"),
+                            contour_cmds,
+                            msp,
+                            true,
+                        ));
+                    }
+                }
+                let el = build_combined_shape_element(
                     base_el,
                     id,
-                    cmds.clone(),
+                    cmds,
                     FillRule::NonZero,
                     &fp,
-                    base_el.merge,
+                    sp.as_ref(),
                 );
-                if let Some(sp) = &sp
-                    && !base_el.merge
-                    && let ElementKind::Path {
-                        stroke,
-                        stroke_width,
-                        ..
-                    } = &mut el.kind
-                {
-                    *stroke = sp.color;
-                    *stroke_width = sp.width;
-                }
                 out.push(el);
             }
         }
+        out.extend(out_strokes);
         return Some(out);
     }
 
@@ -1879,28 +2051,36 @@ pub fn combine_elements_boolean(
 
     let final_pieces = assemble_shells_and_holes(acc_rings);
     let fp = extract_fill_paint(&first_el.kind).unwrap_or(FillPaint::Solid([0; 4]));
-    let sp = extract_stroke_paint(&first_el.kind);
+    let mut sp = extract_stroke_paint(&first_el.kind);
+    if let Some(sp) = &mut sp {
+        sp.width *= transform_scale_factor(&first_el.transform);
+    }
     let mut out = Vec::with_capacity(final_pieces.len());
+    let mut out_strokes = Vec::new();
     for (idx, cmds) in final_pieces.into_iter().enumerate() {
         let id = if idx == 0 {
             first_el.id.clone()
         } else {
             new_id("element")
         };
-        let mut el = build_fill_element(first_el, id, cmds, FillRule::NonZero, &fp, first_el.merge);
-        if let Some(sp) = &sp
-            && !first_el.merge
-            && let ElementKind::Path {
-                stroke,
-                stroke_width,
-                ..
-            } = &mut el.kind
+        if first_el.merge
+            && let Some((ref stroke_tpl, ref msp)) = fallback_merge_stroke
         {
-            *stroke = sp.color;
-            *stroke_width = sp.width;
+            for contour_cmds in split_commands_into_contours(&cmds) {
+                out_strokes.push(build_stroke_element(
+                    stroke_tpl,
+                    new_id("element"),
+                    contour_cmds,
+                    msp,
+                    true,
+                ));
+            }
         }
+        let el =
+            build_combined_shape_element(first_el, id, cmds, FillRule::NonZero, &fp, sp.as_ref());
         out.push(el);
     }
+    out.extend(out_strokes);
     Some(out)
 }
 
@@ -2468,5 +2648,201 @@ mod tests {
         assert_eq!(strokes.len(), 4);
         let connected = merge_connected_stroke_ids(&elements, &strokes[0].id);
         assert_eq!(connected.len(), 4);
+    }
+
+    #[test]
+    fn combine_elements_boolean_covers_all_ops_local_origin_gradients_and_merge_strokes() {
+        use crate::runtime_graphics::{GradientKind, GradientStop};
+
+        let mut base = rect_element(
+            "base",
+            200.0,
+            150.0,
+            50.0,
+            40.0,
+            [30, 120, 220, 255],
+            [10, 20, 30, 255],
+            3.0,
+        );
+        base.merge = false;
+        base.transform.scale_x = 2.0;
+        base.transform.scale_y = 2.0; // world size 100x80 at (200..300, 150..230), scaled stroke = 6.0
+
+        let mut cutter = rect_element(
+            "cutter",
+            250.0,
+            170.0,
+            100.0,
+            80.0,
+            [220, 60, 40, 255],
+            [0; 4],
+            0.0,
+        );
+        cutter.merge = false;
+
+        // 1. Union of Object Drawing shapes normalizes local bounds to (0, 0) and scales stroke width.
+        let union =
+            combine_elements_boolean(&[base.clone(), cutter.clone()], BooleanOp::Union, false)
+                .unwrap();
+        assert_eq!(union.len(), 1);
+        assert!(!union[0].merge);
+        assert!((union[0].transform.x - 200.0).abs() < 1e-6);
+        assert!((union[0].transform.y - 150.0).abs() < 1e-6);
+        let ElementKind::Path {
+            commands,
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } = &union[0].kind
+        else {
+            panic!("expected Path");
+        };
+        assert_eq!(*fill, [30, 120, 220, 255]);
+        assert_eq!(*stroke, [10, 20, 30, 255]);
+        assert!((*stroke_width - 6.0).abs() < 1e-6);
+        let local_bounds = crate::path_bounds(commands).unwrap().unwrap();
+        assert!(local_bounds.x_min.abs() < 1e-6 && local_bounds.y_min.abs() < 1e-6);
+        assert!((local_bounds.width() - 150.0).abs() < 1e-6);
+        assert!((local_bounds.height() - 100.0).abs() < 1e-6);
+
+        // 2. Intersect and Crop produce the (250..300, 170..230) overlap with local (0, 0) origin.
+        for crop_by_top in [false, true] {
+            let isect = combine_elements_boolean(
+                &[base.clone(), cutter.clone()],
+                BooleanOp::Intersection,
+                crop_by_top,
+            )
+            .unwrap();
+            assert_eq!(isect.len(), 1);
+            assert!((isect[0].transform.x - 250.0).abs() < 1e-6);
+            assert!((isect[0].transform.y - 170.0).abs() < 1e-6);
+            let (world_cmds, rule) = element_world_commands(&isect[0]).unwrap();
+            let rings = flatten_closed_rings(&world_cmds);
+            assert!(point_in_rings([275.0, 200.0], &rings, rule));
+            assert!(!point_in_rings([220.0, 160.0], &rings, rule));
+        }
+
+        // 3. Punch (Difference) with an interior cutter creates a donut with a hole.
+        let mut hole_cutter = rect_element(
+            "hole",
+            230.0,
+            170.0,
+            40.0,
+            40.0,
+            [255, 255, 255, 255],
+            [0; 4],
+            0.0,
+        );
+        hole_cutter.merge = false;
+        let punched =
+            combine_elements_boolean(&[base.clone(), hole_cutter], BooleanOp::Difference, false)
+                .unwrap();
+        assert_eq!(punched.len(), 1);
+        let (punched_world, punched_rule) = element_world_commands(&punched[0]).unwrap();
+        let punched_rings = flatten_closed_rings(&punched_world);
+        assert_eq!(punched_rings.len(), 2, "outer shell + inner hole");
+        assert!(point_in_rings([210.0, 160.0], &punched_rings, punched_rule));
+        assert!(!point_in_rings(
+            [250.0, 190.0],
+            &punched_rings,
+            punched_rule
+        ));
+
+        // 4. Object Drawing PaintedPath with fill AND stroke gradients preserves both in local coords.
+        let grad = GradientPaint {
+            kind: GradientKind::Linear,
+            matrix: [0.06103515625, 0.0, 0.0, 0.06103515625, 50.0, 40.0],
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [10, 80, 240, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [240, 60, 20, 255],
+                },
+            ],
+            focal_point_ratio: 0.0,
+        };
+        let stroke_grad = GradientPaint {
+            kind: GradientKind::Radial,
+            ..grad.clone()
+        };
+        let painted_obj = Element {
+            id: "painted-obj".into(),
+            transform: Transform {
+                x: 200.0,
+                y: 150.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::PaintedPath {
+                commands: ring_to_commands(&[[0.0, 0.0], [100.0, 0.0], [100.0, 80.0], [0.0, 80.0]]),
+                fill_rule: FillRule::NonZero,
+                fill: [10, 80, 240, 255],
+                stroke: [20, 30, 40, 255],
+                fill_gradient: Some(grad.clone()),
+                stroke_gradient: Some(stroke_grad.clone()),
+                stroke_width: 4.0,
+            },
+            merge: false,
+            ..Element::default()
+        };
+        let combined_painted =
+            combine_elements_boolean(&[painted_obj, cutter], BooleanOp::Union, false).unwrap();
+        assert_eq!(combined_painted.len(), 1);
+        let ElementKind::PaintedPath {
+            fill_gradient: Some(fg),
+            stroke_gradient: Some(sg),
+            stroke_width,
+            stroke,
+            ..
+        } = &combined_painted[0].kind
+        else {
+            panic!("expected PaintedPath with both fill and stroke gradients");
+        };
+        assert_eq!(*stroke, [20, 30, 40, 255]);
+        assert!((*stroke_width - 4.0).abs() < 1e-6);
+        assert_eq!(fg.sample(25.0, 20.0), grad.sample(25.0, 20.0));
+        assert_eq!(sg.sample(25.0, 20.0), stroke_grad.sample(25.0, 20.0));
+
+        // 5. Merge Drawing selection containing fills + separate stroke outlines + open lines combines cleanly.
+        let mut merge_elements = Vec::new();
+        apply_merge_shape_to_keyframe(
+            &mut merge_elements,
+            rect_element(
+                "m1",
+                0.0,
+                0.0,
+                80.0,
+                80.0,
+                [40, 160, 90, 255],
+                [0, 0, 0, 255],
+                2.0,
+            ),
+        );
+        apply_merge_shape_to_keyframe(
+            &mut merge_elements,
+            rect_element(
+                "m2",
+                40.0,
+                0.0,
+                80.0,
+                80.0,
+                [200, 80, 40, 255],
+                [0, 0, 0, 255],
+                2.0,
+            ),
+        );
+        let merge_combined =
+            combine_elements_boolean(&merge_elements, BooleanOp::Union, false).unwrap();
+        assert_eq!(
+            merge_combined.iter().filter(|e| is_merge_fill(e)).count(),
+            1
+        );
+        assert_eq!(
+            merge_combined.iter().filter(|e| is_merge_stroke(e)).count(),
+            1
+        );
     }
 }

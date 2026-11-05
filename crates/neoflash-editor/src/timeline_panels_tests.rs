@@ -723,3 +723,155 @@ fn motion_editor_add_property_track_filter_and_resize_span_frames_with_single_un
     );
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn motion_editor_ui_add_property_popups_have_distinct_ids_and_add_skew_color_and_filter_tracks() {
+    use crate::tests::primary_button;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    let mut editor = motion_editor();
+    // Playhead at frame 0 (span start): Add property must still create a track at span.end - 1.
+    editor.frame = 0;
+
+    let mut time = 0.0;
+    let mut render = |editor: &mut Editor, events: Vec<egui::Event>| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 900.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.motion_editor_panel_ui(ui);
+                });
+            },
+        )
+    };
+    let click_at = |editor: &mut Editor,
+                    render: &mut dyn FnMut(&mut Editor, Vec<egui::Event>) -> egui::FullOutput,
+                    at: egui::Pos2| {
+        render(
+            editor,
+            vec![egui::Event::PointerMoved(at), primary_button(at, true)],
+        );
+        render(editor, vec![primary_button(at, false)]);
+        render(editor, vec![])
+    };
+    let find_add_buttons = |out: &egui::FullOutput| -> Vec<egui::Pos2> {
+        let mut pts: Vec<egui::Pos2> = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some("Add property"))
+            .filter_map(|(_, node)| {
+                let b = node.bounds()?;
+                Some(egui::pos2(
+                    ((b.x0 + b.x1) * 0.5) as f32,
+                    ((b.y0 + b.y1) * 0.5) as f32,
+                ))
+            })
+            .collect();
+        pts.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        pts
+    };
+    let find_label_pos = |out: &egui::FullOutput, label: &str| -> (egui::Pos2, bool) {
+        let (_, node) = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(label))
+            .unwrap_or_else(|| panic!("expected node labeled {label:?}"));
+        let b = node.bounds().expect("bounds");
+        (
+            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32),
+            node.is_disabled(),
+        )
+    };
+
+    let out = render(&mut editor, vec![]);
+    let add_pts = find_add_buttons(&out);
+    assert_eq!(
+        add_pts.len(),
+        4,
+        "all 4 section Add property (+) buttons must have distinct widget IDs"
+    );
+    for pair in add_pts.windows(2) {
+        assert!(
+            pair[1].y > pair[0].y + 10.0,
+            "section (+) buttons must have distinct vertical positions: {add_pts:?}"
+        );
+    }
+
+    // 1. Click Transformation (+) -> click Skew: creates Skew key at frame 9 even when playhead is on frame 0.
+    let out = click_at(&mut editor, &mut render, add_pts[1]);
+    let (skew_pos, skew_disabled) = find_label_pos(&out, "Skew");
+    assert!(!skew_disabled, "Skew menu item should be enabled");
+    let _ = click_at(&mut editor, &mut render, skew_pos);
+    let span = editor.motion_tween_span().unwrap();
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::Skew),
+        vec![0, 9]
+    );
+    editor.project.validate().unwrap();
+
+    // Re-opening Transformation (+) keeps Skew enabled (not permanently disabled).
+    let out = render(&mut editor, vec![]);
+    let add_pts = find_add_buttons(&out);
+    let out = click_at(&mut editor, &mut render, add_pts[1]);
+    let (skew_pos_again, skew_disabled_again) = find_label_pos(&out, "Skew");
+    assert!(
+        !skew_disabled_again,
+        "Skew menu item must remain enabled after adding Skew track"
+    );
+    let _ = click_at(&mut editor, &mut render, skew_pos_again);
+
+    // 2. Click Colour effect (+) -> click Tint / Colour: creates Color key at frame 9 and supports brightness % edits.
+    let out = render(&mut editor, vec![]);
+    let add_pts = find_add_buttons(&out);
+    let out = click_at(&mut editor, &mut render, add_pts[2]);
+    let (tint_pos, tint_disabled) = find_label_pos(&out, "Tint / Colour");
+    assert!(!tint_disabled);
+    let _ = click_at(&mut editor, &mut render, tint_pos);
+    let span = editor.motion_tween_span().unwrap();
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::Color),
+        vec![0, 9]
+    );
+    editor.set_motion_value(&span, TweenProperty::Color, 9, 50.0, None);
+    editor.finish_edits();
+    editor.project.validate().unwrap();
+    let span = editor.motion_tween_span().unwrap();
+    assert!(
+        (editor.motion_value(&span, TweenProperty::Color, 9).unwrap() - 50.0).abs() < 1e-6,
+        "Color brightness at frame 9 should be 50%"
+    );
+    let mid_color = editor.motion_value(&span, TweenProperty::Color, 5).unwrap();
+    assert!(
+        mid_color > 20.0 && mid_color < 35.0,
+        "Color brightness interpolates across the span: {mid_color}"
+    );
+
+    // 3. Click Filters (+) -> click Blur: adds Blur filter to the span and opens Filters panel.
+    let out = render(&mut editor, vec![]);
+    let add_pts = find_add_buttons(&out);
+    let out = click_at(&mut editor, &mut render, add_pts[3]);
+    let (blur_pos, _) = find_label_pos(&out, "Blur");
+    let _ = click_at(&mut editor, &mut render, blur_pos);
+    editor.project.validate().unwrap();
+    assert_eq!(start_key(&editor).elements[0].filters.len(), 1);
+    assert!(editor.workspace.is_panel_visible(PanelId::Filters));
+}

@@ -1764,6 +1764,92 @@ fn mask_luminance_and_invert_modes_and_compact_row_height_roundtrip_with_single_
     );
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &after_role);
+
+    // Inline mask row icons fit strictly inside the 64 pt Mode column (even on 14 pt Compact rows)
+    // without overlapping the Visibility eye toggle, and respond to real pointer clicks.
+    use crate::tests::primary_button;
+    ctx.enable_accesskit();
+    editor.workspace.timeline.compact_rows = true;
+    editor.workspace.timeline.preview = crate::workspace::FramePreview::Off;
+    assert_eq!(editor.workspace.timeline.row_height(), 14.0);
+    let mut time = 0.0;
+    let mut render_tl = |editor: &mut Editor, events: Vec<egui::Event>| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 480.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| editor.timeline(ctx),
+        )
+    };
+    let find_rect = |out: &egui::FullOutput, label: &str| -> egui::Rect {
+        let (_, node) = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(label))
+            .unwrap_or_else(|| panic!("expected node {label:?}"));
+        let b = node.bounds().expect("bounds");
+        egui::Rect::from_min_max(
+            egui::pos2(b.x0 as f32, b.y0 as f32),
+            egui::pos2(b.x1 as f32, b.y1 as f32),
+        )
+    };
+    let out = render_tl(&mut editor, vec![]);
+    let mode_rect = find_rect(&out, "Mask mode: Geometry");
+    let chan_rect = find_rect(&out, "Mask channel");
+    let inv_rect = find_rect(&out, "Invert mask");
+    assert!(
+        chan_rect.height() <= 14.0 && inv_rect.height() <= 14.0,
+        "Compact 14 pt row must clamp inline mask icon height: chan={chan_rect:?}, inv={inv_rect:?}"
+    );
+    assert!(
+        inv_rect.right() - mode_rect.left() <= 64.0 + 1e-3,
+        "Mode button + 2 inline mask icons must fit strictly within the 64 pt Mode cell: mode={mode_rect:?}, inv={inv_rect:?}"
+    );
+
+    let click_pos =
+        |editor: &mut Editor,
+         render_tl: &mut dyn FnMut(&mut Editor, Vec<egui::Event>) -> egui::FullOutput,
+         at: egui::Pos2| {
+            render_tl(
+                editor,
+                vec![egui::Event::PointerMoved(at), primary_button(at, true)],
+            );
+            render_tl(editor, vec![primary_button(at, false)]);
+            render_tl(editor, vec![])
+        };
+    // Click channel icon: Geometry -> Alpha -> Luminance -> Geometry.
+    let chan_center = chan_rect.center();
+    click_pos(&mut editor, &mut render_tl, chan_center);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].properties.mask_mode,
+        MaskMode::Alpha
+    );
+    click_pos(&mut editor, &mut render_tl, chan_center);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].properties.mask_mode,
+        MaskMode::Luminance
+    );
+    click_pos(&mut editor, &mut render_tl, chan_center);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].properties.mask_mode,
+        MaskMode::Geometry
+    );
+    // Click invert icon: false -> true.
+    let inv_center = inv_rect.center();
+    click_pos(&mut editor, &mut render_tl, inv_center);
+    assert!(editor.symbol().timeline.layers[1].properties.mask_invert);
+    editor.project.validate().unwrap();
 }
 
 #[test]
@@ -1836,6 +1922,27 @@ fn multi_row_layer_selection_and_drag_reparent_into_folders_commit_in_one_undo_s
         .find(|l| l.id == "l0")
         .unwrap();
     assert_eq!(l0_after.properties.parent.as_deref(), Some("folder"));
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // Multi-selected boundary drop moves AND reparents all selected rows together in 1 Undo step.
+    editor.select_layer_row(0, false, false);
+    editor.select_layer_row(1, false, true);
+    editor.drop_timeline_layer_visual("l0", None, Some(Some("folder")));
+    for id in ["l0", "l1"] {
+        let layer = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.id == id)
+            .unwrap();
+        assert_eq!(
+            layer.properties.parent.as_deref(),
+            Some("folder"),
+            "{id} should be reparented into folder"
+        );
+    }
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before);
 }
