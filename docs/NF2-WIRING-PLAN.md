@@ -310,10 +310,12 @@ content. Shape hints are §7.4.
 
 **W1.10 · Publish settings (DL-03, Preferences ▸ Publish)** — E-15
 - Available: workspace `PublishPrefs.options` feeds Publish/publish-on-save; draft publication and cancellable
-  background estimates reuse exporter options and validation. R-032 still gates the size selector, breakdown and
-  computing states; the existing dialog remains a preview. Document-stored profiles below remain future work.
-- UI: dialog from `planned_dialogs::publish_settings`; non-HTML5 targets stay disabled with hint; Properties ▸
-  Publish button may then open settings (label stays "Publish HTML5…" unless the design changes it).
+  background estimates reuse exporter options and validation. R-032 is wired in `panels/publish_settings.rs`: four
+  levels, on-disk bar/legend, exact gzip/files, Computing/Failed/Retry, omissions, Custom reset and Shared URL
+  validation/runtime-folder export. Publish uses the draft; OK saves workspace defaults; Cancel/close/document
+  switch cancels it. Full/Embed and Full Test Movie remain defaults. Other controls stay disabled.
+- UI: File/Properties Publish settings entry points open the same modal. Document-stored profiles and the engine
+  settings below remain future work.
 - Engine: NEW `Project.publish: PublishSettings { loop, autoplay, scale_mode, include_trace, minify, strict,
   jpeg_quality, html_template }`; `neoflash-export::export_project_with(project, settings, …)` (NEW); web runtime honours
   loop/autoplay/scale.

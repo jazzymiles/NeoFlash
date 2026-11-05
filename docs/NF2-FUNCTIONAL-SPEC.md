@@ -113,7 +113,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
 | DL-01 | Preferences (9 pages) | Dialog | done (8 pages wired; Updates + design/subsystem items disabled) | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | done | editor | P1 |
-| DL-03 | Publish settings | Planned dialog | preview | yes | P2 |
+| DL-03 | Publish settings | HTML5 size settings | partial | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Planned dialog | preview | yes | P3 |
 | DL-06 | Export audio | Planned dialog | preview | yes | P3 |
@@ -803,23 +803,28 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 
 **DL-03 · Publish settings (⇧F12)** — `publish_settings`
 - Controls: profile; targets HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG
-  animation; output file; HTML wrapper + template; runtime optimisation; scale mode; loop; autoplay; preloader; source
+  animation; output file; HTML wrapper + template; Full/Balanced/Compact/Shared runtime size selector; scale mode; loop; autoplay; preloader; source
   maps; JPEG quality; audio; sprite sheets; embed fonts; strict / include trace() / minify; estimated size; Cancel ·
   OK · Publish.
 - Data: `neoflash_export::export_project_with_options(project, output_dir, runtime_dir, &PublishOptions { fonts, size })`
   publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL); `estimate_publish_sizes` returns per-level
   files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032).
   Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
-  using the same parameters; stale project/options/runtime results are discarded. No size controls are exposed yet.
+  using the same parameters; stale project/options/runtime results are discarded. R-032 is wired: on-disk weight
+  bar/legend, exact total gzip/files, Computing, Failed/Retry, Compact omissions and Shared URL errors/runtime
+  folder export. Publish uses the draft; OK saves workspace defaults; Cancel/Escape or document switch discards
+  and cancels demand. Non-default font policy shows Custom; Reset restores Embed at the nearest size level.
+  Full/Embed remain defaults; Test Movie remains Full. Other designed settings remain disabled.
   Bodymovin v5.7.14 Lottie JSON and dotLottie (`.lottie` ZIP) export (`neoflash_export::export_project_lottie_with_progress`,
   `export_lottie_with_progress`, `LottieOptions`, `LottieExportReport`, `LottieNote`, `LottieProgress`, CLI `--lottie`)
   and the approved R-043 760 pt `Export Lottie` modal dialog + `Lottie export — N notes` compatibility report modal
   (`panels/export_lottie.rs`, opened from `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L` and `Library ▸ Export symbol as Lottie…`)
   are also available; the Publish settings target checkbox remains tracked with `DL-03` / `R-043`.
-  **NEW** `PublishSettings`
+  Future: `PublishSettings`
   stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target in `Publish settings`;
   others must stay disabled until wired.
-- Acceptance: settings persist in the file; Loop off makes the exported movie stop at the end; trace stripped when
+- Current acceptance: draft/default separation, real estimates, invalid URL actions, modal input isolation and
+  same-root document cancellation. Future acceptance: settings persist in the file; Loop off stops playback; trace stripped when
   "Include trace()" is off.
 
 **DL-04 · Export image** — `export_image` (format tabs PNG · SVG · PSD · AI · PDF)
@@ -873,7 +878,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video, Export image/video/audio and Publish settings open planned previews |
+| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image/video/audio open planned previews; Publish settings has live HTML5 size controls |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences and Keyboard shortcuts | Editing commands require the appropriate selection/history; multiple documents are not implemented |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |

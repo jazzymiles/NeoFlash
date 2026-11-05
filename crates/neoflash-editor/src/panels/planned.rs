@@ -24,7 +24,6 @@ use neoflash_ui::typography::rich;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PlannedPanel {
     Debugger,
-    PublishSettings,
     ExportImage,
     ExportVideo,
     ExportAudio,
@@ -56,9 +55,8 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 16] = [
+    pub(crate) const ALL: [Self; 15] = [
         Self::Debugger,
-        Self::PublishSettings,
         Self::ExportImage,
         Self::ExportVideo,
         Self::ExportAudio,
@@ -79,7 +77,6 @@ impl PlannedPanel {
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Debugger => "Debugger",
-            Self::PublishSettings => "Publish settings",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
             Self::ExportAudio => "Export audio",
@@ -101,7 +98,6 @@ impl PlannedPanel {
     pub(crate) const fn reference(self) -> &'static str {
         match self {
             Self::Debugger => "scripting-panels.png",
-            Self::PublishSettings => "publish-misc-dialogs.png",
             Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
             Self::StrokeStyle => "dialogs-sound-stroke.png",
@@ -143,7 +139,6 @@ impl PlannedPanel {
     pub(crate) const fn width(self) -> f32 {
         match self {
             Self::Debugger => 960.,
-            Self::PublishSettings => 900.,
             Self::ExportVideo => 840.,
             Self::ExportImage => 760.,
             Self::ImportVideo => 720.,
@@ -502,7 +497,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
         ui.disable();
         match panel {
             P::Debugger => super::planned_panels::debugger(ui),
-            P::PublishSettings => super::planned_dialogs::publish_settings(ui),
             P::ExportVideo => super::planned_dialogs::export_video(ui),
             P::ExportAudio => super::planned_dialogs::export_audio(ui),
             P::ImportVideo => super::planned_dialogs::import_video(ui),

@@ -97,6 +97,7 @@ impl Editor {
 
     fn prepare_session_switch(&mut self, ctx: &egui::Context) {
         self.publish_controller.cancel();
+        self.publish_settings = None;
         self.debugger.reset_document();
         self.finish_edits();
         // Keep document-scoped widget IDs, but never replay delayed clipboard input after a switch.

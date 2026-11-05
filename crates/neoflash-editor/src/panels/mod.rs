@@ -65,6 +65,7 @@ pub(crate) mod preferences;
 pub(crate) mod project;
 pub(crate) mod properties;
 mod properties_sound;
+pub(crate) mod publish_settings;
 pub(crate) mod scene;
 pub(crate) mod sound_properties;
 mod swatches;

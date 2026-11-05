@@ -29,14 +29,12 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("File ▸ Export ▸ Export image…", P::ExportImage),
     ("File ▸ Export ▸ Export video…", P::ExportVideo),
     ("File ▸ Export ▸ Export audio…", P::ExportAudio),
-    ("File ▸ Publish settings…", P::PublishSettings),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
     // Panel menus (§6).
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
     // Buttons and popovers (§4–§6).
-    ("Properties ▸ Publish settings…", P::PublishSettings),
     (
         "Tool options ▸ Rectangle primitive…",
         P::PropertiesRectPrimitive,
@@ -91,6 +89,7 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConvertedTrigger {
     DocumentSettings,
+    PublishSettings,
     /// Preferences opened on a page (`panels/preferences.rs`).
     Preferences(usize),
     AddSwatch,
@@ -114,6 +113,9 @@ impl Editor {
     pub(crate) fn open_planned(ctx: &egui::Context, path: &str) {
         let converted = match path {
             "Modify ▸ Document…" => Some(ConvertedTrigger::DocumentSettings),
+            "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
+                Some(ConvertedTrigger::PublishSettings)
+            }
             "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_GENERAL,
             )),
@@ -164,6 +166,7 @@ impl Editor {
         for trigger in triggers {
             match trigger {
                 ConvertedTrigger::DocumentSettings => self.open_document_settings(),
+                ConvertedTrigger::PublishSettings => self.open_publish_settings(),
                 ConvertedTrigger::Preferences(page) => self.open_preferences(page),
                 ConvertedTrigger::AddSwatch => {
                     self.add_active_swatch(ctx);
@@ -1070,8 +1073,8 @@ mod tests {
     fn entry_labels_are_the_last_path_segment() {
         assert_eq!(entry_label("View ▸ Grid ▸ Edit grid…"), "Edit grid…");
         assert_eq!(
-            planned_entry("File ▸ Publish settings…"),
-            Some(PlannedPanel::PublishSettings)
+            planned_entry("File ▸ Export ▸ Export video…"),
+            Some(PlannedPanel::ExportVideo)
         );
     }
 }

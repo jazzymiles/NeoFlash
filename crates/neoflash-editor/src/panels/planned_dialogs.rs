@@ -1,14 +1,14 @@
-//! Planned dialog previews: Publish settings (`publish-misc-dialogs.png`), Export image / video / audio
+//! Planned dialog previews: Export image / video / audio
 //! (`dialogs-export.png`), Import video (`dialog-import-video.png`), Sound properties (`dialogs-sound-stroke.png`).
 //! Export formats switch preview pages; every setting stays disabled. Preferences is a real dialog
 //! (`preferences.rs`).
 use super::planned::{
-    body_text, caption, check, footer, num, segmented, select, slider, stepper, switch, text,
+    caption, check, footer, num, segmented, select, slider, stepper, switch, text,
 };
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
-use neoflash_ui::icons::{self, i16};
+use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 
@@ -47,86 +47,6 @@ fn disabled(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
         ui.disable();
         content(ui);
     });
-}
-
-// ── Document and publish ──
-
-/// Dialog / Publish settings.
-pub(super) fn publish_settings(ui: &mut Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.horizontal_top(|ui| {
-        ui.allocate_ui_with_layout(
-            egui::vec2(260.0, 0.0),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.set_width(260.0);
-                ui.spacing_mut().item_spacing.y = 2.0;
-                select(ui, "Profile: Default", 260.0);
-                for (on, icon, label) in [
-                    (true, i16::GLOBE, "HTML5 · Rust / WebAssembly"),
-                    (false, i16::DESKTOP, "Desktop app (macOS / Windows)"),
-                    (false, i16::VIDEO, "Video (MP4)"),
-                    (true, i16::GRID, "Image sequence / sprite sheet"),
-                    (false, i16::CODE, "SVG animation"),
-                ] {
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(32.0);
-                        check(ui, on, "");
-                        icons::show(ui, icon, nf.text_secondary);
-                        body_text(ui, label);
-                    });
-                }
-            },
-        );
-        ui.add_space(space::S5);
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = space::S2;
-            ui.label(rich("HTML5 · Rust / WebAssembly", TextStyle::Title).color(nf.text_primary));
-            group(ui, "Output");
-            ui.horizontal(|ui| {
-                text(ui, "publish/ideas.html", "File", 380.0);
-                let _ = ui.add(c::Button::new("…"));
-            });
-            ui.horizontal(|ui| {
-                check(ui, true, "Include HTML wrapper");
-                select(ui, "Template: Responsive", 200.0);
-            });
-            group(ui, "Runtime");
-            ui.horizontal(|ui| {
-                select(ui, "WASM: optimised (−O3)", 220.0);
-                select(ui, "Scale: Fit, keep ratio", 200.0);
-            });
-            ui.horizontal(|ui| {
-                check(ui, true, "Loop");
-                check(ui, true, "Autoplay");
-                check(ui, true, "Preloader");
-                check(ui, false, "Source maps");
-            });
-            group(ui, "Assets");
-            ui.horizontal(|ui| {
-                caption(ui, "JPEG quality");
-                slider(ui, 80.0, "JPEG quality", 160.0);
-                caption(ui, "80");
-                select(ui, "Audio: MP3 128 kbps", 180.0);
-            });
-            ui.horizontal(|ui| {
-                check(ui, true, "Sprite sheets for bitmaps");
-                check(ui, true, "Embed fonts (subset)");
-            });
-            group(ui, "Scripts");
-            ui.horizontal(|ui| {
-                switch(ui, true, "Strict mode");
-                switch(ui, false, "Include trace()");
-                switch(ui, true, "Minify");
-            });
-        });
-    });
-    footer(
-        ui,
-        "Estimated size ~ 1.8 MB · 6 files",
-        None,
-        &["Cancel", "OK", "Publish"],
-    );
 }
 
 // ── Export / import ──

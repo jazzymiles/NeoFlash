@@ -120,6 +120,7 @@ pub struct Editor {
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
     pub(crate) publish_controller: crate::publish_controller::PublishController,
+    pub(crate) publish_settings: Option<crate::panels::publish_settings::PublishSettingsDraft>,
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
     pub(crate) timeline_motion: crate::timeline_motion::MotionState,
@@ -274,6 +275,7 @@ impl Editor {
         }
         match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
             Ok("document_settings") => s.open_document_settings(),
+            Ok("publish_settings") => s.open_publish_settings(),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
             Ok("paste_motion_special") => {
@@ -333,6 +335,7 @@ impl Editor {
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
             publish_controller: Default::default(),
+            publish_settings: None,
             detached: crate::detached::DetachedState::default(),
             stage_view: Default::default(),
             timeline_motion: Default::default(),
@@ -486,6 +489,7 @@ impl Editor {
             || self.symbol_conversion.is_some()
             || self.timeline_motion.paste_special_open
             || self.document_settings.is_some()
+            || self.publish_settings.is_some()
             || self.export_lottie.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
@@ -1876,6 +1880,7 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        self.publish_settings_dialog(ctx);
         self.export_lottie_modal(ctx);
         if let Some(font) = self
             .preferences

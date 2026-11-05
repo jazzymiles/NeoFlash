@@ -1562,9 +1562,9 @@
       "id": "web-html5-export",
       "category": "web",
       "title": "Self-contained HTML5 publishing",
-      "status": "partial",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences. Projects, individual scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and the 760 pt `Export Lottie` modal dialog (`File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), with live stage preview, compatibility counters (`exported`/`approximated`/`not exported`), a grouped `Lottie export — N notes` report dialog (`Show` jump to timeline + `Copy report`), progress/cancellation callback, frame range, dimensions/scale/fps overrides, nested vs. first-frame MovieClip modes, precision rounding (`0..=4`), target-player diagnostics (`lottie-web`/`Mobile`/`Skottie`), and optional `<stem>.preview.html` generation.",
-      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full remains the editor default; its size selector/weight display awaits R-032, and document-stored profiles are not implemented. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`); the Publish settings Lottie target awaits DL-03.",
+      "status": "implemented",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences. Projects, individual scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and the 760 pt `Export Lottie` modal dialog (`File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), with live stage preview, compatibility counters (`exported`/`approximated`/`not exported`), a grouped `Lottie export — N notes` report dialog (`Show` jump to timeline + `Copy report`), progress/cancellation callback, frame range, dimensions/scale/fps overrides, nested vs. first-frame MovieClip modes, precision rounding (`0..=4`), target-player diagnostics (`lottie-web`/`Mobile`/`Skottie`), and optional `<stem>.preview.html` generation. Publish settings (⇧F12) selects the four HTML5 size levels with a live on-disk bar/legend, exact total gzip/files, hosting trade-offs, Computing/Failed/Retry, Custom reset and Shared runtime-folder export. Publish uses its draft, OK saves workspace defaults, and Cancel or document switch discards and cancels demand.",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full/Embed remain defaults and Test Movie stays Full. Other designed target/asset/script controls and document-stored profiles remain unavailable; the font policy is preserved but its subset-only checkbox stays disabled. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`); the Publish settings Lottie target awaits DL-03.",
       "items": [
         {
           "id": "self-contained",
@@ -1614,7 +1614,7 @@
         {
           "id": "size-scale",
           "title": "Choose the size level on a scale with a live weight bar in Publish settings",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1626,7 +1626,9 @@
         "scripts/build-web.sh",
         "README.md",
         "crates/neoflash-editor/src/publish_controller.rs",
-        "crates/neoflash-editor/src/publish_controller_tests.rs"
+        "crates/neoflash-editor/src/publish_controller_tests.rs",
+        "crates/neoflash-editor/src/panels/publish_settings.rs",
+        "crates/neoflash-editor/src/panels/publish_settings_tests.rs"
       ]
     },
     {

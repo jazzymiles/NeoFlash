@@ -1,4 +1,4 @@
-//! Publication settings and a bounded background size estimate, ready for NF2 request R-032.
+//! Publication settings and a bounded background size estimate for the R-032 Publish dialog.
 //! No UI or document state lives here. The worker uses the exporter's actual package assembly.
 use crate::{app::Editor, workspace::PublishPrefs};
 use eframe::egui;
@@ -259,9 +259,7 @@ impl PublishPrefs {
 }
 
 impl Editor {
-    /// Entry point for the R-032 dialog once its design is available. Opening the existing static
-    /// preview does not start expensive work or imply that its sample controls are implemented.
-    #[allow(dead_code)]
+    /// Refresh the authored snapshot and selected draft before the dialog reads the estimate.
     pub(crate) fn request_publish_estimate(
         &mut self,
         ctx: &egui::Context,
