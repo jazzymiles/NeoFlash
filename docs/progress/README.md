@@ -74,7 +74,7 @@ The importer enforces:
 - Only changed entries.
 - No reused review IDs.
 
-Promotions and demotions are both allowed. The previous decision is kept in the rule for audit. Reviews applied before v3 (schema 1, partial-only) remain in the history unchanged.
+Promotions and demotions are both allowed. A review may also update a changed limitation note while keeping the same non-working status; counts stay unchanged. An identical status and note is rejected. The previous decision is kept in the rule for audit. Reviews applied before v3 (schema 1, partial-only) remain in the history unchanged.
 
 ## Product: functions inside capability groups
 

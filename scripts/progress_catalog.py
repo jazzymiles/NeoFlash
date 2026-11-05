@@ -367,10 +367,10 @@ REVIEW_ID = re.compile(r"(AS2|AS3)-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 
 
 def apply_status_review(root, relative, raw, review):
-    """Apply a methodology v3 review: any status change, each backed by tests.
+    """Apply test-backed status changes or updated non-working scope notes.
 
-    Promotions and demotions are both allowed; the previous decision is kept in
-    the rule so the change stays auditable. Tests must exist in this checkout.
+    Promotions, demotions and changed limitations retain their previous decision
+    in the audit history. Tests must exist in this checkout.
     """
     name = PurePosixPath(relative).name
     if not REVIEW_FILE.fullmatch(name) or "hour" in name:
@@ -385,6 +385,7 @@ def apply_status_review(root, relative, raw, review):
     existing_ids.update(item["id"] for item in metadata.get("statusReviews", []))
     existing_ids.update(identifier for item in metadata.get("normalizedReviewInputs", []) for identifier in item.get("reviewIds", []))
     by_id = {entry["catalog_id"]: entry for entry in data["entries"]}
+    active_rules = {rule["id"]: rule for rule in data["rules"]}
     seen, added_rules, review_ids = set(), [], []
     for item in review["reviews"]:
         if set(item) != {"id", "date", "commit", "title", "summary", "tests", "entries"}:
@@ -432,13 +433,19 @@ def apply_status_review(root, relative, raw, review):
             note = change.get("note", "")
             if not isinstance(note, str) or (status != "working" and not note.strip()):
                 raise ValueError(f"{catalog_id}: {status} needs a note naming what is missing or unclear")
-            if REVIEW_STATUS[status] == entry["status"]:
-                raise ValueError(f"{catalog_id} is already {status}; list only changed entries")
+            status_changed = REVIEW_STATUS[status] != entry["status"]
+            if not status_changed:
+                prior_note = next((decision.get("scopeNote", "")
+                                   for decision in active_rules[entry["rule_id"]].get("reviewedEntries", [])
+                                   if decision["catalogId"] == catalog_id), "")
+                if status == "working" or note.strip() == prior_note.strip():
+                    raise ValueError(f"{catalog_id} is already {status}; list only changed entries or non-working scope notes")
             previous.append({"catalogId": catalog_id, "status": entry["status"], "ruleId": entry["rule_id"], "evidenceKind": entry["evidence_kind"]})
             entry.update(status=REVIEW_STATUS[status], rule_id=identifier, evidence_kind="test_backed_review")
             reviewed.append({"catalogId": catalog_id, "status": REVIEW_STATUS[status],
                              "scopeNote": note.strip() or "Main contract covered by the listed tests."})
-            changes[status] += 1
+            if status_changed:
+                changes[status] += 1
         added_rules.append({"id": identifier, "title": item["title"], "reason": item["summary"],
                             "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
                             "evidence": evidence, "reviewedEntries": reviewed, "previousEntries": previous})

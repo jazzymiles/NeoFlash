@@ -322,6 +322,56 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already-used review ID|baseCatalogSha256"):
             progress_catalog.apply_review(review_path, self.root)
 
+    def test_status_review_updates_partial_scope_without_changing_counts_or_prior_history(self):
+        original = self.import_catalog()
+        catalog_path = self.root / progress_catalog.CATALOG_PATH
+        audit_path = self.root / progress_catalog.AUDIT_PATH
+        (self.root / "tests").mkdir()
+        (self.root / "tests/as3.mjs").write_text("// fixture test\n")
+        rows = {row["status"]: row["catalog_id"] for row in original["entries"] if row["language"] == "AS3"}
+        review_path = self.root / "docs/progress/reviews/2026-11-02-as3-masks.json"
+
+        def review(identifier, note, catalog_id=rows["missing"], status="partial"):
+            return {"schemaVersion": 2, "baseCatalogSha256": fingerprint(catalog_path), "reviews": [{
+                "id": identifier, "date": "2026-11-02", "commit": "e" * 40,
+                "title": "Mask scope", "summary": "Update the tested mask path and remaining boundary.",
+                "tests": ["tests/as3.mjs"],
+                "entries": [{"catalogId": catalog_id, "status": status, "note": note}],
+            }]}
+
+        old_note = "Vector masks work; bitmap masks are missing."
+        write_json(review_path, review("AS3-MASKS-INITIAL", old_note))
+        baseline = progress_catalog.apply_review(review_path, self.root)
+        old_rule = next(rule for rule in baseline["rules"] if rule["id"] == "AS3-MASKS-INITIAL")
+        new_note = "Vector and cached PNG masks work; text masks remain unsupported."
+        write_json(review_path, review("AS3-MASKS-ALPHA", new_note))
+        updated = progress_catalog.apply_review(review_path, self.root)
+        self.assertEqual(updated["summary"], baseline["summary"])
+        self.assertEqual(updated["metadata"]["statusReviews"][:-1], baseline["metadata"]["statusReviews"])
+        self.assertEqual(updated["metadata"]["statusReviews"][-1]["changes"], {})
+        self.assertEqual(updated["metadata"]["normalizedReviewInputs"][:-1], baseline["metadata"]["normalizedReviewInputs"])
+        self.assertIn(old_rule, updated["metadata"]["supersededRules"])
+        for key in ("baselineRevision", "inputHashes", "implementationSourceHashes", "sourceFiles"):
+            self.assertEqual(updated["metadata"][key], baseline["metadata"][key])
+        rule = next(rule for rule in updated["rules"] if rule["id"] == "AS3-MASKS-ALPHA")
+        self.assertEqual(rule["reviewedEntries"], [{"catalogId": rows["missing"], "status": "partial", "scopeNote": new_note}])
+        self.assertEqual(rule["previousEntries"][0]["ruleId"], old_rule["id"])
+        self.assertEqual(rule["previousEntries"][0]["status"], "partial")
+        unchanged = [row for row in baseline["entries"] if row["catalog_id"] != rows["missing"]]
+        self.assertEqual([row for row in updated["entries"] if row["catalog_id"] != rows["missing"]], unchanged)
+        saved = catalog_path.read_bytes(), audit_path.read_bytes()
+        invalid = [review("AS3-MASKS-NOOP", new_note),
+                   review("AS3-MASKS-WHITESPACE", "  " + new_note + "  "),
+                   review("AS3-MASKS-EMPTY", "  "),
+                   review("AS3-MASKS-WORKING", "Changed prose alone is not a new working decision.",
+                          rows["implemented_subset"], "working")]
+        for document in invalid:
+            with self.subTest(review=document["reviews"][0]["id"]):
+                write_json(review_path, document)
+                with self.assertRaises(ValueError):
+                    progress_catalog.apply_review(review_path, self.root)
+                self.assertEqual((catalog_path.read_bytes(), audit_path.read_bytes()), saved)
+
     def test_source_references_cannot_escape_the_repository(self):
         path = self.source / "implementation-evidence.json"
         evidence = json.loads(path.read_text())

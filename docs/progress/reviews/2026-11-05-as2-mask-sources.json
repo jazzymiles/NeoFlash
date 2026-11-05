@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "6a61f5d82b869d61e7cd6a15aa5da63ee547a6395c554f7e252f4458f6d77ebb",
+  "reviews": [
+    {
+      "id": "AS2-MASK-SOURCES-20261105",
+      "date": "2026-11-05",
+      "commit": "c9189c57be5ab1a282f965f6c8147991528e506a",
+      "title": "Preserve authored gradient and bitmap alpha in animated masks",
+      "summary": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+      "tests": [
+        "crates/neoflash-core/tests/runtime_masks.rs",
+        "crates/neoflash-core/tests/timeline_masks.rs",
+        "crates/neoflash-script/tests/clipped-scene.mjs",
+        "web/tests/path-browser.html"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "note": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited. String target paths and raw-host-error catch compatibility remain unsupported."
+        }
+      ]
+    }
+  ]
+}

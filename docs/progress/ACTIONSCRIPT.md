@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-MASK-SOURCES-20261105` | 2026-11-05 | `c9189c57be5a` |  |
+| `AS2-MASK-SOURCES-20261105` | 2026-11-05 | `c9189c57be5a` |  |
 | `AS2-MASK-EVIDENCE-20261105` | 2026-11-05 | `395cfc5205e6` | 1 → partial |
 | `AS3-EVIDENCE-CALIBRATION-20261105` | 2026-11-05 | `395cfc5205e6` | 1 → missing, 5 → partial |
 | `AS3-WAVE7-GENUINE-CONFORMANCE-20261102` | 2026-11-02 | `78039420e419` | 113 → working |
@@ -12813,12 +12815,22 @@ Partial entries name their missing behavior; working entries are covered by the 
 
 Evidence: [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [web/tests/as3-net-sys.test.cjs](../../web/tests/as3-net-sys.test.cjs), [web/tests/dom-layout-and-portability.test.cjs](../../web/tests/dom-layout-and-portability.test.cjs)
 
-### AS2-MASK-EVIDENCE-20261105 — Keep authored-source mask limitations explicit in AS2 coverage
+### AS2-MASK-SOURCES-20261105 — Preserve authored gradient and bitmap alpha in animated masks
 
-Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.
+Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.
 
 Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
 
-- `as2:MovieClip.html#setMask()` — **partial**: Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling.
+- `as2:MovieClip.html#setMask()` — **partial**: Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited. String target paths and raw-host-error catch compatibility remain unsupported.
 
-Evidence: [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs), [web/tests/dom-layout-and-portability.test.cjs](../../web/tests/dom-layout-and-portability.test.cjs)
+Evidence: [crates/neoflash-core/tests/runtime_masks.rs](../../crates/neoflash-core/tests/runtime_masks.rs), [crates/neoflash-core/tests/timeline_masks.rs](../../crates/neoflash-core/tests/timeline_masks.rs), [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs), [web/tests/path-browser.html](../../web/tests/path-browser.html)
+
+### AS3-MASK-SOURCES-20261105 — Preserve authored gradient and bitmap alpha in animated masks
+
+Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:property:flash/display/DisplayObject.html#mask` — **partial**: Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited.
+
+Evidence: [crates/neoflash-core/tests/runtime_masks.rs](../../crates/neoflash-core/tests/runtime_masks.rs), [crates/neoflash-core/tests/timeline_masks.rs](../../crates/neoflash-core/tests/timeline_masks.rs), [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs), [web/tests/path-browser.html](../../web/tests/path-browser.html)

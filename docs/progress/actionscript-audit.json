@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "6a61f5d82b869d61e7cd6a15aa5da63ee547a6395c554f7e252f4458f6d77ebb",
+  "catalogSha256": "46ad813617dadd43280a304d68d6738fc4a3ed19fac9ac6a41841de23d279c10",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35167,6 +35167,37 @@
             "evidenceKind": "architectural_absence_inference"
           }
         ]
+      },
+      {
+        "id": "AS2-MASK-EVIDENCE-20261105",
+        "title": "Keep authored-source mask limitations explicit in AS2 coverage",
+        "reason": "Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+            "sha256": "ddf2c399bcbfeca2f30439fff401f0cc5867829d8a45ed166f53802688a4b175"
+          },
+          {
+            "path": "web/tests/dom-layout-and-portability.test.cjs",
+            "sha256": "0507405df0248880ab1b40136fec59f2163f843dc89969c0364e7c39cb21fb07"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "as2:MovieClip.html#setMask()",
+            "status": "partial",
+            "scopeNote": "Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "as2:MovieClip.html#setMask()",
+            "status": "implemented_subset",
+            "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -35493,6 +35524,22 @@
         "reviewIds": [
           "AS2-MASK-EVIDENCE-20261105"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-05-as2-mask-sources.json",
+        "sha256": "137bda4ad0b309fb16ffac01e3db0da78362018bd878cd805f518e1529c6e69d",
+        "baseCatalogSha256": "6a61f5d82b869d61e7cd6a15aa5da63ee547a6395c554f7e252f4458f6d77ebb",
+        "reviewIds": [
+          "AS2-MASK-SOURCES-20261105"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-05-as3-mask-sources.json",
+        "sha256": "6103489e38f969bc96ba20ecb1d7f744c977e9708dc087f9064f33aa7835b78d",
+        "baseCatalogSha256": "97273b93305b113e9a1e4d6ec1e7c5742ebf6688f6fa9f34fb2958cb1121bc5f",
+        "reviewIds": [
+          "AS3-MASK-SOURCES-20261105"
+        ]
       }
     ],
     "statusReviews": [
@@ -35768,6 +35815,20 @@
         "changes": {
           "partial": 1
         }
+      },
+      {
+        "id": "AS2-MASK-SOURCES-20261105",
+        "date": "2026-11-05",
+        "commit": "c9189c57be5ab1a282f965f6c8147991528e506a",
+        "path": "docs/progress/reviews/2026-11-05-as2-mask-sources.json",
+        "changes": {}
+      },
+      {
+        "id": "AS3-MASK-SOURCES-20261105",
+        "date": "2026-11-05",
+        "commit": "c9189c57be5ab1a282f965f6c8147991528e506a",
+        "path": "docs/progress/reviews/2026-11-05-as3-mask-sources.json",
+        "changes": {}
       }
     ]
   },
@@ -173605,32 +173666,79 @@
       ]
     },
     {
-      "id": "AS2-MASK-EVIDENCE-20261105",
-      "title": "Keep authored-source mask limitations explicit in AS2 coverage",
-      "reason": "Geometric masks and cached dynamic gradient/PNG/mixed masks work in exported AS2. Cached authored gradient masks lose their opacity ramp, and authored PNG sources are rejected; the rejected assignment can escape AS2 catch handling. Mask support remains useful but partial.",
+      "id": "AS2-MASK-SOURCES-20261105",
+      "title": "Preserve authored gradient and bitmap alpha in animated masks",
+      "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
       "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
       "evidence": [
         {
-          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
-          "sha256": "ddf2c399bcbfeca2f30439fff401f0cc5867829d8a45ed166f53802688a4b175"
+          "path": "crates/neoflash-core/tests/runtime_masks.rs",
+          "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
         },
         {
-          "path": "web/tests/dom-layout-and-portability.test.cjs",
-          "sha256": "0507405df0248880ab1b40136fec59f2163f843dc89969c0364e7c39cb21fb07"
+          "path": "crates/neoflash-core/tests/timeline_masks.rs",
+          "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+        },
+        {
+          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+          "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
+        },
+        {
+          "path": "web/tests/path-browser.html",
+          "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
         }
       ],
       "reviewedEntries": [
         {
           "catalogId": "as2:MovieClip.html#setMask()",
           "status": "partial",
-          "scopeNote": "Geometric and cached dynamic alpha masks work; cached authored gradients lose transparency and authored PNG masks reject, with the refusal escaping AS2 catch handling."
+          "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited. String target paths and raw-host-error catch compatibility remain unsupported."
         }
       ],
       "previousEntries": [
         {
           "catalogId": "as2:MovieClip.html#setMask()",
-          "status": "implemented_subset",
-          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "status": "partial",
+          "ruleId": "AS2-MASK-EVIDENCE-20261105",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-MASK-SOURCES-20261105",
+      "title": "Preserve authored gradient and bitmap alpha in animated masks",
+      "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/tests/runtime_masks.rs",
+          "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
+        },
+        {
+          "path": "crates/neoflash-core/tests/timeline_masks.rs",
+          "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+        },
+        {
+          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+          "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
+        },
+        {
+          "path": "web/tests/path-browser.html",
+          "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
           "evidenceKind": "test_backed_review"
         }
       ]
