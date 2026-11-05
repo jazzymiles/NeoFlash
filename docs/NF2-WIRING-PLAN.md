@@ -430,7 +430,7 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.1 Export image PNG + SVG | DL-04 | `planned_dialogs::export_image` | E-22 | none (propose under `web-*`/`platform-*` with owner) |
 | W3.2 Export image PSD / AI / PDF | DL-04 | same | E-22 | — |
 | W3.3 Export video | DL-05 | `planned_dialogs::export_video` | E-23 | — |
-| W3.4 Export audio, Sound properties, Edit envelope | DL-06, DL-08, DL-09 | `panels/edit_envelope.rs` (DL-09 done), `panels/sound_properties.rs` (DL-08 partial; re-encoding open), `planned_dialogs::export_audio` (DL-06 open) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
+| W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
 | W3.5 Import video, Import PSD | DL-07, DL-10 | `planned_dialogs::import_video` | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
@@ -449,7 +449,7 @@ Default ease, Tween type on drag); **Drawing** (pen preview, precise cursors, co
 lines, recognise shapes, click accuracy, snap tolerance, snap to pixels); **Text** (font, size, substitution warning);
 **Clipboard** (default paste, SVG vector paste as editable paths vs raster bitmap); **Shortcuts** (98-command registry
 in `commands.rs` driving dispatch and UI labels, user sets with `Duplicate` / `Delete`, search + category filter, key
-recording, conflict badges, `Reset command`, `Export as HTML…`); **Publish** (output folder + `Browse…`, warnings as
+recording, conflict badges, `Reset command`, `Export as HTML…`); **Publish** (output folder + `Browse…`, `Compression ▸ Audio` policy, warnings as
 errors, publish on save). Tests in `panel_tests.rs`, `selection_tests.rs`, `vector_gesture_tests.rs`,
 `clipboard_tests.rs`, `code_tools.rs`, `commands.rs`, and `recovery.rs`.
 
@@ -464,7 +464,7 @@ Controls kept disabled with explicit design requests (`R-013`–`R-020`) or sepa
 | Text ▸ Anti-alias, Embed used glyphs (W3.8 / E-26), Spell check, Vertical text, Input method | L subsystems | Require authored text anti-alias/vertical model, font subsetter (E-26), and spell-check engine |
 | Clipboard ▸ Copy as SVG, Keep layer names, Bitmaps ppi, Gradient quality, Large bitmap prompt | L subsystem | Requires native OS SVG/bitmap pasteboard writer (`arboard` is text-only today) |
 | Shortcuts ▸ Rename set | design (`R-020`) | No inline field or modal prompt in `panels-dialog-preferences-shortcuts.txt` |
-| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Audio / Acceleration / Strict | W1.10 (DL-03) | Awaits `PublishSettings` export pipeline options and media re-encoders; JS is always strict |
+| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Acceleration / Strict | W1.10 (DL-03) | Awaits `PublishSettings` export pipeline options and image re-encoders; JS is always strict |
 | Updates page | — | Stays disabled (no update service, no telemetry) |
 
 Preferences ▸ Updates must stay disabled (no update service, no telemetry) until `platform-release` /
@@ -586,7 +586,7 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 9 | ~~Bézier motion path editing~~ | Done: format-8 `motion_path`, shared arc-length sampler, segment bending, mirrored handles / Option corner gestures and Undo (`timeline_tweens.rs`, `timeline_motion_curve_tests.rs`, `wasm.test.cjs`). Range cuts/reverse bake curves. | | | |
 | 10 | ~~Shape hints~~ | Done: existing format-7 model wired to R-009 markers on current-layer endpoint keys; add/drag/offstage remove, Show shape hints and shortcuts (`timeline_shape_hints_tests.rs`). | | | |
 | 11 | ~~Edit envelope (DL-09)~~ | Done: format-7 `SoundEffect::Custom` + `FrameSound.envelope: Option<Vec<[f64; 3]>>` (`1..=8` stereo `[position, left, right]` points), modal `panels/edit_envelope.rs` (`EnvelopeLane`, time/frames unit, zoom, presets, Play/Stop, one Undo), native rodio preview and WASM/Web Audio scheduling (`timeline_sound.rs`, `web/tests/wasm.test.cjs`, `timeline_sound_tests.rs`). | | | |
-| 12 | ~~Sound properties (DL-08)~~ | Done: modal `panels/sound_properties.rs` opened from `Properties ▸ Sound ▸ Sound properties…` and Library audio menus for name, decoded audio stats, `Test`/`Stop` audition, `Update` and `Import…` byte replacement in one Undo step; export compression rows stay disabled with their hint (`panel_tests.rs`). | | | |
+| 12 | ~~Sound properties (DL-08) & Export audio (DL-06)~~ | Done: modal `panels/sound_properties.rs` opened from `Properties ▸ Sound ▸ Sound properties…` and Library audio menus for name, decoded audio stats, per-resource `Export` compression (`Compression`, `Bit rate`, `Quality`, `Convert stereo to mono`, live `"Result: …"`, `ResourceUnit.audio_export` in format 9), transcoded `Test`/`Stop` audition, `Update` and `Import…` byte replacement in one Undo step; and modal `panels/export_audio.rs` (`File ▸ Export ▸ Export audio…` `⌥⇧⌘A`, `Library ▸ Export audio…`, CLI `--audio`) exporting timeline mixes, layers or resources to WAV/MP3/OGG/AAC (`timeline_sound_tests.rs`, `panel_tests.rs`). | | | |
 | 13 | ~~Decoded waveform peaks~~ | Done: background decode/reduction, resource/zoom cache and real mono/stereo timeline/Sound Properties peaks (`timeline_sound_tests.rs`); scrubbing reuses cache. | | | |
 | 14 | ~~Legacy FLA frame sounds (`fla_frame_sound`, `fla_media_not_imported`)~~ | Done for PCM (`audio/wav`) and MP3 (`audio/mpeg`) streams + `CPicFrame` Event/Start/Stop/Stream sync, repeat/loop-forever and preset effects (`neoflash-import/src/legacy/{media,convert}.rs`, `tests/batch_import_capabilities.rs`); ADPCM/GSM/Nellymoser and custom multi-point envelopes/trim points keep located warnings. | | | |
 | 15 | ~~Edit multiple frames, rest (TL-08)~~ | Done: cross-keyframe selection (`selection.rs`, `stage_selection.rs`, including objects existing only on other keyframes in `onion_range`) and move/scale/rotate/skew across every keyframe in range in one Undo step (`timeline_commands.rs`, `timeline_commands_tests.rs`). Group requires current-keyframe members and diagnoses other-frame-only selections without mutation. | | | |

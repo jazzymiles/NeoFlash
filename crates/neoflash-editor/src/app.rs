@@ -307,6 +307,8 @@ impl Editor {
                 })
             }
             Ok("publish_settings") => s.open_publish_settings(),
+            Ok("export_audio") => s.open_export_audio(&cc.egui_ctx, None),
+            Ok("sound_properties") => s.open_sound_properties(&cc.egui_ctx, None),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
             Ok("paste_motion_special") => {
@@ -554,6 +556,7 @@ impl Editor {
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog()
             || self.customize_tools_open(ctx)
+            || crate::panels::export_audio::has_export_audio_dialog(ctx)
             || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
             || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
     }
@@ -1696,6 +1699,9 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::FileImportLegacyFlash) {
             self.request(Pending::Import, ctx);
         }
+        if self.take_command_shortcut(ctx, C::FileExportAudio) {
+            self.open_export_audio(ctx, None);
+        }
         if self.take_command_shortcut(ctx, C::FileExportLottie) {
             self.export_lottie_dialog(None);
         }
@@ -1968,6 +1974,7 @@ impl Editor {
         self.edit_envelope_dialog(ctx);
         self.paste_motion_special_dialog(ctx);
         self.sound_properties_dialog(ctx);
+        self.export_audio_dialog(ctx);
         self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);
         use neoflash_ui::{

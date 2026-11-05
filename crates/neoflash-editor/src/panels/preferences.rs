@@ -17,6 +17,7 @@ use crate::workspace::{
     ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
 };
 use eframe::egui::{self, Color32, Ui};
+use neoflash_export::AudioExportPolicy;
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
 use neoflash_ui::metrics;
@@ -1680,7 +1681,29 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             slider(ui, 80.0, "JPEG quality", 200.0);
             caption(ui, "JPEG 80");
         });
-        row(ui, "Audio", |ui| select(ui, "MP3 128 kbps", 180.0));
+    });
+    row(ui, "Audio", |ui| {
+        c::Select::new(
+            ui.id().with("prefs-publish-audio"),
+            draft.publish.options.audio.label(),
+        )
+        .width(180.0)
+        .show(ui, |ui| {
+            for policy in AudioExportPolicy::ALL {
+                if ui
+                    .add(
+                        c::MenuItem::new(policy.label())
+                            .checked(draft.publish.options.audio == policy),
+                    )
+                    .clicked()
+                {
+                    draft.publish.options.audio = policy;
+                    ui.close();
+                }
+            }
+        });
+    });
+    disabled(ui, |ui| {
         row(ui, "Acceleration", |ui| select(ui, "GPU (WebGL)", 180.0));
         section(ui, "Scripts");
     });

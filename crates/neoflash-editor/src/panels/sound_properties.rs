@@ -5,7 +5,7 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without touching the project (and stops any active audition), while `OK` / `Enter` commits name
 //! and audio byte replacements in a single Undo step (`"Sound properties"`).
-use super::planned::{caption, select};
+use super::planned::caption;
 use super::planned_dialogs::group;
 use crate::app::Editor;
 use crate::timeline_sound::decode_unit;
@@ -15,10 +15,9 @@ use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
 use neoflash_ui::icons::i16;
 use neoflash_ui::metrics;
-use neoflash_ui::tokens::space;
+use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::typography::rich;
 use std::path::PathBuf;
-
-const AUDIO_REENCODING_REASON: &str = "Audio re-encoding at publish";
 
 #[derive(Clone, Debug)]
 pub(crate) struct SoundPropertiesDraft {
@@ -26,6 +25,8 @@ pub(crate) struct SoundPropertiesDraft {
     pub(crate) name: String,
     pub(crate) unit: ResourceUnit,
     pub(crate) pending_source: Option<PathBuf>,
+    pub(crate) export: SoundExportSettings,
+    pub(crate) export_modified: bool,
 }
 
 fn draft_id() -> egui::Id {
@@ -47,6 +48,19 @@ pub(crate) fn set_sound_properties_draft_name(ctx: &egui::Context, name: impl In
     let id = draft_id();
     if let Some(mut draft) = ctx.data(|d| d.get_temp::<SoundPropertiesDraft>(id)) {
         draft.name = name.into();
+        ctx.data_mut(|d| d.insert_temp(id, draft));
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn update_sound_properties_draft_export(
+    ctx: &egui::Context,
+    f: impl FnOnce(&mut SoundExportSettings),
+) {
+    let id = draft_id();
+    if let Some(mut draft) = ctx.data(|d| d.get_temp::<SoundPropertiesDraft>(id)) {
+        f(&mut draft.export);
+        draft.export_modified = true;
         ctx.data_mut(|d| d.insert_temp(id, draft));
     }
 }
@@ -136,11 +150,16 @@ impl Editor {
         else {
             return;
         };
+        let export = unit
+            .audio_export
+            .unwrap_or_else(SoundExportSettings::mp3_default);
         let draft = SoundPropertiesDraft {
             resource_id: unit.id.clone(),
             name: unit.path.clone(),
             unit,
             pending_source: None,
+            export,
+            export_modified: false,
         };
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
@@ -251,8 +270,9 @@ impl Editor {
         if trimmed.is_empty() {
             return Err("Sound name cannot be empty.".into());
         }
-        let unit = ResourceUnit::from_bytes(resource_id, trimmed, new_media_type, bytes)
+        let mut unit = ResourceUnit::from_bytes(resource_id, trimmed, new_media_type, bytes)
             .map_err(|e| e.to_string())?;
+        unit.audio_export = self.project.resources[index].audio_export.clone();
         self.commit_sound_resource_unit(index, unit, None)
     }
 
@@ -265,7 +285,8 @@ impl Editor {
         let existing = &self.project.resources[index];
         let unchanged = existing.path == unit.path
             && existing.media_type == unit.media_type
-            && existing.data_base64 == unit.data_base64;
+            && existing.data_base64 == unit.data_base64
+            && existing.audio_export == unit.audio_export;
         if unchanged {
             if let Some(path) = pending_source {
                 self.timeline_audio
@@ -278,6 +299,7 @@ impl Editor {
         candidate.format_version = candidate.format_version.max(3);
         let id = unit.id.clone();
         candidate.resources[index] = unit;
+        candidate.upgrade_format_for_features();
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact_named("Sound properties", |s| {
             s.project = candidate;
@@ -309,6 +331,13 @@ impl Editor {
         }
         draft.unit.id = draft.resource_id.clone();
         draft.unit.path = trimmed.to_owned();
+        if draft.export_modified || draft.unit.audio_export.is_some() {
+            draft.unit.audio_export = if draft.export.is_default() {
+                None
+            } else {
+                Some(draft.export)
+            };
+        }
         self.commit_sound_resource_unit(index, draft.unit, draft.pending_source)?;
         ctx.data_mut(|d| d.remove::<SoundPropertiesDraft>(draft_id()));
         Ok(())
@@ -392,24 +421,105 @@ impl Editor {
                         });
 
                         group(ui, "Export");
-                        ui.scope(|ui| {
-                            ui.disable();
-                            let r = ui
-                                .vertical(|ui| {
-                                    ui.set_width(w);
-                                    select(ui, "Compression: MP3", w);
-                                    ui.horizontal(|ui| {
-                                        let half = (w - space::S2) / 2.0;
-                                        select(ui, "Bit rate: 128 kbps", half);
-                                        select(ui, "Quality: Best", half);
+                        let comp_label =
+                            format!("Compression: {}", draft.export.compression.label());
+                        c::Select::new(ui.id().with("sound-props-compression"), &comp_label)
+                            .width(w)
+                            .show(ui, |ui| {
+                                for comp in SoundCompression::ALL {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(&format!(
+                                                "Compression: {}",
+                                                comp.label()
+                                            ))
+                                            .checked(draft.export.compression == comp),
+                                        )
+                                        .clicked()
+                                    {
+                                        draft.export.compression = comp;
+                                        draft.export_modified = true;
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        let is_mp3 = draft.export.compression == SoundCompression::Mp3;
+                        ui.horizontal(|ui| {
+                            let half = (w - space::S2) / 2.0;
+                            ui.add_enabled_ui(is_mp3, |ui| {
+                                let br_label =
+                                    format!("Bit rate: {} kbps", draft.export.bit_rate_kbps);
+                                c::Select::new(ui.id().with("sound-props-bitrate"), &br_label)
+                                    .width(half)
+                                    .show(ui, |ui| {
+                                        for &kbps in &VALID_AUDIO_BIT_RATES_KBPS {
+                                            if ui
+                                                .add(
+                                                    c::MenuItem::new(&format!(
+                                                        "Bit rate: {kbps} kbps"
+                                                    ))
+                                                    .checked(draft.export.bit_rate_kbps == kbps),
+                                                )
+                                                .clicked()
+                                            {
+                                                draft.export.bit_rate_kbps = kbps;
+                                                draft.export_modified = true;
+                                                ui.close();
+                                            }
+                                        }
                                     });
-                                    let mut mono = false;
-                                    ui.add(c::Checkbox::new(&mut mono, "Convert stereo to mono"));
-                                })
-                                .response;
-                            let _ = c::not_available(r, AUDIO_REENCODING_REASON);
+                            });
+                            ui.add_enabled_ui(is_mp3, |ui| {
+                                let q_label = format!("Quality: {}", draft.export.quality.label());
+                                c::Select::new(ui.id().with("sound-props-quality"), &q_label)
+                                    .width(half)
+                                    .show(ui, |ui| {
+                                        for q in SoundExportQuality::ALL {
+                                            if ui
+                                                .add(
+                                                    c::MenuItem::new(&format!(
+                                                        "Quality: {}",
+                                                        q.label()
+                                                    ))
+                                                    .checked(draft.export.quality == q),
+                                                )
+                                                .clicked()
+                                            {
+                                                draft.export.quality = q;
+                                                draft.export_modified = true;
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                            });
                         });
-                        caption(ui, "Source audio bytes are published without re-encoding");
+                        let can_mono = matches!(
+                            draft.export.compression,
+                            SoundCompression::Mp3 | SoundCompression::Wav
+                        );
+                        ui.add_enabled_ui(can_mono, |ui| {
+                            if ui
+                                .add(c::Checkbox::new(
+                                    &mut draft.export.convert_to_mono,
+                                    "Convert stereo to mono",
+                                ))
+                                .changed()
+                            {
+                                draft.export_modified = true;
+                            }
+                        });
+                        let preview = neoflash_export::preview_sound_export_result(
+                            &draft.unit,
+                            &draft.export,
+                            self.workspace.publish.options.audio,
+                        );
+                        if preview.is_reencoded {
+                            ui.label(
+                                rich(&preview.caption, TextStyle::Small).color(p.success_default),
+                            );
+                        } else {
+                            caption(ui, &preview.caption);
+                        }
 
                         ui.horizontal(|ui| {
                             if ui
@@ -461,8 +571,22 @@ impl Editor {
         if do_toggle_test {
             if playing {
                 self.timeline_audio.stop_audition();
-            } else if let Err(err) = self.timeline_audio.audition_unit(&draft.unit) {
-                self.message(format!("Sound preview failed: {err}"));
+            } else {
+                let preview_unit = if draft.export_modified || draft.unit.audio_export.is_some() {
+                    neoflash_export::transcode_unit_with_settings(
+                        &draft.unit,
+                        Some(draft.export),
+                        self.workspace.publish.options.audio,
+                    )
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| draft.unit.clone())
+                } else {
+                    draft.unit.clone()
+                };
+                if let Err(err) = self.timeline_audio.audition_unit(&preview_unit) {
+                    self.message(format!("Sound preview failed: {err}"));
+                }
             }
         }
 

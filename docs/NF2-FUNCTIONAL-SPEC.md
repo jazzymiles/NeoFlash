@@ -116,9 +116,9 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-03 | Publish settings | HTML5 size settings | partial | yes | P2 |
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Planned dialog | preview | yes | P3 |
-| DL-06 | Export audio | Planned dialog | preview | yes | P3 |
+| DL-06 | Export audio | Dialog | done | yes | P3 |
 | DL-07 | Import video | Planned dialog | preview | yes | P3 |
-| DL-08 | Sound properties | Planned dialog | partial | yes | P3 |
+| DL-08 | Sound properties | Dialog | done | yes | P3 |
 | DL-09 | Edit envelope | Dialog | done | yes | P3 |
 | DL-10 | Import PSD to library | Dialog | absent | yes | P3 |
 | DL-11 | Font embedding | Dialog | absent | yes | P3 |
@@ -845,9 +845,12 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
   using the same parameters; stale project/options/runtime results are discarded. R-032 is wired: on-disk weight
   bar/legend, exact total gzip/files, Computing, Failed/Retry, Compact omissions and Shared URL errors/runtime
-  folder export. Publish uses the draft; OK saves workspace defaults; Cancel/Escape or document switch discards
-  and cancels demand. Non-default font policy shows Custom; Reset restores Embed at the nearest size level.
-  Full/Embed remain defaults; Test Movie remains Full. Other designed settings remain disabled.
+  folder export. `Assets ▸ Audio` (`AudioExportPolicy`: `Original`, `MP3 64`–`320 kbps`, `WAV 16-bit`, `Disabled`)
+  is wired in both `Publish settings` (`Assets`) and `Preferences ▸ Publish` (`Compression ▸ Audio`), transcoding or
+  stripping embedded `audio/*` resources during HTML5 export and updating the live package weight estimate.
+  Publish uses the draft; OK saves workspace defaults; Cancel/Escape or document switch discards
+  and cancels demand. Non-default font or audio policy shows Custom; Reset restores Embed/Original at the nearest size level.
+  Full/Embed/Original remain defaults; Test Movie remains Full. Other designed settings remain disabled.
   Bodymovin v5.7.14 Lottie JSON and dotLottie (`.lottie` ZIP) export (`neoflash_export::export_project_lottie_with_progress`,
   `export_lottie_with_progress`, `LottieOptions`, `LottieExportReport`, `LottieNote`, `LottieProgress`, CLI `--lottie`)
   and the approved R-043 760 pt `Export Lottie` modal dialog + `Lottie export — N notes` compatibility report modal
@@ -874,19 +877,18 @@ runtime capture of nested clips/scripts; stop at last frame / after N s; audio; 
 engine (frame rendering + encoder; runtime capture in browser via `MediaRecorder` or native encoder). P3.
 Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
 
-**DL-06 · Export audio** — `export_audio`: WAV · MP3 · OGG · AAC; source timeline mix / layer; range; sample rate;
-bit depth; channels; bit rate; normalize; fade out; trim silence. Depends on TL-07 (timeline audio) + encoders. P3.
+**DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
+- Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).
 
 **DL-07 · Import video** — `import_video`: preview + trim In/Out; File + Browse…; deployment Embed in timeline / Load
 external / Progressive; symbol type, codec, place on stage, expand timeline, include audio, match frame rate; summary.
 Depends on: engine (PR-09 model; embedding = frame extraction is large). P3. Acceptance: "Load external video" creates
 a Video element bound to the imported resource with Autoplay.
 
-**DL-08 · Sound properties** — partial (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
-source path and decoded format/duration/size stats, auditions with `Test`/`Stop`, reloads from the recorded import path
+**DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
+source path and decoded format/duration/size stats, configures per-resource `Export` compression (`Compression: MP3 | Default | WAV (PCM) | Original`, `Bit rate: 64`–`320 kbps`, `Quality: Fast | Medium | Best`, `Convert stereo to mono`, and live `"Result: … — N % of original"` caption in `ResourceUnit.audio_export`, format 9), auditions the transcoded preview with `Test`/`Stop`, reloads from the recorded import path
 via `Update`, or replaces bytes via `Import…` in one `"Sound properties"` Undo step (`Cancel`/`Esc` discards and stops
-audition). Export compression / bit rate / quality / stereo → mono rows stay disabled with their hint until audio
-re-encoding at publish lands. P3.
+audition). P3.
 
 | ID | Absent / promoted dialog / panel (reference §9) | Purpose | Depends on | Prio |
 | --- | --- | --- | --- | --- |

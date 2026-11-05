@@ -351,12 +351,16 @@ impl Project {
         }
     }
 
-    /// Explicit painted-alpha timeline masks (format 9).
+    /// Explicit painted-alpha timeline masks and per-resource audio export settings (format 9).
     pub fn uses_format_9(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
             .any(|layer| !layer.properties.mask_mode.is_geometry())
+            || self
+                .resources
+                .iter()
+                .any(|r| r.audio_export.as_ref().is_some_and(|e| !e.is_default()))
     }
 
     /// Editable spatial motion curves, classic guide endpoint snapping, layer blend modes and

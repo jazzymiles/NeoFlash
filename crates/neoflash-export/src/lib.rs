@@ -1,8 +1,10 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
+pub mod audio;
 pub mod fonts;
 pub mod lottie;
 pub mod publish;
+pub use audio::*;
 pub use fonts::*;
 pub use lottie::*;
 pub use publish::{
@@ -1009,6 +1011,7 @@ pub fn export_project_with_policy(
     let options = PublishOptions {
         fonts: font_policy,
         size: SizeLevel::Full,
+        audio: AudioExportPolicy::Original,
     };
     export_project_with_options(project, output_dir, runtime_dir, &options)
 }
@@ -1021,7 +1024,7 @@ pub fn export_project_with_options(
     options: &PublishOptions,
 ) -> Result<PathBuf, ExportError> {
     let options = options.validated().map_err(ExportError::Options)?;
-    let prepared = prepare(project, runtime_dir, options.fonts)?;
+    let prepared = prepare(project, runtime_dir, options.fonts, options.audio)?;
     let package = assemble(project, &prepared, &options.size)?;
     write_package(output_dir, &package.files, &project.name, "project")
 }
@@ -1051,10 +1054,11 @@ pub fn estimate_publish_options(
     options: &PublishOptions,
 ) -> Result<SizeEstimate, ExportError> {
     let options = options.validated().map_err(ExportError::Options)?;
-    Ok(estimate_publish_levels_cancellable(
+    Ok(estimate_publish_levels_with_audio_cancellable(
         project,
         runtime_dir,
         options.fonts,
+        options.audio,
         &[options.size],
         || false,
     )?
@@ -1071,6 +1075,25 @@ pub fn estimate_publish_levels_cancellable(
     runtime_dir: &Path,
     font_policy: FontExportPolicy,
     levels: &[SizeLevel],
+    cancelled: impl FnMut() -> bool,
+) -> Result<Option<Vec<SizeEstimate>>, ExportError> {
+    estimate_publish_levels_with_audio_cancellable(
+        project,
+        runtime_dir,
+        font_policy,
+        AudioExportPolicy::Original,
+        levels,
+        cancelled,
+    )
+}
+
+/// Measure requested levels with both font and audio export policies.
+pub fn estimate_publish_levels_with_audio_cancellable(
+    project: &Project,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+    audio_policy: AudioExportPolicy,
+    levels: &[SizeLevel],
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Option<Vec<SizeEstimate>>, ExportError> {
     if cancelled() {
@@ -1082,6 +1105,7 @@ pub fn estimate_publish_levels_cancellable(
             PublishOptions {
                 fonts: font_policy,
                 size: size.clone(),
+                audio: audio_policy,
             }
             .validated()
             .map(|options| options.size)
@@ -1091,7 +1115,7 @@ pub fn estimate_publish_levels_cancellable(
     if levels.is_empty() {
         return Ok(Some(Vec::new()));
     }
-    let prepared = prepare(project, runtime_dir, font_policy)?;
+    let prepared = prepare(project, runtime_dir, font_policy, audio_policy)?;
     if cancelled() {
         return Ok(None);
     }
@@ -1201,6 +1225,7 @@ fn prepare(
     project: &Project,
     runtime_dir: &Path,
     font_policy: FontExportPolicy,
+    audio_policy: AudioExportPolicy,
 ) -> Result<Prepared, ExportError> {
     let issues = neoflash_core::validate(project);
     if !issues.is_empty() {
@@ -1222,6 +1247,7 @@ fn prepare(
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
     let fonts = apply_font_policy(&mut published, font_policy);
+    apply_audio_policy(&mut published, audio_policy)?;
     let runtime_id = shared_runtime_id(&bindings, &wasm);
     Ok(Prepared {
         program,
@@ -1837,6 +1863,7 @@ mod tests {
             let options = PublishOptions {
                 fonts: FontExportPolicy::Embed,
                 size,
+                audio: AudioExportPolicy::Original,
             };
             export_project_with_options(project, &out, &rt, &options).unwrap();
             let bundle = fs::read_to_string(out.join("bundle.js")).unwrap();
@@ -1993,6 +2020,7 @@ mod tests {
                 &PublishOptions {
                     fonts: FontExportPolicy::Embed,
                     size: SizeLevel::Shared(" https://cdn.example.com/nf/ ".into()),
+                    audio: AudioExportPolicy::Original,
                 }
             )
             .unwrap(),
@@ -2016,6 +2044,7 @@ mod tests {
         let invalid = PublishOptions {
             fonts: FontExportPolicy::Embed,
             size: SizeLevel::Shared("https://".into()),
+            audio: AudioExportPolicy::Original,
         };
         assert!(matches!(
             export_project_with_options(&project, &dir.join("out"), &rt, &invalid),

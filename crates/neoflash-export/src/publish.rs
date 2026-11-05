@@ -78,6 +78,8 @@ impl SizeLevel {
 pub struct PublishOptions {
     pub fonts: crate::FontExportPolicy,
     pub size: SizeLevel,
+    #[serde(default)]
+    pub audio: crate::AudioExportPolicy,
 }
 
 impl PublishOptions {
@@ -90,6 +92,7 @@ impl PublishOptions {
                 SizeLevel::Shared(url) => SizeLevel::Shared(validate_runtime_url(url)?),
                 level => level.clone(),
             },
+            audio: self.audio,
         })
     }
 }
@@ -598,6 +601,7 @@ mod tests {
         let options = PublishOptions {
             fonts: crate::FontExportPolicy::Device,
             size: SizeLevel::Shared(" ../runtime/ ".into()),
+            audio: crate::AudioExportPolicy::Original,
         }
         .validated()
         .unwrap();

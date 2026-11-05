@@ -28,6 +28,7 @@
 //! | `movie_explorer.rs` | Movie Explorer (`Window ▸ Movie Explorer`) |
 //! | `find_replace.rs` | Find and replace modal dialog (`Edit ▸ Find and replace`, `⌘F`) |
 //! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
+//! | `export_audio.rs` | Export audio modal dialog (`File ▸ Export ▸ Export audio…`, `⌥⇧⌘A`) |
 //! | `export_lottie.rs` | Export Lottie modal dialog (`File ▸ Export ▸ Export Lottie…`, `⌥⇧⌘L`) |
 //! | `edit_envelope.rs` | Edit envelope modal dialog (`Properties ▸ Sound ▸ Envelope…`, `Library menu ▸ Edit envelope…`) |
 //! | `layer_properties.rs` | Layer properties modal dialog (`Modify ▸ Timeline ▸ Layer properties…`) |
@@ -43,6 +44,7 @@ mod debugger;
 pub(crate) mod document_settings;
 pub(crate) mod ease;
 pub(crate) mod edit_envelope;
+pub(crate) mod export_audio;
 pub(crate) mod export_lottie;
 pub(crate) mod filters;
 pub(crate) mod find_replace;

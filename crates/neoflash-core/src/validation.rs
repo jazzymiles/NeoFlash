@@ -93,7 +93,8 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_9() && project.format_version < 9 {
         add(
             "format_version".into(),
-            "painted-alpha timeline masks require document version 9".into(),
+            "painted-alpha timeline masks and per-resource audio export settings require document version 9"
+                .into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -225,6 +226,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             match resource.decoded_bytes() {
                 Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
                 Err(error) => add(format!("{path}.data_base64"), error.to_string()),
+            }
+        }
+        if let Some(export) = &resource.audio_export {
+            if !resource.is_audio() {
+                add(
+                    format!("{path}.audio_export"),
+                    "audio_export is only allowed on audio/* resources".into(),
+                );
+            }
+            if !SoundExportSettings::is_valid_bit_rate(export.bit_rate_kbps) {
+                add(
+                    format!("{path}.audio_export.bit_rate_kbps"),
+                    "bit_rate_kbps must be one of 64, 96, 128, 160, 192, 256, or 320".into(),
+                );
             }
         }
     }

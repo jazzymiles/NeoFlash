@@ -100,6 +100,7 @@ impl Editor {
             self.resource_panel = ResourcePanel::default();
         }
         let mut open_sound_props: Option<String> = None;
+        let mut open_export_audio: Option<String> = None;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             for unit in &self.project.resources {
@@ -136,6 +137,10 @@ impl Editor {
                                 open_sound_props = Some(unit_id.clone());
                                 ui.close();
                             }
+                            if ui.add(nf::MenuItem::new("Export audio…")).clicked() {
+                                open_export_audio = Some(unit_id.clone());
+                                ui.close();
+                            }
                         });
                     });
                 }
@@ -143,6 +148,12 @@ impl Editor {
         });
         if let Some(id) = open_sound_props {
             self.open_sound_properties(ui.ctx(), Some(id));
+        }
+        if let Some(id) = open_export_audio {
+            self.open_export_audio(
+                ui.ctx(),
+                Some(neoflash_export::AudioExportSource::Resource(id)),
+            );
         }
         let Some(index) = self
             .project

@@ -13,6 +13,102 @@ const MAX_ENCODED_RESOURCE_BYTES: usize = MAX_RESOURCE_BYTES.div_ceil(3) * 4;
 pub(crate) const MAX_ENCODED_TOTAL_BYTES: usize =
     MAX_RESOURCE_TOTAL_BYTES.div_ceil(3) * 4 + MAX_RESOURCES * 4;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundCompression {
+    /// Follow the project-wide publish audio policy (`PublishOptions.audio`).
+    #[default]
+    Default,
+    /// Publish source audio bytes without re-encoding.
+    Original,
+    /// Re-encode to MPEG Layer III CBR at publish time.
+    Mp3,
+    /// Re-encode to 16-bit PCM RIFF/WAVE at publish time.
+    Wav,
+}
+
+impl SoundCompression {
+    pub const ALL: [Self; 4] = [Self::Mp3, Self::Default, Self::Wav, Self::Original];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Original => "Original",
+            Self::Mp3 => "MP3",
+            Self::Wav => "WAV (PCM)",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundExportQuality {
+    Fast,
+    Medium,
+    #[default]
+    Best,
+}
+
+impl SoundExportQuality {
+    pub const ALL: [Self; 3] = [Self::Fast, Self::Medium, Self::Best];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "Fast",
+            Self::Medium => "Medium",
+            Self::Best => "Best",
+        }
+    }
+}
+
+pub const VALID_AUDIO_BIT_RATES_KBPS: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
+
+const fn default_audio_bit_rate_kbps() -> u32 {
+    128
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoundExportSettings {
+    #[serde(default)]
+    pub compression: SoundCompression,
+    #[serde(default = "default_audio_bit_rate_kbps")]
+    pub bit_rate_kbps: u32,
+    #[serde(default)]
+    pub quality: SoundExportQuality,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub convert_to_mono: bool,
+}
+
+impl Default for SoundExportSettings {
+    fn default() -> Self {
+        Self {
+            compression: SoundCompression::Default,
+            bit_rate_kbps: 128,
+            quality: SoundExportQuality::Best,
+            convert_to_mono: false,
+        }
+    }
+}
+
+impl SoundExportSettings {
+    pub const fn mp3_default() -> Self {
+        Self {
+            compression: SoundCompression::Mp3,
+            bit_rate_kbps: 128,
+            quality: SoundExportQuality::Best,
+            convert_to_mono: false,
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn is_valid_bit_rate(kbps: u32) -> bool {
+        VALID_AUDIO_BIT_RATES_KBPS.contains(&kbps)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceUnit {
     pub id: Id,
@@ -20,6 +116,9 @@ pub struct ResourceUnit {
     pub media_type: String,
     /// Shared by document/history clones; serialized as an ordinary JSON string.
     pub data_base64: Arc<str>,
+    /// Optional per-resource publish audio compression settings (document version 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_export: Option<SoundExportSettings>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -41,6 +140,7 @@ impl ResourceUnit {
             path: path.into(),
             media_type: media_type.into(),
             data_base64: Arc::from(""),
+            audio_export: None,
         };
         result.validate_metadata()?;
         result.data_base64 = STANDARD.encode(bytes).into();

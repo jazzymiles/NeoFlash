@@ -2,9 +2,7 @@
 //! (`dialogs-export.png`), Import video (`dialog-import-video.png`), Sound properties (`dialogs-sound-stroke.png`).
 //! Export formats switch preview pages; every setting stays disabled. Preferences is a real dialog
 //! (`preferences.rs`).
-use super::planned::{
-    caption, check, footer, num, segmented, select, slider, stepper, switch, text,
-};
+use super::planned::{caption, check, footer, num, segmented, select, slider, switch, text};
 use eframe::egui::{self, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
@@ -195,38 +193,6 @@ pub(super) fn export_video(ui: &mut Ui) {
     footer(
         ui,
         "~ 12.1 MB · 00:05 · 1920×1200",
-        None,
-        &["Cancel", "Export"],
-    );
-}
-
-/// Dialog / Export audio.
-pub(super) fn export_audio(ui: &mut Ui) {
-    let w = ui.available_width();
-    segmented(ui, &["WAV", "MP3", "OGG", "AAC"], 1);
-    let (span, _) = ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
-    tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
-    group(ui, "Source");
-    ui.horizontal(|ui| {
-        select(ui, "Timeline mix (all sound layers)", 300.0);
-        select(ui, "Range: whole movie", 280.0);
-    });
-    group(ui, "Format");
-    ui.horizontal(|ui| {
-        select(ui, "44.1 kHz", 140.0);
-        select(ui, "16-bit", 120.0);
-        select(ui, "Stereo", 120.0);
-        select(ui, "192 kbps CBR", 180.0);
-    });
-    group(ui, "Processing");
-    ui.horizontal(|ui| {
-        switch(ui, true, "Normalize to −1 dB");
-        stepper(ui, 1.0, "Fade out", "Fade out", "s", 1, 160.0);
-        check(ui, false, "Trim silence");
-    });
-    footer(
-        ui,
-        "music.mp3 + sfx · 00:32.4 · ~ 760 kB",
         None,
         &["Cancel", "Export"],
     );

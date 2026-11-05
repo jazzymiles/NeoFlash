@@ -26,7 +26,6 @@ pub(crate) enum PlannedPanel {
     Debugger,
     ExportImage,
     ExportVideo,
-    ExportAudio,
     ImportVideo,
     BitmapFill,
     PropertiesOvalPrimitive,
@@ -55,11 +54,10 @@ pub(crate) enum Chrome {
 const WINDOW_TITLE_BAR: f32 = 52.0;
 
 impl PlannedPanel {
-    pub(crate) const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::Debugger,
         Self::ExportImage,
         Self::ExportVideo,
-        Self::ExportAudio,
         Self::ImportVideo,
         Self::BitmapFill,
         Self::PropertiesOvalPrimitive,
@@ -79,7 +77,6 @@ impl PlannedPanel {
             Self::Debugger => "Debugger",
             Self::ExportImage => "Export image",
             Self::ExportVideo => "Export video",
-            Self::ExportAudio => "Export audio",
             Self::ImportVideo => "Import video",
             Self::BitmapFill => "Color — Bitmap fill",
             Self::PropertiesOvalPrimitive => "Properties — Oval primitive",
@@ -98,7 +95,7 @@ impl PlannedPanel {
     pub(crate) const fn reference(self) -> &'static str {
         match self {
             Self::Debugger => "scripting-panels.png",
-            Self::ExportImage | Self::ExportVideo | Self::ExportAudio => "dialogs-export.png",
+            Self::ExportImage | Self::ExportVideo => "dialogs-export.png",
             Self::ImportVideo => "dialog-import-video.png",
             Self::StrokeStyle => "dialogs-sound-stroke.png",
             Self::PropertiesOvalPrimitive => "panel-properties-oval-primitive.png",
@@ -142,7 +139,6 @@ impl PlannedPanel {
             Self::ExportVideo => 840.,
             Self::ExportImage => 760.,
             Self::ImportVideo => 720.,
-            Self::ExportAudio => 640.,
             Self::TestMovie => 1000.,
             Self::FontEmbedding => 760.,
             Self::StrokeStyle => 480.,
@@ -498,7 +494,6 @@ fn body(ui: &mut Ui, panel: PlannedPanel, state: &mut PlannedState) -> bool {
         match panel {
             P::Debugger => super::planned_panels::debugger(ui),
             P::ExportVideo => super::planned_dialogs::export_video(ui),
-            P::ExportAudio => super::planned_dialogs::export_audio(ui),
             P::ImportVideo => super::planned_dialogs::import_video(ui),
             P::BitmapFill => super::planned_color::bitmap_fill(ui),
             P::PropertiesOvalPrimitive => super::planned_drawing::properties_oval(ui),

@@ -1,5 +1,8 @@
 use neoflash_core::Project;
-use neoflash_export::{FontExportPolicy, LottieOptions, PublishOptions, SizeLevel};
+use neoflash_export::{
+    AudioExportOptions, AudioExportPolicy, AudioFormat, FontExportPolicy, LottieOptions,
+    PublishOptions, SizeLevel,
+};
 use std::{env, fs, path::PathBuf};
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,6 +16,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut runtime_url = None;
     let mut shared_runtime = None;
     let mut lottie_output = None;
+    let mut video_output = None;
+    let mut audio_output = None;
+    let mut audio_format = None;
     let mut lottie_symbol = None;
     let mut lottie_pretty = false;
     let mut output = PathBuf::from("dist/html5");
@@ -28,6 +34,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     args.next()
                         .ok_or("--lottie requires an output .json file")?,
                 ))
+            }
+            "--video" => {
+                video_output = Some(PathBuf::from(
+                    args.next().ok_or("--video requires an output file path")?,
+                ))
+            }
+            "--audio" => {
+                audio_output = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--audio requires an output .wav/.mp3/.ogg/.aac file")?,
+                ))
+            }
+            "--audio-format" => {
+                let fmt = args
+                    .next()
+                    .ok_or("--audio-format requires wav|mp3|ogg|aac")?;
+                audio_format = Some(AudioFormat::parse(&fmt)?);
             }
             "--symbol" => {
                 lottie_symbol = Some(args.next().ok_or("--symbol requires a symbol ID or name")?)
@@ -50,7 +73,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--lottie FILE.json] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
                 );
                 return Ok(());
             }
@@ -99,6 +122,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
+    if let Some(_video_path) = video_output {
+        return Err("Video export disabled in T-066 isolated snapshot".into());
+    }
+    if let Some(audio_path) = audio_output {
+        let inferred_format = audio_format.unwrap_or_else(|| {
+            audio_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .and_then(|e| AudioFormat::parse(e).ok())
+                .unwrap_or(AudioFormat::Mp3)
+        });
+        let report = neoflash_export::export_project_audio(
+            &project,
+            &audio_path,
+            &AudioExportOptions {
+                format: inferred_format,
+                ..AudioExportOptions::default()
+            },
+        )?;
+        println!(
+            "Audio export: {} ({} bytes, {:.1} s, {} Hz, {} ch, {})",
+            audio_path.display(),
+            report.bytes,
+            report.duration_seconds,
+            report.sample_rate,
+            report.channels,
+            report.format.label()
+        );
+        return Ok(());
+    }
     if size_estimate {
         let url = runtime_url
             .as_deref()
@@ -119,6 +172,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = PublishOptions {
         fonts: FontExportPolicy::Embed,
         size: SizeLevel::parse(&level, runtime_url.as_deref())?,
+        audio: AudioExportPolicy::Original,
     };
     let index =
         neoflash_export::export_project_with_options(&project, &output, &runtime, &options)?;

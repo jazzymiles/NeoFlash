@@ -73,6 +73,7 @@ fn persisted_options_drive_publish_save_and_exact_background_size() {
             size,
             // A non-default policy proves that the editor does not silently hardcode Embed.
             fonts: FontExportPolicy::Device,
+            audio: neoflash_export::AudioExportPolicy::Original,
         };
         let json = serde_json::to_string(&editor.workspace).unwrap();
         let restored = WorkspacePrefs::from_json(&json);

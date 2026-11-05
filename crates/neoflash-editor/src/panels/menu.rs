@@ -28,7 +28,6 @@ pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     ("File ▸ Import ▸ Import video…", P::ImportVideo),
     ("File ▸ Export ▸ Export image…", P::ExportImage),
     ("File ▸ Export ▸ Export video…", P::ExportVideo),
-    ("File ▸ Export ▸ Export audio…", P::ExportAudio),
     // §6 panels the §8 Window list does not name.
     ("Window ▸ Debugger", P::Debugger),
     // Panel menus (§6).
@@ -90,6 +89,7 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
 enum ConvertedTrigger {
     DocumentSettings,
     PublishSettings,
+    ExportAudio,
     /// Preferences opened on a page (`panels/preferences.rs`).
     Preferences(usize),
     AddSwatch,
@@ -116,6 +116,7 @@ impl Editor {
             "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
                 Some(ConvertedTrigger::PublishSettings)
             }
+            "File ▸ Export ▸ Export audio…" => Some(ConvertedTrigger::ExportAudio),
             "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_GENERAL,
             )),
@@ -167,6 +168,7 @@ impl Editor {
             match trigger {
                 ConvertedTrigger::DocumentSettings => self.open_document_settings(),
                 ConvertedTrigger::PublishSettings => self.open_publish_settings(),
+                ConvertedTrigger::ExportAudio => self.open_export_audio(ctx, None),
                 ConvertedTrigger::Preferences(page) => self.open_preferences(page),
                 ConvertedTrigger::AddSwatch => {
                     self.add_active_swatch(ctx);
@@ -482,7 +484,11 @@ impl Editor {
                 |ui| {
                     Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
                     Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
-                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export audio…", "");
+                    Self::planned_menu_item(
+                        ui,
+                        "File ▸ Export ▸ Export audio…",
+                        &self.sc(C::FileExportAudio),
+                    );
                     nf::menu_separator(ui);
                     if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
                         self.export_lottie_dialog(None);

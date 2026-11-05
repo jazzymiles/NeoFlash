@@ -220,10 +220,11 @@ impl PublishController {
 
 fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
     let options = request.options.validated()?;
-    let result = neoflash_export::estimate_publish_levels_cancellable(
+    let result = neoflash_export::estimate_publish_levels_with_audio_cancellable(
         &request.project,
         &request.runtime.directory,
         options.fonts,
+        options.audio,
         &[options.size],
         || cancel.load(Ordering::Relaxed),
     )

@@ -434,3 +434,72 @@ fn weight_states_use_on_disk_parts_exact_total_gzip_and_clear_old_numbers() {
         }
     }
 }
+
+#[test]
+fn publish_settings_and_preferences_audio_policy_update_custom_badge_and_persist() {
+    use crate::panels::preferences::PAGE_PUBLISH;
+    use neoflash_export::AudioExportPolicy;
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.open_publish_settings();
+    d.settle();
+
+    {
+        let draft = d
+            .editor
+            .publish_settings
+            .as_mut()
+            .expect("publish settings open");
+        assert_eq!(draft.settings.options.audio, AudioExportPolicy::Original);
+        assert!(!draft.custom());
+        draft.settings.options.audio = AudioExportPolicy::Mp3_128;
+        assert!(
+            draft.custom(),
+            "non-original audio policy marks preset as Custom"
+        );
+        draft.select_level(1);
+        assert_eq!(
+            draft.settings.options.audio,
+            AudioExportPolicy::Original,
+            "selecting a SizeLevel resets audio policy to Original"
+        );
+        draft.settings.options.audio = AudioExportPolicy::Mp3_160;
+    }
+    d.settle();
+    assert!(
+        painted_text(&d.output)
+            .iter()
+            .any(|t| t == "Audio: MP3 160 kbps"),
+        "Publish settings shows selected audio policy"
+    );
+    d.click("OK");
+    assert!(d.editor.publish_settings.is_none());
+    assert_eq!(
+        d.editor.workspace.publish.options.audio,
+        AudioExportPolicy::Mp3_160
+    );
+
+    // Preferences ▸ Publish shows the same audio policy under Compression and supports Reset + Save.
+    d.editor.open_preferences(PAGE_PUBLISH);
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = d.ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+                ..Default::default()
+            },
+            |ctx| {
+                d.editor.preferences_dialog(ctx);
+            },
+        );
+    }
+    let pref_texts = painted_text(&out);
+    assert!(
+        pref_texts.iter().any(|t| t == "Audio"),
+        "Preferences ▸ Publish renders Audio row"
+    );
+    assert!(
+        pref_texts.iter().any(|t| t == "MP3 160 kbps"),
+        "Preferences ▸ Publish displays current audio policy: {pref_texts:?}"
+    );
+}

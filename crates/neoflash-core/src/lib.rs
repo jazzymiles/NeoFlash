@@ -110,7 +110,8 @@ pub use pixels::{
 pub use resource_image::DecodedImage;
 pub use resources::{
     MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
-    ResourceError, ResourceUnit,
+    ResourceError, ResourceUnit, SoundCompression, SoundExportQuality, SoundExportSettings,
+    VALID_AUDIO_BIT_RATES_KBPS,
 };
 pub use runtime::{
     AccessibleNode, DisplayNode, FrameLabel, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,

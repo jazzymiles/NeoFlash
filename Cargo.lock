@@ -2308,6 +2308,7 @@ dependencies = [
  "neoflash-script",
  "serde",
  "serde_json",
+ "symphonia",
  "thiserror 2.0.21",
  "url",
  "walrus",

@@ -733,6 +733,7 @@ fn parse_image_data_url(text: &str) -> Option<(String, Vec<u8>)> {
         path: "tmp.png".into(),
         media_type: media_type.clone(),
         data_base64: clean.into(),
+        audio_export: None,
     };
     let bytes = unit.decoded_bytes().ok()?;
     Some((media_type, bytes))

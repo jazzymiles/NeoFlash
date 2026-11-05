@@ -1554,8 +1554,8 @@
       "category": "animation",
       "title": "Audio and video synchronization",
       "status": "partial",
-      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, Test/Stop audition and Update/Import byte replacement in one Undo), coordinated stream stops and seeks; timeline video. Timeline and Sound Properties spans paint decoded mono/stereo peaks from a background worker, reused by resource and zoom; scrolling, trim and repeat use cached data.",
-      "limitations": "Timeline video, Sound properties audio re-encoding at publish and Edit envelope waveform backdrops and draggable trim handles (NF2 request R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
+      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, per-resource publish compression `ResourceUnit.audio_export` in format 9 with MP3/Default/WAV/Original, bit rate, quality, stereo-to-mono conversion and live Result size preview, Test/Stop audition and Update/Import byte replacement in one Undo), modal Export audio dialog (`File ▸ Export ▸ Export audio…` `⌥⇧⌘A`, `Library ▸ Export audio…`, CLI `--audio`) exporting timeline mixes, single layers or Library resources to WAV (8/16/24-bit PCM, 32-bit float), MP3 (CBR 64–320 kbps), OGG Vorbis or AAC (M4A/ADTS) with resampling (8–48 kHz), Stereo/Mono, Normalize to −1 dB, Fade out and Trim silence, coordinated stream stops and seeks; timeline video. Timeline, Sound properties and Export audio spans paint decoded mono/stereo peaks from a background worker, reused by resource and zoom; scrolling, trim and repeat use cached data.",
+      "limitations": "Timeline video and Edit envelope waveform backdrops and draggable trim handles (NF2 request R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
       "items": [
         {
           "id": "timeline-audio",
@@ -1579,7 +1579,12 @@
         },
         {
           "id": "sound-properties-dialog",
-          "title": "Sound properties dialog (rename, source info, audition and Update/Import replacement)",
+          "title": "Sound properties dialog (rename, source info, audition, Update/Import replacement and publish compression settings)",
+          "status": "working"
+        },
+        {
+          "id": "export-audio-dialog",
+          "title": "Export audio dialog and CLI (--audio) for WAV, MP3, OGG and AAC",
           "status": "working"
         },
         {
@@ -1605,6 +1610,8 @@
         "crates/neoflash-editor/src/timeline_sound_tests.rs",
         "crates/neoflash-editor/src/panels/edit_envelope.rs",
         "crates/neoflash-editor/src/panels/sound_properties.rs",
+        "crates/neoflash-editor/src/panels/export_audio.rs",
+        "crates/neoflash-export/src/audio.rs",
         "web/tests/wasm.test.cjs",
         "docs/decisions/0037-timeline-sound.md"
       ]
@@ -1614,7 +1621,7 @@
       "category": "web",
       "title": "Self-contained HTML5 publishing",
       "status": "partial",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences. Projects, individual scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and the 760 pt `Export Lottie` modal dialog (`File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), with live stage preview, compatibility counters (`exported`/`approximated`/`not exported`), a grouped `Lottie export — N notes` report dialog (`Show` jump to timeline + `Copy report`), progress/cancellation callback, frame range, dimensions/scale/fps overrides, nested vs. first-frame MovieClip modes, precision rounding (`0..=4`), target-player diagnostics (`lottie-web`/`Mobile`/`Skottie`), and optional `<stem>.preview.html` generation. Publish settings (⇧F12) selects the four HTML5 size levels with a live on-disk bar/legend, exact total gzip/files, hosting trade-offs, Computing/Failed/Retry, Custom reset and Shared runtime-folder export. Publish uses its draft, OK saves workspace defaults, and Cancel or document switch discards and cancels demand.",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font/audio options persist in workspace preferences (`PublishOptions.audio`: `AudioExportPolicy` in `Publish settings ▸ Assets ▸ Audio` and `Preferences ▸ Publish ▸ Compression ▸ Audio`, combined with per-resource `ResourceUnit.audio_export` overrides). Projects, individual scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and the 760 pt `Export Lottie` modal dialog (`File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), with live stage preview, compatibility counters (`exported`/`approximated`/`not exported`), a grouped `Lottie export — N notes` report dialog (`Show` jump to timeline + `Copy report`), progress/cancellation callback, frame range, dimensions/scale/fps overrides, nested vs. first-frame MovieClip modes, precision rounding (`0..=4`), target-player diagnostics (`lottie-web`/`Mobile`/`Skottie`), and optional `<stem>.preview.html` generation. Publish settings (⇧F12) selects the four HTML5 size levels with a live on-disk bar/legend, exact total gzip/files, hosting trade-offs, Computing/Failed/Retry, Custom reset and Shared runtime-folder export. Publish uses its draft, OK saves workspace defaults, and Cancel or document switch discards and cancels demand.",
       "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full/Embed remain defaults and Test Movie stays Full. Other designed target/asset/script controls and document-stored profiles remain unavailable; the font policy is preserved but its subset-only checkbox stays disabled. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`); the Publish settings Lottie target awaits DL-03. Lottie HTML previews do not safely preserve script-delimiter text in document fields, and loose dotLottie previews can request folder-image assets that exist only inside the archive. Selecting JPEG does not transcode source image bytes. Lottie estimates and exports run synchronously and cannot yet be cancelled.",
       "items": [
         {
@@ -1666,12 +1673,19 @@
           "id": "size-scale",
           "title": "Choose the size level on a scale with a live weight bar in Publish settings",
           "status": "working"
+        },
+        {
+          "id": "publish-audio-compression",
+          "title": "Configure publish-time audio compression in Publish settings, Preferences and per-resource Sound properties",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/audio.rs",
         "crates/neoflash-export/src/lottie.rs",
         "crates/neoflash-editor/src/panels/export_lottie.rs",
+        "crates/neoflash-editor/src/panels/sound_properties.rs",
         "crates/neoflash-export/src/publish.rs",
         "docs/decisions/0038-publish-size-levels.md",
         "scripts/build-web.sh",

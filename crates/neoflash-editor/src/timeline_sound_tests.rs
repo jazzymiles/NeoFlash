@@ -593,3 +593,192 @@ fn waveform_visible_columns_follow_stereo_trim_loops_scroll_and_silence() {
         [(0., 0.), (0., 0.)]
     );
 }
+
+fn collect_shape_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+        egui::Shape::Vec(shapes) => {
+            for s in shapes {
+                collect_shape_texts(s, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn output_texts(out: &egui::FullOutput) -> Vec<String> {
+    let mut texts = Vec::new();
+    for clipped in &out.shapes {
+        collect_shape_texts(&clipped.shape, &mut texts);
+    }
+    texts
+}
+
+#[test]
+fn export_audio_modal_renders_both_themes_and_exports_wav_mp3_ogg_and_aac() {
+    use crate::panels::export_audio::{
+        export_audio_draft, has_export_audio_dialog, update_export_audio_draft,
+    };
+    use crate::theme::ThemeMode;
+    use neoflash_export::{
+        AudioBitDepth, AudioBitRate, AudioChannels, AudioExportRange, AudioExportSource,
+        AudioFormat, AudioSampleRate,
+    };
+
+    let ctx = egui::Context::default();
+    let mut editor = editor_in(&ctx);
+    editor.layer = 1;
+    editor.frame = 0;
+    editor.set_frame_sound(Some("beep".into()));
+
+    editor.open_export_audio(&ctx, None);
+    assert!(has_export_audio_dialog(&ctx));
+    let draft = export_audio_draft(&ctx).expect("draft opened");
+    assert_eq!(draft.options.format, AudioFormat::Mp3);
+    assert_eq!(draft.options.source, AudioExportSource::TimelineMix);
+    assert!(draft.cached_duration > 0.0);
+
+    for theme in [ThemeMode::Dark, ThemeMode::Light] {
+        editor.set_theme(&ctx, theme);
+        let mut out = egui::FullOutput::default();
+        for _ in 0..2 {
+            out = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1920.0, 1080.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    editor.export_audio_dialog(ctx);
+                },
+            );
+        }
+        let texts = output_texts(&out);
+        for expected in [
+            "Export audio",
+            "WAV",
+            "MP3",
+            "OGG",
+            "AAC",
+            "SOURCE",
+            "FORMAT",
+            "PROCESSING",
+            "Normalize to −1 dB",
+            "Trim silence",
+            "Export",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "missing '{expected}' in {theme:?}: {texts:?}"
+            );
+        }
+    }
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("nf2-export-audio-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    for (fmt, ext, source) in [
+        (AudioFormat::Wav, "wav", AudioExportSource::TimelineMix),
+        (
+            AudioFormat::Mp3,
+            "mp3",
+            AudioExportSource::Layer("fx".into()),
+        ),
+        (
+            AudioFormat::Ogg,
+            "ogg",
+            AudioExportSource::Resource("beep".into()),
+        ),
+        (AudioFormat::Aac, "m4a", AudioExportSource::TimelineMix),
+    ] {
+        editor.open_export_audio(&ctx, Some(source.clone()));
+        update_export_audio_draft(&ctx, |d| {
+            d.options.format = fmt;
+            d.options.sample_rate = AudioSampleRate::Hz22050;
+            d.options.bit_depth = AudioBitDepth::Bit16;
+            d.options.channels = AudioChannels::Mono;
+            d.options.bit_rate = AudioBitRate::Kbps128;
+            d.options.range = AudioExportRange::WholeMovie;
+            d.options.normalize = true;
+            d.options.fade_out_seconds = 0.2;
+            d.options.trim_silence = true;
+        });
+        let path = temp_dir.join(format!("out.{ext}"));
+        let report = editor
+            .confirm_export_audio_to_path(&ctx, &path)
+            .expect("audio export succeeds");
+        assert!(!has_export_audio_dialog(&ctx), "dialog closes after export");
+        assert_eq!(report.format, fmt);
+        assert!(report.bytes > 0);
+        assert!(path.exists());
+    }
+
+    editor.open_export_audio(&ctx, None);
+    assert!(has_export_audio_dialog(&ctx));
+    editor.cancel_export_audio(&ctx);
+    assert!(!has_export_audio_dialog(&ctx));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn sound_properties_export_settings_commit_with_one_undo_and_upgrade_to_format_9() {
+    use crate::panels::sound_properties::{
+        has_sound_properties_dialog, update_sound_properties_draft_export,
+    };
+
+    let ctx = egui::Context::default();
+    let mut editor = editor_in(&ctx);
+    let before = editor.project.clone();
+    assert_eq!(before.format_version, 5);
+    assert!(before.resources[0].audio_export.is_none());
+
+    editor.open_sound_properties(&ctx, Some("beep".into()));
+    assert!(has_sound_properties_dialog(&ctx));
+    update_sound_properties_draft_export(&ctx, |exp| {
+        exp.compression = SoundCompression::Mp3;
+        exp.bit_rate_kbps = 160;
+        exp.quality = SoundExportQuality::Medium;
+        exp.convert_to_mono = true;
+    });
+
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 1080.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                editor.sound_properties_dialog(ctx);
+            },
+        );
+    }
+    let texts = output_texts(&out);
+    assert!(
+        texts.iter().any(|t| t.starts_with("Result: 160 kbps mono")),
+        "missing live export result caption in {texts:?}"
+    );
+
+    editor.confirm_sound_properties(&ctx).unwrap();
+    assert!(!has_sound_properties_dialog(&ctx));
+    assert_eq!(editor.project.format_version, 9);
+    assert_eq!(
+        editor.project.resources[0].audio_export,
+        Some(SoundExportSettings {
+            compression: SoundCompression::Mp3,
+            bit_rate_kbps: 160,
+            quality: SoundExportQuality::Medium,
+            convert_to_mono: true,
+        })
+    );
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+}

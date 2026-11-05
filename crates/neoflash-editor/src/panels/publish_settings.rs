@@ -3,7 +3,7 @@ use super::planned::{body_text, caption, check, select, slider, switch};
 use super::planned_dialogs::group;
 use crate::{app::Editor, publish_controller::EstimateState, workspace::PublishPrefs};
 use eframe::egui::{self, Ui};
-use neoflash_export::{FontExportPolicy, SizeEstimate, SizeLevel};
+use neoflash_export::{AudioExportPolicy, FontExportPolicy, SizeEstimate, SizeLevel};
 use neoflash_ui::{
     components as c,
     icons::{self, i16},
@@ -36,11 +36,13 @@ impl PublishSettingsDraft {
 
     fn custom(&self) -> bool {
         self.settings.options.fonts != FontExportPolicy::Embed
+            || self.settings.options.audio != AudioExportPolicy::Original
     }
 
     fn select_level(&mut self, index: usize) {
         self.settings.options.size = SizeLevel::all(&self.runtime_url)[index].clone();
         self.settings.options.fonts = FontExportPolicy::Embed;
+        self.settings.options.audio = AudioExportPolicy::Original;
         self.error = None;
     }
 
@@ -218,11 +220,38 @@ impl Editor {
                                     select(ui, "Scale: Fit, keep ratio", 200.0);
                                 }).inner);
                                 group(ui, "Assets");
-                                disabled(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        caption(ui, "JPEG quality"); slider(ui, 80.0, "JPEG quality", 160.0); caption(ui, "80");
-                                        select(ui, "Audio: MP3 128 kbps", 180.0);
+                                ui.horizontal(|ui| {
+                                    disabled(ui, |ui| {
+                                        caption(ui, "JPEG quality");
+                                        slider(ui, 80.0, "JPEG quality", 160.0);
+                                        caption(ui, "80");
                                     });
+                                    let audio_lbl =
+                                        draft.settings.options.audio.publish_select_label();
+                                    c::Select::new(
+                                        ui.id().with("publish-settings-audio"),
+                                        &audio_lbl,
+                                    )
+                                    .width(180.0)
+                                    .show(ui, |ui| {
+                                        for policy in AudioExportPolicy::ALL {
+                                            let lbl = policy.publish_select_label();
+                                            if ui
+                                                .add(
+                                                    c::MenuItem::new(&lbl).checked(
+                                                        draft.settings.options.audio == policy,
+                                                    ),
+                                                )
+                                                .clicked()
+                                            {
+                                                draft.settings.options.audio = policy;
+                                                draft.error = None;
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                });
+                                disabled(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         check(ui, true, "Sprite sheets for bitmaps");
                                         check(ui, draft.settings.options.fonts == FontExportPolicy::Subset, "Embed fonts (subset)");
