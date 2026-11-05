@@ -45,6 +45,8 @@ pub struct Editor {
     pub project: Project,
     pub history: History,
     pub path: Option<PathBuf>,
+    /// Session-only identity of an imported source; independent of its converted Save As path.
+    pub(crate) import_source: Option<PathBuf>,
     pub saved_project: Option<Project>,
     pub editing: Vec<String>,
     pub frame: u32,
@@ -137,6 +139,11 @@ pub struct Editor {
     pub(crate) active_session: usize,
     pub(crate) close_origin: Option<usize>,
     pub(crate) quit_approved: Vec<usize>,
+    pub(crate) close_targets: Vec<usize>,
+    pub(crate) close_quit: bool,
+    pub(crate) workspace_dialog: Option<crate::workspace_dialogs::WorkspaceDialog>,
+    pub(crate) notifications: crate::notifications::NotificationCenter,
+    pub(crate) bitmap_trace: crate::bitmap_trace::BitmapTraceController,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,6 +155,7 @@ pub enum Pending {
     Import,
     CloseDocument,
     CloseSession(usize),
+    CloseSessions,
     Close,
 }
 
@@ -168,6 +176,9 @@ impl Editor {
             WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
         let env_open = std::env::var_os("NEOFLASH_OPEN");
         let arg_open = std::env::args_os().nth(1);
+        if env_open.is_some() || arg_open.is_some() || !is_screenshot {
+            s.sessions.clear();
+        }
         // `NEOFLASH_OPEN=path.nflash` opens a document at launch (screenshots of real documents).
         if let Some(path) = env_open.clone() {
             s.open_path(path.into(), &cc.egui_ctx);
@@ -225,7 +236,7 @@ impl Editor {
                 end: s.frame,
             });
         }
-        // Screenshot aid (canvas chrome): `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect`
+        // Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect|brush|pencil`
         // selects every editable object on the current frame with that tool, so captures show the
         // NF2 selection boxes or the transform box.
         if let Ok(tool) = std::env::var("NEOFLASH_SCREENSHOT_SELECT") {
@@ -233,11 +244,19 @@ impl Editor {
                 "transform" => Some(Tool::Transform),
                 "subselect" => Some(Tool::Subselect),
                 "select" => Some(Tool::Select),
+                "brush" => Some(Tool::Brush),
+                "pencil" => Some(Tool::Pencil),
                 _ => None,
             };
             if let Some(tool) = tool {
                 s.set_tool(tool);
-                s.select_all();
+                if matches!(tool, Tool::Brush | Tool::Pencil) {
+                    cc.egui_ctx.data_mut(|data| {
+                        data.insert_temp(egui::Id::new("properties-tool-tab"), true)
+                    });
+                } else {
+                    s.select_all();
+                }
             }
         }
         if std::env::var("NEOFLASH_SCREENSHOT_SELECT").as_deref() == Ok("motion") {
@@ -256,6 +275,7 @@ impl Editor {
             for raw in list.split(',') {
                 let panel = match raw.trim().to_ascii_lowercase().as_str() {
                     "history" => Some(PanelId::History),
+                    "brushes" => Some(PanelId::Brushes),
                     "swatches" => Some(PanelId::Swatches),
                     "info" => Some(PanelId::Info),
                     "project" => Some(PanelId::Project),
@@ -275,6 +295,17 @@ impl Editor {
         }
         match std::env::var("NEOFLASH_SCREENSHOT_DIALOG").as_deref() {
             Ok("document_settings") => s.open_document_settings(),
+            Ok("trace_bitmap") => {
+                s.select_all();
+                s.open_trace_bitmap(&cc.egui_ctx);
+            }
+            Ok("customize_tools") => s.open_customize_tools(&cc.egui_ctx),
+            Ok("workspace_save") => {
+                s.workspace_dialog = Some(crate::workspace_dialogs::WorkspaceDialog::Save {
+                    name: "My workspace".into(),
+                    focus: false,
+                })
+            }
             Ok("publish_settings") => s.open_publish_settings(),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
@@ -283,6 +314,22 @@ impl Editor {
                 s.open_paste_motion_special();
             }
             _ => {}
+        }
+        match std::env::var("NEOFLASH_SCREENSHOT_DOCUMENTS").as_deref() {
+            Ok("empty") => s.request_close_documents(&cc.egui_ctx, false),
+            Ok("tabs") => {
+                s.project.name = "Website".into();
+                s.new_document_session(&cc.egui_ctx);
+                s.project.name = "Animation".into();
+                s.new_document_session(&cc.egui_ctx);
+                s.project.name = "Game".into();
+                s.switch_session_tab(&cc.egui_ctx, 1);
+            }
+            _ => {}
+        }
+        if std::env::var_os("NEOFLASH_SCREENSHOT_TOAST").is_some() {
+            s.notify(neoflash_ui::components::ToastType::Warning,
+                "Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` opens Preferences on that page.
         if let Some(page) = std::env::var("NEOFLASH_SCREENSHOT_PREFERENCES")
@@ -299,7 +346,7 @@ impl Editor {
         let saved_project = Some(project.clone());
         let root = project.root.clone();
         let mut s = Self {
-            project, history: History::new(150), path: None, saved_project,
+            project, history: History::new(150), path: None, import_source: None, saved_project,
             editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, stage_cursor: None, shown_stage_cursor: None, tool: Tool::Select,
             playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
@@ -344,10 +391,15 @@ impl Editor {
             solo_layers: Default::default(),
             timeline_audio: Default::default(),
             recovery: Default::default(),
-            sessions: Vec::new(),
+            sessions: vec![None],
             active_session: 0,
             close_origin: None,
             quit_approved: Vec::new(),
+            close_targets: Vec::new(),
+            close_quit: false,
+            workspace_dialog: None,
+            notifications: Default::default(),
+            bitmap_trace: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -357,6 +409,7 @@ impl Editor {
 
     /// Apply `Preferences ▸ General ▸ On launch` when no startup document path was given.
     pub(crate) fn apply_on_launch(&mut self, ctx: &egui::Context) {
+        self.sessions.clear();
         match self.workspace.general.on_launch {
             crate::workspace::OnLaunch::NewDocument => {
                 self.perform(Pending::New, ctx);
@@ -442,10 +495,6 @@ impl Editor {
         self.pressed_simple_button = None;
         self.simple_button_capturing = false;
     }
-    /// Re-apply the current workspace template ("Reset <template> workspace").
-    pub(crate) fn restore_workspace(&mut self, ctx: &egui::Context) {
-        self.apply_workspace_template(ctx, self.workspace.template);
-    }
     /// Switch to a built-in workspace template (Window ▸ Workspace, top-bar select).
     pub(crate) fn apply_workspace_template(
         &mut self,
@@ -478,6 +527,9 @@ impl Editor {
             .expect("editor has a valid symbol")
     }
     pub fn dirty(&self) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         self.vector
             .draft
             .as_ref()
@@ -486,6 +538,8 @@ impl Editor {
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
         self.confirm.is_some()
+            || self.workspace_dialog.is_some()
+            || self.bitmap_trace.is_open()
             || self.symbol_conversion.is_some()
             || self.timeline_motion.paste_special_open
             || self.document_settings.is_some()
@@ -499,6 +553,7 @@ impl Editor {
     }
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog()
+            || self.customize_tools_open(ctx)
             || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
             || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
     }
@@ -761,39 +816,23 @@ impl Editor {
             self.request_quit(ctx);
             return;
         }
-        if pending == Pending::CloseDocument && !self.sessions.is_empty() {
+        if pending == Pending::CloseDocument {
             self.close_session_tab(ctx, self.active_session);
             return;
         }
-        self.finish_edits();
-        if self.dirty() {
-            self.confirm = Some(pending);
-        } else {
-            self.perform(pending, ctx);
-        }
+        // New/Open preserve the active document, including unfinished edits, in its own tab.
+        self.perform(pending, ctx);
     }
     pub fn perform(&mut self, pending: Pending, ctx: &egui::Context) {
         match pending {
-            Pending::New | Pending::CloseDocument | Pending::Demo => {
-                let closed = matches!(pending, Pending::CloseDocument);
-                let project = if matches!(pending, Pending::New | Pending::CloseDocument) {
-                    let mut blank = Project::blank();
-                    if let Some(mut defaults) = self.workspace.document_defaults {
-                        defaults.sanitize();
-                        blank.width = defaults.width;
-                        blank.height = defaults.height;
-                        blank.fps = defaults.fps;
-                        blank.background = defaults.background;
-                        self.stage_view.prefs.units = defaults.units;
-                    }
-                    blank
-                } else {
-                    Project::demo()
-                };
-                self.install_document(ctx, project, None, true);
-                if closed {
-                    self.message("Document closed.");
-                }
+            Pending::New => {
+                self.new_document_session(ctx);
+            }
+            Pending::Demo => {
+                self.open_new_session_tab(ctx, Project::demo(), None);
+            }
+            Pending::CloseDocument => {
+                self.close_session_tab(ctx, self.active_session);
             }
             Pending::Open => {
                 if let Some(path) = rfd::FileDialog::new()
@@ -818,11 +857,11 @@ impl Editor {
                 }
             }
             Pending::CloseSession(index) => self.finish_session_close(ctx, index),
-            Pending::Close => self.approve_quit_document(ctx),
+            Pending::Close | Pending::CloseSessions => self.approve_quit_document(ctx),
         }
     }
 
-    fn is_legacy_flash_path(path: &std::path::Path) -> bool {
+    pub(crate) fn is_legacy_flash_path(path: &std::path::Path) -> bool {
         if path.is_dir() {
             return true;
         }
@@ -855,28 +894,21 @@ impl Editor {
     }
 
     pub(crate) fn try_open_path(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
-        if let Some(index) = self.session_for_path(&path)
-            && index != self.active_session
-        {
-            return self.switch_session_tab(ctx, index);
+        if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
+            return false;
+        }
+        if let Some(index) = self.session_for_open_path(&path) {
+            self.switch_session_tab(ctx, index);
+            return true;
         }
         if Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);
         }
-        match std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
-        {
-            Ok(project) => {
-                self.workspace.general.push_recent(&path);
-                self.install_document(ctx, project, Some(path), true);
-                self.message("Project opened.");
-                true
-            }
-            Err(e) => {
-                self.message(format!("Open failed: {e}"));
-                false
-            }
+        if self.open_path_in_session(ctx, path) {
+            self.message("Project opened.");
+            true
+        } else {
+            false
         }
     }
 
@@ -958,22 +990,33 @@ impl Editor {
     }
 
     fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
+        if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
+            return false;
+        }
+        if let Some(index) = self.session_for_open_path(&path) {
+            self.switch_session_tab(ctx, index);
+            return true;
+        }
         let mut imported = false;
+        let mut messages = Vec::new();
         match neoflash_import::inspect(&path) {
             Ok(report) => {
-                self.message(format!(
+                messages.push(format!(
                     "Legacy source: {:?} · {}",
                     report.format,
                     path.display()
                 ));
                 for d in &report.diagnostics {
-                    self.message(format!("{}: {}", d.location, d.message));
+                    messages.push(format!("{}: {}", d.location, d.message));
                 }
                 if report.can_import {
                     match neoflash_import::import_project(&path) {
                         Ok(project) => {
                             self.workspace.general.push_recent(&path);
-                            self.install_document(ctx, project, None, false);
+                            self.open_new_session_tab(ctx, project, None);
+                            self.import_source =
+                                Some(std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()));
+                            self.saved_project = None;
                             let label = match report.format {
                                 neoflash_import::ImportFormat::Swf => "SWF movie",
                                 neoflash_import::ImportFormat::Swc => "SWC library",
@@ -984,24 +1027,31 @@ impl Editor {
                                 | neoflash_import::ImportFormat::XflDirectory => "XFL document",
                                 neoflash_import::ImportFormat::Unknown => "Flash document",
                             };
-                            self.message(format!(
+                            messages.push(format!(
                                 "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
                             ));
                             imported = true;
                         }
-                        Err(e) => self.message(e.to_string()),
+                        Err(e) => messages.push(e.to_string()),
                     }
                 } else {
-                    self.message("Import stopped: this source contains features the current importer cannot preserve.");
+                    messages.push("Import stopped: this source contains features the current importer cannot preserve.".into());
                 }
             }
-            Err(e) => self.message(format!("Import failed: {e}")),
+            Err(e) => messages.push(format!("Import failed: {e}")),
+        }
+        // Successful imports own their diagnostics. A failed import stays on the current tab.
+        for message in messages {
+            self.message(message);
         }
         self.show_panel(PanelId::Output);
         imported
     }
 
     pub fn save(&mut self, save_as: bool) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         let default_name = self
             .path
             .as_ref()
@@ -1084,7 +1134,7 @@ impl Editor {
             .session_for_path(&path)
             .is_some_and(|index| index != self.active_session)
         {
-            self.message("Save failed: this file is already open in another document. Choose a different path.");
+            self.notify_with_output(neoflash_ui::components::ToastType::Error, "Save failed: this file is already open in another document. Choose a different path.");
             return false;
         }
         self.finish_edits();
@@ -1146,7 +1196,10 @@ impl Editor {
                 if self.workspace.code_editor.format_on_save {
                     self.history.cancel(&mut self.project);
                 }
-                self.message(format!("Save failed: {e}"));
+                self.notify_with_output(
+                    neoflash_ui::components::ToastType::Error,
+                    format!("Save failed: {e}"),
+                );
                 false
             }
         }
@@ -1243,6 +1296,9 @@ impl Editor {
         }
     }
     pub fn export(&mut self, test: bool) {
+        if !self.has_document() {
+            return;
+        }
         if test {
             if self.debugger.active() {
                 self.debug_command(crate::debugger_protocol::DebugCommand::Restart);
@@ -1365,6 +1421,21 @@ impl Editor {
         if self.has_modal_dialog_in(ctx)
             || crate::panels::symbols_popover::is_symbols_popover_open(ctx)
         {
+            return;
+        }
+        if self.document_shortcuts(ctx) {
+            return;
+        }
+        if !self.has_document() {
+            if self.take_command_shortcut(ctx, C::FileNew) {
+                self.request(Pending::New, ctx);
+            }
+            if self.take_command_shortcut(ctx, C::FileOpen) {
+                self.request(Pending::Open, ctx);
+            }
+            if self.take_command_shortcut(ctx, C::EditPreferences) {
+                Self::open_planned(ctx, "Edit ▸ Preferences…");
+            }
             return;
         }
         self.menu_shortcuts(ctx);
@@ -2109,6 +2180,8 @@ impl Editor {
                     self.cancel_confirmation(ctx);
                 } else if action == 1 || (action == 0 && self.save(false)) {
                     self.continue_confirmation(ctx);
+                } else if action == 0 {
+                    self.cancel_confirmation(ctx);
                 }
             }
         }
@@ -2251,15 +2324,25 @@ impl eframe::App for Editor {
         self.status_bar(ctx);
         self.bitmap_textures.begin_frame(&self.project);
         self.prepare_docked_panel_focus(ctx);
-        if !self.panels_hidden {
-            self.dock_grid(ctx);
+        if self.has_document() {
+            if !self.panels_hidden {
+                self.dock_grid(ctx);
+            }
+            self.stage(ctx);
+        } else {
+            self.no_document_view(ctx);
         }
-        self.stage(ctx);
         self.draw_dialogs(ctx);
+        self.workspace_dialog(ctx);
+        self.customize_tools_dialog(ctx);
+        self.trace_bitmap_dialog(ctx);
         self.symbol_creation_dialog(ctx);
-        self.detached_panels(ctx);
+        if self.has_document() {
+            self.detached_panels(ctx);
+        }
         self.planned_panels(ctx);
         self.update_publish_estimate(ctx);
+        self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));
         crate::native_windows::configure_panels();
         let name = self
             .path
@@ -2269,7 +2352,11 @@ impl eframe::App for Editor {
             .unwrap_or_else(|| self.project.name.clone());
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{}{} — NeoFlash",
-            name,
+            if self.has_document() {
+                name
+            } else {
+                "No document open".into()
+            },
             if self.dirty() { " •" } else { "" }
         )));
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());

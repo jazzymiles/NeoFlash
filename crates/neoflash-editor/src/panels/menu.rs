@@ -293,7 +293,6 @@ impl Editor {
                     bar.bottom() - 0.5,
                     egui::Stroke::new(1.0_f32, nf.border_subtle),
                 );
-                self.top_bar_title(ui, bar);
                 ui.horizontal_centered(|ui| {
                     // Figma: logo, 4 pt, product name (Title), then the menu titles.
                     ui.spacing_mut().item_spacing.x = 4.;
@@ -303,7 +302,7 @@ impl Editor {
                             .color(nf.text_primary),
                     );
                     ui.add_space(12.);
-                    neoflash_ui::components::menu_bar(ui, |ui| {
+                    let menus_end = neoflash_ui::components::menu_bar(ui, |ui| {
                         menu_popup(ui, "File", "Publish settings…", "⇧F12", |ui| {
                             self.file_menu(ui, ctx);
                         });
@@ -323,14 +322,22 @@ impl Editor {
                             self.edit_menu(ui, ctx);
                         });
                         menu_popup(ui, "View", "Rulers, guides & grid…", "⌥⇧⌘R", |ui| {
-                            self.view_menu(ui);
+                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+                                self.view_menu(ui)
+                            });
                         });
                         menu_popup(ui, "Insert", "Blank keyframe", "⌘F8", |ui| {
-                            self.insert_menu(ui);
+                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+                                self.insert_menu(ui)
+                            });
                         });
-                        self.modify_menu_ui(ui);
+                        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+                            self.modify_menu_ui(ui)
+                        });
                         menu_popup(ui, "Control", "Enable simple buttons", "⌥⌘B", |ui| {
-                            self.control_menu(ui);
+                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+                                self.control_menu(ui)
+                            });
                         });
                         menu_popup(ui, "Window", "Compiler errors", "⇧⌘F9", |ui| {
                             self.window_menu(ui, ctx);
@@ -346,8 +353,18 @@ impl Editor {
                                 ui.close();
                             }
                         });
+                        ui.cursor().left()
                     });
-                    self.top_bar_actions(ui);
+                    let actions = egui::Rect::from_min_max(
+                        egui::pos2(menus_end + neoflash_ui::tokens::space::S2, bar.top()),
+                        bar.right_bottom(),
+                    );
+                    let mut actions_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(actions)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+                    self.top_bar_actions(&mut actions_ui);
                 });
             });
         if edit_open {
@@ -402,217 +419,222 @@ impl Editor {
                 }
             });
         });
-        if menu_item(ui, "Close", &self.sc(C::FileClose)).clicked() {
-            self.request(Pending::CloseDocument, ctx);
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        if menu_item(ui, "Save", &self.sc(C::FileSave)).clicked() {
-            self.save(false);
-            ui.close();
-        }
-        if menu_item(ui, "Save as…", &self.sc(C::FileSaveAs)).clicked() {
-            self.save(true);
-            ui.close();
-        }
-        if menu_item_enabled(ui, self.can_revert(), "Revert", &self.sc(C::FileRevert)).clicked() {
-            self.request_revert();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        menu_popup(ui, "Import", "Import graphics to Stage…", "", |ui| {
-            if menu_item(
-                ui,
-                "Import graphics to Stage…",
-                &self.sc(C::FileImportGraphics),
-            )
-            .clicked()
+        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+            if menu_item(ui, "Close", &self.sc(C::FileClose)).clicked() {
+                self.request(Pending::CloseDocument, ctx);
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            if menu_item(ui, "Save", &self.sc(C::FileSave)).clicked() {
+                self.save(false);
+                ui.close();
+            }
+            if menu_item(ui, "Save as…", &self.sc(C::FileSaveAs)).clicked() {
+                self.save(true);
+                ui.close();
+            }
+            if menu_item_enabled(ui, self.can_revert(), "Revert", &self.sc(C::FileRevert)).clicked()
             {
-                self.import_graphics_dialog();
+                self.request_revert();
                 ui.close();
             }
-            if menu_item(
-                ui,
-                "Import legacy Flash…",
-                &self.sc(C::FileImportLegacyFlash),
-            )
-            .clicked()
-            {
-                self.request(Pending::Import, ctx);
-                ui.close();
-            }
-            Self::planned_menu_item(ui, "File ▸ Import ▸ Import video…", "");
-            if menu_item_enabled(ui, self.layer_editable(), "Video placeholder", "").clicked() {
-                self.finish_edits();
-                self.add_element(
-                    ElementKind::Video {
-                        width: 320.,
-                        height: 240.,
-                    },
-                    80.,
-                    80.,
-                );
-                ui.close();
-            }
-        });
-        menu_popup(
-            ui,
-            "Export",
-            "Export Lottie…",
-            &self.sc(C::FileExportLottie),
-            |ui| {
-                Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
-                Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
-                Self::planned_menu_item(ui, "File ▸ Export ▸ Export audio…", "");
-                nf::menu_separator(ui);
-                if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
-                    self.export_lottie_dialog(None);
+            nf::menu_separator(ui);
+            menu_popup(ui, "Import", "Import graphics to Stage…", "", |ui| {
+                if menu_item(
+                    ui,
+                    "Import graphics to Stage…",
+                    &self.sc(C::FileImportGraphics),
+                )
+                .clicked()
+                {
+                    self.import_graphics_dialog();
                     ui.close();
                 }
-            },
-        );
-        nf::menu_separator(ui);
-        Self::planned_menu_item(
-            ui,
-            "File ▸ Publish settings…",
-            &self.sc(C::FilePublishSettings),
-        );
-        if menu_item(ui, "Publish", &self.sc(C::FilePublish))
-            .on_hover_text("Choose an output folder and publish the project as HTML5")
-            .clicked()
-        {
-            self.export(false);
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        Self::unavailable_item(ui, "Print…", "⌘P");
+                if menu_item(
+                    ui,
+                    "Import legacy Flash…",
+                    &self.sc(C::FileImportLegacyFlash),
+                )
+                .clicked()
+                {
+                    self.request(Pending::Import, ctx);
+                    ui.close();
+                }
+                Self::planned_menu_item(ui, "File ▸ Import ▸ Import video…", "");
+                if menu_item_enabled(ui, self.layer_editable(), "Video placeholder", "").clicked() {
+                    self.finish_edits();
+                    self.add_element(
+                        ElementKind::Video {
+                            width: 320.,
+                            height: 240.,
+                        },
+                        80.,
+                        80.,
+                    );
+                    ui.close();
+                }
+            });
+            menu_popup(
+                ui,
+                "Export",
+                "Export Lottie…",
+                &self.sc(C::FileExportLottie),
+                |ui| {
+                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
+                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export video…", "");
+                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export audio…", "");
+                    nf::menu_separator(ui);
+                    if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
+                        self.export_lottie_dialog(None);
+                        ui.close();
+                    }
+                },
+            );
+            nf::menu_separator(ui);
+            Self::planned_menu_item(
+                ui,
+                "File ▸ Publish settings…",
+                &self.sc(C::FilePublishSettings),
+            );
+            if menu_item(ui, "Publish", &self.sc(C::FilePublish))
+                .on_hover_text("Choose an output folder and publish the project as HTML5")
+                .clicked()
+            {
+                self.export(false);
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            Self::unavailable_item(ui, "Print…", "⌘P");
+        });
     }
 
     /// Edit (§8) with the Edit ▸ Timeline submenu.
     fn edit_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::commands::CommandId as C;
-        let undo_label = self.undo_menu_label();
-        let redo_label = self.redo_menu_label();
-        if menu_item_enabled(
-            ui,
-            self.history.can_undo() || self.vector.draft.is_some(),
-            &undo_label,
-            &self.sc(C::EditUndo),
-        )
-        .clicked()
-        {
-            self.undo();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.history.can_redo(),
-            &redo_label,
-            &self.sc(C::EditRedo),
-        )
-        .clicked()
-        {
-            self.redo();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        let text_target = self
-            .clipboard
-            .menu_target
-            .as_ref()
-            .is_some_and(|target| target.is_text());
-        let can_copy = text_target || !self.selection.is_empty();
-        let can_paste = text_target || self.layer_editable();
-        for (label, cmd_id, command, enabled) in [
-            ("Cut", C::EditCut, ClipboardCommand::Cut, can_copy),
-            ("Copy", C::EditCopy, ClipboardCommand::Copy, can_copy),
-            (
-                "Paste in centre",
-                C::EditPaste,
-                ClipboardCommand::Paste,
-                can_paste,
-            ),
-            (
-                "Paste in place",
-                C::EditPasteInPlace,
-                ClipboardCommand::PasteInPlace,
-                !text_target && self.layer_editable(),
-            ),
-        ] {
-            if menu_item_enabled(ui, enabled, label, &self.sc(cmd_id)).clicked() {
-                self.request_clipboard(ctx, command);
+        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+            let undo_label = self.undo_menu_label();
+            let redo_label = self.redo_menu_label();
+            if menu_item_enabled(
+                ui,
+                self.history.can_undo() || self.vector.draft.is_some(),
+                &undo_label,
+                &self.sc(C::EditUndo),
+            )
+            .clicked()
+            {
+                self.undo();
                 ui.close();
             }
-        }
-        if menu_item_enabled(
-            ui,
-            !self.selection.is_empty(),
-            "Clear",
-            &self.sc(C::EditClear),
-        )
-        .clicked()
-        {
-            self.delete_selected();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        if menu_item_enabled(
-            ui,
-            !self.selection.is_empty(),
-            "Duplicate",
-            &self.sc(C::EditDuplicate),
-        )
-        .clicked()
-        {
-            self.duplicate();
-            ui.close();
-        }
-        if menu_item(ui, "Select all", &self.sc(C::EditSelectAll)).clicked() {
-            self.select_all();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            !self.selection.is_empty(),
-            "Deselect",
-            &self.sc(C::EditDeselect),
-        )
-        .clicked()
-        {
-            self.finish_edits();
-            self.clear_selection();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        if menu_item(ui, "Find and replace", &self.sc(C::EditFindAndReplace)).clicked() {
-            self.open_find_replace();
-            ui.close();
-        }
-        menu_popup(ui, "Timeline", "Synchronise symbols", "⌥⌘X", |ui| {
-            self.edit_timeline_menu(ui);
-        });
-        nf::menu_separator(ui);
-        let instance = self.selected_instance_symbol();
-        if menu_item_enabled(
-            ui,
-            instance.is_some() || self.editing.len() > 1,
-            "Edit symbols",
-            &self.sc(C::EditSymbols),
-        )
-        .clicked()
-        {
-            self.toggle_edit_symbols();
-            ui.close();
-        }
-        for label in ["Edit selected", "Edit in place"] {
-            if menu_item_enabled(ui, instance.is_some(), label, "").clicked() {
-                if let Some(id) = instance.clone() {
-                    self.enter_symbol(id);
+            if menu_item_enabled(
+                ui,
+                self.history.can_redo(),
+                &redo_label,
+                &self.sc(C::EditRedo),
+            )
+            .clicked()
+            {
+                self.redo();
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            let text_target = self
+                .clipboard
+                .menu_target
+                .as_ref()
+                .is_some_and(|target| target.is_text());
+            let can_copy = text_target || !self.selection.is_empty();
+            let can_paste = text_target || self.layer_editable();
+            for (label, cmd_id, command, enabled) in [
+                ("Cut", C::EditCut, ClipboardCommand::Cut, can_copy),
+                ("Copy", C::EditCopy, ClipboardCommand::Copy, can_copy),
+                (
+                    "Paste in centre",
+                    C::EditPaste,
+                    ClipboardCommand::Paste,
+                    can_paste,
+                ),
+                (
+                    "Paste in place",
+                    C::EditPasteInPlace,
+                    ClipboardCommand::PasteInPlace,
+                    !text_target && self.layer_editable(),
+                ),
+            ] {
+                if menu_item_enabled(ui, enabled, label, &self.sc(cmd_id)).clicked() {
+                    self.request_clipboard(ctx, command);
+                    ui.close();
                 }
+            }
+            if menu_item_enabled(
+                ui,
+                !self.selection.is_empty(),
+                "Clear",
+                &self.sc(C::EditClear),
+            )
+            .clicked()
+            {
+                self.delete_selected();
                 ui.close();
             }
-        }
-        nf::menu_separator(ui);
+            nf::menu_separator(ui);
+            if menu_item_enabled(
+                ui,
+                !self.selection.is_empty(),
+                "Duplicate",
+                &self.sc(C::EditDuplicate),
+            )
+            .clicked()
+            {
+                self.duplicate();
+                ui.close();
+            }
+            if menu_item(ui, "Select all", &self.sc(C::EditSelectAll)).clicked() {
+                self.select_all();
+                ui.close();
+            }
+            if menu_item_enabled(
+                ui,
+                !self.selection.is_empty(),
+                "Deselect",
+                &self.sc(C::EditDeselect),
+            )
+            .clicked()
+            {
+                self.finish_edits();
+                self.clear_selection();
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            if menu_item(ui, "Find and replace", &self.sc(C::EditFindAndReplace)).clicked() {
+                self.open_find_replace();
+                ui.close();
+            }
+            menu_popup(ui, "Timeline", "Synchronise symbols", "⌥⌘X", |ui| {
+                self.edit_timeline_menu(ui);
+            });
+            nf::menu_separator(ui);
+            let instance = self.selected_instance_symbol();
+            if menu_item_enabled(
+                ui,
+                instance.is_some() || self.editing.len() > 1,
+                "Edit symbols",
+                &self.sc(C::EditSymbols),
+            )
+            .clicked()
+            {
+                self.toggle_edit_symbols();
+                ui.close();
+            }
+            for label in ["Edit selected", "Edit in place"] {
+                if menu_item_enabled(ui, instance.is_some(), label, "").clicked() {
+                    if let Some(id) = instance.clone() {
+                        self.enter_symbol(id);
+                    }
+                    ui.close();
+                }
+            }
+            nf::menu_separator(ui);
+        });
         Self::planned_menu_item(ui, "Edit ▸ Preferences…", &self.sc(C::EditPreferences));
         Self::planned_menu_item(
             ui,
@@ -935,6 +957,15 @@ impl Editor {
     fn window_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::commands::CommandId as C;
         Self::unavailable_item(ui, "Duplicate window", "⌥⌘K");
+        let mut brushes = self.workspace.panels.brushes;
+        if menu_toggle(ui, &mut brushes, "Brushes", "").changed() {
+            self.set_panel_visible(PanelId::Brushes, brushes);
+            ui.close();
+        }
+        if menu_item(ui, "Customize tools…", "").clicked() {
+            self.open_customize_tools(ctx);
+            ui.close();
+        }
         nf::menu_separator(ui);
         let toggle = |editor: &mut Self, ui: &mut egui::Ui, index: usize| {
             let (name, _, panel) = WINDOW_PANELS[index];
@@ -1013,6 +1044,8 @@ impl Editor {
                 planned::menu_items(ui);
             },
         );
+        nf::menu_separator(ui);
+        self.document_list(ui, ctx);
     }
 }
 

@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 112 of 126 | 3 | 11 | 6 / 6 / 0 |
+| Editor and graphics | 119 of 132 | 4 | 9 | 6 / 6 / 0 |
 | Timelines and animation | 73 of 76 | 1 | 2 | 7 / 3 / 0 |
 | HTML5 and interactivity | 80 of 82 | 2 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 61 of 67 | 6 | 0 | 7 / 3 / 0 |
 | Platform and quality | 39 of 51 | 0 | 12 | 5 / 4 / 1 |
-| **All areas** | 365 of 402 | 12 | 25 | 36 / 17 / 1 |
+| **All areas** | 372 of 408 | 13 | 23 | 36 / 17 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -94,7 +94,11 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 
 ## Editing and publishing
 
-Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, round vector Brush, closed-shape Paint Bucket, Ink Bottle, Eyedropper, whole-object/fill/stroke Eraser, whole-object Lasso with visible selection hatching, Hand, Zoom and Gradient Transform complete the tool palette. Narrow Tools groups open from their corner mark, right-click, long-press or focused →. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing. Copy/paste carries nested symbols, groups, timelines, resources and scripts between documents. Brush accepts pressure input; physical tablet acceptance and pressure/tilt controls remain pending. Properties → Tool offers Paint Bucket gap closing and Eraser → Cut strokes. Gap limits use screen distance; unsupported partial-stroke cuts leave the whole gesture unchanged and explain why in status/Output. Named workspace management and multiple-document tabs remain unavailable in the interface. Failed Open or Save keeps unsaved work and recovery copies. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
+Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, vector Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, whole-object Lasso with visible selection hatching, Hand, Zoom and Gradient Transform complete the tool palette. Tool groups open from their corner mark, right-click, long-press or focused →; **Customize tools** adds, removes and reorders supported tools. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing.
+
+**Brushes** offers Round, Flat and Chisel presets; Brush properties add eight tip shapes, document-unit size, smoothing, pressure size control and gradient Lock fill. Pencil provides Straighten, Smooth and Ink modes. Physical tablet acceptance and tilt remain pending. **Modify → Bitmap → Trace bitmap** converts selected images into editable vector artwork with preview, colour and curve controls, cancellation and one Undo. Paint Bucket closes small contour gaps; Eraser **Cut strokes** preserves fills and refuses unsupported gestures atomically, with a Warning notification and Output explanation. See [tool behavior and limits](docs/WORKSPACE.md#tools-and-modify).
+
+New and Open add document tabs; reopening the same file or imported source activates its existing tab. Documents retain independent selection, views, Undo and recovery, and copy/paste carries nested symbols, groups, timelines, resources and scripts between them. Close all and Quit preserve earlier unsaved work if a later prompt is cancelled; failed Save keeps the decision open. The workspace selector saves, updates, renames, deletes and resets named panel layouts without changing documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
 
 **Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 

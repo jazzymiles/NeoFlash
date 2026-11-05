@@ -35,6 +35,17 @@ impl Editor {
         ctx.data_mut(|data| data.insert_temp(tab_id, tool_tab));
         if tool_tab {
             self.finish_property_edit();
+            match self.tool {
+                Tool::Brush => {
+                    self.brush_tool_contents(ui);
+                    return;
+                }
+                Tool::Pencil => {
+                    self.pencil_tool_contents(ui);
+                    return;
+                }
+                _ => {}
+            }
             inspector_section(ui, "Tool options", |ui| self.authoring_tool_options(ui));
             inspector_section(ui, "Drawing defaults", |ui| {
                 let (old_fill, old_stroke) = (self.fill, self.stroke);

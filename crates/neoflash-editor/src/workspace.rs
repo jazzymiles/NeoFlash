@@ -33,6 +33,7 @@ pub enum PanelId {
     CompilerErrors,
     CodeSnippets,
     MovieExplorer,
+    Brushes,
 }
 impl PanelId {
     pub fn title(self) -> &'static str {
@@ -58,6 +59,7 @@ impl PanelId {
             Self::CompilerErrors => "Compiler errors",
             Self::CodeSnippets => "Code snippets",
             Self::MovieExplorer => "Movie Explorer",
+            Self::Brushes => "Brushes",
         }
     }
     /// Body padding of the docked panel, from the Figma outlines: inspector 16, Library 8,
@@ -108,9 +110,10 @@ impl PanelId {
             Self::CompilerErrors => i16::WARNING,
             Self::CodeSnippets => i16::SNIPPET,
             Self::MovieExplorer => i16::MOVIECLIP,
+            Self::Brushes => i16::BRUSH,
         }
     }
-    pub const DETACHABLE: [Self; 21] = [
+    pub const DETACHABLE: [Self; 22] = [
         Self::Tools,
         Self::Timeline,
         Self::Library,
@@ -132,10 +135,11 @@ impl PanelId {
         Self::CompilerErrors,
         Self::CodeSnippets,
         Self::MovieExplorer,
+        Self::Brushes,
     ];
     /// Panels that are hidden in every built-in workspace and open beside Properties (or, for the
     /// Motion editor / Compiler errors, beside Timeline / Output) the first time they are shown.
-    pub const UTILITY: [Self; 14] = [
+    pub const UTILITY: [Self; 15] = [
         Self::Align,
         Self::Transform,
         Self::Color,
@@ -150,6 +154,7 @@ impl PanelId {
         Self::CompilerErrors,
         Self::CodeSnippets,
         Self::MovieExplorer,
+        Self::Brushes,
     ];
     pub fn detachable(self) -> bool {
         Self::DETACHABLE.contains(&self)
@@ -178,10 +183,11 @@ impl PanelId {
             Self::CompilerErrors => Some("neoflash.panel.compiler_errors"),
             Self::CodeSnippets => Some("neoflash.panel.code_snippets"),
             Self::MovieExplorer => Some("neoflash.panel.movie_explorer"),
+            Self::Brushes => Some("neoflash.panel.brushes"),
         }
     }
     #[cfg(test)]
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Timeline,
         Self::Tools,
         Self::Library,
@@ -203,6 +209,7 @@ impl PanelId {
         Self::CompilerErrors,
         Self::CodeSnippets,
         Self::MovieExplorer,
+        Self::Brushes,
     ];
     pub const BOTTOM: [Self; 4] = [
         Self::Properties,
@@ -253,6 +260,7 @@ pub struct PanelVisibility {
     pub compiler_errors: bool,
     pub code_snippets: bool,
     pub movie_explorer: bool,
+    pub brushes: bool,
 }
 impl Default for PanelVisibility {
     fn default() -> Self {
@@ -278,6 +286,7 @@ impl Default for PanelVisibility {
             compiler_errors: false,
             code_snippets: false,
             movie_explorer: false,
+            brushes: false,
         }
     }
 }
@@ -305,6 +314,7 @@ impl PanelVisibility {
             PanelId::CompilerErrors => &mut self.compiler_errors,
             PanelId::CodeSnippets => &mut self.code_snippets,
             PanelId::MovieExplorer => &mut self.movie_explorer,
+            PanelId::Brushes => &mut self.brushes,
         }
     }
     pub fn is_visible(self, panel: PanelId) -> bool {
@@ -330,6 +340,7 @@ impl PanelVisibility {
             PanelId::CompilerErrors => self.compiler_errors,
             PanelId::CodeSnippets => self.code_snippets,
             PanelId::MovieExplorer => self.movie_explorer,
+            PanelId::Brushes => self.brushes,
         }
     }
 }
@@ -438,7 +449,8 @@ impl DockEdge {
             | PanelId::Project
             | PanelId::Filters
             | PanelId::CodeSnippets
-            | PanelId::MovieExplorer => Self::Right,
+            | PanelId::MovieExplorer
+            | PanelId::Brushes => Self::Right,
             _ => Self::Bottom,
         }
     }
@@ -878,6 +890,7 @@ impl Default for DockLayout {
                                 PanelId::Project,
                                 PanelId::CodeSnippets,
                                 PanelId::MovieExplorer,
+                                PanelId::Brushes,
                             ],
                         )
                     },
@@ -1078,6 +1091,15 @@ impl DockLayout {
         }
         let minimum_id = ids.into_iter().max().unwrap_or(0) + 1;
         self.next_group = self.next_group.clamp(minimum_id, 1_000_008);
+        let active: Vec<_> = DockEdge::ALL
+            .into_iter()
+            .flat_map(|edge| {
+                self.area(edge)
+                    .groups
+                    .iter()
+                    .map(move |group| (edge, group.id, group.active))
+            })
+            .collect();
         for panel in PanelId::DETACHABLE {
             if detached
                 .get(panel)
@@ -1085,6 +1107,18 @@ impl DockLayout {
                 && self.location(panel).is_none()
             {
                 self.insert_at_default(panel);
+            }
+        }
+        // A newly available utility panel is hidden by default. Loading an older workspace
+        // must not select that new tab or replace the user's remembered active tab.
+        for (edge, id, panel) in active {
+            if let Some(group) = self
+                .area_mut(edge)
+                .groups
+                .iter_mut()
+                .find(|group| group.id == id)
+            {
+                group.active = panel;
             }
         }
     }
@@ -1195,6 +1229,7 @@ pub struct DetachedPanels {
     pub compiler_errors: PanelWindowPrefs,
     pub code_snippets: PanelWindowPrefs,
     pub movie_explorer: PanelWindowPrefs,
+    pub brushes: PanelWindowPrefs,
 }
 impl DetachedPanels {
     fn get(&self, panel: PanelId) -> Option<&PanelWindowPrefs> {
@@ -1220,6 +1255,7 @@ impl DetachedPanels {
             PanelId::CompilerErrors => Some(&self.compiler_errors),
             PanelId::CodeSnippets => Some(&self.code_snippets),
             PanelId::MovieExplorer => Some(&self.movie_explorer),
+            PanelId::Brushes => Some(&self.brushes),
         }
     }
     fn get_mut(&mut self, panel: PanelId) -> Option<&mut PanelWindowPrefs> {
@@ -1245,6 +1281,7 @@ impl DetachedPanels {
             PanelId::CompilerErrors => Some(&mut self.compiler_errors),
             PanelId::CodeSnippets => Some(&mut self.code_snippets),
             PanelId::MovieExplorer => Some(&mut self.movie_explorer),
+            PanelId::Brushes => Some(&mut self.brushes),
         }
     }
     fn sanitize(&mut self) {
@@ -1318,6 +1355,7 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
 pub fn default_window_size(panel: PanelId) -> [f32; 2] {
     match panel {
         PanelId::Tools => [96., 600.],
+        PanelId::Brushes => [320., 650.],
         PanelId::Timeline => [900., 280.],
         PanelId::Library => [300., 600.],
         PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
@@ -1483,11 +1521,12 @@ pub struct WorkspacePrefs {
     pub code_editor: CodeEditorPrefs,
     pub timeline_prefs: TimelinePrefs,
     pub drawing: DrawingPrefs,
+    pub tools: crate::tool_preferences::ToolPreferences,
     pub text_prefs: TextPrefs,
     pub clipboard_prefs: ClipboardPrefs,
     pub publish: PublishPrefs,
     pub shortcuts: ShortcutPrefs,
-    /// Complete named layouts. Naming/switching controls await the approved workspace UI.
+    /// Complete named layouts, managed through the workspace selector.
     #[serde(
         default,
         deserialize_with = "deserialize_named_presets",
@@ -1497,6 +1536,9 @@ pub struct WorkspacePrefs {
     /// The saved layout the current arrangement started from; edits do not change the saved copy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_named_preset: Option<String>,
+    /// The active saved preset was deleted/replaced; retain its live layout without claiming a built-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unsaved_layout: bool,
 }
 
 /// Layout-only state: excludes document data, history, clipboard and general preferences.
@@ -2278,18 +2320,52 @@ impl Default for WorkspacePrefs {
             code_editor: CodeEditorPrefs::default(),
             timeline_prefs: TimelinePrefs::default(),
             drawing: DrawingPrefs::default(),
+            tools: crate::tool_preferences::ToolPreferences::default(),
             text_prefs: TextPrefs::default(),
             clipboard_prefs: ClipboardPrefs::default(),
             publish: PublishPrefs::default(),
             shortcuts: ShortcutPrefs::default(),
             named_presets: std::collections::BTreeMap::new(),
             active_named_preset: None,
+            unsaved_layout: false,
         }
     }
 }
 
 impl WorkspacePrefs {
     pub const MAX_NAMED_PRESETS: usize = 32;
+
+    pub fn active_workspace_label(&self) -> &str {
+        self.active_named_preset.as_deref().unwrap_or_else(|| {
+            if self.unsaved_layout {
+                "Unsaved layout"
+            } else {
+                self.template.label()
+            }
+        })
+    }
+
+    /// Naming-dialog validation without capturing or changing the live layout.
+    /// `true` means Save must explicitly offer Replace; Rename never replaces another preset.
+    pub(crate) fn check_named_preset(
+        &self,
+        name: &str,
+        rename_from: Option<&str>,
+    ) -> Result<bool, WorkspacePresetError> {
+        let name = preset_name(name)?;
+        let exists = self.named_presets.contains_key(name);
+        if let Some(old) = rename_from {
+            if !self.named_presets.contains_key(old) {
+                return Err(WorkspacePresetError::NotFound);
+            }
+            if exists && name != old {
+                return Err(WorkspacePresetError::AlreadyExists);
+            }
+        } else if !exists && self.named_presets.len() >= Self::MAX_NAMED_PRESETS {
+            return Err(WorkspacePresetError::LimitReached);
+        }
+        Ok(exists)
+    }
 
     /// Create a complete layout preset; an existing name is never overwritten implicitly.
     #[allow(dead_code)]
@@ -2316,6 +2392,7 @@ impl WorkspacePrefs {
         preset.sanitize();
         self.named_presets.insert(name.to_owned(), preset);
         self.active_named_preset = Some(name.to_owned());
+        self.unsaved_layout = false;
         Ok(())
     }
 
@@ -2328,6 +2405,7 @@ impl WorkspacePrefs {
         };
         preset.apply_to(self);
         self.active_named_preset = Some(name.to_owned());
+        self.unsaved_layout = false;
         true
     }
 
@@ -2357,6 +2435,7 @@ impl WorkspacePrefs {
         } else if self.active_named_preset.as_deref() == Some(new_name) {
             // The displayed arrangement still belongs to the replaced preset, not the renamed one.
             self.active_named_preset = None;
+            self.unsaved_layout = true;
         }
         Ok(())
     }
@@ -2370,6 +2449,7 @@ impl WorkspacePrefs {
         }
         if self.active_named_preset.as_deref() == Some(name) {
             self.active_named_preset = None;
+            self.unsaved_layout = true;
         }
         true
     }
@@ -2484,6 +2564,7 @@ impl WorkspaceTemplate {
                                     Project,
                                     CodeSnippets,
                                     MovieExplorer,
+                                    Brushes,
                                 ],
                                 0.55,
                             ),
@@ -2532,6 +2613,7 @@ impl WorkspaceTemplate {
                                     Project,
                                     CodeSnippets,
                                     MovieExplorer,
+                                    Brushes,
                                 ],
                                 0.5,
                             ),
@@ -2579,6 +2661,7 @@ impl WorkspaceTemplate {
                                     Project,
                                     CodeSnippets,
                                     MovieExplorer,
+                                    Brushes,
                                 ],
                                 0.5,
                             ),
@@ -2627,6 +2710,7 @@ impl WorkspaceTemplate {
                                 Project,
                                 CodeSnippets,
                                 MovieExplorer,
+                                Brushes,
                             ],
                             1.,
                         )],
@@ -2709,6 +2793,7 @@ impl WorkspacePrefs {
         }
     }
     pub fn sanitize(&mut self) {
+        self.tools.sanitize();
         self.version = VERSION;
         if !Self::UI_SCALES
             .iter()
@@ -2755,11 +2840,17 @@ impl WorkspacePrefs {
             }
         }
         self.named_presets = presets;
+        let had_named_preset = self.active_named_preset.is_some();
         self.active_named_preset = self
             .active_named_preset
             .take()
             .map(|name| name.trim().to_owned())
             .filter(|name| self.named_presets.contains_key(name));
+        if self.active_named_preset.is_some() {
+            self.unsaved_layout = false;
+        } else if had_named_preset {
+            self.unsaved_layout = true;
+        }
     }
 
     fn sanitize_layout(&mut self) {
@@ -2910,6 +3001,7 @@ impl WorkspacePrefs {
             code_editor: std::mem::take(&mut self.code_editor),
             timeline_prefs: std::mem::take(&mut self.timeline_prefs),
             drawing: std::mem::take(&mut self.drawing),
+            tools: std::mem::take(&mut self.tools),
             text_prefs: std::mem::take(&mut self.text_prefs),
             clipboard_prefs: std::mem::take(&mut self.clipboard_prefs),
             publish: std::mem::take(&mut self.publish),
@@ -3329,6 +3421,17 @@ mod tests {
         assert!(loaded.recent_colors.is_empty());
         assert!(loaded.custom_swatches.is_empty());
         assert!(loaded.document_defaults.is_none());
+
+        let mut before_brushes = loaded.clone();
+        before_brushes.show_panel(PanelId::Filters);
+        before_brushes.dock.remove(PanelId::Brushes, None);
+        let migrated = WorkspacePrefs::from_json(&serde_json::to_string(&before_brushes).unwrap());
+        assert!(migrated.dock.location(PanelId::Brushes).is_some());
+        assert!(!migrated.is_panel_visible(PanelId::Brushes));
+        assert!(
+            migrated.is_panel_active(PanelId::Filters),
+            "adding a hidden utility tab preserves the active saved tab"
+        );
 
         let mut prefs = loaded;
         prefs.show_panel(PanelId::History);

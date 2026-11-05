@@ -442,12 +442,8 @@ impl Editor {
         }
     }
 
-    /// Single-document UI offers the next candidate after the restored document is saved/closed.
-    /// R-035's future switcher can call the explicit multi-document entry point below.
+    /// Restore each candidate into an accessible tab without replacing unsaved content.
     pub(crate) fn restore_recovery_prompt(&mut self, ctx: &egui::Context) {
-        if self.dirty() && self.sessions.is_empty() {
-            return;
-        }
         self.restore_recovery_document(ctx);
     }
 
@@ -464,13 +460,12 @@ impl Editor {
             return;
         };
         let mut path = cand.original_path.clone();
-        // A clean loaded original can adopt its recovery; an independently edited view cannot.
+        // An already open original keeps its identity, even when clean. Its recovery becomes
+        // an independent tab so the existing history, selection and view are never replaced.
         let conflict = path
             .as_deref()
             .and_then(|p| self.session_for_path(p))
-            .is_some_and(|index| {
-                index != self.active_session || self.dirty() || !self.sessions.is_empty()
-            });
+            .is_some();
         let mut independent_recovery = None;
         if conflict {
             path = None;
@@ -489,7 +484,7 @@ impl Editor {
             independent_recovery = Some(recovery);
         }
         self.recovery.pop_prompt();
-        if self.dirty() || !self.sessions.is_empty() {
+        if self.has_document() {
             self.open_new_session_tab(ctx, cand.project, path);
             self.saved_project = None;
         } else {
@@ -565,14 +560,58 @@ impl Editor {
     /// Reload the open document from disk after an external modification (when clean or confirmed).
     #[allow(dead_code)]
     pub(crate) fn reload_external_modification(&mut self, ctx: &egui::Context) -> bool {
+        if !self.has_document()
+            || self.confirm.is_some()
+            || self.close_origin.is_some()
+            || self.timeline_edit.dragging()
+        {
+            return false;
+        }
         let Some(path) = self.path.clone() else {
             return false;
         };
-        let ok = self.try_open_path(path, ctx);
-        if ok {
-            self.sync_disk_mtime();
+        // Explicit Reload reads disk; ordinary Open of this path only activates the existing tab.
+        // Validate first so a read/parse failure cannot consume selection, drafts, history or recovery.
+        let mut diagnostics = Vec::new();
+        let loaded = if Self::is_legacy_flash_path(&path) {
+            neoflash_import::inspect(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|report| {
+                    diagnostics = report
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| {
+                            format!(
+                                "{} [{}]: {}",
+                                diagnostic.location, diagnostic.code, diagnostic.message
+                            )
+                        })
+                        .collect();
+                    neoflash_import::import_project(&path).map_err(|error| error.to_string())
+                })
+        } else {
+            std::fs::read_to_string(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|raw| Project::from_json(&raw).map_err(|error| error.to_string()))
+        };
+        match loaded {
+            Ok(project) => {
+                self.install_document(ctx, project, Some(path), true);
+                self.sync_disk_mtime();
+                for diagnostic in diagnostics {
+                    self.message(diagnostic);
+                }
+                self.message("Project reloaded from disk.");
+                true
+            }
+            Err(error) => {
+                self.notify_with_output(
+                    neoflash_ui::components::ToastType::Error,
+                    format!("Reload failed: {error}"),
+                );
+                false
+            }
         }
-        ok
     }
 }
 
@@ -806,6 +845,26 @@ mod tests {
         );
         assert!(!editor.dirty());
 
+        // Opening the same canonical path never reloads or consumes edits. Explicit Reload does.
+        saved_proj.name = "External change".into();
+        std::fs::write(&saved_path, saved_proj.to_json().unwrap()).unwrap();
+        editor.transact(|editor| editor.project.name = "Local edits".into());
+        assert!(editor.try_open_path(saved_path.clone(), &ctx));
+        assert_eq!(editor.project.name, "Local edits");
+        assert!(editor.history.can_undo());
+        assert!(editor.reload_external_modification(&ctx));
+        assert_eq!(editor.project.name, "External change");
+        assert_eq!(editor.session_count(), 1);
+        assert!(!editor.history.can_undo());
+        assert!(!editor.dirty());
+        editor.transact(|editor| editor.project.name = "Protected from failed reload".into());
+        let before = editor.project.clone();
+        std::fs::write(&saved_path, "{invalid").unwrap();
+        assert!(!editor.reload_external_modification(&ctx));
+        assert_eq!(editor.project, before);
+        assert!(editor.history.can_undo());
+        std::fs::write(&saved_path, saved_proj.to_json().unwrap()).unwrap();
+
         // 3. LastDocument with no existing recent files falls back to Example with a message.
         let demo = Project::demo();
         let mut editor = Editor::from_project(&ctx, Project::blank());
@@ -911,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn recovery_lifecycle_deletes_on_save_discard_new_open_quit_and_restores_on_launch() {
+    fn recovery_lifecycle_preserves_new_open_cancels_close_and_restores_in_tabs() {
         let user_dir = TempDir::new("lifecycle-user");
         let rec_dir = TempDir::new("lifecycle-rec");
         let hero_path = user_dir.path().join("Hero.nflash");
@@ -939,26 +998,49 @@ mod tests {
         assert!(editor.save_to_path(hero_path.clone()));
         assert_eq!(count_rec_files(), 0, "Save As deletes untitled recovery");
 
-        // 2. Autosave is deleted when replaced by File ▸ New (discarding changes).
+        // 2. New preserves the original document and its recovery in another tab.
         editor.transact(|e| e.project.name = "DiscardedBeforeNew".into());
         trigger_autosave(&mut editor, 100.0);
         assert_eq!(count_rec_files(), 2);
         editor.perform(Pending::New, &ctx);
-        assert_eq!(count_rec_files(), 0, "New deletes discarded recovery");
+        assert_eq!(count_rec_files(), 2, "New preserves recovery");
+        assert_eq!(editor.session_count(), 2);
 
-        // 3. Autosave is deleted when replaced by Open (`open_path`).
+        // 3. Open preserves both existing documents and their independent recovery files.
         editor.transact(|e| e.project.name = "DiscardedBeforeOpen".into());
         trigger_autosave(&mut editor, 200.0);
-        assert_eq!(count_rec_files(), 2);
+        assert_eq!(count_rec_files(), 4);
         editor.open_path(other_path.clone(), &ctx);
-        assert_eq!(count_rec_files(), 0, "Open deletes previous recovery");
+        assert_eq!(count_rec_files(), 4, "Open preserves previous recovery");
+        assert_eq!(editor.session_count(), 3);
 
-        // 4. Autosave is deleted on Discard/Close (`perform(Pending::Close)`) and clean `on_exit`.
+        // 4. A cancelled close sequence preserves all content and recovery, including earlier Discard decisions.
         editor.transact(|e| e.project.name = "DiscardedOnClose".into());
         trigger_autosave(&mut editor, 300.0);
-        assert_eq!(count_rec_files(), 2);
-        editor.perform(Pending::Close, &ctx);
-        assert_eq!(count_rec_files(), 0, "Close after Discard deletes recovery");
+        assert_eq!(count_rec_files(), 6);
+        editor.request_quit(&ctx);
+        assert_eq!(editor.active_session, 0);
+        let waiting = editor.project.clone();
+        let saved = editor.saved_project.clone();
+        assert!(!editor.try_open_path(other_path.clone(), &ctx));
+        assert!(!editor.try_open_path(user_dir.path().join("blocked.fla"), &ctx));
+        assert_eq!(editor.project, waiting);
+        assert_eq!(editor.saved_project, saved);
+        editor.continue_confirmation(&ctx); // Discard first, but deletion is deferred.
+        assert_eq!(editor.active_session, 1);
+        editor.cancel_confirmation(&ctx);
+        assert_eq!(editor.session_count(), 3);
+        assert_eq!(count_rec_files(), 6);
+        editor.request_close_documents(&ctx, false);
+        while editor.confirm.is_some() {
+            editor.continue_confirmation(&ctx);
+        }
+        assert_eq!(editor.session_count(), 0);
+        assert_eq!(
+            count_rec_files(),
+            0,
+            "completed Close all discards every target recovery"
+        );
 
         // Clean `on_exit` cleans up any stale active files, while dirty crash without `allow_close` keeps them.
         editor.allow_close = false;
@@ -1001,6 +1083,11 @@ mod tests {
         relaunched.restore_recovery_prompt(&ctx);
         assert!(!relaunched.recovery.has_prompt());
         assert_eq!(relaunched.project.name, "CrashedHeroWork");
+        assert_eq!(
+            relaunched.session_count(),
+            2,
+            "the clean launch document remains in its tab"
+        );
         assert!(relaunched.dirty(), "restored project opens as dirty");
         assert_eq!(relaunched.path.as_deref(), Some(hero_path.as_path()));
         assert!(relaunched.save(false));

@@ -1,10 +1,9 @@
-//! Workspace layout transitions. Naming and selection controls await NF2 approval.
+//! Workspace layout transitions shared by the approved R-036 menu and dialogs.
 use crate::app::Editor;
 use eframe::egui;
 
 impl Editor {
     /// Capture the live tab along with the persisted window/dock state; errors are atomic.
-    #[allow(dead_code)]
     pub(crate) fn save_named_workspace(
         &mut self,
         name: &str,
@@ -18,7 +17,6 @@ impl Editor {
     }
 
     /// Apply a saved layout without finishing edits or changing document/Undo state.
-    #[allow(dead_code)]
     pub(crate) fn apply_named_workspace(&mut self, ctx: &egui::Context, name: &str) -> bool {
         if !self.workspace.apply_named_preset(name) {
             return false;

@@ -68,7 +68,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-06 | View settings popover | Stage chrome | working | UI-only | P1 |
 | ST-07 | NF2 stage cursors | Stage chrome | done | UI-only | P1 |
 | ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | done | editor | P2 |
-| ST-09 | Toasts / progress / spinner | Window chrome | absent | UI-only | P1 |
+| ST-09 | Toasts / progress / spinner | Window chrome | partial | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
 | ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
 | PR-01 | Properties — Text (full NF2 variant) | Properties | partial | yes | P2 |
@@ -277,7 +277,22 @@ Implemented tools: Selection, Subselection, Free Transform, Gradient Transform, 
 Oval, PolyStar, Pencil, Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, Hand, Zoom. The module comment says the
 others are "omitted rather than faked". Adding a tool button is allowed only because the NF2 Tools panel contains it;
 its icon, group and order follow `panel-tools-floating` / `NF2/Tools Panel` exactly (otherwise **request**).
-The existing narrow rail opens a group from its painted corner mark, secondary click, long-press or focused →; a body click selects its remembered tool. New v2.2 panel bodies/components remain pending R-038; Trace bitmap remains R-022.
+The narrow rail opens a group from its corner mark, secondary click, long-press or focused →; a body click selects
+its remembered tool. The R-038 shared flyout rows, Brushes panel, Brush/Pencil properties and Customize tools are
+connected. Customize lists implemented tools only and edits a draft: Add appends to the selected slot, Remove
+returns a tool to Available, drag reorders, Restore default resets the draft, Cancel/Escape discards and OK saves.
+Empty slots drop on OK. The saved tool layout is global, outside named workspace presets; changing these controls
+preserves the selected tool and document Undo. Commands remains unavailable until a `.nfsl` execution contract exists.
+The approved 36 pt Brush/Pencil type header still needs a compact shared API; the existing locked `TypeHeader`
+remains 48 pt.
+
+Modify ▸ Bitmap ▸ Trace bitmap converts one selected bitmap into editable vector paths with cancellable background
+preview, colour/palette presets, curve/noise controls, fill/stroke output and Ignore white. Success preserves
+placement and the selected tool and creates one Undo; multicolour output is grouped, while a single-colour compound
+path preserves holes and islands. Limits are 4096×4096 source pixels, 20,000 contours, 1,000,000 boundary edges and
+100,000 commands per colour. Full palette retains at most 20,000 exact RGBA colours. Unsupported scripts, filters,
+non-Normal blending, bitmap caching and guided automatic-key insertion produce actionable errors without changing
+the document. The separate Bitmap properties dialog remains unavailable.
 
 **TO-01 · Rectangle primitive / Oval primitive** — done (parametric options on `Rectangle` / `Oval` in Tool options and Properties PR-02)
 - Done: `Transform.primitive: Option<PrimitiveOptions>` stores Rectangle `corner_radii: [f64; 4]` (linked by default)
@@ -332,10 +347,18 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Bucket and Ink Bottle apply the active solid or gradient paint; Eyedropper replaces the selected well with the
   sampled solid color. Properties RGB edits replace a gradient; alpha-only edits retain stops and update their alpha.
 - Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks.
-- Brush input: pressure-bearing touch and macOS tablet-point samples drive 10–100% width, with one shared draft/saved vector outline, constant mouse width and cancellation without a commit. Physical tablet acceptance and the v2.2 pressure/tilt controls remain pending.
-- Available R-034 controls: Bucket Gap size (None/Small/Medium/Large: 0/6/14/28 screen px) and Eraser Cut strokes; per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key insertion if it would move the artwork. Partial-fill erasing is not implemented. A refused cut cancels the entire gesture without mutation or Undo; reasons use status/Output until the R-044 Warning Toast host is designed.
+- Brush: Round, Flat and Chisel presets; eight tip shapes; Size 1–200 px in document units; smoothing; pressure size
+  control; Lock fill for gradient placement. The shared cursor follows zoom and ⌥⌘-drag resizes the brush. Existing
+  artwork is unchanged. Pressure-bearing touch and macOS tablet-point samples drive 10–100% width when enabled;
+  mouse input stays constant. Preview and saved strokes share geometry; cancellation leaves no commit.
+- Pencil: independent Straighten, Smooth and Ink modes, with per-tool smoothing strength based on Drawing
+  preferences. Smooth produces editable cubic curves; Ink preserves the sampled path without recognition/smoothing.
+- Remaining: physical tablet acceptance, tilt, brush modes beyond Paint normal, custom/artistic/pattern brushes,
+  advanced Pencil stroke styles/caps/joins/hinting/scaling and predictive smoothing-ahead feedback.
+- Available R-034 controls: Bucket Gap size (None/Small/Medium/Large: 0/6/14/28 screen px) and Eraser Cut strokes; per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key insertion if it would move the artwork. Partial-fill erasing is not implemented. A refused cut cancels the entire gesture without mutation or Undo; reasons appear as Warning notifications and in status/Output.
 - Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
-  actual intersections, group isolation and Undo without changing the NF2 components.
+  actual intersections, group isolation and Undo. `tool_workflow_tests.rs` covers eight pressure footprints,
+  document-unit size across zooms, Pencil modes, sticky tools, one Undo and global Customize draft/apply/cancel.
 
 **TO-08 · Fill/stroke chip → Swatches popover** — `fill_stroke_chip` · partial
 - Purpose: §6 says the chip opens the NF2 Swatches popover; today it opens an egui RGB colour picker in a rail popover.
@@ -418,15 +441,20 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Data: `Project.symbols`, library folders; Recent = editor history. Depends on: editor (scenes need TL-03).
 - Acceptance: with 300 symbols, typing filters in < 1 frame; ↵ edits the symbol; ⌥↵ edits in place.
 
-**ST-09 · Toasts / progress / spinner** — absent
-- Purpose: `NF2/Toast` Info/Success/Warning/Error for transient results (saved, exported, import warnings);
-  `NF2/Progress` and `NF2/Spinner` for long work (publish, export, import).
-- Behaviour: toasts stack bottom-centre/right (verify placement in reference), auto-dismiss Info/Success, Warning
-  and Error stay until closed, optional action ("Show in Output"). Messages also go to Output.
-- Data: editor status/messages (`Editor::message`, `status`). Depends on: UI-only (components exist:
-  `Toast`, `progress`, `spinner`). Placement not specified in §4 → **request** if unclear.
-- Acceptance: export success shows a Success toast; a failed open shows an Error toast with the message; screen
-  readers get the text.
+**ST-09 · Toasts / progress / spinner** — partial
+- Available: one R-044 notification host, at most three toasts, newest at the bottom, centred 16 pt above the canvas
+  bottom outside docks; with no canvas, above the status bar. Repeated messages coalesce and restart the timer.
+  Info/Success expire after 4 s, Warning after 6 s, Error stays until dismissed or its action is used; hover pauses
+  expiry. New notifications wait while a modal is open.
+- Routing: partial-stroke refusals use Warning; failed Save and explicit external-change reload use Error with
+  Show. Every notification also enters its originating document's Output; Show exposes its diagnostic in the active
+  document's Output after a tab switch. History lasts for the editor session, not a persistent disk log.
+- Remaining: ordinary Open/import/export and successful Save retain existing status/Output or dialog feedback.
+  General export-success/failed-Open toast routing and VoiceOver speech acceptance remain open. Progress/Spinner
+  are used by their connected operations, not a replacement for every long-running workflow.
+- Data/API: editor-only `notifications.rs` queue and `Editor::notify`; shared `Toast`, `progress`, `spinner`.
+- Acceptance: notification families cover queue limits, coalescing, modal delay, hover/expiry, canvas bounds,
+  dismissal and Output actions. Broader acceptance still requires export Success and failed-Open Error routing.
 
 **ST-10 · Dock compass** — absent (editor uses `dock_target` edge zones)
 - Purpose: `NF2/Dock Compass` — 5 drop targets (edges + centre = add as tab) shown while dragging a panel.
@@ -451,8 +479,10 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
   square handle, Primitive control points), `Transform Box` scale vs rotate/skew, Anchor / Bezier handle, Marquee,
   Shape Selection hatch, Gradient Transform focal triangle.
 - Behaviour: missing parts — radial focal handle (`editor-paint-effects` limit), on-stage primitive corner/angle handles.
-- Still `StageOverlay`: rectangle/oval/line/polystar drafts, pen/pencil draft stroke, lasso, brush/eraser size circle and the
-  gradient tool (2 handles; `NF2/Gradient Transform` has 5 that need focal/width gestures).
+- Brush uses the shared zoom-following footprint/resize cursor; Pencil retains its existing draft overlay without
+  the separately illustrated smoothing-ahead preview. Still `StageOverlay`: rectangle/oval/line/polystar drafts,
+  pen/pencil draft stroke, lasso, eraser size circle and the gradient tool (2 handles; `NF2/Gradient Transform` has 5
+  that need focal/width gestures).
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
@@ -591,8 +621,8 @@ The existing narrow rail opens a group from its painted corner mark, secondary c
 - Purpose: Library tree shows all item types with icons; document select switches between open documents; pin keeps
   the library on one document.
 - Data: images/audio/video are `ResourceUnit`s managed in `resources.rs` (separate panel). Fonts are not library
-  items (**NEW** with DL-11). Multiple open documents are not supported (`editor-workspace` limit) → document select
-  shows only the current document.
+  items (**NEW** with DL-11). Multiple documents are available through the top-bar tabs and Window document list;
+  the Library currently follows the active document. Its independent document picker and pin remain unavailable.
 - Depends on: editor. Acceptance: an imported PNG appears in the Library tree and can be dragged to the stage.
 
 ## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
@@ -878,14 +908,24 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open/Close/Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image/video/audio open planned previews; Publish settings has live HTML5 size controls |
-| Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences and Keyboard shortcuts | Editing commands require the appropriate selection/history; multiple documents are not implemented |
+| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5 Publish and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image/video/audio open planned previews; Publish settings has live HTML5 size controls |
+| Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
-| Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup | Bitmap and Symbol submenus disabled; shape hints need a shape-tween endpoint |
+| Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
-| Window | Real authoring panels, built-in workspaces/reset, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits; named workspaces and multiple documents remain planned |
+| Window | Real authoring panels including Brushes, built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, document list and Next/Previous document, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
 | Help | Open example, About NeoFlash | Documentation/F1 target is unresolved |
+
+New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
+Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts
+in tab order; Cancel or failed Save stops on that document, preserving earlier deferred Discard decisions. Closing
+the last tab shows New document/Open and disables document commands. Recovery copies open as independent tabs.
+Named workspaces save layout only, not document-tab sessions; built-in layouts and up to 32 named presets preserve
+panel visibility, active tabs, dock sizes and floating/native windows. Explicit Replace/Update, collision-safe
+Rename, Reset and Delete preserve documents and unfinished edits. Deleting the active preset keeps its arrangement
+as Unsaved layout. Tests: `document_sessions_tests`, document-strip `panel_tests`, `workspace_editor_tests`, recovery
+and notification families.
 
 Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight menus,
 checks explicitly unavailable rows, exercises View/Control/Window toggles in both directions, panel visibility,

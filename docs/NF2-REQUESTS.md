@@ -704,3 +704,17 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Available in `neoflash-ui`: `shortcuts::{ShortcutRow (new/chords/conflict/selected → row, cell), ShortcutRecorder
   (new/captured/conflict_with → accept, cancel, go_to), conflict_strip}` and `SHORTCUT_ROW / SHORTCUT_INDENT / SHORTCUT_CELL /
   SHORTCUT_RECORDER`; “▸” in menu paths renders through the NF2 Symbols fallback font. Gallery section `shortcuts`.
+
+### R-047 · Compact TypeHeader for Brush and Pencil properties
+- **Status:** open
+- **Requested by / for:** implementation track · T-029 / R-038 Brush and Pencil properties
+- **Where:** `crates/neoflash-editor/src/panels/brushes.rs::{brush_tool_contents, pencil_tool_contents}`;
+  shared `crates/neoflash-ui/src/components/inspector.rs::TypeHeader`.
+- **Need:** a shared variant matching the approved 36 pt header row and 36×36 pt icon tile, with a 20 pt tool
+  icon and a 10 pt gap before the title/subtitle.
+- **Why:** the locked `TypeHeader` always allocates a 48 pt row/tile and a 12 pt title gap; its API exposes only
+  icon, title and subtitle. The editor uses it unchanged, so these two headers cannot match the approved outline.
+- **Checked:** `interface/design-system/docs/data/outline/panels-brushes-pencil-panels.txt` Brush and Pencil
+  properties rows; `exports/panels/{dark,light}/boards/png/brushes-pencil-panels.png`; `TypeHeader` implementation.
+- **Proposal (optional):** add a compact `TypeHeader` variant/API with the approved geometry, preserving the
+  existing 48 pt default for other properties panels. No editor-local replacement or locked-file changes made.

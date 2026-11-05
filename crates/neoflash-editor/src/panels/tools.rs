@@ -30,13 +30,13 @@ const LONG_PRESS: f64 = 0.45;
 const COLOR_ACTION: f32 = 20.0;
 
 #[derive(Clone, Copy)]
-struct ToolSpec {
-    tool: Tool,
-    icon: Icon,
+pub(crate) struct ToolSpec {
+    pub(crate) tool: Tool,
+    pub(crate) icon: Icon,
     /// Tooltip name.
-    name: &'static str,
+    pub(crate) name: &'static str,
     /// Tooltip shortcut chip.
-    key: &'static str,
+    pub(crate) key: &'static str,
     /// Accessible name (kept from the earlier panel so assistive technology and tests stay stable).
     label: &'static str,
 }
@@ -119,18 +119,6 @@ const ERASER: ToolSpec = spec(Tool::Eraser, Icon::Eraser, "Eraser", "E", "Eraser
 const HAND: ToolSpec = spec(Tool::Hand, Icon::Hand, "Hand", "H", "Hand (H / hold Space)");
 const ZOOM: ToolSpec = spec(Tool::Zoom, Icon::ZoomIn, "Zoom", "Z", "Zoom (Z / M)");
 
-/// 1 Column rail: sections (separated by dividers) of tool groups (one button + flyout each).
-const RAIL: &[&[&[ToolSpec]]] = &[
-    &[&[SELECT, SUBSELECT], &[TRANSFORM, GRADIENT], &[LASSO]],
-    &[
-        &[PEN, LINE],
-        &[TEXT],
-        &[RECTANGLE, OVAL, POLYSTAR],
-        &[PENCIL, BRUSH],
-    ],
-    &[&[BUCKET, INK], &[EYEDROPPER], &[ERASER]],
-    &[&[HAND, ZOOM]],
-];
 /// 2 Columns grid, classic Flash order.
 const GRID: &[ToolSpec] = &[
     SELECT, SUBSELECT, LINE, LASSO, PEN, TEXT, OVAL, RECTANGLE, POLYSTAR, PENCIL, BRUSH, TRANSFORM,
@@ -205,7 +193,11 @@ impl Editor {
 
     /// 1 Column: as many groups as fit, then "…" listing the remaining tools and view commands.
     fn tool_rail(&mut self, ui: &mut egui::Ui) {
-        let entries = rail_entries();
+        let groups = self.tool_groups();
+        let entries = rail_entries(
+            &groups,
+            self.workspace.tools.slots == crate::tool_preferences::default_slots(),
+        );
         let available = ui.available_height();
         let total: f32 = entries.iter().map(|entry| entry.height()).sum();
         let shown = if total <= available {
@@ -271,7 +263,7 @@ impl Editor {
             return;
         }
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(220.);
+            ui.set_min_width(260.);
             let mut done = false;
             let split = hidden
                 .iter()
@@ -299,9 +291,11 @@ impl Editor {
                                 RailEntry::Group(index, group) => {
                                     for spec in group {
                                         let key = self.tool_display_key(*spec);
-                                        let mut item = nf::MenuItem::new(spec.name)
-                                            .icon(spec.icon.nf2(false))
-                                            .checked(self.tool == spec.tool);
+                                        let label = format!("{} tool", spec.name);
+                                        let mut item =
+                                            nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
+                                                .active(self.tool == spec.tool)
+                                                .width(260.);
                                         if !key.is_empty() {
                                             item = item.shortcut(&key);
                                         }
@@ -362,7 +356,13 @@ impl Editor {
 
     fn tool_grid(&mut self, ui: &mut egui::Ui) {
         section_caption(ui, "Tools");
-        for row in GRID.chunks(2) {
+        let tools: Vec<_> = self
+            .tool_groups()
+            .into_iter()
+            .flatten()
+            .filter(|spec| !matches!(spec.tool, Tool::Hand | Tool::Zoom))
+            .collect();
+        for row in tools.chunks(2) {
             tool_row(ui, |ui| {
                 for spec in row {
                     self.single_tool_button(ui, *spec);
@@ -372,8 +372,14 @@ impl Editor {
         nf::divider(ui, false);
         section_caption(ui, "View");
         tool_row(ui, |ui| {
-            for spec in VIEW {
-                self.single_tool_button(ui, *spec);
+            let view: Vec<_> = self
+                .tool_groups()
+                .into_iter()
+                .flatten()
+                .filter(|spec| matches!(spec.tool, Tool::Hand | Tool::Zoom))
+                .collect();
+            for spec in view {
+                self.single_tool_button(ui, spec);
             }
         });
     }
@@ -415,13 +421,10 @@ impl Editor {
         let shown = group[current.min(group.len() - 1)];
         let flyout = group.len() > 1;
         let response = self.tool_button(ui, shown, self.tool == shown.tool, flyout);
-        // Match the existing NF2/Tool Button's triangular mark without changing its painter:
-        // the right-angle corner is 4 pt in from the button, and both legs are 4 pt long.
         let mark_clicked = flyout
             && response.clicked()
             && response.interact_pointer_pos().is_some_and(|position| {
-                let offset = response.rect.right_bottom() - Vec2::splat(4.) - position;
-                offset.x >= 0. && offset.y >= 0. && offset.x + offset.y <= 4.
+                nf::ToolButton::corner_hit(response.rect).contains(position)
             });
         if response.clicked() && !mark_clicked {
             self.set_tool(shown.tool);
@@ -441,12 +444,13 @@ impl Editor {
         }
         let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_min_width(200.);
+            ui.set_min_width(260.);
             for (i, spec) in group.iter().enumerate() {
                 let key = self.tool_display_key(*spec);
-                let mut item = nf::MenuItem::new(spec.name)
-                    .icon(spec.icon.nf2(false))
-                    .checked(self.tool == spec.tool);
+                let label = format!("{} tool", spec.name);
+                let mut item = nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
+                    .active(i == current)
+                    .width(260.);
                 if !key.is_empty() {
                     item = item.shortcut(&key);
                 }
@@ -719,14 +723,14 @@ fn inline_options_width() -> f32 {
 
 /// One entry of the 1 Column rail.
 #[derive(Clone, Copy)]
-enum RailEntry {
-    Group(usize, &'static [ToolSpec]),
+enum RailEntry<'a> {
+    Group(usize, &'a [ToolSpec]),
     Divider,
     ZoomOut,
     Fit,
 }
 
-impl RailEntry {
+impl RailEntry<'_> {
     const BUTTON: f32 = metrics::TOOL_BUTTON + TOOL_GAP;
     fn height(self) -> f32 {
         match self {
@@ -737,20 +741,37 @@ impl RailEntry {
     }
 }
 
-fn rail_entries() -> Vec<RailEntry> {
+fn rail_entries(groups: &[Vec<ToolSpec>], default_layout: bool) -> Vec<RailEntry<'_>> {
     let mut entries = Vec::new();
-    let mut index = 0;
-    for (section, groups) in RAIL.iter().enumerate() {
-        if section > 0 {
+    for (index, group) in groups.iter().enumerate() {
+        if default_layout && [3, 7, 10].contains(&index) {
             entries.push(RailEntry::Divider);
         }
-        for group in groups.iter() {
-            entries.push(RailEntry::Group(index, group));
-            index += 1;
-        }
+        entries.push(RailEntry::Group(index, group));
     }
     entries.extend([RailEntry::ZoomOut, RailEntry::Fit]);
     entries
+}
+
+pub(crate) fn tool_catalogue() -> Vec<ToolSpec> {
+    GRID.iter().chain(VIEW).copied().collect()
+}
+impl Editor {
+    fn tool_groups(&self) -> Vec<Vec<ToolSpec>> {
+        let catalogue = tool_catalogue();
+        self.workspace
+            .tools
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let group: Vec<_> = slot
+                    .iter()
+                    .filter_map(|name| catalogue.iter().find(|s| s.name == name).copied())
+                    .collect();
+                (!group.is_empty()).then_some(group)
+            })
+            .collect()
+    }
 }
 
 fn group_memory(index: usize) -> egui::Id {

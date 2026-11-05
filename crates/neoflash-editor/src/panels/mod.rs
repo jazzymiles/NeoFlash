@@ -74,3 +74,7 @@ pub(crate) mod timeline;
 mod timeline_controls;
 mod tools;
 mod view_settings;
+
+mod brushes;
+mod customize_tools;
+mod trace_bitmap;

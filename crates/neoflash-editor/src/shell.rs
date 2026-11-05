@@ -3,50 +3,14 @@
 //! and the `NEOFLASH_SCREENSHOT` capture used to compare the native UI with the Figma exports.
 //! Everything here is built from `neoflash_ui` components; no colours or sizes are defined locally.
 use crate::app::{Editor, Tool};
+use crate::theme::DesignUi as _;
 use eframe::egui::{self, Rect, Vec2};
 use neoflash_ui::components::{self as nf, surface::ZoomAction};
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::{TextStyle, space};
-use neoflash_ui::{metrics, palette, typography};
+use neoflash_ui::tokens::space;
+use neoflash_ui::{metrics, palette};
 
 impl Editor {
-    /// Centred project title and `Unsaved` badge. Hidden when the bar is too narrow to keep the
-    /// menus and actions readable.
-    pub(crate) fn top_bar_title(&self, ui: &mut egui::Ui, bar: Rect) {
-        if bar.width() < 1180. {
-            return;
-        }
-        let p = palette(ui.ctx());
-        let name = self
-            .path
-            .as_ref()
-            .and_then(|p| p.file_stem())
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| self.project.name.clone());
-        // A child Ui does not move the parent's cursor, so the menu bar still starts at the left edge.
-        let badge = if self.dirty() { 90. } else { 0. };
-        let text_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(
-                name.clone(),
-                typography::font(TextStyle::BodyStrong),
-                p.text_primary,
-            )
-            .size()
-            .x
-        });
-        let width = text_w + badge;
-        let row = Rect::from_center_size(bar.center(), Vec2::new(width, metrics::TOP_BAR));
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(row)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
-        child.label(typography::rich(&name, TextStyle::BodyStrong).color(p.text_primary));
-        if self.dirty() {
-            child.add(nf::Badge::new("Unsaved", nf::BadgeType::Warning));
-        }
-    }
-
     /// Right side of the top bar: workspace select, Test Movie (secondary), Publish (primary).
     pub(crate) fn top_bar_actions(&mut self, ui: &mut egui::Ui) {
         use crate::commands::CommandId;
@@ -59,57 +23,54 @@ impl Editor {
             if let Some(sc) = publish_sc.as_deref() {
                 publish = publish.shortcut(sc);
             }
-            if ui.add(publish).clicked() {
+            if ui
+                .add_enabled_ui_semantic(self.has_document(), |ui| ui.add(publish))
+                .inner
+                .clicked()
+            {
                 self.export(false);
             }
             let mut test = nf::Button::new("Test Movie").icon(i16::PLAY);
             if let Some(sc) = test_sc.as_deref() {
                 test = test.shortcut(sc);
             }
-            if ui.add(test).clicked() {
+            if ui
+                .add_enabled_ui_semantic(self.has_document(), |ui| ui.add(test))
+                .inner
+                .clicked()
+            {
                 self.export(true);
             }
             // The menu bar takes the row's remaining width, so decide by window width.
             if ui.ctx().content_rect().width() >= 1280. {
-                let current = self.workspace.template;
-                let label = format!("{} workspace", current.label());
+                let label = self.workspace.active_workspace_label().to_owned();
                 nf::Select::new("workspace", &label)
                     .width(180.)
                     .show(ui, |ui| {
                         self.workspace_menu(ui, &ctx);
                     });
             }
+            self.document_strip(ui);
         });
     }
 
     /// Workspace templates + reset; shared by the top-bar select and Window ▸ Workspace.
     pub(crate) fn workspace_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::workspace::WorkspaceTemplate;
-        let current = self.workspace.template;
-        nf::menu_section(ui, "Workspaces");
-        for template in WorkspaceTemplate::ALL {
-            let item = ui
-                .add(nf::MenuItem::new(template.label()).checked(template == current))
-                .on_hover_text(template.description());
-            if item.clicked() {
-                self.apply_workspace_template(ctx, template);
-            }
-        }
-        nf::menu_separator(ui);
-        let reset = format!("Reset {} workspace", current.label());
-        if ui.add(nf::MenuItem::new(&reset)).clicked() {
-            self.restore_workspace(ctx);
-        }
+        self.named_workspace_menu(ui, ctx);
     }
 
     /// NF2 status bar (24 pt): state, document summary, shortcut chips.
     pub(crate) fn status_bar(&mut self, ctx: &egui::Context) {
         let p = palette(ctx);
         let frames = self.symbol().timeline.frame_count.max(1);
-        let summary = format!(
-            "Stage {} × {} · {} fps · {} frames",
-            self.project.width, self.project.height, self.project.fps, frames
-        );
+        let summary = if self.has_document() {
+            format!(
+                "Stage {} × {} · {} fps · {} frames",
+                self.project.width, self.project.height, self.project.fps, frames
+            )
+        } else {
+            String::new()
+        };
         // The initial status embeds the shortcut hints; the bar shows them as chips instead.
         let message = self
             .status

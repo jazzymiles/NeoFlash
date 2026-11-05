@@ -116,11 +116,11 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W1.3 snapping | Resolved: `paint_snap_ring`; open follow-up R-003 (Snapping submenu, object/pixel snapping). |
 | W1.6 gradients, W0.9 colour, W3.4 envelope | Resolved: `NF2/Gradient Bar` + `Gradient Stop`, `NF2/Color Picker`, `NF2/Anchor Point` + `EnvelopeLane` exist in `neoflash-ui/components/{gradient, color_picker, envelope}.rs`; request only what is still missing. |
 | W2.1 motion path | Resolved (R-005): `NF2/Motion Path` painter in `components/canvas.rs`. R-006 Paste motion special dialog resolved (design ready). |
-| W0.8 toasts | Toast placement/stacking and auto-dismiss timing (not specified in §4). |
+| W0.8 toasts | R-044 resolved and host connected: canvas-bottom stack, severity timers, modal delay and Output actions. General Open/import/export result routing remains partial. |
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
 | W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help (disabled) and Close panel rows are in the frame-view ⋯ menu. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
-| v2.2 tool/command/brush panels | R-038: shared components and approved bodies are missing; existing narrow-rail flyout entry points work. Commands require an authoring runtime contract; Trace bitmap remains R-022. |
+| v2.2 tool/command/brush panels | R-038 flyouts, Brushes, Brush/Pencil controls and Customize are connected; the compact 36 pt TypeHeader still needs a shared API (current component is 48 pt). Commands awaits a `.nfsl` execution contract. R-022 Trace bitmap is connected; Bitmap properties remains unavailable. |
 | W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
 | W1.1 History | Visual state for "steps after current" (dimmed?) in the History list. |
 | W3.6 Preferences | Accent colour / language / custom syntax colours imply new token behaviour — confirm or keep disabled. |
@@ -130,7 +130,33 @@ if the preview frame differs from the modal frame in any visible way, file a req
 Format: **UI** → panel file/function · **Engine** → crate/module · **API** (NEW = proposal) · **Tests** · **Registry**
 (id in `docs/progress/product.json`) · **Acceptance** (short; full criteria in the spec).
 
-**Drawing and workspace follow-ups (TO-07)** — **partial**. Brush pressure is connected to touch force and macOS tablet-point events; mouse width is unchanged. Draft, save/open, cancellation, Undo and exported vector output share the same geometry. Physical pen acceptance and v2.2 pressure/tilt controls remain pending. `authoring_geometry.rs` implements per-contour gap closing and swept partial-stroke clipping; `authoring_tools.rs` preserves fill/gradient/group data. R-034 Gap size and Cut strokes controls are wired; refused mixed-target cuts are atomic and report through status/Output. The shared Warning Toast host awaits R-044. Document sessions preserve selection/caret identity, view state, Undo and separate recovery; dirty Close/Quit and failed/cancelled Save/Open are covered by `document_sessions_tests`. Named presets preserve visibility, active tabs, dock sizes and floating/detached windows, migrate old layouts and reject unintended overwrites; `workspace_editor_tests` covers persistence and applying without changing authored work. Multiple-document and named-workspace UI remain unavailable pending R-035/R-036. Tests: core `authoring_geometry`, editor `tablet_input` and the drawing family in `vector_gesture_tests`.
+**Drawing follow-ups (TO-07)** — **partial**. Brush has eight tip shapes, document-unit Size 1–200,
+zoom-following cursor/⌥⌘ resize, smoothing, pressure size control and gradient Lock fill. Brushes lists supported
+Round/Flat/Chisel presets. Pencil has independent Straighten/Smooth/Ink modes and smoothing strength. Customize
+uses draft Add/Remove/reorder/Restore/Cancel/OK and persists global tool groups outside named layouts. Shared
+flyout rows preserve the remembered tool; gestures and panel actions keep the chosen tool active. Physical tablet
+acceptance, tilt, non-Normal paint modes, custom/artistic/pattern presets, advanced Pencil stroke options and
+predictive smoothing preview remain open. The compact type-header API remains a design-system gap. `authoring_geometry.rs`
+implements per-contour gap closing and swept partial-stroke clipping; R-034 controls preserve fill/gradient/group
+data and refuse unsupported cuts atomically with Warning notifications and status/Output. Partial-fill erasing
+remains unavailable. Tests: core `authoring_geometry`, editor `tablet_input`, `vector_gesture_tests` and
+`tool_workflow_tests`.
+
+**Documents and named workspaces** — connected under R-035/R-036. New/Open add tabs; repeat Open activates the
+existing tab. Next/Previous and Close/Close others/Close all work from document chrome and menus. Each document
+preserves selection/caret identity, view, Undo and recovery; dirty Close/Quit walks tabs in order and defers Discard
+until the sequence succeeds. The last close leaves an empty state with New/Open. Named layouts expose Save,
+explicit Replace/Update, Reset, collision-safe Rename and Delete; they preserve panel visibility, active tabs,
+dock sizes and floating/native windows, migrate old layouts and keep document drafts. Layout presets do not
+restore document-tab sessions. Tests: `document_sessions_tests`, document-strip `panel_tests`,
+`workspace_editor_tests` and recovery families.
+
+**Trace bitmap (R-022)** — connected in `panels/trace_bitmap.rs`, editor `bitmap_trace.rs` and core `bitmap_trace.rs`.
+Colour/palette presets, path/corner/noise controls, fill/stroke and Ignore white feed a cancellable background
+preview and full-image trace. Success preserves placement/tool and groups multicolour vectors in one Undo;
+Cancel/errors leave the document unchanged. Bounded sources/palettes/contours and unsupported effects produce
+explicit diagnostics; the separate Bitmap properties dialog is excluded. Core/editor bitmap-trace families cover
+holes/islands/alpha, controls, cancellation, stale targets, transforms and one Undo.
 
 ### Phase 0 — UI/editor-only (no engine change)
 
@@ -180,10 +206,16 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 - Tests: filter test; copy text format.
 - Registry: `web-publish-diagnostics`. Acceptance: spec OU-01.
 
-**W0.8 · Toasts, progress, spinner (ST-09)** — placement request §4
-- UI: `shell.rs` overlay area; `components::{Toast, progress, spinner}`; triggers from save/open/export/import results.
-- API: `Editor::notify(level, text, action)` queue (NEW, editor).
-- Tests: queue/expiry unit test. Registry: `editor-workspace`. Acceptance: spec ST-09.
+**W0.8 · Toasts, progress, spinner (ST-09)** — **partial**
+- UI/API: `notifications.rs` hosts shared NF2 Toasts, at most three above the canvas bottom (status bar fallback),
+  with coalescing, dismissal, hover pause and modal delay. Info/Success last 4 s, Warning 6 s, Error until dismissed
+  or action. `Editor::notify` also writes the originating document's Output; Show reveals the diagnostic after a
+  document switch. History is session-only.
+- Connected callers: partial-stroke Warning refusals and Save/explicit-reload Error with Show. Ordinary Open,
+  successful Save, import and export retain their existing feedback; general result routing and VoiceOver speech
+  acceptance remain open. Connected operation-specific progress/cancellation retains its own host.
+- Tests: notification queue/expiry and host-bounds/dismiss/Output families. Registry: `editor-workspace`.
+  Acceptance: spec ST-09; do not mark the broader workflow complete from host coverage alone.
 
 **W0.9 · Swatches panel + Color panel Swatches tab (PP-10, CO-03 tab part)** — **done** (`panels/swatches.rs`, `PanelId::Swatches` `⌘F9`, Color panel ⋯ `Add swatch`, `WorkspacePrefs.swatches`, format-safe gradient swatch application; persistent document swatches remain W1.9)
 - UI: new `panels/swatches.rs` from `planned_panels::swatches` (`SwatchesPopover`); Color panel ⋯ Add swatch.

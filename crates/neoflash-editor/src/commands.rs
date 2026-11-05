@@ -750,6 +750,7 @@ pub enum CommandId {
     WindowAccessibility,
     WindowMotionEditor,
     WindowProject,
+    WindowBrushes,
     WindowHidePanels,
     // Tools
     ToolSelect,
@@ -1006,6 +1007,7 @@ impl CommandId {
         Self::WindowAccessibility,
         Self::WindowMotionEditor,
         Self::WindowProject,
+        Self::WindowBrushes,
         Self::WindowHidePanels,
         Self::ToolSelect,
         Self::ToolSubselect,
@@ -1848,6 +1850,14 @@ impl CommandId {
                 defaults: &[],
                 allow_when_typing: false,
             },
+            Self::WindowBrushes => CommandMeta {
+                id: "window.brushes",
+                category: C::Window,
+                title: "Window ▸ Brushes",
+                keywords: "brush presets",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::WindowProject => CommandMeta {
                 id: "window.project",
                 category: C::Window,
@@ -2078,6 +2088,7 @@ impl CommandId {
             PanelId::Accessibility => Self::WindowAccessibility,
             PanelId::MotionEditor => Self::WindowMotionEditor,
             PanelId::Project => Self::WindowProject,
+            PanelId::Brushes => Self::WindowBrushes,
         }
     }
 

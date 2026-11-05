@@ -33,8 +33,8 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (theme, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings. Grid settings offer Dynamic (default: page-aware colour/opacity and adaptive display density) and Static (fixed manual colour/spacing), retaining the configured snapping step and saved manual colour. Failed document replacement preserves unsaved work and recovery; failed saves keep the decision open and roll back automatic formatting.",
-      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits, named workspace management and multiple-document tabs remain unavailable pending R-035/R-036. Their tested state layer preserves complete dock/window layouts and per-document selection, caret identity, history and recovery; it is not a completed UI workflow. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions (R-013..R-031) or standalone subsystems stay disabled. Dynamic grid contrast follows the page background rather than each artwork pixel. Static preserves manual colour/opacity and hides only an axis whose fixed spacing is below one screen point. New v2.2 Commands, Brushes, Brush/Pencil properties and Customize tools bodies/components remain pending R-038; their exported references are not implemented panels.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output, Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Light/Dark themes. Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; floating windows retain their own tab groups and horizontal/vertical split trees. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties separates selection and tool contexts with collapsible sections and paired fields; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in both themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (theme, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings. Grid settings offer Dynamic (default: page-aware colour/opacity and adaptive display density) and Static (fixed manual colour/spacing), retaining the configured snapping step and saved manual colour. New/Open insert tabs after the active document; opening an already open native or imported source activates its tab without reloading. Document tabs, the Window list and keyboard cycling retain independent selection, playhead, drafts, Undo and recovery. Close others, Close all and Quit ask for dirty documents in tab order; Cancel or failed Save stops on the prompted tab and preserves deferred discard decisions. Closing the last tab shows New document/Open and disables document commands. Named workspace Save/Replace/Update/Rename/Delete/Reset stores complete dock and floating-window layouts independently of documents and global tool preferences. The window notification host stacks at most three notices above the canvas or status bar, delays them during modals, coalesces repeats, pauses expiry on hover and retains messages in Output; drawing refusals and Save/internal Reload errors are connected. Customize tools edits global tool groups with draft Add/Remove/reorder, Restore default and OK/Cancel.",
+      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits remain unavailable. Open document tabs are not restored as a set on relaunch. Output history belongs to each session and is not a persistent disk log; broader operation-specific notification routing is not complete. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions or standalone subsystems stay disabled. Dynamic grid contrast follows the page background rather than each artwork pixel. Static preserves manual colour/opacity and hides only an axis whose fixed spacing is below one screen point. Commands/.nfsl execution remains undefined. Brush/Pencil headers use the existing shared TypeHeader until its approved compact variant is supplied; unsupported brush and stroke options remain disabled.",
       "items": [
         {
           "id": "docked-panels",
@@ -78,13 +78,13 @@
         },
         {
           "id": "workspace-presets",
-          "title": "Named workspace presets",
-          "status": "planned"
+          "title": "Save, update, rename, reset and delete named workspace layouts",
+          "status": "working"
         },
         {
           "id": "multiple-documents",
-          "title": "Multiple open documents",
-          "status": "planned"
+          "title": "Document tabs, document list, safe batch closing and empty-window state",
+          "status": "working"
         },
         {
           "id": "timeline-frame-view",
@@ -155,6 +155,16 @@
           "id": "tool-group-flyouts",
           "title": "Open narrow Tools groups by corner mark, right-click, hold or focused Arrow Right",
           "status": "working"
+        },
+        {
+          "id": "customize-tools",
+          "title": "Customize tool groups with draft editing and global persistence",
+          "status": "working"
+        },
+        {
+          "id": "window-notifications",
+          "title": "Stacked notifications with dismissal, expiry and Output actions",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -202,7 +212,13 @@
         "crates/neoflash-editor/src/timeline_motion_tests.rs",
         "crates/neoflash-editor/src/document_sessions.rs",
         "crates/neoflash-editor/src/document_sessions_tests.rs",
-        "crates/neoflash-editor/src/workspace_presets.rs"
+        "crates/neoflash-editor/src/workspace_presets.rs",
+        "crates/neoflash-editor/src/document_chrome.rs",
+        "crates/neoflash-editor/src/workspace_dialogs.rs",
+        "crates/neoflash-editor/src/notifications.rs",
+        "crates/neoflash-editor/src/tool_preferences.rs",
+        "crates/neoflash-editor/src/panels/customize_tools.rs",
+        "crates/neoflash-editor/src/tool_workflow_tests.rs"
       ]
     },
     {
@@ -678,12 +694,12 @@
       "category": "editor",
       "title": "Advanced vector tools",
       "status": "partial",
-      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), round vector brush with pressure-driven width from touch force and macOS tablet samples (drawing tools stay selected across consecutive gestures), vector bucket with per-contour gap choices (0/6/14/28 screen pixels) and ink bottle with active solid/gradient paints, solid-color eyedropper that stays active after sampling, whole-object/fill/stroke eraser plus Cut strokes with swept geometry hit testing and one Undo per successful gesture, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and clips the existing shape-selection hatch to visible fill/stroke geometry and authored masks. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Internal triangulation edges do not split artwork; coincident outlines remain connected and transformed gradients retain their appearance. Authoring groups preserve runtime identities and isolate their Merge members from raw drawing; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend. Moving selections preserve Guides > Objects > Grid > Pixels priority across all edges/centres, then choose the nearest target within that family on each axis. Grid visibility and snapping are independent.",
-      "limitations": "Physical tablet acceptance and pressure/tilt controls remain pending. Bucket does not perform bitmap flood fill. Cut strokes approximates touched curves and refuses masked targets, combined fill/stroke effects and unsafe guided auto-key insertion. Refusal cancels the whole gesture; status/Output gives the reason. The Warning Toast host awaits R-044; partial-fill erasing remains absent. Group requires all selected members on the current keyframe; cross-frame-only members produce a diagnostic without changing content. Gradient focal handles, the View ▸ Snapping submenu (NF2 request R-003) and nested group editing are tracked separately. Lasso uses whole-placement bounds; it does not split a fill along the lasso contour.",
+      "scope": "Line, PolyStar (polygon/star with modal sides and star point-size settings), vector Brush with eight tip shapes, document-unit size (1–200 px), zoom-aware cursor, smoothing, pressure size control, Lock fill and Option+Command-drag resize; Round/Flat/Chisel presets; independent Pencil Straighten/Smooth/Ink modes and smoothing strength (drawing tools stay selected across consecutive gestures), vector bucket with per-contour gap choices (0/6/14/28 screen pixels) and ink bottle with active solid/gradient paints, solid-color eyedropper that stays active after sampling, whole-object/fill/stroke eraser plus Cut strokes with swept geometry hit testing and one Undo per successful gesture, contact/enclosed whole-object lasso, hand/temporary Space pan, zoom and fill gradient transform. Object Drawing and planar Merge Drawing modes (`J`, Tool options, Preferences ▸ Drawing ▸ Default mode): Merge Drawing separates fill and stroke into independent elements (`Element.merge` in format 7), subtracts overlapping different-color fills, unions overlapping same-color fills without a separating stroke, slices fills crossed by strokes, splits intersecting strokes at intersection points, re-merges moved Merge shapes on drop, selects adjacent/connected strokes on double-click, and clips the existing shape-selection hatch to visible fill/stroke geometry and authored masks. Pen click on a selected path segment subdivides to insert an anchor, and Subselection Delete/Backspace or ⌥-click deletes selected anchors while preserving curve continuity. Internal triangulation edges do not split artwork; coincident outlines remain connected and transformed gradients retain their appearance. Authoring groups preserve runtime identities and isolate their Merge members from raw drawing; Modify provides arrange, Combine objects (Union, Intersect, Punch, Crop), safe static Break Apart (for authoring groups, parametric primitives, Object Drawing paths and multi-character Text / TextBox elements), transforms and group-aware alignment/distribution with exact gaps. Stage rulers, per-timeline ruler guides and a stage grid; moves, transform handles, rectangles, ovals, lines, pen anchors and path points snap to guides, objects, grid and pixels with a snap ring, configurable accuracy and ⌘-suspend. Moving selections preserve Guides > Objects > Grid > Pixels priority across all edges/centres, then choose the nearest target within that family on each axis. Grid visibility and snapping are independent. Trace bitmap converts one selected bitmap to editable coloured vector paths with cancellable live preview, colour/palette presets, Paths/Corners/Noise, Abutting/Overlapping, fills/strokes, Snap curves and Ignore white. Full tracing preserves placement and the tool, groups multicolour results and commits one Undo; a single-colour compound path retains holes and islands.",
+      "limitations": "Physical tablet-driver acceptance and tilt remain pending. Brush modes beyond Paint normal, custom/artistic/pattern presets and Pencil advanced stroke styles/caps/joins/hinting/scaling are unavailable. Brush/Pencil compact TypeHeader needs a shared NF2 API. Bucket does not perform bitmap flood fill. Cut strokes approximates touched curves and refuses masked targets, combined fill/stroke effects and unsafe guided auto-key insertion; refusal cancels the whole gesture and gives a Warning notification plus Output. Partial-fill erasing remains absent. Group requires current-keyframe members. Gradient focal handles, the View snapping submenu and nested group editing remain separate. Lasso selects whole-placement bounds. Trace is approximate vectorization, bounded to4096×4096,20,000 colours/contours,1,000,000 boundary edges and100,000 commands per colour. Full palette retains exact source RGBA; Automatic uses at most30 colours. Translucent source/placement uses disjoint boundaries to avoid added alpha. Bitmap scripts, filters, non-Normal blending, cache effects and unsafe guided auto-key insertion are refused explicitly; Bitmap Properties is a separate unfinished workflow.",
       "items": [
         {
           "id": "line-brush",
-          "title": "Line tool and round vector brush",
+          "title": "Line tool and vector brush with eight tip shapes",
           "status": "working"
         },
         {
@@ -755,6 +771,26 @@
           "id": "lasso-partial-fills",
           "title": "Select part of a fill with Lasso",
           "status": "planned"
+        },
+        {
+          "id": "brush-library",
+          "title": "Round, Flat and Chisel brush presets",
+          "status": "working"
+        },
+        {
+          "id": "brush-options",
+          "title": "Brush paint modes, tip shape, size, smoothing, pressure and fill options",
+          "status": "partial"
+        },
+        {
+          "id": "pencil-modes",
+          "title": "Pencil Straighten, Smooth and Ink modes with smoothing strength",
+          "status": "working"
+        },
+        {
+          "id": "trace-bitmap",
+          "title": "Trace bitmaps into editable vectors with live preview and Undo",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -773,7 +809,15 @@
         "crates/neoflash-editor/src/stage_view_tests.rs",
         "docs/NF2-RULERS-GUIDES-GRID.md",
         "crates/neoflash-core/src/authoring_geometry.rs",
-        "crates/neoflash-editor/src/tablet_input.rs"
+        "crates/neoflash-editor/src/tablet_input.rs",
+        "crates/neoflash-editor/src/tool_preferences.rs",
+        "crates/neoflash-editor/src/panels/brushes.rs",
+        "crates/neoflash-editor/src/tool_workflow_tests.rs",
+        "crates/neoflash-editor/src/bitmap_trace.rs",
+        "crates/neoflash-editor/src/bitmap_trace_tests.rs",
+        "crates/neoflash-editor/src/panels/trace_bitmap.rs",
+        "crates/neoflash-core/src/bitmap_trace.rs",
+        "crates/neoflash-core/tests/bitmap_trace.rs"
       ]
     },
     {
@@ -3046,8 +3090,8 @@
       "category": "platform",
       "title": "Work protection and recovery",
       "status": "implemented",
-      "scope": "Unsaved projects offer Save/Discard/Cancel before New/Open/Import/Close and macOS Quit (including Command-Q). Periodic autosave writes dirty documents atomically to `<app_support>/Recovery` every N minutes (configured in Preferences ▸ General), cleans up recovery files on save/discard/normal quit, and offers a Restore/Discard crash-recovery prompt on launch. Failed Open/Save and picker cancellation preserve the current document and recovery; save formatting rolls back on failure and is one Undo step on success. Later crash-recovery prompts wait until the current recovered document is safe, and unanswered candidates survive quitting. Session tests cover independent inactive autosave, deferred Quit decisions, cancelled Close/Quit and durable recovery copies for conflicting paths.",
-      "limitations": "Multiple-document switching controls await R-035; their state and recovery behavior are covered independently. External file-change detection has an internal reload path; broader native workflow acceptance remains pending.",
+      "scope": "Close, Close all and macOS Quit activate dirty documents in tab order for Save/Discard/Cancel; earlier discard decisions take effect only after the whole sequence is approved. Cancel and failed Save leave the prompted document active with all earlier work and recovery intact. New/Open/Import create accessible tabs and preserve existing work; opening the same native/imported source activates its current tab. Periodic autosave writes dirty documents atomically to `<app_support>/Recovery` every configured N minutes, cleans recovery on save/discard/normal quit and offers Restore/Discard at launch. Each restored copy opens independently; a path conflict creates an unnamed durable copy, and unanswered candidates survive Quit. Failed loading and cancelled pickers preserve existing documents; failed save formatting rolls back and successful formatting is one Undo step.",
+      "limitations": "External file-change detection has an internal validated reload path; broader native change-notification workflow acceptance remains pending. File → Revert remains the explicit user reload command. Document tab sets are not restored on relaunch.",
       "items": [
         {
           "id": "unsaved-prompt",

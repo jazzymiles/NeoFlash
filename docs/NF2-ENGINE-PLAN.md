@@ -498,9 +498,20 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
   buttons and the shortcut editor; shortcut sets as maps `id → KeyChord`; conflict detection = map inversion.
 - Autosave/recovery: periodic write of the document JSON to an app-support recovery folder (not next to the user's
   file) after N minutes of dirty state; restore prompt on launch (`platform-recovery`).
-- Document-session state preserves selection/caret identity, view and Undo with independent recovery; inactive autosave, Close/Quit cancellation, failed Save/Open and conflicting recovery copies are covered. The single-document UI defers later crash copies until the current one is safe. Tabs/switching controls await R-035.
-- Named presets capture visibility, active tabs, sizes and native window layouts; old DockLayout-only records migrate, and overwrite/rename/delete are explicit state operations. Management controls await R-036.
-- Tests: prefs round-trip and defaults for missing fields; shortcut conflicts; recovery file lifecycle; `document_sessions_tests` and named-workspace scenarios in `workspace_editor_tests`.
+- Document tabs and the Window list expose independent selection/caret identity, views, Undo and recovery. New/Open
+  insert after the active tab; repeat Open activates without reload. Dirty Close/Close all/Quit prompts in tab order,
+  deferring Discard until all decisions succeed; Cancel or failed Save preserves the sequence's unsaved work.
+  Inactive autosave and separate recovered tabs retain conflicting copies as unnamed documents. Closing the final
+  tab leaves an empty editor with New/Open. Ordinary Open does not reload an open path; Revert remains explicit.
+- Named workspace management exposes Save/Replace/Update/Reset/Rename/Delete for up to 32 layout presets. Visibility,
+  active tabs, sizes and floating/native windows persist; old DockLayout-only records migrate without activating
+  hidden utilities. Layout operations preserve documents and drafts; layouts do not reopen document-tab sessions.
+  Tool groups and Pencil preferences are global `WorkspacePrefs.tools`, outside named layout presets.
+- Notification state is editor-only: bounded/coalesced severity timers, modal delay and Output actions are in
+  `notifications.rs`. Partial-stroke refusals and Save/explicit-reload failures use the host; general Open/import/
+  export result routing remains partial (ST-09).
+- Tests: prefs round-trip/defaults, shortcut conflicts, recovery lifecycle, `document_sessions_tests`, document-strip
+  `panel_tests`, named-workspace `workspace_editor_tests`, notification families and `tool_workflow_tests`.
 - Registry: `editor-workspace`, `platform-recovery`, `platform-native-macos`.
 - Updates/telemetry pages stay disabled until defined (`platform-release`, `platform-extensions`).
 
@@ -534,7 +545,25 @@ export strip, tests — see [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.m
 
 ### E-29 · Remaining smaller blocks
 
-**Drawing follow-ups:** Brush pressure is connected in `tablet_input.rs`/`authoring_tools.rs`, using ordinary filled paths with no document-format change. `authoring_geometry.rs` closes independent contours by transformed endpoint distance and clips stroke centrelines against a swept capsule. Untouched contours remain exact; touched curves are bounded approximations. The editor retains original fills and gradient matrices, extends/prunes authoring groups, and rejects masked or combined fill/stroke effects before editing. Gap and partial-eraser controls await R-034; document/workspace UI awaits R-035/R-036. Physical tablet acceptance and the separate v2.2 pressure/tilt panel are still open.
+**Drawing follow-ups:** `authoring_tools.rs` shares Brush preview/commit geometry for eight tip shapes, document-unit
+size 1–200, smoothing and optional pressure from `tablet_input.rs`; output uses ordinary filled paths without a
+format change. `vector.rs` applies independent Pencil Straighten/Smooth/Ink modes with Drawing-preference strength.
+`tool_preferences.rs` persists global modes/tool slots; Customize draft changes never enter document history.
+`authoring_geometry.rs` closes independent contours by transformed endpoint distance and clips stroke centrelines
+against a swept capsule. Untouched contours remain exact; touched curves are bounded approximations. R-034 Gap/Cut
+controls retain original fills and gradient matrices, extend/prune groups and reject unsupported effects before
+editing; refusals route to Warning/Output. Open work: physical tablet acceptance, tilt, other paint modes,
+custom/artistic/pattern presets, advanced Pencil stroke controls, predictive smoothing preview and partial-fill
+erasing. The approved compact Brush/Pencil header requires a shared TypeHeader API; locked UI code is unchanged.
+
+**Trace bitmap:** core `bitmap_trace.rs` performs bounded palette reduction, connected-region/noise handling,
+contour extraction with holes/islands, polygon simplification and optional quadratic rounding. Abutting uses
+disjoint boundaries; Overlapping adds underpaint only where opacity permits it. Full palettes preserve exact RGBA
+up to 20,000 colours; source/contour/edge/command limits return diagnostics. Editor `bitmap_trace.rs` owns background
+preview/full-trace cancellation, target validation and one history transaction, retaining placement and grouping
+multicolour output. Scripts, filters, non-Normal blend/cache effects and unsafe guided auto-key insertion are
+refused without mutation. Core/editor bitmap-trace families verify alpha, topology, controls, cancellation, stale
+targets, transforms and Undo. Bitmap properties and Commands/.nfsl execution remain separate unavailable features.
 
 | Block | Model / engine | Notes |
 | --- | --- | --- |

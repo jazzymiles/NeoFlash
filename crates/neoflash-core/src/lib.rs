@@ -39,6 +39,7 @@ pub mod as_timers;
 mod authored_layers;
 mod authored_playback;
 mod authoring_geometry;
+pub mod bitmap_trace;
 mod clipboard;
 mod demo;
 mod evaluate;

@@ -276,7 +276,7 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     }
     editor.set_theme(&ctx, ThemeMode::Dark);
     editor.show_panel(PanelId::Actions);
-    editor.restore_workspace(&ctx);
+    editor.reset_active_workspace(&ctx);
     assert_eq!(editor.project, project);
     assert_eq!(editor.selection, selection);
     assert_eq!(editor.frame, 7);
@@ -924,4 +924,149 @@ fn actions_code_hints_toolbox_and_commands_edit_the_open_script() {
         "{}",
         source(&editor)
     );
+}
+
+#[test]
+fn workspace_management_dialogs_validate_replace_cancel_and_keep_document_drafts() {
+    use crate::workspace::{WorkspacePresetError, WorkspaceTemplate};
+    use crate::workspace_dialogs::WorkspaceDialog;
+    fn frame(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000., 700.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| editor.workspace_dialog(ctx),
+        )
+    }
+    fn key(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+    for theme in [ThemeMode::Dark, ThemeMode::Light] {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.set_theme(&ctx, theme);
+        editor.transact(|editor| editor.project.name = "Unsaved work".into());
+        editor.select_all();
+        editor.tool = Tool::Pencil;
+        let project = editor.project.clone();
+        let selection = editor.selection.clone();
+        let text_id = egui::Id::new("workspace-dialog-preserves-text");
+        ctx.data_mut(|data| data.insert_temp(text_id, "unfinished text".to_owned()));
+        editor.workspace.show_panel(PanelId::History);
+        editor.workspace_dialog = Some(WorkspaceDialog::Save {
+            name: "Studio".into(),
+            focus: true,
+        });
+        frame(&mut editor, &ctx, vec![]);
+        frame(&mut editor, &ctx, vec![key(egui::Key::Enter)]);
+        assert!(editor.workspace_dialog.is_none());
+        assert_eq!(editor.workspace.active_workspace_label(), "Studio");
+        let saved = editor.workspace.named_presets["Studio"].clone();
+        editor.workspace.set_panel_visible(PanelId::History, false);
+        editor.workspace_dialog = Some(WorkspaceDialog::Save {
+            name: "Studio".into(),
+            focus: false,
+        });
+        let output = frame(&mut editor, &ctx, vec![]);
+        assert!(
+            output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Replace"))
+        );
+        frame(&mut editor, &ctx, vec![key(egui::Key::Escape)]);
+        assert!(editor.workspace_dialog.is_none());
+        assert_eq!(
+            editor.workspace.named_presets["Studio"], saved,
+            "Cancel leaves the saved layout intact"
+        );
+        editor.reset_active_workspace(&ctx);
+        assert!(editor.workspace.is_panel_visible(PanelId::History));
+        editor.workspace.set_panel_visible(PanelId::History, false);
+        editor
+            .commit_workspace_dialog(&WorkspaceDialog::Save {
+                name: "Studio".into(),
+                focus: false,
+            })
+            .unwrap();
+        assert!(!editor.workspace.named_presets["Studio"].panels.history);
+        for (name, expected) in [
+            ("", WorkspacePresetError::InvalidName),
+            ("Classic", WorkspacePresetError::ReservedName),
+        ] {
+            assert_eq!(
+                editor.commit_workspace_dialog(&WorkspaceDialog::Save {
+                    name: name.into(),
+                    focus: false
+                }),
+                Err(expected)
+            );
+        }
+        editor.save_named_workspace("Other", false).unwrap();
+        let before = editor.workspace.clone();
+        assert_eq!(
+            editor.commit_workspace_dialog(&WorkspaceDialog::Rename {
+                original: "Studio".into(),
+                name: "Other".into(),
+                focus: false,
+            }),
+            Err(WorkspacePresetError::AlreadyExists)
+        );
+        assert_eq!(editor.workspace, before);
+        editor.apply_named_workspace(&ctx, "Studio");
+        editor
+            .commit_workspace_dialog(&WorkspaceDialog::Rename {
+                original: "Studio".into(),
+                name: "Drawing".into(),
+                focus: false,
+            })
+            .unwrap();
+        assert_eq!(editor.workspace.active_workspace_label(), "Drawing");
+        let layout = editor.workspace.dock.clone();
+        editor.workspace_dialog = Some(WorkspaceDialog::Delete {
+            name: "Drawing".into(),
+        });
+        frame(&mut editor, &ctx, vec![]);
+        frame(&mut editor, &ctx, vec![key(egui::Key::Enter)]);
+        assert!(editor.workspace_dialog.is_none());
+        assert_eq!(editor.workspace.active_workspace_label(), "Unsaved layout");
+        assert_eq!(editor.workspace.dock, layout);
+        let serialized = serde_json::to_string(&editor.workspace).unwrap();
+        assert_eq!(
+            crate::workspace::WorkspacePrefs::from_json(&serialized).active_workspace_label(),
+            "Unsaved layout"
+        );
+        editor.apply_workspace_template(&ctx, WorkspaceTemplate::Animator);
+        assert_eq!(editor.workspace.active_workspace_label(), "Animator");
+        assert_eq!(editor.project, project);
+        assert_eq!(editor.selection, selection);
+        assert_eq!(editor.tool, Tool::Pencil);
+        assert_eq!(
+            ctx.data(|data| data.get_temp::<String>(text_id)).as_deref(),
+            Some("unfinished text")
+        );
+        editor.undo();
+        assert_ne!(editor.project.name, project.name);
+        assert!(!editor.history.can_undo());
+    }
 }

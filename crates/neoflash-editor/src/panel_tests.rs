@@ -196,7 +196,7 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
         ],
     );
     let out = rail(&mut editor, &ctx, 0.8, vec![]);
-    let item = named_bounds(&out, "Subselection").expect("flyout lists the group");
+    let item = named_bounds(&out, "Subselection tool").expect("flyout lists the group");
     rail(
         &mut editor,
         &ctx,
@@ -228,7 +228,7 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
         ],
     );
     let out = rail(&mut editor, &ctx, 1.3, vec![]);
-    assert!(named_bounds(&out, "Subselection").is_some());
+    assert!(named_bounds(&out, "Subselection tool").is_some());
     assert!(editor.tool == crate::app::Tool::Brush);
     rail(
         &mut editor,
@@ -256,7 +256,7 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    assert!(named_bounds(&out, "Subselection").is_none());
+    assert!(named_bounds(&out, "Subselection tool").is_none());
     let subselection = named_bounds(&out, "Subselection (A)").unwrap();
     // The main button body still selects the group's remembered tool, without a flyout.
     rail(
@@ -276,7 +276,7 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     );
     let out = rail(&mut editor, &ctx, 1.6, vec![]);
     assert!(editor.tool == crate::app::Tool::Subselect);
-    assert!(named_bounds(&out, "Subselection").is_none());
+    assert!(named_bounds(&out, "Subselection tool").is_none());
 
     // Holding the same body retains the existing long-press entry path.
     rail(
@@ -289,10 +289,10 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
         ],
     );
     let out = rail(&mut editor, &ctx, 1.9, vec![]);
-    assert!(named_bounds(&out, "Subselection").is_none());
+    assert!(named_bounds(&out, "Subselection tool").is_none());
     rail(&mut editor, &ctx, 2.2, vec![]);
     let out = rail(&mut editor, &ctx, 2.3, vec![]);
-    assert!(named_bounds(&out, "Subselection").is_some());
+    assert!(named_bounds(&out, "Subselection tool").is_some());
     rail(
         &mut editor,
         &ctx,
@@ -864,7 +864,7 @@ fn visibility_restore_and_theme_keep_document_and_history_unchanged() {
     }
     frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.1, vec![]);
     editor.set_theme(&ctx, ThemeMode::Dark);
-    editor.restore_workspace(&ctx);
+    editor.reset_active_workspace(&ctx);
     let out = frame(&mut editor, &ctx, Vec2::new(1024., 720.), 0.2, vec![]);
     assert!(named_bounds(&out, "Selection (V)").is_some());
     assert!(
@@ -1360,7 +1360,7 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
         let unavailable: &[&str] = match title {
             "File" => &["Print… (⌘P)"],
             "View" => &["Preview mode", "Snapping", "Pasteboard"],
-            "Modify" => &["Bitmap", "Symbol"],
+            "Modify" => &["Symbol"],
             "Window" => &["Duplicate window (⌥⌘K)"],
             _ => &[],
         };
@@ -1631,13 +1631,22 @@ fn full_frame(
             editor.status_bar(ctx);
             editor.bitmap_textures.begin_frame(&editor.project);
             editor.prepare_docked_panel_focus(ctx);
-            if !editor.panels_hidden {
-                editor.dock_grid(ctx);
+            if editor.has_document() {
+                if !editor.panels_hidden {
+                    editor.dock_grid(ctx);
+                }
+                editor.stage(ctx);
+            } else {
+                editor.no_document_view(ctx);
             }
-            editor.stage(ctx);
             editor.draw_dialogs(ctx);
+            editor.workspace_dialog(ctx);
+            editor.customize_tools_dialog(ctx);
+            editor.trace_bitmap_dialog(ctx);
             editor.symbol_creation_dialog(ctx);
-            editor.detached_panels(ctx);
+            if editor.has_document() {
+                editor.detached_panels(ctx);
+            }
             editor.planned_panels(ctx);
         },
     )
@@ -1776,6 +1785,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     let window_row = |panel: PanelId| match panel {
         PanelId::Timeline => "Timeline (⌥⌘T)",
         PanelId::Tools => "Tools (⌘F2)",
+        PanelId::Brushes => "Brushes",
         PanelId::Properties => "Properties (⌘F3)",
         PanelId::Library => "Library (⌘L)",
         PanelId::Actions => "Actions (F9)",
@@ -1797,19 +1807,43 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         PanelId::MovieExplorer => "Movie Explorer",
     };
 
+    let click_panel_menu = |d: &mut Driver, label: &str| {
+        // A panel body can expose a button with the same name (e.g. Filters).
+        // Window's panel rows are checkboxes; target that real menu control.
+        let node = d
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == egui::accesskit::Role::CheckBox && node.label() == Some(label)
+            })
+            .unwrap_or_else(|| panic!("Window row {label}"));
+        let rect = node.1.bounds().unwrap();
+        d.press(
+            egui::pos2(
+                (rect.x0 + rect.x1) as f32 / 2.,
+                (rect.y0 + rect.y1) as f32 / 2.,
+            ),
+            egui::PointerButton::Primary,
+        );
+    };
     // Real panels: Window menu opens and closes; the tab menu's Hide closes too.
     for panel in PanelId::ALL {
         d.editor.set_panel_visible(panel, false);
         d.settle();
         d.click("Window");
-        d.click(window_row(panel));
+        click_panel_menu(&mut d, window_row(panel));
         assert!(
             d.editor.workspace.is_panel_visible(panel),
             "Window ▸ {panel:?} opens"
         );
         assert!(d.tab(panel).is_some(), "{panel:?} tab is drawn");
         d.click("Window");
-        d.click(window_row(panel));
+        click_panel_menu(&mut d, window_row(panel));
         assert!(
             !d.editor.workspace.is_panel_visible(panel),
             "Window ▸ {panel:?} closes"
@@ -1817,7 +1851,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         assert!(d.tab(panel).is_none(), "{panel:?} tab disappears");
 
         d.click("Window");
-        d.click(window_row(panel));
+        click_panel_menu(&mut d, window_row(panel));
         assert!(d.editor.workspace.is_panel_visible(panel));
         let tab = d.tab(panel).unwrap();
         d.press(tab.center(), egui::PointerButton::Secondary);
@@ -1827,7 +1861,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
             "{panel:?} tab menu ▸ Hide closes"
         );
     }
-    d.editor.restore_workspace(&d.ctx);
+    d.editor.reset_active_workspace(&d.ctx);
     d.settle();
 
     // Inactive background tabs and Hide panels: Window menu must open in 1 click, not 2.
@@ -1847,7 +1881,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         d.editor.workspace.is_panel_active(PanelId::Properties),
         "panel hidden by Hide panels opens on first click in Window menu"
     );
-    d.editor.restore_workspace(&d.ctx);
+    d.editor.reset_active_workspace(&d.ctx);
     d.settle();
 
     // Planned previews: each closes from its own chrome. Failures are collected in one pass.
@@ -1913,7 +1947,13 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     let edited = d.editor.project.clone();
     d.click("Help");
     d.click("Open example");
-    assert!(d.editor.confirm.is_some(), "Open example asks to save");
+    assert!(
+        d.editor.confirm.is_none(),
+        "Open example inserts a document tab"
+    );
+    d.editor.switch_session_tab(&d.ctx, 0);
+    d.editor.request(crate::app::Pending::CloseDocument, &d.ctx);
+    d.settle();
     d.click("Cancel");
     assert!(
         d.editor.confirm.is_none(),
@@ -2629,15 +2669,20 @@ fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_t
     d.step(vec![Event::PointerMoved(open_recent)]);
     d.settle();
     d.click("Beta.nflash");
-    assert!(d.editor.confirm.is_some(), "unsaved changes confirm opens");
-    d.click("Discard");
-    assert!(d.editor.confirm.is_none());
+    assert!(
+        d.editor.confirm.is_none(),
+        "Open recent preserves the dirty tab"
+    );
     assert_eq!(d.editor.project.name, "BetaProject");
     assert_eq!(
         std::fs::read_dir(&rec_dir).unwrap().count(),
-        0,
-        "Discard in unsaved-changes dialog deletes active recovery snapshot"
+        2,
+        "opening another document preserves the inactive recovery snapshot"
     );
+    d.editor.request_close_documents(&d.ctx, true);
+    d.settle();
+    d.click("Discard");
+    assert_eq!(std::fs::read_dir(&rec_dir).unwrap().count(), 0);
 
     // Seed two crash-recovery snapshots and test Restore and Discard buttons in `Recover unsaved work?`.
     let mut crashed_newer = Project::blank();
@@ -2690,8 +2735,8 @@ fn preferences_general_autosave_on_launch_open_recent_and_recovery_dialog_work_t
     assert!(d.editor.dirty());
     assert_eq!(d.editor.path.as_deref(), Some(alpha_path.as_path()));
 
-    // The next copy waits until the first recovered document is safe; it cannot replace it.
-    assert!(!d.texts().iter().any(|t| t == "Recover unsaved work?"));
+    // The next copy is immediately accessible while the first recovered tab stays intact.
+    assert!(d.texts().iter().any(|t| t == "Recover unsaved work?"));
     assert!(d.editor.recovery.has_prompt());
     assert!(rec_dir.join("snap-b.nflash").exists());
     // Saving the restored Alpha cleans up only snap-a and then exposes the next prompt.
@@ -4316,9 +4361,11 @@ fn file_close_revert_recent_files_and_window_hide_panels() {
     // File ▸ Close prompts when dirty and resets to blank document when performed.
     editor.transact(|e| e.project.name = "DirtyBeforeClose".into());
     editor.request(crate::app::Pending::CloseDocument, &ctx);
-    assert_eq!(editor.confirm, Some(crate::app::Pending::CloseDocument));
-    editor.confirm = None;
-    editor.perform(crate::app::Pending::CloseDocument, &ctx);
+    assert_eq!(
+        editor.confirm,
+        Some(crate::app::Pending::CloseSession(editor.active_session))
+    );
+    editor.continue_confirmation(&ctx);
     assert!(editor.path.is_none());
     assert!(!editor.dirty());
 
@@ -4939,4 +4986,57 @@ fn find_and_replace_covers_text_regex_font_colour_symbol_sound_and_undoes() {
     );
     editor.undo();
     assert_eq!(editor.project, baseline);
+}
+
+#[test]
+fn document_strip_list_close_cancel_empty_state_and_shortcuts_work_in_both_themes() {
+    for theme in [ThemeMode::Dark, ThemeMode::Light] {
+        let mut d = Driver::new();
+        d.editor.set_theme(&d.ctx, theme);
+        d.editor.transact(|e| e.project.name = "Alpha".into());
+        d.editor.request(crate::app::Pending::New, &d.ctx);
+        d.editor.transact(|e| e.project.name = "Beta".into());
+        d.settle();
+        let alpha = named_bounds(&d.out, "Alpha — unsaved").expect("visible document tab");
+        let beta = named_bounds(&d.out, "Beta — unsaved").expect("visible active document tab");
+        assert!(alpha.right() <= beta.left());
+        assert!(alpha.top() >= 0. && alpha.bottom() <= neoflash_ui::metrics::TOP_BAR);
+        assert!((96. ..=220.).contains(&alpha.width()));
+        d.press(alpha.center(), egui::PointerButton::Primary);
+        assert_eq!(d.editor.project.name, "Alpha");
+        d.editor.undo();
+        assert_ne!(d.editor.project.name, "Alpha");
+        d.editor.redo();
+        d.click("Open documents");
+        d.click("Next document");
+        assert_eq!(d.editor.project.name, "Beta");
+        d.click("Open documents");
+        d.click("Close all");
+        assert_eq!(d.editor.project.name, "Alpha");
+        d.click("Discard");
+        assert_eq!(d.editor.project.name, "Beta");
+        d.click("Cancel");
+        assert_eq!(d.editor.session_count(), 2);
+        assert_eq!(d.editor.project.name, "Beta");
+        d.editor.request_close_documents(&d.ctx, false);
+        d.settle();
+        d.click("Discard");
+        d.click("Discard");
+        d.settle();
+        assert_eq!(d.editor.session_count(), 0);
+        assert!(d.texts().iter().any(|text| text == "No document open"));
+        let before = d.editor.project.clone();
+        d.step(vec![Event::Key {
+            key: egui::Key::F6,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        assert_eq!(d.editor.project, before);
+        d.click("New document");
+        assert_eq!(d.editor.session_count(), 1);
+        assert!(!d.texts().iter().any(|text| text == "No document open"));
+        assert!(!d.editor.history.can_undo());
+    }
 }

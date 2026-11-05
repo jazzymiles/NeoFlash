@@ -388,7 +388,7 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
     render(&mut editor, vec![]);
     assert_eq!(seen.borrow().len(), PanelId::DETACHABLE.len() - 1);
     assert_eq!(editor.bottom, BottomTab::Actions);
-    editor.restore_workspace(&ctx);
+    editor.reset_active_workspace(&ctx);
     seen.borrow_mut().clear();
     render(&mut editor, vec![]);
     assert!(seen.borrow().is_empty());

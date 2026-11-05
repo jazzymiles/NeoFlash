@@ -1572,9 +1572,13 @@ impl Editor {
                 ui.close();
             }
             neoflash_ui::components::menu_separator(ui);
-            for label in ["Bitmap", "Symbol"] {
-                Self::unavailable_submenu(ui, label);
-            }
+            menu_popup(ui, "Bitmap", "Trace bitmap…", "", |ui| {
+                if menu_item_enabled(ui, self.can_trace_bitmap(), "Trace bitmap…", "").clicked() {
+                    self.open_trace_bitmap(ui.ctx());
+                    ui.close();
+                }
+            });
+            Self::unavailable_submenu(ui, "Symbol");
             menu_popup(ui, "Shape", "Add shape hint", "⇧⌘H", |ui| {
                 if menu_item_enabled(ui, self.can_add_shape_hint(), "Add shape hint", "⇧⌘H")
                     .clicked()
@@ -2202,7 +2206,9 @@ impl Editor {
             .drawing_fill_gradient
             .clone()
             .map(|mut paint| {
-                paint.matrix = matrix;
+                if self.tool != crate::app::Tool::Brush || !self.authoring_tools.brush_lock_fill {
+                    paint.matrix = matrix;
+                }
                 paint
             });
         let stroke_gradient =

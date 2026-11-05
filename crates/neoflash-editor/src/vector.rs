@@ -145,6 +145,26 @@ pub(crate) struct PathDraft {
     pub pointer_origin: Pos2,
     pub pointer_zoom: f32,
 }
+fn smooth_pencil_tangents(anchors: &mut [Anchor]) {
+    let points: Vec<_> = anchors.iter().map(|a| a.point).collect();
+    for (index, anchor) in anchors.iter_mut().enumerate() {
+        let before = points[index.saturating_sub(1)];
+        let after = points[(index + 1).min(points.len() - 1)];
+        // Catmull–Rom converted to symmetric cubic handles, bounded by adjacent segments.
+        let tangent = (after - before) / 6.;
+        let limit = if index == 0 {
+            anchor.point.distance(after)
+        } else if index + 1 == points.len() {
+            anchor.point.distance(before)
+        } else {
+            anchor
+                .point
+                .distance(before)
+                .min(anchor.point.distance(after))
+        } / 3.;
+        anchor.tangent = tangent.normalized() * tangent.length().min(limit);
+    }
+}
 impl PathDraft {
     pub fn commands(&self, closed: bool) -> Vec<PathCommand> {
         let Some(first) = self.anchors.first() else {
@@ -1078,7 +1098,26 @@ impl Editor {
             return;
         };
         let zoom = draft.pointer_zoom.max(1e-3);
-        let drawing = self.workspace.drawing.clone();
+        let mut drawing = self.workspace.drawing.clone();
+        if draft.pencil {
+            use crate::{tool_preferences::PencilMode, workspace::Tolerance};
+            if self.workspace.tools.pencil_smoothing == 0. {
+                drawing.smooth_curves = Tolerance::Off;
+            }
+            match self.workspace.tools.pencil_mode {
+                PencilMode::Straighten => {}
+                PencilMode::Smooth => {
+                    drawing.recognise_lines = Tolerance::Off;
+                    drawing.recognise_shapes = Tolerance::Off;
+                }
+                PencilMode::Ink => {
+                    drawing.recognise_lines = Tolerance::Off;
+                    drawing.recognise_shapes = Tolerance::Off;
+                    drawing.smooth_curves = Tolerance::Off;
+                    drawing.connect_lines = Tolerance::Off;
+                }
+            }
+        }
         let raw_anchors = draft.anchors.clone();
 
         // 1. Preferences ▸ Drawing ▸ Recognise shapes (Pencil only).
@@ -1124,8 +1163,19 @@ impl Editor {
                     },
                 ];
             } else if let Some(rdp_px) = drawing.smooth_curves.smooth_rdp_px() {
-                draft.anchors = simplify(&draft.anchors, rdp_px / zoom);
+                draft.anchors = simplify(
+                    &draft.anchors,
+                    rdp_px / zoom * (self.workspace.tools.pencil_smoothing as f32 / 50.),
+                );
             }
+        }
+
+        if draft.pencil
+            && self.workspace.tools.pencil_mode == crate::tool_preferences::PencilMode::Smooth
+            && drawing.smooth_curves != crate::workspace::Tolerance::Off
+            && recognised_shape.is_none()
+        {
+            smooth_pencil_tangents(&mut draft.anchors);
         }
 
         // If self-closing left a trailing point right on top of the start anchor, drop it so

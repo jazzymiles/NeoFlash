@@ -53,7 +53,11 @@ fn document_sessions_preserve_selection_history_views_and_independent_recovery()
     editor.tick_autosave(0., 1000);
     let mut second = original.clone(); // Identical authored IDs must not mix selection/history.
     second.name = "Second".into();
+    editor.open_export_lottie(None);
+    editor.last_lottie_report = Some(Default::default());
     editor.open_new_session_tab(&ctx, second.clone(), None);
+    assert!(editor.export_lottie.is_none());
+    assert!(editor.last_lottie_report.is_none());
     assert_eq!(editor.session_count(), 2);
     assert_ne!(editor.clipboard.session, first_identity);
     assert_ne!(editor.actions_editor_id(), first_widget);
@@ -132,9 +136,85 @@ fn document_sessions_preserve_selection_history_views_and_independent_recovery()
     );
     assert!(!editor.dirty());
     assert!(!editor.history.can_undo());
-    assert!(editor.switch_session_tab(&ctx, 1));
+    assert!(editor.switch_session_tab(&ctx, 2));
     assert_eq!(editor.project.name, "Second dirty");
     assert!(editor.dirty());
+    editor.project.validate().unwrap();
+
+    // Small authored public XFL fixture: imported source identity is session state, never a save
+    // destination. Reopening an alias returns to the converted document with its edits and Undo.
+    let source_dir = dir.join("authored-import");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    let source = source_dir.join("DOMDocument.xml");
+    let xml = r#"<DOMDocument platform="Windows" width="120" height="80" frameRate="24"><timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="Artwork"><frames><DOMFrame index="0" duration="1"><elements><DOMRectangleObject objectWidth="10" objectHeight="10"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#;
+    std::fs::write(&source, xml).unwrap();
+    let previous_index = editor.active_session;
+    let previous_output = editor.output.clone();
+    assert!(editor.try_open_path(source.clone(), &ctx));
+    let imported_index = editor.active_session;
+    let imported = editor.project.clone();
+    let imported_count = editor.session_count();
+    assert_eq!(imported_count, 4);
+    assert!(editor.path.is_none());
+    assert_eq!(editor.import_source, Some(source.canonicalize().unwrap()));
+    assert!(editor.dirty());
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("Authoring platform metadata")),
+        "successful import diagnostics belong to the imported document"
+    );
+    editor.transact(|editor| editor.project.name = "Edited imported document".into());
+    let edited_import = editor.project.clone();
+    assert!(editor.switch_session_tab(&ctx, previous_index));
+    assert_eq!(editor.output, previous_output);
+    assert!(editor.import_source.is_none());
+    let source_alias = source_dir.join(".").join("DOMDocument.xml");
+    assert!(editor.try_open_path(source_alias.clone(), &ctx));
+    assert_eq!(editor.active_session, imported_index);
+    assert_eq!(editor.session_count(), imported_count);
+    assert_eq!(editor.project, edited_import);
+    editor.undo();
+    assert_eq!(editor.project, imported);
+    editor.redo();
+    assert_eq!(editor.project, edited_import);
+    let converted = dir.join("converted-import.nflash");
+    assert!(editor.save_to_path(converted.clone()));
+    assert_eq!(editor.path.as_ref(), Some(&converted));
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), xml);
+    assert_eq!(editor.session_for_path(&source), None);
+    assert_eq!(editor.session_for_open_path(&source), Some(imported_index));
+    assert!(editor.switch_session_tab(&ctx, previous_index));
+    editor.import_legacy(source_alias, &ctx);
+    assert_eq!(editor.active_session, imported_index);
+    assert_eq!(editor.session_count(), imported_count);
+    assert_eq!(editor.path.as_ref(), Some(&converted));
+    assert_eq!(editor.project, edited_import);
+    assert!(editor.history.can_undo());
+    assert!(!editor.dirty());
+
+    // Failed source diagnostics stay on the current tab and do not replace its imported identity.
+    let failed_dir = dir.join("failed-import");
+    std::fs::create_dir_all(&failed_dir).unwrap();
+    let failed_source = failed_dir.join("DOMDocument.xml");
+    std::fs::write(
+        &failed_source,
+        xml.replace("</DOMDocument>", "<UnknownFeature/></DOMDocument>"),
+    )
+    .unwrap();
+    let output_count = editor.output.len();
+    assert!(!editor.try_open_path(failed_source, &ctx));
+    assert_eq!(editor.active_session, imported_index);
+    assert_eq!(editor.session_count(), imported_count);
+    assert_eq!(editor.project, edited_import);
+    assert_eq!(editor.path.as_ref(), Some(&converted));
+    assert_eq!(editor.import_source, Some(source.canonicalize().unwrap()));
+    assert!(
+        editor.output[output_count..]
+            .iter()
+            .any(|line| line.contains("UnknownFeature"))
+    );
     editor.project.validate().unwrap();
 }
 
@@ -155,8 +235,8 @@ fn document_close_quit_cancel_and_failed_open_preserve_all_unsaved_documents() {
         "a prompt pins its document"
     );
     editor.cancel_confirmation(&ctx);
-    assert_eq!(editor.active_session, 1);
-    assert_eq!(editor.project.name, "Second dirty");
+    assert_eq!(editor.active_session, 0);
+    assert_eq!(editor.project.name, "First dirty");
     assert_eq!(recovery_files(&dir), 2);
     editor.request(Pending::Close, &ctx);
     assert!(
@@ -216,7 +296,8 @@ fn document_close_quit_cancel_and_failed_open_preserve_all_unsaved_documents() {
     assert_eq!(recovery_files(&dir), 1);
     assert!(editor.close_session_tab(&ctx, 0));
     editor.continue_confirmation(&ctx);
-    assert_eq!(editor.session_count(), 1);
+    assert_eq!(editor.session_count(), 0);
+    assert!(!editor.has_document());
     assert!(!editor.dirty());
     assert_eq!(editor.project.name, Project::blank().name);
     assert!(!editor.history.can_undo());
@@ -240,20 +321,16 @@ fn multiple_recoveries_restore_without_replacing_unsaved_work() {
     relaunched.check_recovery_on_launch();
     relaunched.restore_recovery_prompt(&ctx);
     let first = relaunched.project.clone();
+    let first_index = relaunched.active_session;
     assert!(relaunched.dirty());
     assert!(relaunched.recovery.has_prompt());
     relaunched.restore_recovery_prompt(&ctx);
-    assert_eq!(
-        relaunched.project, first,
-        "single-document UI waits until the first recovery is safe"
-    );
-    relaunched.restore_recovery_in_session(&ctx);
-    assert_eq!(relaunched.session_count(), 2);
+    assert_eq!(relaunched.session_count(), 3);
     assert_ne!(relaunched.project.name, first.name);
     assert!(relaunched.dirty());
     assert!(!relaunched.recovery.has_prompt());
     assert_eq!(recovery_files(&dir), 2);
-    assert!(relaunched.switch_session_tab(&ctx, 0));
+    assert!(relaunched.switch_session_tab(&ctx, first_index));
     assert_eq!(relaunched.project, first);
     relaunched.request(Pending::Close, &ctx);
     relaunched.continue_confirmation(&ctx);
@@ -327,4 +404,54 @@ fn multiple_recoveries_restore_without_replacing_unsaved_work() {
     editor.switch_session_tab(&ctx, 0);
     assert_eq!(editor.project.name, "Original still being edited");
     assert!(editor.dirty());
+}
+
+#[test]
+fn document_insert_order_close_others_and_all_are_lossless_until_every_decision() {
+    let (mut editor, ctx, dir) = setup("close-batch");
+    editor.transact(|e| e.project.name = "A".into());
+    editor.new_document_session(&ctx);
+    editor.transact(|e| e.project.name = "C".into());
+    editor.switch_session_tab(&ctx, 0);
+    editor.request(Pending::New, &ctx);
+    editor.transact(|e| e.project.name = "B".into());
+    assert_eq!(editor.active_session, 1, "New inserts after the active tab");
+    assert_eq!(editor.sessions[0].as_ref().unwrap().project.name, "A");
+    assert_eq!(editor.sessions[2].as_ref().unwrap().project.name, "C");
+    editor.tick_autosave(0., 1000);
+    editor.tick_autosave(60., 1060);
+    assert_eq!(recovery_files(&dir), 3);
+    editor.request_close_documents(&ctx, false);
+    assert_eq!(editor.project.name, "A");
+    assert_eq!(editor.confirm, Some(Pending::CloseSessions));
+    editor.continue_confirmation(&ctx); // defer discard of A
+    assert_eq!(editor.project.name, "B");
+    editor.cancel_confirmation(&ctx);
+    assert_eq!(
+        editor.project.name, "B",
+        "Cancel stays on the prompted document"
+    );
+    assert_eq!(editor.session_count(), 3);
+    assert_eq!(recovery_files(&dir), 3);
+    editor.request_close_documents(&ctx, true);
+    assert_eq!(editor.project.name, "A");
+    editor.continue_confirmation(&ctx);
+    assert_eq!(editor.project.name, "C");
+    editor.continue_confirmation(&ctx);
+    assert_eq!(editor.session_count(), 1);
+    assert_eq!(editor.project.name, "B");
+    assert_eq!(recovery_files(&dir), 1);
+    editor.undo();
+    assert_eq!(editor.project.name, Project::blank().name);
+    editor.redo();
+    assert_eq!(editor.project.name, "B");
+    editor.request_close_documents(&ctx, false);
+    editor.continue_confirmation(&ctx);
+    assert!(!editor.has_document());
+    assert_eq!(recovery_files(&dir), 0);
+    editor.request(Pending::New, &ctx);
+    assert_eq!(editor.session_count(), 1);
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+    editor.project.validate().unwrap();
 }

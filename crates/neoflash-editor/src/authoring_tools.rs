@@ -52,6 +52,12 @@ pub(crate) struct AuthoringToolsState {
     gesture: Option<Gesture>,
     pressure_contact: Option<PressureContact>,
     pub brush_size: f32,
+    pub brush_shape: neoflash_ui::components::BrushShapeKind,
+    pub brush_smoothing: f64,
+    pub brush_pressure: bool,
+    pub brush_lock_fill: bool,
+    brush_resize: Option<(Pos2, f32)>,
+    pub brush_search: String,
     pub eraser_size: f32,
     pub eraser_mode: EraserMode,
     pub gap_close: GapCloseMode,
@@ -70,6 +76,12 @@ impl Default for AuthoringToolsState {
             gesture: None,
             pressure_contact: None,
             brush_size: 12.,
+            brush_shape: Default::default(),
+            brush_smoothing: 50.,
+            brush_pressure: true,
+            brush_lock_fill: false,
+            brush_resize: None,
+            brush_search: String::new(),
             eraser_size: 16.,
             eraser_mode: EraserMode::Objects,
             gap_close: GapCloseMode::None,
@@ -88,6 +100,9 @@ impl AuthoringToolsState {
     pub fn cancel(&mut self) {
         self.gesture = None;
         self.pressure_contact = None;
+        if let Some((_, size)) = self.brush_resize.take() {
+            self.brush_size = size;
+        }
     }
     pub fn is_drawing(&self) -> bool {
         self.gesture.is_some()
@@ -546,7 +561,7 @@ impl Editor {
                 continue;
             };
             if !draw.clip_ids.is_empty() {
-                self.message("Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
+                self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
                 return;
             }
             let Some(index) = self.target_layer_index(target) else {
@@ -565,7 +580,7 @@ impl Editor {
                     || motion_span(layer, self.frame).is_some())
                 && draw.item.transform != transform_matrix(element.transform)
             {
-                self.message("Partial stroke erasing cannot insert a keyframe inside guided motion yet. Erase at an existing keyframe, or turn off Auto keyframe for a classic tween; no artwork was changed.");
+                self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing cannot insert a keyframe inside guided motion yet. Erase at an existing keyframe, or turn off Auto keyframe for a classic tween; no artwork was changed.");
                 return;
             }
             let Some((commands, rule)) = element.to_path_commands() else {
@@ -586,7 +601,10 @@ impl Editor {
             ) {
                 Ok(result) => result,
                 Err(error) => {
-                    self.message(error.to_string());
+                    self.notify(
+                        neoflash_ui::components::ToastType::Warning,
+                        error.to_string(),
+                    );
                     return;
                 }
             };
@@ -604,7 +622,7 @@ impl Editor {
             let has_fill = fill[3] > 0 || fill_gradient.is_some();
             if has_fill && (!element.filters.is_empty() || element.blend_mode != BlendMode::Normal)
             {
-                self.message("Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; no artwork was changed.");
+                self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; no artwork was changed.");
                 return;
             }
             let mut replacements = Vec::new();
@@ -846,6 +864,35 @@ impl Editor {
             self.authoring_tools.cancel();
             return true;
         }
+        // The approved resize chord owns its whole gesture, so it cannot also lay down paint.
+        if self.tool == Tool::Brush && self.authoring_tools.gesture.is_none() {
+            let pointer = ui.input(|i| i.pointer.clone());
+            if self.authoring_tools.brush_resize.is_none()
+                && ui.input(|i| i.modifiers.alt && i.modifiers.command)
+                && pointer.primary_pressed()
+                && let Some(pos) = pointer.interact_pos().filter(|pos| view.contains(*pos))
+            {
+                self.authoring_tools.brush_resize = Some((pos, self.authoring_tools.brush_size));
+            }
+            if let Some((start, size)) = self.authoring_tools.brush_resize {
+                if let Some(pos) = pointer.interact_pos() {
+                    self.authoring_tools.brush_size =
+                        (size + (pos.x - start.x) / self.zoom.max(0.001)).clamp(1., 200.);
+                    neoflash_ui::components::brush_cursor(
+                        p,
+                        pos,
+                        self.authoring_tools.brush_shape,
+                        self.authoring_tools.brush_size * self.zoom,
+                        neoflash_ui::components::BrushCursorState::Resize,
+                        Some(&format!("{} px", self.authoring_tools.brush_size.round())),
+                    );
+                }
+                if pointer.primary_released() {
+                    self.authoring_tools.brush_resize = None;
+                }
+                return true;
+            }
+        }
         let stale = self.authoring_tools.gesture.as_ref().is_some_and(|g| {
             g.symbol != self.symbol_id()
                 || g.frame != self.frame
@@ -1059,20 +1106,34 @@ impl Editor {
                 ),
             });
             if matches!(tool, Tool::Brush | Tool::Eraser) {
-                let radius = if tool == Tool::Brush {
-                    self.authoring_tools.brush_size
+                let (size, shape, state) = if tool == Tool::Brush {
+                    (
+                        self.authoring_tools.brush_size * self.zoom,
+                        self.authoring_tools.brush_shape,
+                        neoflash_ui::components::BrushCursorState::Idle,
+                    )
                 } else {
-                    self.authoring_tools.eraser_size
-                } / 2.;
-                p.circle_stroke(
+                    (
+                        self.authoring_tools.eraser_size,
+                        neoflash_ui::components::BrushShapeKind::Round,
+                        neoflash_ui::components::BrushCursorState::Eraser,
+                    )
+                };
+                neoflash_ui::components::brush_cursor(
+                    p,
                     pos,
-                    radius,
-                    Stroke::new(3.0_f32, UiPalette::current(ui.ctx()).overlay_halo),
-                );
-                p.circle_stroke(
-                    pos,
-                    radius,
-                    Stroke::new(1.0_f32, UiPalette::current(ui.ctx()).overlay),
+                    shape,
+                    size,
+                    state,
+                    Some(&format!(
+                        "{} px",
+                        if tool == Tool::Brush {
+                            self.authoring_tools.brush_size
+                        } else {
+                            self.authoring_tools.eraser_size
+                        }
+                        .round()
+                    )),
                 );
             }
         }
@@ -1173,11 +1234,7 @@ impl Editor {
                     return;
                 }
                 let commands = if g.tool == Tool::Brush {
-                    brush_outline_with_pressure(
-                        &g.points,
-                        &g.pressures,
-                        self.authoring_tools.brush_size / g.zoom,
-                    )
+                    self.brush_gesture_commands(&g)
                 } else {
                     polyline(&g.points, false)
                 };
@@ -1393,12 +1450,8 @@ impl Editor {
             let screen = |point: Pos2| g.origin + point.to_vec2() * g.zoom;
             match g.tool {
                 Tool::Line | Tool::Brush => {
-                    if g.tool == Tool::Brush && g.pressures.iter().any(|force| *force < 1.) {
-                        let commands = brush_outline_with_pressure(
-                            &g.points,
-                            &g.pressures,
-                            self.authoring_tools.brush_size / g.zoom,
-                        );
+                    if g.tool == Tool::Brush {
+                        let commands = self.brush_gesture_commands(g);
                         if let Ok(geometry) =
                             crate::vector::tessellate(&commands, FillRule::NonZero, None, 0.3)
                         {
@@ -1423,7 +1476,7 @@ impl Editor {
                         self.stroke
                     };
                     let width = if g.tool == Tool::Brush {
-                        self.authoring_tools.brush_size
+                        self.authoring_tools.brush_size * g.zoom
                     } else {
                         self.stroke_width as f32 * g.zoom
                     };
@@ -1825,25 +1878,8 @@ impl Editor {
         };
         let width = ui.available_width();
         match self.tool {
-            Tool::Brush => {
-                let mut size = f64::from(self.authoring_tools.brush_size);
-                ui.add(
-                    nf::Field::new(&mut size, "Brush size")
-                        .prefix("Size")
-                        .unit("px")
-                        .range(1. ..=128.)
-                        .stepper()
-                        .width(width),
-                );
-                self.authoring_tools.brush_size = size as f32;
-                note(
-                    ui,
-                    "Round brush · uses Fill",
-                    Some(
-                        "Size stays constant on screen for new strokes, as in classic Flash. Existing artwork is unchanged by zoom.",
-                    ),
-                );
-            }
+            Tool::Brush => self.brush_tool_contents(ui),
+            Tool::Pencil => self.pencil_tool_contents(ui),
             Tool::Eraser => {
                 nf::Select::options(
                     ui,
@@ -2445,4 +2481,98 @@ fn oval_options_widgets(ui: &mut egui::Ui, opts: &mut OvalOptions) -> Option<egu
         changed = Some(reset.id);
     }
     changed
+}
+
+impl Editor {
+    fn brush_gesture_commands(&self, gesture: &Gesture) -> Vec<PathCommand> {
+        let mut points = gesture.points.clone();
+        let smoothing = (self.authoring_tools.brush_smoothing / 100.) as f32;
+        if smoothing > 0. && points.len() > 2 {
+            for (index, triple) in gesture.points.windows(3).enumerate() {
+                points[index + 1] =
+                    triple[1].lerp(triple[0].lerp(triple[2], 0.5), smoothing * 0.75);
+            }
+        }
+        let pressure = if self.authoring_tools.brush_pressure {
+            gesture.pressures.clone()
+        } else {
+            vec![1.; points.len()]
+        };
+        shaped_brush_outline(
+            &points,
+            &pressure,
+            self.authoring_tools.brush_size,
+            self.authoring_tools.brush_shape,
+        )
+    }
+}
+
+/// Sweep the exact same convex tip used by the shared cursor. Adjacent hulls overlap, so
+/// nonzero fill produces a continuous stroke even at corners and with stationary pressure.
+pub(crate) fn shaped_brush_outline(
+    points: &[Pos2],
+    pressures: &[f32],
+    size: f32,
+    shape: neoflash_ui::components::BrushShapeKind,
+) -> Vec<PathCommand> {
+    use neoflash_ui::components::BrushShapeKind;
+    if shape == BrushShapeKind::Round {
+        return brush_outline_with_pressure(points, pressures, size);
+    }
+    if points.is_empty() || !size.is_finite() || size <= 0. {
+        return vec![];
+    }
+    let tips: Vec<_> = points
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| {
+            let tip = shape.footprint(size * brush_force(pressures.get(i).copied()));
+            if tip.ellipse {
+                let rotation = egui::emath::Rot2::from_angle(tip.angle);
+                (0..24)
+                    .map(|n| {
+                        let angle = n as f32 * std::f32::consts::TAU / 24.;
+                        p + rotation * Vec2::new(tip.half.x * angle.cos(), tip.half.y * angle.sin())
+                    })
+                    .collect()
+            } else {
+                tip.outline(p)
+            }
+        })
+        .collect();
+    if tips.len() == 1 {
+        return polyline(&tips[0], true);
+    }
+    tips.windows(2)
+        .flat_map(|pair| {
+            polyline(
+                &convex_tip_hull(pair.iter().flatten().copied().collect()),
+                true,
+            )
+        })
+        .collect()
+}
+fn convex_tip_hull(mut points: Vec<Pos2>) -> Vec<Pos2> {
+    points.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    points.dedup();
+    if points.len() < 3 {
+        return points;
+    }
+    let cross = |a: Pos2, b: Pos2, c: Pos2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    let mut hull = Vec::new();
+    for &p in &points {
+        while hull.len() >= 2 && cross(hull[hull.len() - 2], hull[hull.len() - 1], p) <= 0. {
+            hull.pop();
+        }
+        hull.push(p);
+    }
+    let lower = hull.len();
+    for &p in points.iter().rev().skip(1) {
+        while hull.len() > lower && cross(hull[hull.len() - 2], hull[hull.len() - 1], p) <= 0. {
+            hull.pop();
+        }
+        hull.push(p);
+    }
+    hull.pop();
+    hull
 }

@@ -1122,6 +1122,7 @@ impl Editor {
         self.detached.content_header = Some(panel);
         match panel {
             PanelId::Tools => self.tools_contents(ui),
+            PanelId::Brushes => self.brushes_contents(ui),
             PanelId::Timeline => self.timeline_contents(ui),
             PanelId::Library => self.library_contents(ui),
             PanelId::Align => self.align_panel_ui(ui),

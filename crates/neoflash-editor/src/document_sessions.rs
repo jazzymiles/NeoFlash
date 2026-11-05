@@ -1,4 +1,4 @@
-//! Document-owned editor state. The switcher remains gated by NF2 request R-035.
+//! Document-owned state and lossless multi-document close sequences (R-035).
 use crate::app::{Editor, Pending, ScriptTarget};
 use eframe::egui::{self, Vec2};
 use neoflash_core::{History, ObjectEvent, Project};
@@ -32,6 +32,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     project: Project = project,
     history: History = History::new(undo_levels),
     path: Option<PathBuf> = path,
+    import_source: Option<PathBuf> = None,
     saved_project: Option<Project> = saved_project,
     editing: Vec<String> = vec![root.clone()],
     frame: u32 = 0,
@@ -87,17 +88,27 @@ impl Editor {
             incoming.saved_project = None;
         }
         incoming.exchange(self);
+        if self.sessions.is_empty() {
+            self.sessions.push(None);
+            self.active_session = 0;
+        }
         self.session_installed(ctx);
     }
 
-    #[allow(dead_code)] // No approved document switcher yet (R-035).
+    pub(crate) fn has_document(&self) -> bool {
+        !self.sessions.is_empty()
+    }
+
     pub(crate) fn session_count(&self) -> usize {
-        self.sessions.len().max(1)
+        self.sessions.len()
     }
 
     fn prepare_session_switch(&mut self, ctx: &egui::Context) {
         self.publish_controller.cancel();
+        self.bitmap_trace.cancel();
         self.publish_settings = None;
+        self.export_lottie = None;
+        self.last_lottie_report = None;
         self.debugger.reset_document();
         self.finish_edits();
         // Keep document-scoped widget IDs, but never replay delayed clipboard input after a switch.
@@ -132,7 +143,6 @@ impl Editor {
         self.normalize_selection();
     }
 
-    #[allow(dead_code)]
     pub(crate) fn new_document_session(&mut self, ctx: &egui::Context) -> usize {
         let mut project = Project::blank();
         if let Some(mut defaults) = self.workspace.document_defaults {
@@ -152,7 +162,6 @@ impl Editor {
         index
     }
 
-    #[allow(dead_code)]
     pub(crate) fn open_new_session_tab(
         &mut self,
         ctx: &egui::Context,
@@ -171,22 +180,24 @@ impl Editor {
             return index;
         }
         self.prepare_session_switch(ctx);
-        if self.sessions.is_empty() {
-            self.sessions.push(None);
-        }
+        let had_document = self.has_document();
         let recovery = self.recovery.for_document(path.as_deref());
         let mut incoming =
             DocumentSession::new(project, path, self.workspace.undo_levels as usize, recovery);
         incoming.stage_view.prefs = self.workspace.view_defaults.clone().unwrap_or_default();
         incoming.exchange(self);
-        self.sessions[self.active_session] = Some(incoming);
-        self.active_session = self.sessions.len();
-        self.sessions.push(None);
+        if had_document {
+            self.sessions[self.active_session] = Some(incoming);
+            self.active_session += 1;
+            self.sessions.insert(self.active_session, None);
+        } else {
+            self.active_session = 0;
+            self.sessions.push(None);
+        }
         self.session_installed(ctx);
         self.active_session
     }
 
-    #[allow(dead_code)]
     pub(crate) fn open_path_in_session(&mut self, ctx: &egui::Context, path: PathBuf) -> bool {
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
             return false;
@@ -214,7 +225,7 @@ impl Editor {
 
     pub(crate) fn session_for_path(&self, path: &Path) -> Option<usize> {
         let same = |other: &Path| same_path(path, other);
-        if self.path.as_deref().is_some_and(same) {
+        if self.has_document() && self.path.as_deref().is_some_and(same) {
             return Some(self.active_session);
         }
         self.sessions.iter().position(|slot| {
@@ -224,7 +235,22 @@ impl Editor {
         })
     }
 
-    #[allow(dead_code)]
+    /// Open/Import recognizes the source of an imported document without treating it as a save
+    /// destination. Save conflicts and recovery continue to use only `session_for_path`.
+    pub(crate) fn session_for_open_path(&self, path: &Path) -> Option<usize> {
+        self.session_for_path(path).or_else(|| {
+            let same = |other: &Path| same_path(path, other);
+            if self.has_document() && self.import_source.as_deref().is_some_and(same) {
+                return Some(self.active_session);
+            }
+            self.sessions.iter().position(|slot| {
+                slot.as_ref()
+                    .and_then(|session| session.import_source.as_deref())
+                    .is_some_and(same)
+            })
+        })
+    }
+
     pub(crate) fn switch_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
             return false;
@@ -247,9 +273,7 @@ impl Editor {
         true
     }
 
-    /// Request close; dirty inactive documents become the prompt's target. Cancel returns
-    /// to the original document. A request being accepted does not imply it was discarded.
-    #[allow(dead_code)]
+    /// Dirty targets become active before prompting. Cancel leaves the target selected.
     pub(crate) fn close_session_tab(&mut self, ctx: &egui::Context, index: usize) -> bool {
         if index >= self.session_count()
             || self.confirm.is_some()
@@ -276,9 +300,11 @@ impl Editor {
         self.clear_active_recovery();
         let origin = self.close_origin.take().unwrap_or(index);
         if self.sessions.len() <= 1 {
+            // Keep a valid inert backing model for existing panel APIs; it is not an open session.
+            self.install_document(ctx, Project::blank(), None, true);
             self.sessions.clear();
             self.active_session = 0;
-            self.perform(Pending::New, ctx);
+            self.message("Document closed.");
             return;
         }
         self.sessions.remove(index);
@@ -296,24 +322,43 @@ impl Editor {
         self.session_installed(ctx);
     }
 
+    pub(crate) fn cycle_document(&mut self, ctx: &egui::Context, previous: bool) {
+        let count = self.session_count();
+        if count > 1 {
+            let index = (self.active_session + if previous { count - 1 } else { 1 }) % count;
+            self.switch_session_tab(ctx, index);
+        }
+    }
+
+    pub(crate) fn request_close_documents(&mut self, ctx: &egui::Context, others: bool) {
+        self.start_close_sequence(ctx, false, others);
+    }
+
     pub(crate) fn request_quit(&mut self, ctx: &egui::Context) {
+        self.start_close_sequence(ctx, true, false);
+    }
+
+    fn start_close_sequence(&mut self, ctx: &egui::Context, quit: bool, others: bool) {
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
             return;
         }
-        self.close_origin = Some(self.active_session);
-        self.quit_approved.clear();
         self.finish_edits();
-        self.continue_quit(ctx);
+        self.close_origin = Some(self.active_session);
+        self.close_targets = (0..self.session_count())
+            .filter(|index| !others || *index != self.active_session)
+            .collect();
+        self.close_quit = quit;
+        self.quit_approved.clear();
+        self.continue_close_sequence(ctx);
     }
 
     pub(crate) fn approve_quit_document(&mut self, ctx: &egui::Context) {
-        self.close_origin.get_or_insert(self.active_session);
         self.quit_approved.push(self.active_session);
-        self.continue_quit(ctx);
+        self.continue_close_sequence(ctx);
     }
 
-    fn continue_quit(&mut self, ctx: &egui::Context) {
-        let next = (0..self.session_count()).find(|index| {
+    fn continue_close_sequence(&mut self, ctx: &egui::Context) {
+        let next = self.close_targets.iter().copied().find(|index| {
             !self.quit_approved.contains(index)
                 && if *index == self.active_session {
                     self.dirty()
@@ -325,23 +370,36 @@ impl Editor {
         });
         if let Some(index) = next {
             self.switch_session(ctx, index);
-            self.confirm = Some(Pending::Close);
-        } else {
-            // Discard is deferred until every document has a decision: a later Cancel is lossless.
+            self.confirm = Some(if self.close_quit {
+                Pending::Close
+            } else {
+                Pending::CloseSessions
+            });
+            return;
+        }
+        // Discard is deferred until every target has a decision: a later Cancel is lossless.
+        self.close_origin = None;
+        self.quit_approved.clear();
+        if self.close_quit {
             self.clear_all_session_recovery();
-            self.close_origin = None;
-            self.quit_approved.clear();
+            self.close_targets.clear();
             self.allow_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            let targets = std::mem::take(&mut self.close_targets);
+            for index in targets.into_iter().rev() {
+                self.switch_session(ctx, index);
+                self.finish_session_close(ctx, index);
+            }
         }
     }
 
-    pub(crate) fn cancel_confirmation(&mut self, ctx: &egui::Context) {
+    pub(crate) fn cancel_confirmation(&mut self, _ctx: &egui::Context) {
         self.confirm = None;
         self.quit_approved.clear();
-        if let Some(origin) = self.close_origin.take() {
-            self.switch_session(ctx, origin);
-        }
+        self.close_targets.clear();
+        self.close_quit = false;
+        self.close_origin = None;
     }
 
     pub(crate) fn continue_confirmation(&mut self, ctx: &egui::Context) {
