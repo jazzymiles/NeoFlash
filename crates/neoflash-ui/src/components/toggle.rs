@@ -228,6 +228,22 @@ impl Widget for Radio<'_> {
     }
 }
 
+/// How a [`Slider`] shows its value (R-038, the exported compositions of `NF2/Slider`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SliderValue {
+    /// Slider only (a separate label or icon names it).
+    #[default]
+    None,
+    /// Slider + 10 pt gap + numeric `NF2/Field` (74 pt, unit suffix) bound to the same value — Brush
+    /// Size, Smoothing, Trace bitmap parameters.
+    Field,
+    /// Slider + 8 pt gap + the value as `NF2/Mono Small` `text/secondary` text (read-only).
+    Inline,
+}
+
+/// Width of the numeric field in [`SliderValue::Field`].
+pub const SLIDER_FIELD: f32 = 74.0;
+
 /// `NF2/Slider` — 4 px rail, accent fill to the left, 14 px white knob. Drag, arrows step, ⇧ = ×10.
 pub struct Slider<'a> {
     value: &'a mut f64,
@@ -235,6 +251,9 @@ pub struct Slider<'a> {
     step: f64,
     width: f32,
     label: &'a str,
+    show: SliderValue,
+    unit: &'a str,
+    decimals: usize,
 }
 
 impl<'a> Slider<'a> {
@@ -246,7 +265,25 @@ impl<'a> Slider<'a> {
             step: 1.0,
             width: 140.0,
             label,
+            show: SliderValue::None,
+            unit: "",
+            decimals: 0,
         }
+    }
+    /// Value presentation next to the rail; `width` stays the rail width.
+    pub fn value(mut self, show: SliderValue) -> Self {
+        self.show = show;
+        self
+    }
+    /// Unit after the value in `Field` / `Inline` ("px", "%").
+    pub fn unit(mut self, unit: &'a str) -> Self {
+        self.unit = unit;
+        self
+    }
+    /// Decimals of the shown value (default 0).
+    pub fn decimals(mut self, decimals: usize) -> Self {
+        self.decimals = decimals;
+        self
     }
     pub fn step(mut self, step: f64) -> Self {
         self.step = step;
@@ -260,6 +297,79 @@ impl<'a> Slider<'a> {
 
 impl Widget for Slider<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
+        match self.show {
+            SliderValue::None => self.rail(ui),
+            SliderValue::Field => {
+                let Self {
+                    range,
+                    step,
+                    label,
+                    unit,
+                    decimals,
+                    ..
+                } = self;
+                let (lo, hi) = (*range.start(), *range.end());
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let rail = Slider {
+                        value: &mut *self.value,
+                        range: range.clone(),
+                        step,
+                        width: self.width,
+                        label,
+                        show: SliderValue::None,
+                        unit,
+                        decimals,
+                    }
+                    .rail(ui);
+                    let mut field = super::Field::new(self.value, label)
+                        .range(lo..=hi)
+                        .step(step)
+                        .decimals(decimals)
+                        .width(SLIDER_FIELD);
+                    if !unit.is_empty() {
+                        field = field.unit(unit);
+                    }
+                    rail | ui.add(field)
+                })
+                .inner
+            }
+            SliderValue::Inline => {
+                let text = slider_value_text(*self.value, self.decimals, self.unit);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let rail = self.rail(ui);
+                    let p = palette(ui.ctx());
+                    let fg = if ui.is_enabled() {
+                        p.text_secondary
+                    } else {
+                        p.text_disabled
+                    };
+                    let g = galley(ui, &text, TextStyle::MonoSmall, fg);
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(g.size().x.max(24.0), TOGGLE_ROW),
+                        Sense::hover(),
+                    );
+                    text_at(ui, rect.left(), rect, g, fg);
+                    rail
+                })
+                .inner
+            }
+        }
+    }
+}
+
+/// Text of [`SliderValue::Inline`]: the value with `decimals` and an optional unit ("12 px", "50 %").
+pub fn slider_value_text(value: f64, decimals: usize, unit: &str) -> String {
+    if unit.is_empty() {
+        format!("{value:.decimals$}")
+    } else {
+        format!("{value:.decimals$} {unit}")
+    }
+}
+
+impl Slider<'_> {
+    fn rail(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let (rect, mut response) =
             ui.allocate_exact_size(egui::vec2(self.width, TOGGLE_ROW), Sense::click_and_drag());

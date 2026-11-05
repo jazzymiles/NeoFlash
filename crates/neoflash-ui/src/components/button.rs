@@ -264,7 +264,15 @@ impl<'a> ToolButton<'a> {
         self.flyout = flyout;
         self
     }
+    /// Hit area of the `Flyout` corner mark (R-038): the bottom-right 12 × 12 pt of the button
+    /// `rect`. A click there opens the group's flyout without switching the tool.
+    pub fn corner_hit(rect: egui::Rect) -> egui::Rect {
+        egui::Rect::from_min_max(rect.max - egui::vec2(CORNER_HIT, CORNER_HIT), rect.max)
+    }
 }
+
+/// Side of the [`ToolButton::corner_hit`] square.
+pub const CORNER_HIT: f32 = 12.0;
 
 impl Widget for ToolButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {

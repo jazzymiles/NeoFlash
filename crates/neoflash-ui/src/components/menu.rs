@@ -18,6 +18,7 @@ pub struct MenuItem<'a> {
     submenu: bool,
     icon: Option<Icon>,
     danger: bool,
+    highlighted: bool,
 }
 
 impl<'a> MenuItem<'a> {
@@ -29,6 +30,7 @@ impl<'a> MenuItem<'a> {
             submenu: false,
             icon: None,
             danger: false,
+            highlighted: false,
         }
     }
     pub fn shortcut(mut self, shortcut: &'a str) -> Self {
@@ -47,6 +49,12 @@ impl<'a> MenuItem<'a> {
     }
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+    /// Keyboard-highlighted row of a menu driven by ↑↓ (quick-fix menu, R-033): drawn like hover
+    /// (`bg/hover`) without the pointer. The caller owns the highlighted index and handles ↩ / Esc.
+    pub fn highlighted(mut self, highlighted: bool) -> Self {
+        self.highlighted = highlighted;
         self
     }
     /// Destructive command ("Delete layer"). Red only for destruction.
@@ -75,7 +83,7 @@ impl Widget for MenuItem<'_> {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(width, ROW), Sense::click());
         let s = State::of(ui, &response);
         let open = self.submenu && response.hovered();
-        if s.enabled && (s.hovered || open) {
+        if s.enabled && (s.hovered || open || self.highlighted) {
             ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
         }
         let fg = if !s.enabled {

@@ -32,8 +32,14 @@
 //! | Color picker (saturation/brightness area, hue and alpha strips) | [`color_picker`] |
 //! | Gradient stop, Gradient bar | [`gradient`] |
 //! | Anchor point, Edit envelope channel lane | [`envelope`] |
+//! | Document tab (R-035) | [`headers`] |
+//! | Inline message line (R-032 / R-033 / R-036 / R-022) | [`display`] |
+//! | Publish weight bar, legend and totals (R-032) | [`weight`] |
+//! | Range underline and Error peek (R-033) | [`code`] |
+//! | Tool flyout item, Brush preset, Brush shape, Brush cursor, `NF2 Brush/*` strokes (v2.2, R-038) | [`brushes`] |
 
 pub mod breadcrumb;
+pub mod brushes;
 pub mod button;
 pub mod canvas;
 pub mod code;
@@ -59,18 +65,25 @@ pub mod toggle;
 pub mod tree;
 pub mod unavailable;
 pub mod view_settings;
+pub mod weight;
 
 pub use breadcrumb::{BreadcrumbItem, BreadcrumbType, breadcrumb_overflow, breadcrumb_separator};
+pub use brushes::{
+    BrushCursorState, BrushPreset, BrushShape, BrushShapeKind, BrushStroke, ToolFlyoutItem,
+    brush_cursor, brush_stroke_sample,
+};
 pub use button::{Button, ButtonType, IconButton, IconButtonSize, IconButtonType, ToolButton};
-pub use code::{CompilerMessage, Gutter, LogLine, Severity};
+pub use code::{
+    CompilerMessage, ErrorPeek, ErrorPeekResponse, Gutter, LogLine, Severity, paint_range_underline,
+};
 pub use color::{
     ColorWell, ColorWellTarget, FillStrokeChip, IconGroup, RegistrationPicker, RegistrationPoint,
     SwatchCell,
 };
 pub use color_picker::ColorPicker;
 pub use display::{
-    Badge, BadgeType, EmptyState, Toast, ToastType, divider, kbd, logo, progress, spinner, swatch,
-    tooltip,
+    Badge, BadgeType, EmptyState, InlineMessage, InlineMessageType, Toast, ToastType, divider, kbd,
+    logo, progress, spinner, swatch, tooltip,
 };
 pub use docking::{dock_target, drag_ghost_at};
 pub use ease::{EaseGraph, EasePreset, EasePresetKind, EaseRange, ease_preview_track};
@@ -78,7 +91,8 @@ pub use envelope::{AnchorPoint, EnvelopeLane};
 pub use field::{ColorField, Field, LineStyle, LineStyleSelect, Search, Select, TextField};
 pub use gradient::{GradientBar, GradientStop};
 pub use headers::{
-    DialogHeader, DockTab, FloatingPanelHeader, PanelHeader, PanelTab, ScriptTab, SectionHeader,
+    DialogHeader, DockTab, DocumentTab, DocumentTabResponse, FloatingPanelHeader, PanelHeader,
+    PanelTab, ScriptTab, SectionHeader,
 };
 pub use inspector::{DragField, TypeHeader};
 pub use menu::{
@@ -90,10 +104,11 @@ pub use segmented::Segmented;
 pub use surface::{Surface, ZoomControl};
 pub use swatches::{GradientSwatch, SwatchesPopover, SwatchesResponse, default_palette};
 pub use text_area::TextArea;
-pub use toggle::{Checkbox, Radio, Slider, Switch};
+pub use toggle::{Checkbox, Radio, Slider, SliderValue, Switch};
 pub use tree::{TableRow, TableRowKind, TreeItem, TreeItemType};
 pub use unavailable::{NOT_AVAILABLE, not_available};
 pub use view_settings::{ViewSettings, ViewSettingsResponse, ViewSettingsState};
+pub use weight::{WeightBar, WeightPart, WeightSegment, weight_legend, weight_totals};
 
 use crate::theme::{cr, focus_ring, keyboard_focus};
 use eframe::egui::{self, Color32, Rect, Response, Stroke, StrokeKind, Ui};
@@ -156,6 +171,41 @@ pub(crate) fn galley(
         egui::text::LayoutJob::single_section(text, crate::typography::format_line(style, color));
     job.wrap.max_rows = 1;
     job.wrap.break_anywhere = true;
+    ui.fonts_mut(|f| f.layout_job(job))
+}
+
+/// [`galley`] limited to `max_width`, ending with "…" when the text does not fit.
+pub(crate) fn galley_truncated(
+    ui: &Ui,
+    text: &str,
+    style: crate::TextStyle,
+    color: Color32,
+    max_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        crate::typography::format_line(style, color),
+    );
+    job.wrap.max_width = max_width.max(0.0);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('…');
+    ui.fonts_mut(|f| f.layout_job(job))
+}
+
+/// Multi-line text wrapped at `width` with the style's line height (inline messages).
+pub(crate) fn galley_wrapped(
+    ui: &Ui,
+    text: &str,
+    style: crate::TextStyle,
+    color: Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        crate::typography::format(style, color),
+    );
+    job.wrap.max_width = width.max(1.0);
     ui.fonts_mut(|f| f.layout_job(job))
 }
 

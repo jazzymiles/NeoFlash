@@ -709,9 +709,180 @@ impl Widget for LogLine<'_> {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Diagnostic range underline and Error peek (R-033)
+
+/// Half period of the range underline zigzag (Figma: 47 pt range = 32 half periods).
+pub const UNDERLINE_HALF_PERIOD: f32 = 1.46875;
+/// Peak-to-peak height of the range underline.
+pub const UNDERLINE_AMPLITUDE: f32 = 2.0;
+/// Stroke width of the range underline.
+pub const UNDERLINE_STROKE: f32 = 1.2;
+
+/// Points of the wavy range underline under `x` (screen range of the exact source range). `y` is the
+/// bottom edge of the text line: the wave runs between `y` and `y + 2`, starting low, so it sits in
+/// the 4 pt band below the glyphs like `Range underline · error` (Figma `129:18649`).
+pub fn range_underline_points(x: egui::Rangef, y: f32) -> Vec<egui::Pos2> {
+    let width = x.span().max(0.0);
+    let steps = ((width / UNDERLINE_HALF_PERIOD).round() as usize).max(2);
+    let dx = width / steps as f32;
+    (0..=steps)
+        .map(|i| {
+            let low = i % 2 == 0;
+            egui::pos2(
+                x.min + dx * i as f32,
+                if low { y + UNDERLINE_AMPLITUDE } else { y },
+            )
+        })
+        .collect()
+}
+
+/// Wavy range underline (R-033): 1.2 pt zigzag, 2 pt high, `syntax/error` for errors and
+/// `syntax/warning` for warnings (Info / Success use their [`Severity::color`]). The gutter and
+/// overview marks stay as they are.
+pub fn paint_range_underline(painter: &egui::Painter, x: egui::Rangef, y: f32, severity: Severity) {
+    let p = palette(painter.ctx());
+    painter.add(egui::Shape::line(
+        range_underline_points(x, y),
+        Stroke::new(UNDERLINE_STROKE, severity.color(p)),
+    ));
+}
+
+/// Error peek under a diagnostic line (`Error peek` in the Actions panel, warning variant
+/// `Warning peek`, Figma `129:18651` / `129:18670`): `danger/subtle` or `warning/subtle` fill, 1 pt
+/// `syntax/error` or `syntax/warning` border, radius md, 10 × 6 padding; 16 pt severity icon,
+/// `NF2/Small` message and an optional `NF2/Small Strong` accent action ("Quick fix ⌘.", "2 fixes ⌘.").
+#[must_use = "call .show(ui)"]
+pub struct ErrorPeek<'a> {
+    severity: Severity,
+    message: &'a str,
+    action: Option<&'a str>,
+    max_width: Option<f32>,
+}
+
+/// Result of [`ErrorPeek::show`].
+pub struct ErrorPeekResponse {
+    pub response: Response,
+    /// The action text (quick fix) when shown; click = run it.
+    pub action: Option<Response>,
+}
+
+impl ErrorPeekResponse {
+    pub fn action_clicked(&self) -> bool {
+        self.action.as_ref().is_some_and(Response::clicked)
+    }
+}
+
+impl<'a> ErrorPeek<'a> {
+    /// `Error` or `Warning` (other severities use the neutral `bg/hover` fill).
+    pub fn new(severity: Severity, message: &'a str) -> Self {
+        Self {
+            severity,
+            message,
+            action: None,
+            max_width: None,
+        }
+    }
+    pub fn action(mut self, action: &'a str) -> Self {
+        self.action = Some(action);
+        self
+    }
+    /// Cap the hugging width (the message ends with "…").
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width);
+        self
+    }
+
+    pub fn show(self, ui: &mut Ui) -> ErrorPeekResponse {
+        let p = palette(ui.ctx());
+        let pad = egui::vec2(10.0, 6.0);
+        let action = self
+            .action
+            .map(|a| galley(ui, a, TextStyle::SmallStrong, p.accent_default));
+        let action_w = action.as_ref().map_or(0.0, |g| space::S2 + g.size().x);
+        let fixed = pad.x * 2.0 + 16.0 + space::S2 + action_w;
+        let max = self.max_width.unwrap_or(f32::INFINITY);
+        let message = super::galley_truncated(
+            ui,
+            self.message,
+            TextStyle::Small,
+            p.text_primary,
+            (max - fixed).max(24.0),
+        );
+        let width = fixed + message.size().x;
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, 16.0 + pad.y * 2.0 + 2.0), Sense::hover());
+        let border = match self.severity {
+            Severity::Error | Severity::Warning => self.severity.color(p),
+            _ => p.border_default,
+        };
+        let mut out_action = None;
+        if ui.is_rect_visible(rect) {
+            ui.painter()
+                .rect_filled(rect, cr(radius::MD), self.severity.fill(p));
+            ui.painter().rect_stroke(
+                rect,
+                cr(radius::MD),
+                Stroke::new(1.0_f32, border),
+                egui::StrokeKind::Inside,
+            );
+            let icon = Rect::from_min_size(
+                egui::pos2(rect.left() + pad.x, rect.center().y - 8.0),
+                egui::vec2(16.0, 16.0),
+            );
+            icons::paint(
+                ui.painter(),
+                ui.ctx(),
+                icon,
+                self.severity.icon(),
+                self.severity.color(p),
+            );
+            let x = icon.right() + space::S2;
+            let mw = message.size().x;
+            super::text_at(ui, x, rect, message, p.text_primary);
+            if let Some(g) = action {
+                let ax = x + mw + space::S2;
+                let hit = Rect::from_min_size(
+                    egui::pos2(ax, rect.top()),
+                    egui::vec2(g.size().x, rect.height()),
+                );
+                let r = ui.interact(hit, response.id.with("action"), Sense::click());
+                let c = if r.hovered() {
+                    p.accent_hover
+                } else {
+                    p.accent_default
+                };
+                super::text_at(ui, ax, rect, g, c);
+                if let Some(label) = self.action {
+                    a11y(&r, egui::WidgetType::Button, label, None);
+                }
+                out_action = Some(r.on_hover_cursor(egui::CursorIcon::PointingHand));
+            }
+        }
+        let label = format!("{}: {}", self.severity.label(), self.message);
+        a11y(&response, egui::WidgetType::Label, &label, None);
+        ErrorPeekResponse {
+            response,
+            action: out_action,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn range_underline_matches_the_reference_wave() {
+        // Figma `Range underline · error`: 47 pt wide, 32 half periods, y 1…3 in a 4 pt band.
+        let pts = range_underline_points(egui::Rangef::new(10.0, 57.0), 100.0);
+        assert_eq!(pts.len(), 33);
+        assert_eq!(pts[0], egui::pos2(10.0, 102.0));
+        assert_eq!(pts[1].y, 100.0);
+        assert!((pts[32].x - 57.0).abs() < 1e-4);
+        // A one-character range still gets a visible wave.
+        assert!(range_underline_points(egui::Rangef::new(0.0, 1.0), 0.0).len() >= 3);
+    }
 
     fn kinds(src: &str) -> Vec<(&str, Token)> {
         tokens(src)

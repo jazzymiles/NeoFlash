@@ -4,6 +4,7 @@
 //! cargo run -p neoflash-ui --example gallery              # interactive, Dark
 //! cargo run -p neoflash-ui --example gallery -- light     # Light
 //! cargo run -p neoflash-ui --example gallery -- dark  target/ui-shots/gallery-dark.png   # save a PNG and quit
+//! NF2_GALLERY_SECTION=answers cargo run -p neoflash-ui --example gallery -- dark x.png  # design-answer pieces
 //! ```
 //! Compare the PNG with `interface/design-system/docs/illustrations/*.png`.
 use eframe::egui;
@@ -57,6 +58,13 @@ struct Gallery {
     line: c::LineStyle,
     reg: c::RegistrationPoint,
     dock_tab: usize,
+    document: usize,
+    fix: usize,
+    flyout: usize,
+    preset: usize,
+    shape: usize,
+    brush_size: f64,
+    smoothing: f64,
 }
 
 impl eframe::App for Gallery {
@@ -70,6 +78,8 @@ impl eframe::App for Gallery {
             self.name = "Ideas in motion".into();
             self.search = String::new();
             self.color = egui::Color32::from_rgb(0x23, 0x30, 0x43);
+            self.brush_size = 12.0;
+            self.smoothing = 50.0;
         }
         self.frames += 1;
         let p = palette(ctx);
@@ -882,6 +892,318 @@ impl eframe::App for Gallery {
                         cv::paint_snap_ring(&painter, ui.ctx(), egui::pos2(x0 + 400.0, y), true);
                     }
                     if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "planned") {
+                        ui.scroll_to_cursor_animation(
+                            Some(egui::Align::BOTTOM),
+                            egui::style::ScrollAnimation::none(),
+                        );
+                    }
+
+                    // Shared pieces of the 5 November 2026 design answers (R-022, R-032, R-033, R-035,
+                    // R-036, R-038; Figma “Answers — Codex batch” `124:18100` / `132:19052` and the v2.2
+                    // shelf “Brushes & tool flyouts” `96:793`).
+                    title(ui, "Document tabs · inline messages · publish weight · diagnostics");
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        for (i, (name, dirty)) in [
+                            ("Ideas in motion", true),
+                            ("Game menu", false),
+                            ("Logo sting", true),
+                            ("Banner 300×250", false),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let tab = c::DocumentTab::new(name)
+                                .active(self.document == i)
+                                .dirty(dirty)
+                                .path("~/Documents/NeoFlash")
+                                .show(ui);
+                            if tab.response.clicked() {
+                                self.document = i;
+                            }
+                        }
+                        ui.add(c::IconButton::new(i16::CHEVDOWN, "All documents"));
+                    });
+                    ui.columns(2, |cols| {
+                        let ui = &mut cols[0];
+                        ui.add(
+                            c::InlineMessage::info(
+                                "Compact — WebAssembly as a stripped file, API families no script \
+                                 names are left out. Needs HTTP(S) hosting.",
+                            )
+                            .width(560.0),
+                        );
+                        let segments = [
+                            (c::WeightPart::WebAssembly, 1_620_000, "1.62 MB"),
+                            (c::WeightPart::RuntimeScripts, 410_000, "410 KB"),
+                            (c::WeightPart::ProjectScripts, 38_000, "38 KB"),
+                            (c::WeightPart::Content, 120_000, "120 KB"),
+                            (c::WeightPart::Resources, 196_000, "196 KB"),
+                            (c::WeightPart::Fonts, 84_000, "84 KB"),
+                            (c::WeightPart::Page, 6_000, "6 KB"),
+                        ]
+                        .map(|(part, bytes, value)| c::WeightSegment { part, bytes, value });
+                        ui.scope(|ui| {
+                            ui.spacing_mut().item_spacing.y = space::S2;
+                            c::WeightBar::new(&segments).show(ui, 566.0);
+                            c::weight_legend(ui, &segments, 566.0);
+                            c::weight_totals(
+                                ui,
+                                &[
+                                    ("On disk", "2.47 MB"),
+                                    ("Transfer (gzip)", "864 KB"),
+                                    ("Files", "7"),
+                                ],
+                            );
+                        });
+                        ui.add(
+                            c::InlineMessage::warning(
+                                "“My animation” already exists. Replace overwrites its saved layout.",
+                            )
+                            .width(384.0),
+                        );
+                        ui.add(
+                            c::InlineMessage::error(
+                                "“Classic” is a built-in workspace. Choose another name.",
+                            )
+                            .width(384.0),
+                        );
+
+                        let ui = &mut cols[1];
+                        egui::Frame::new()
+                            .fill(p.bg_field)
+                            .stroke(egui::Stroke::new(1.0_f32, p.border_subtle))
+                            .corner_radius(8)
+                            .inner_margin(egui::Margin::symmetric(16, 12))
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 4.0;
+                                let line = |ui: &mut egui::Ui, n: &str, code: &str| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 12.0;
+                                        ui.label(
+                                            typography::rich(n, TextStyle::Small)
+                                                .color(p.text_tertiary),
+                                        );
+                                        ui.label(
+                                            typography::rich(code, TextStyle::Small)
+                                                .color(p.text_primary),
+                                        )
+                                        .rect
+                                    })
+                                    .inner
+                                };
+                                let r = line(ui, "17", "new Animator(orbitXML, orbit_mc);");
+                                let x = r.right() - 58.0;
+                                c::paint_range_underline(
+                                    ui.painter(),
+                                    egui::Rangef::new(x, x + 50.0),
+                                    r.bottom(),
+                                    c::Severity::Error,
+                                );
+                                c::ErrorPeek::new(
+                                    c::Severity::Error,
+                                    "1120: Access of undefined property orbit_mc.",
+                                )
+                                .action("2 fixes ⌘.")
+                                .show(ui);
+                                let r = line(ui, "19", "var speed = 2.5;");
+                                c::paint_range_underline(
+                                    ui.painter(),
+                                    egui::Rangef::new(r.left() + 25.0, r.left() + 62.0),
+                                    r.bottom(),
+                                    c::Severity::Warning,
+                                );
+                                c::ErrorPeek::new(
+                                    c::Severity::Warning,
+                                    "1008: Variable speed has no type declaration.",
+                                )
+                                .action("Quick fix ⌘.")
+                                .show(ui);
+                            });
+                        c::menu::popover_frame(ui.ctx()).show(ui, |ui| {
+                            ui.set_width(330.0);
+                            c::menu::menu_style(ui.style_mut());
+                            c::menu_section(ui, "2 fixes for 1120");
+                            for (i, label) in [
+                                "Use instance “orbit” (Library: orbit_mc)",
+                                "Declare var orbit_mc:MovieClip",
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            {
+                                let on = self.fix == i;
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(label)
+                                            .shortcut(if on { "↩" } else { "" })
+                                            .highlighted(on),
+                                    )
+                                    .hovered()
+                                {
+                                    self.fix = i;
+                                }
+                            }
+                            c::menu_separator(ui);
+                            ui.add(c::MenuItem::new("Show in Compiler errors"));
+                        });
+                    });
+
+                    title(ui, "Tool flyouts · brushes · brush cursor (v2.2)");
+                    ui.columns(2, |cols| {
+                        let ui = &mut cols[0];
+                        c::menu::popover_frame(ui.ctx()).show(ui, |ui| {
+                            ui.set_width(260.0);
+                            c::menu::menu_style(ui.style_mut());
+                            for (i, (icon, name, key)) in [
+                                (i20::TOOL_RECT, "Rectangle tool", "R"),
+                                (i20::TOOL_OVAL, "Oval tool", "O"),
+                                (i20::TOOL_RECT_PRIMITIVE, "Rectangle primitive tool", "R"),
+                                (i20::TOOL_OVAL_PRIMITIVE, "Oval primitive tool", "O"),
+                                (i20::TOOL_POLYSTAR, "PolyStar tool", ""),
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            {
+                                let item = c::ToolFlyoutItem::new(icon, name)
+                                    .shortcut(key)
+                                    .active(self.flyout == i)
+                                    .width(252.0);
+                                if ui.add(item).clicked() {
+                                    self.flyout = i;
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                c::ToolButton::new(i20::TOOL_RECT, "Rectangle")
+                                    .key("R")
+                                    .flyout(true),
+                            );
+                            let r = ui.min_rect();
+                            let button = egui::Rect::from_min_size(
+                                egui::pos2(r.left(), r.top()),
+                                egui::vec2(32.0, 32.0),
+                            );
+                            ui.painter().rect_stroke(
+                                c::ToolButton::corner_hit(button),
+                                0.0,
+                                egui::Stroke::new(1.0_f32, p.accent_default),
+                                egui::StrokeKind::Inside,
+                            );
+                            ui.label(
+                                typography::rich("corner_hit: 12 × 12 pt", TextStyle::Small)
+                                    .color(p.text_tertiary),
+                            );
+                        });
+                        c::Surface::PanelFlush.frame(ui.ctx()).show(ui, |ui| {
+                            ui.set_width(296.0);
+                            egui::Frame::new().inner_margin(4).show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                for (i, (stroke, size)) in [
+                                    (c::BrushStroke::Round, "12"),
+                                    (c::BrushStroke::Ink, "8"),
+                                    (c::BrushStroke::Watercolour, "24"),
+                                ]
+                                .into_iter()
+                                .enumerate()
+                                {
+                                    let row = c::BrushPreset::new(stroke.label(), size)
+                                        .stroke(stroke)
+                                        .selected(self.preset == i)
+                                        .width(288.0);
+                                    if ui.add(row).clicked() {
+                                        self.preset = i;
+                                    }
+                                }
+                            });
+                        });
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            for (i, kind) in c::BrushShapeKind::ALL.into_iter().enumerate() {
+                                if ui
+                                    .add(c::BrushShape::new(kind).selected(self.shape == i))
+                                    .clicked()
+                                {
+                                    self.shape = i;
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(typography::rich("Size", TextStyle::Body).color(p.text_secondary));
+                            ui.add(
+                                c::Slider::new(&mut self.brush_size, 1.0..=200.0, "Size")
+                                    .value(c::SliderValue::Field)
+                                    .unit("px"),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                typography::rich("Smoothing", TextStyle::Body)
+                                    .color(p.text_secondary),
+                            );
+                            ui.add(
+                                c::Slider::new(&mut self.smoothing, 0.0..=100.0, "Smoothing")
+                                    .value(c::SliderValue::Inline),
+                            );
+                        });
+
+                        let ui = &mut cols[1];
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(24.0, 12.0);
+                            for stroke in c::brushes::BrushStroke::ALL {
+                                let (r, _) = ui
+                                    .allocate_exact_size(egui::vec2(96.0, 20.0), egui::Sense::hover());
+                                c::brush_stroke_sample(ui.painter(), r, stroke, 12.0);
+                            }
+                        });
+                        let (area, _) =
+                            ui.allocate_exact_size(egui::vec2(560.0, 140.0), egui::Sense::hover());
+                        // Mid-grey artwork, as on the shelf: the cursor reads on any colour.
+                        ui.painter().rect_filled(area, 8.0, egui::Color32::from_rgb(0x86, 0x8b, 0x96));
+                        let shape = c::BrushShapeKind::ALL[self.shape];
+                        let y = area.top() + 60.0;
+                        c::brush_cursor(
+                            ui.painter(),
+                            egui::pos2(area.left() + 60.0, y),
+                            shape,
+                            26.0,
+                            c::BrushCursorState::Idle,
+                            None,
+                        );
+                        c::brush_cursor(
+                            ui.painter(),
+                            egui::pos2(area.left() + 180.0, y),
+                            shape,
+                            56.0,
+                            c::BrushCursorState::Resize,
+                            Some("56 px"),
+                        );
+                        c::brush_cursor(
+                            ui.painter(),
+                            egui::pos2(area.left() + 300.0, y),
+                            c::BrushShapeKind::Square,
+                            26.0,
+                            c::BrushCursorState::Eraser,
+                            None,
+                        );
+                        c::brush_cursor(
+                            ui.painter(),
+                            egui::pos2(area.left() + 400.0, y),
+                            shape,
+                            2.0,
+                            c::BrushCursorState::Idle,
+                            None,
+                        );
+                        c::brush_cursor(
+                            ui.painter(),
+                            egui::pos2(area.left() + 490.0, y),
+                            shape,
+                            640.0,
+                            c::BrushCursorState::Idle,
+                            Some("200 px"),
+                        );
+                    });
+                    if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "answers") {
                         ui.scroll_to_cursor_animation(
                             Some(egui::Align::BOTTOM),
                             egui::style::ScrollAnimation::none(),

@@ -428,3 +428,216 @@ impl DialogHeader<'_> {
         .inner
     }
 }
+
+/// Width limits of `NF2/Document Tab` (R-035): 96–220 pt, the label ends with "…" beyond that.
+pub const DOCUMENT_TAB_MIN: f32 = 96.0;
+pub const DOCUMENT_TAB_MAX: f32 = 220.0;
+/// Height of `NF2/Document Tab` (same as controls in the top bar).
+pub const DOCUMENT_TAB_HEIGHT: f32 = crate::metrics::CONTROL;
+
+/// What the 16 pt trailing slot of a document tab shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocumentTabTrailing {
+    /// Clean, inactive and not hovered.
+    Empty,
+    /// Unsaved changes (6 pt dot).
+    Dirty,
+    /// × close button (on hover, and on the clean active tab).
+    Close,
+}
+
+impl DocumentTabTrailing {
+    /// The Figma variant rule: × on hover and on the clean active tab, otherwise the dirty dot.
+    pub fn of(active: bool, hovered: bool, dirty: bool) -> Self {
+        if hovered || (active && !dirty) {
+            Self::Close
+        } else if dirty {
+            Self::Dirty
+        } else {
+            Self::Empty
+        }
+    }
+}
+
+/// Outer width of a document tab whose label (plus optional folder text) is `content` points wide:
+/// 12 left padding, 16 file icon, 8 gap, content, 8 gap, 16 trailing slot, 8 right padding,
+/// clamped to [`DOCUMENT_TAB_MIN`]…[`DOCUMENT_TAB_MAX`].
+pub fn document_tab_width(content: f32) -> f32 {
+    (space::S3 + 16.0 + space::S2 + content + space::S2 + 16.0 + space::S2)
+        .clamp(DOCUMENT_TAB_MIN, DOCUMENT_TAB_MAX)
+}
+
+/// `NF2/Document Tab` (`126:18291`, R-035) — one open document in the top-bar strip.
+/// `State` Active / Inactive / Hover × `Dirty`: Active = `bg/selected`, Hover = `bg/hover`; file icon,
+/// `NF2/Small` label (primary when active or hovered, secondary otherwise), 16 pt trailing slot with
+/// the dirty dot or ×. Tooltip = full path.
+#[must_use = "call .show(ui)"]
+pub struct DocumentTab<'a> {
+    label: &'a str,
+    active: bool,
+    dirty: bool,
+    folder: Option<&'a str>,
+    path: Option<&'a str>,
+}
+
+/// Result of [`DocumentTab::show`]: the tab (click = activate) and the × button when it was shown.
+pub struct DocumentTabResponse {
+    pub response: Response,
+    pub close: Option<Response>,
+}
+
+impl DocumentTabResponse {
+    /// The × was clicked this frame.
+    pub fn close_clicked(&self) -> bool {
+        self.close.as_ref().is_some_and(Response::clicked)
+    }
+}
+
+impl<'a> DocumentTab<'a> {
+    pub fn new(label: &'a str) -> Self {
+        Self {
+            label,
+            active: false,
+            dirty: false,
+            folder: None,
+            path: None,
+        }
+    }
+    /// `State=Active` — the document being edited.
+    pub fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+    /// `Dirty=True` — unsaved changes.
+    pub fn dirty(mut self, dirty: bool) -> Self {
+        self.dirty = dirty;
+        self
+    }
+    /// Folder name shown in `text/tertiary` after the label when two open documents share a name.
+    pub fn folder(mut self, folder: &'a str) -> Self {
+        self.folder = Some(folder);
+        self
+    }
+    /// Full path, shown as the tooltip.
+    pub fn path(mut self, path: &'a str) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    pub fn show(self, ui: &mut Ui) -> DocumentTabResponse {
+        let p = palette(ui.ctx());
+        let folder_text = self.folder.map(|f| format!(" — {f}"));
+        let probe = |text: &str| galley(ui, text, TextStyle::Small, p.text_primary).size().x;
+        let label_w = probe(self.label);
+        let folder_w = folder_text.as_deref().map_or(0.0, probe);
+        let width = document_tab_width(label_w + folder_w);
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, DOCUMENT_TAB_HEIGHT), Sense::click());
+        let enabled = ui.is_enabled();
+        // Pointer anywhere over the tab, including its × (which takes the hover hit itself).
+        let hovered = enabled && ui.rect_contains_pointer(rect);
+        let trailing = DocumentTabTrailing::of(self.active, hovered, self.dirty);
+        let slot = Rect::from_min_size(
+            egui::pos2(rect.right() - space::S2 - 16.0, rect.center().y - 8.0),
+            egui::vec2(16.0, 16.0),
+        );
+        let close = (enabled && trailing == DocumentTabTrailing::Close)
+            .then(|| ui.interact(slot, response.id.with("close"), Sense::click()));
+        if ui.is_rect_visible(rect) {
+            let bg = if self.active {
+                Some(p.bg_selected)
+            } else if hovered {
+                Some(p.bg_hover)
+            } else {
+                None
+            };
+            if let Some(bg) = bg {
+                ui.painter().rect_filled(rect, cr(radius::MD), bg);
+            }
+            let fg = if !enabled {
+                p.text_disabled
+            } else if self.active || hovered {
+                p.text_primary
+            } else {
+                p.text_secondary
+            };
+            let icon_rect = Rect::from_min_size(
+                egui::pos2(rect.left() + space::S3, rect.center().y - 8.0),
+                egui::vec2(16.0, 16.0),
+            );
+            icons::paint(
+                ui.painter(),
+                ui.ctx(),
+                icon_rect,
+                i16::NEW_FILE,
+                if enabled {
+                    p.text_secondary
+                } else {
+                    p.text_disabled
+                },
+            );
+            let x = icon_rect.right() + space::S2;
+            let room = (slot.left() - space::S2 - x).max(0.0);
+            let label = super::galley_truncated(ui, self.label, TextStyle::Small, fg, room);
+            let label_w = label.size().x;
+            text_at(ui, x, rect, label, fg);
+            if let Some(folder) = folder_text.as_deref() {
+                let rest = room - label_w;
+                if rest > 12.0 {
+                    let g = super::galley_truncated(
+                        ui,
+                        folder,
+                        TextStyle::Small,
+                        p.text_tertiary,
+                        rest,
+                    );
+                    text_at(ui, x + label_w, rect, g, p.text_tertiary);
+                }
+            }
+            match trailing {
+                DocumentTabTrailing::Empty => {}
+                DocumentTabTrailing::Dirty => {
+                    let dot = if self.active {
+                        p.text_primary
+                    } else {
+                        p.text_secondary
+                    };
+                    ui.painter().circle_filled(slot.center(), 3.0, dot);
+                }
+                DocumentTabTrailing::Close => {
+                    let over = close.as_ref().is_some_and(Response::hovered);
+                    if over {
+                        ui.painter().rect_filled(slot, cr(radius::SM), p.bg_hover);
+                    }
+                    let c = if over {
+                        p.text_primary
+                    } else {
+                        p.text_secondary
+                    };
+                    icons::paint(ui.painter(), ui.ctx(), slot, i16::X, c);
+                }
+            }
+            let s = State::of(ui, &response);
+            super::focus(ui, s, rect, radius::MD);
+        }
+        let name = if self.dirty {
+            format!("{} — unsaved", self.label)
+        } else {
+            self.label.to_owned()
+        };
+        a11y(
+            &response,
+            egui::WidgetType::SelectableLabel,
+            &name,
+            Some(self.active),
+        );
+        if let Some(close) = &close {
+            a11y(close, egui::WidgetType::Button, "Close document", None);
+        }
+        let response = match self.path {
+            Some(path) => super::display::tooltip(response, path, None),
+            None => response,
+        };
+        DocumentTabResponse { response, close }
+    }
+}
