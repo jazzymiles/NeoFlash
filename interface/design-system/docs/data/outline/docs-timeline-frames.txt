@@ -18,8 +18,8 @@ F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
     F Type=Video 1440×27
       F Filmstrip 1440×27
   F NF2/TL Marker 600×61 [H gap 12]
-    F Kind=Keyframe, Tone=Default 12×27
     F Kind=Keyframe, Tone=On Selection 12×27
+    F Kind=Keyframe, Tone=Default 12×27
     F Kind=Blank Keyframe, Tone=Default 12×27
     F Kind=Blank Keyframe, Tone=On Selection 12×27
     F Kind=Span End, Tone=Default 12×27

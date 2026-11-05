@@ -53,14 +53,14 @@ F Drawing tools — panels 560×1334 [V gap 32]
       F Frame 80×80
     F Pose timeline 520×130
       I NF2/TL Ruler 1440×32 "1" "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55"
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Armature_1, Type=Armature, Selected=True} 200×28 "Armature_1"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Armature_1, Type=Armature, Selected=True, Size=Default} 200×28 "Armature_1"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Span {Type=Motion Tween} 300×27
       I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=background, Type=Layer, Selected=False} 200×28 "background"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=background, Type=Layer, Selected=False, Size=Default} 200×28 "background"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Span {Type=Static} 320×27
       T "Bone tool builds an armature; poses are keyframes (◆) on the Armature layer, joints honour rotation limits."

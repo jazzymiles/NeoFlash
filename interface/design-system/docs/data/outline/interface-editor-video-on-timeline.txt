@@ -122,7 +122,7 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
     F Timeline body 1920×336
       I NF2/TL Layers Header 280×32 "Layers"
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=labels, Type=Layer, Selected=False} 280×28 "labels"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=labels, Type=Layer, Selected=False, Size=Default} 280×28 "labels"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Static} 468×27
@@ -135,15 +135,15 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/TL Frame Label {Label=intro, Kind=Label} 49×27 "intro"
       I NF2/TL Frame Label {Label=loop, Kind=Comment} 42×27 "loop"
       I NF2/TL Frame Label {Label=outro, Kind=Label} 49×27 "outro"
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=character, Type=Folder Open, Selected=False} 280×28 "character"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=character, Type=Folder Open, Selected=False, Size=Default} 280×28 "character"
       I NF2/TL Grid {Kind=Folder} 1440×28
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=Guide: path, Type=Motion Guide, Selected=False} 280×28 "Guide: path"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=Guide: path, Type=Motion Guide, Selected=False, Size=Default} 280×28 "Guide: path"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Static} 1440×27
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Editing=false, Indent 2=true, Indent 1=true, Label=ball, Type=Layer, Selected=False} 280×28 "ball"
+      I NF2/TL Layer {Editing=false, Indent 2=true, Indent 1=true, Label=ball, Type=Layer, Selected=False, Size=Default} 280×28 "ball"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Classic Tween} 348×27
@@ -155,13 +155,13 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Blank Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=mask, Type=Mask, Selected=False} 280×28 "mask"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=mask, Type=Mask, Selected=False, Size=Default} 280×28 "mask"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Static} 1440×27
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Indent 2=true, Editing=false, Indent 1=true, Label=arm, Type=Masked, Selected=False} 280×28 "arm"
+      I NF2/TL Layer {Indent 2=true, Editing=false, Indent 1=true, Label=arm, Type=Masked, Selected=False, Size=Default} 280×28 "arm"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Shape Tween} 180×27
@@ -170,7 +170,7 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Indent 2=true, Editing=true, Indent 1=true, Label=hand, Type=Masked, Selected=True} 280×28 "hand"
+      I NF2/TL Layer {Indent 2=true, Editing=true, Indent 1=true, Label=hand, Type=Masked, Selected=True, Size=Default} 280×28 "hand"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Motion Tween} 720×27
@@ -180,7 +180,7 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Property Keyframe, Tone=On Selection} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=body, Type=Layer, Selected=False} 280×28 "body"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=true, Label=body, Type=Layer, Selected=False, Size=Default} 280×28 "body"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Classic Tween} 228×27
@@ -190,11 +190,11 @@ F NF2 / Editor — Video on timeline 1920×1080
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
       I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
-      I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=background, Type=Folder Closed, Selected=False} 280×28 "background"
+      I NF2/TL Layer {Indent 2=false, Editing=false, Indent 1=false, Label=background, Type=Folder Closed, Selected=False, Size=Default} 280×28 "background"
       I NF2/TL Grid {Kind=Folder} 1440×28
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=intro.mp4, Type=Video, Selected=False} 280×28 "intro.mp4"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=intro.mp4, Type=Video, Selected=False, Size=Default} 280×28 "intro.mp4"
       I NF2/TL Grid {Kind=Layer} 1440×28
-      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=music.mp3, Type=Sound, Selected=False} 280×28 "music.mp3"
+      I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=music.mp3, Type=Sound, Selected=False, Size=Default} 280×28 "music.mp3"
       I NF2/TL Grid {Kind=Layer} 1440×28
       I NF2/TL Grid Lines 1440×28
       I NF2/TL Span {Type=Sound} 1440×27

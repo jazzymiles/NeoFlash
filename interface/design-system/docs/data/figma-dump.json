@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-02T09:13:55.291Z",
+ "generated": "2026-11-05T16:33:48.832Z",
  "file": "Interface test",
  "pages": [
   {
@@ -232,7 +232,7 @@
      "id": "8:94",
      "name": "Shelf / Timeline 2.0 — layers",
      "w": 974,
-     "h": 518
+     "h": 728
     },
     {
      "id": "9:175",
@@ -293,6 +293,12 @@
      "name": "Shelf / Brushes & tool flyouts",
      "w": 1000,
      "h": 590
+    },
+    {
+     "id": "116:797",
+     "name": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+     "w": 1640,
+     "h": 2009
     }
    ]
   },
@@ -365,6 +371,72 @@
      "name": "Panels — Light",
      "w": 19448,
      "h": 3636
+    },
+    {
+     "id": "124:18100",
+     "name": "Answers — Codex batch (R-022 · R-032…R-038) — Dark",
+     "w": 8850,
+     "h": 1601
+    },
+    {
+     "id": "132:19052",
+     "name": "Answers — Codex batch (R-022 · R-032…R-038) — Light",
+     "w": 8850,
+     "h": 1601
+    },
+    {
+     "id": "134:19883",
+     "name": "Answers — Lottie export (R-043) — Dark",
+     "w": 2556,
+     "h": 1690
+    },
+    {
+     "id": "134:19991",
+     "name": "Segments",
+     "w": 100,
+     "h": 100
+    },
+    {
+     "id": "136:20439",
+     "name": "Answers — Lottie export (R-043) — Light",
+     "w": 2556,
+     "h": 1690
+    },
+    {
+     "id": "138:20571",
+     "name": "Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Dark",
+     "w": 3906,
+     "h": 993
+    },
+    {
+     "id": "141:21821",
+     "name": "Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Light",
+     "w": 3906,
+     "h": 993
+    },
+    {
+     "id": "143:22609",
+     "name": "Classic timeline + layer Mode & Solo (preferred) — Dark",
+     "w": 2016,
+     "h": 1216
+    },
+    {
+     "id": "144:25676",
+     "name": "Classic timeline + layer Mode & Solo (preferred) — Light",
+     "w": 2016,
+     "h": 1216
+    },
+    {
+     "id": "146:28332",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Dark",
+     "w": 1754,
+     "h": 1059
+    },
+    {
+     "id": "147:28550",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Light",
+     "w": 1754,
+     "h": 1059
     }
    ]
   },
@@ -5053,11 +5125,11 @@
     "name": "NF2/TL Layer",
     "id": "8:340",
     "kind": "set",
-    "variants": 20,
+    "variants": 40,
     "w": 280,
     "h": 28,
     "shelf": "Shelf / Timeline 2.0 — layers",
-    "description": "Timeline layer row. Type = Flash layer kinds (normal, masked, folder, guide, motion guide, mask). Indent 1/2 nest rows under folders, masks and motion guides. Editing shows the pencil on the current layer. Column toggles are nested NF2/TL Toggle instances: switch Value to hide / lock / outline the layer.",
+    "description": "Layer row of the timeline layer column. Size=Default: 28 pt row, 16 pt icons, 20 × 28 toggles. Size=Compact: height-economical row for Frame View ▸ Short (18 pt) and Compact (14 pt): 12 pt disclosure/type/editing icons, 20 pt-wide toggle columns (glyphs 12 pt, swatch 9 pt) so the header icons still line up, label NF2/Small 12 vertically centred; the frame grid uses the same row height and the NF2 glyph line (row bottom − 9).",
     "properties": [
      {
       "name": "Label",
@@ -5103,6 +5175,15 @@
       "options": [
        "False",
        "True"
+      ]
+     },
+     {
+      "name": "Size",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Compact"
       ]
      }
     ]
@@ -5202,7 +5283,7 @@
      {
       "name": "Tone",
       "type": "VARIANT",
-      "default": "Default",
+      "default": "On Selection",
       "options": [
        "Default",
        "On Selection"
@@ -8238,7 +8319,7 @@
     "w": 240,
     "h": 240,
     "shelf": "Shelf / Canvas editing chrome",
-    "description": "Raw (ungrouped) shape selected: hatch mesh over the selected fill / stroke. Place clipped inside the shape outline.",
+    "description": "Raw (ungrouped) shape selected: two-tone hatch over the selected fill / stroke, clipped to the shape. 45° lines every 8 px (≈5.7 px apart): 1 px white @ 90 % + 1 px black @ 75 % offset 1.5 px. Theme-independent (artwork is not themed), so it reads on any colour: min contrast of the better line ≥ 4.5:1 on every fill. v2.3 contrast fix, replaces the single text/tertiary hatch.",
     "properties": []
    },
    {
@@ -9094,6 +9175,55 @@
        "Idle",
        "Resize",
        "Eraser"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Shape Hint",
+    "id": "116:807",
+    "kind": "set",
+    "variants": 3,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+    "description": "Shape hint marker (shape tween, Modify ▸ Shape ▸ Add shape hint ⇧⌘H). 16 px disc, letter a–z (Inter Semi Bold 10), 1 px outline. Unplaced = red (not matched / not moved yet), Start = yellow (start keyframe, matched), End = green (end keyframe, matched). Colours are pinned to the Dark token mode in both themes (stage markers sit on artwork). Drag to place; hit radius 8 px; drag off the stage removes. Shown only on the shape-tween keyframes of the current layer while View ▸ Show shape hints (⌥⌘H) is on.",
+    "properties": [
+     {
+      "name": "Letter",
+      "type": "TEXT",
+      "default": "a"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Unplaced",
+      "options": [
+       "Unplaced",
+       "Start",
+       "End"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Motion Path Handle",
+    "id": "116:821",
+    "kind": "set",
+    "variants": 3,
+    "w": 56,
+    "h": 16,
+    "shelf": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+    "description": "Bézier handle of a motion path ◆ key (R-008). Tangent line 1 pt color/guide from the ◆ to the handle; handle = 7 pt disc color/guide with 1 pt bg/canvas outline. Hover adds a 13 pt color/guide ring, Drag fills color/guide-selected. Hit radius 7 pt. Shown only for the selected ◆ key (both in/out handles) and its neighbours' facing handles. Drag = smooth (mirrored), ⌥-drag = break tangent (corner), ⌥-click the ◆ = toggle corner/smooth. Cursor arrow-reshape-curve on hover.",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Drag"
       ]
      }
     ]
