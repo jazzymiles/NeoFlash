@@ -238,6 +238,7 @@ impl Editor {
                 if original != element && let Some(control) = changes.control {
                     if let Some(field) = TextFieldState::from_kind(&element.kind) && let Err(error) = field.validate() { self.message(format!("Text box edit rejected: {error}")); return; }
                     self.begin_property_edit(scope, control);
+                    if !self.remember_brush_outline_edit(&original, &mut element) { return; }
                     self.select_single_id(original.id.clone());
                     self.ensure_selected_key();
                     if let Some(current) = self.selected_element_mut() {

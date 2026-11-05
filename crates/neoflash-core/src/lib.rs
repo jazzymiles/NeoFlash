@@ -102,6 +102,8 @@ pub use merge_drawing::{
     remerge_moved_elements_in_keyframe, slice_fill_rings_with_polylines, slice_fill_with_stroke,
     split_polyline_with_segments, trim_polyline_inside_fill,
 };
+mod mesh_boundary;
+pub use mesh_boundary::fill_mesh_boundary;
 pub use model::*;
 pub use pixels::{
     As2BitmapCommand, BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION,

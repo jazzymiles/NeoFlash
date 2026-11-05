@@ -2,6 +2,8 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Brush remembers stroke colour, opacity and width edited in Properties while the Brush tool is active and reuses them for following strokes. Visible outlines follow the exterior brush contour without internal triangle or tip seams; ordinary Selection edits remain local, and Undo removes artwork without clearing the chosen brush style.
+
 - NF2 workspace delivery (`T-085`): saved version-2 built-in workspaces refresh once to the current NF2 composition, preventing a stale Color-only inspector from replacing Properties and Library after an update. The migration preserves theme, Timeline/editor/tool/publish preferences and named layout presets. macOS packages are rebuilt from a clean committed tree and record their exact Git commit and build profile in `Info.plist`.
 
 - NF2 v2.2 timeline frame area (`T-027`): keyframe, blank, action and property glyphs now keep their fixed NF2 sizes (6 pt dot, 5 × 8 span end, 7 pt diamond) on the low glyph line in every Frame View row height and zoom instead of floating to the row centre; classic and shape tweens draw the 1 pt line and 4 × 5 arrowhead on that line; frame dividers are 1 × 4 pt ticks under the spans, so static and tween spans are continuous bands; frame label flags, comments and anchors sit at the top of the cell right after the keyframe; the playhead frame chip shares the ruler digits' line. With nothing selected the Color panel edits the drawing colours instead of showing an empty panel. Short (18 pt) and Compact (14 pt) layer rows now use the NF2 `Size=Compact` layer row: 12 pt icons and NF2/Small labels that fit the row.
