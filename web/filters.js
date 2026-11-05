@@ -137,7 +137,17 @@
     clear(){for(const surface of this.pool)surface.canvas.width=surface.canvas.height=1;this.pool=[];this.records.clear();this.clips.clear();this.framePixels=0;}
     stats(){return {surfaces:this.pool.length,pixels:this.pool.reduce((sum,item)=>sum+item.width*item.height,0),cached:[...this.records.values()].filter(item=>item.surface).length,keyBytes:[...this.records.values(),...this.clips.values()].reduce((sum,item)=>sum+(item.key?.length||0)*2,0),framePixels:this.framePixels};}
     clipVersions(snapshot){
-      const live=new Set();for(const clip of snapshot.clips||[]){live.add(clip.id);const key=JSON.stringify(clip),previous=this.clips.get(clip.id);if(!previous||previous.key!==key)this.clips.set(clip.id,{key:key.length<=16384?key:null,version:++this.version});}
+      const clips=new Map((snapshot.clips||[]).map(clip=>[clip.id,clip])),live=new Set(),visiting=new Set();
+      const visit=id=>{
+        if(live.has(id))return this.clips.get(id).version;
+        if(visiting.has(id)||visiting.size>=32)throw new Error('Runtime mask dependencies are cyclic or exceed 32 levels.');
+        const clip=clips.get(id);if(!clip)throw new Error('Missing nested runtime mask.');visiting.add(id);
+        const dependencies=[...new Set([...(clip.components||[]),...(clip.alpha_components||[])].flatMap(component=>component.clip_ids||[]))].map(child=>[child,visit(child)]);
+        const key=JSON.stringify([clip,dependencies]),previous=this.clips.get(id);
+        if(!previous||previous.key!==key)this.clips.set(id,{key:key.length<=16384?key:null,version:++this.version});
+        visiting.delete(id);live.add(id);return this.clips.get(id).version;
+      };
+      for(const id of clips.keys())visit(id);
       for(const id of this.clips.keys())if(!live.has(id))this.clips.delete(id);
     }
     draw(context,snapshot,{bounds,paint,composite}={}){

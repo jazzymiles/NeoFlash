@@ -13,6 +13,8 @@ struct Texture {
     source: Arc<str>,
     handle: TextureHandle,
     bytes: usize,
+    image: Arc<egui::ColorImage>,
+    smoothing: bool,
 }
 
 #[derive(Default)]
@@ -115,9 +117,10 @@ impl BitmapTextures {
             [decoded.width as usize, decoded.height as usize],
             &pixels,
         );
+        let image = Arc::new(image);
         let handle = ctx.load_texture(
             format!("bitmap-{resource_id}-{smoothing}"),
-            image,
+            image.clone(),
             if *smoothing {
                 TextureOptions::LINEAR
             } else {
@@ -131,9 +134,18 @@ impl BitmapTextures {
                 source: resource.data_base64.clone(),
                 handle,
                 bytes,
+                image,
+                smoothing: *smoothing,
             },
         );
         Some(id)
+    }
+
+    pub(crate) fn image(&self, id: TextureId) -> Option<(Arc<egui::ColorImage>, bool)> {
+        self.textures
+            .values()
+            .find(|texture| texture.handle.id() == id)
+            .map(|texture| (texture.image.clone(), texture.smoothing))
     }
 
     fn warn(&mut self, id: &str, source: &Arc<str>, message: String) {

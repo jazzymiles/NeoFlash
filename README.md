@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 110 of 132 | 13 | 9 | 5 / 7 / 0 |
+| Editor and graphics | 111 of 132 | 12 | 9 | 5 / 7 / 0 |
 | Timelines and animation | 71 of 76 | 3 | 2 | 6 / 4 / 0 |
 | HTML5 and interactivity | 78 of 82 | 3 | 1 | 9 / 3 / 0 |
 | Import and file compatibility | 58 of 67 | 9 | 0 | 5 / 5 / 0 |
 | Platform and quality | 37 of 51 | 2 | 12 | 4 / 5 / 1 |
-| **All areas** | 354 of 408 | 30 | 24 | 29 / 24 / 1 |
+| **All areas** | 355 of 408 | 29 | 24 | 29 / 24 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -103,6 +103,8 @@ New and Open add document tabs; reopening the same file or imported source activ
 **Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 
 HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. `neoflash-export --size-level` trades portability for weight: Full opens from disk, Balanced and Compact need HTTP(S) hosting (Compact leaves out ActionScript families the project never names), and Shared loads a runtime folder published once; `--size-estimate` compares them ([decision](docs/decisions/0038-publish-size-levels.md)). Full remains the default for older editor preferences and Test Movie. Publish settings (⇧F12) selects Full, Balanced, Compact or Shared runtime with a live on-disk weight bar, exact gzip total and hosting trade-offs. Publish uses the draft, OK saves workspace defaults, and Cancel discards changes. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
+
+Timeline masks retain classic geometric silhouettes by default. Saved format9 projects can use explicit soft alpha with gradients, PNG transparency and nested/moving sources in the native stage and HTML5; the editor mode selector is still pending. AS2/AS3 use source-and-target `cacheAsBitmap` for the same soft coverage ([mask behavior and limits](docs/decisions/0023-runtime-masks-and-scroll-rectangles.md)).
 
 System fonts are discovered through CoreText and can be subsetted and embedded as portable `@font-face` assets on HTML5 export. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
 

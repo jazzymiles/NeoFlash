@@ -2,6 +2,9 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Masks now preserve authored gradient transparency and decoded PNG alpha in AS2/AS3 cached masks. Explicit format9 timeline alpha masks render in the native stage and HTML5, including compound holes, mixed/nested sources and tweened motion; old documents retain geometry masking. Content is composited before soft coverage to preserve overlap opacity. The alpha-mode selector awaits the NF2 design answer.
+- Timeline Mask now links the eligible sibling below in displayed order. Mask-role changes remain one Undo step and restore the default geometry mode when leaving the Mask role.
+
 - Pencil stroke-width presets now display fractional values correctly even when the current width is a whole number.
 
 - Corrected coverage classifications and known limits for authoring/runtime gaps, timeline and layer editing, Lottie, AS3 reflection/video, AS2/AS3 authored-source masks and legacy playback. The registry now distinguishes useful partial paths from completed functions; earlier percentage claims below are historical classifications, not current compatibility guarantees.

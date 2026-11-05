@@ -231,7 +231,7 @@
     const result=new Map();
     for(const clip of clips){
       if(typeof clip.id!=='string'||!Array.isArray(clip.components)||result.has(clip.id))throw new Error('Invalid runtime clip table.');
-      const alphaComponents=alphaByClipId.get(clip.id);
+      const alphaComponents=Array.isArray(clip.alpha_components)?clip.alpha_components:alphaByClipId.get(clip.id);
       result.set(clip.id,alphaComponents?{...clip,components:alphaComponents}:clip);
     }
     return result;
@@ -242,29 +242,70 @@
   function clipsContain(context,ids,table,x,y,cache) {
     context.save();try{
       context.setTransform(1,0,0,1,0,0);
-      return clipGroups(ids,table).every(clip=>clip.components.some(component=>{
-        if(typeof component.alpha==='number'&&component.alpha<=0)return false;
-        const m=component.matrix,det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return false;
-        const p=point(inverse(m),x,y);return context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero');
-      }));
+      const containsGroup=(clip,ancestors)=>{
+        if(ancestors.has(clip.id)||ancestors.size>=32)throw new Error('Runtime mask dependencies are cyclic or exceed 32 levels.');
+        const next=new Set(ancestors);next.add(clip.id);
+        return clip.components.some(component=>{
+          if(typeof component.alpha==='number'&&component.alpha<=0)return false;
+          const m=component.matrix,det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return false;
+          const p=point(inverse(m),x,y);
+          if(component.fill_gradient&&paintAlpha(component,'fill',p[0],p[1])<=0)return false;
+          return context.isPointInPath(cache.get(component.commands),p[0],p[1],component.fill_rule||'nonzero')
+            &&clipGroups(component.clip_ids,table).every(child=>containsGroup(child,next));
+        });
+      };
+      return clipGroups(ids,table).every(clip=>containsGroup(clip,new Set()));
     }finally{context.restore();}
   }
   // Each clip is a UNION of independently filled components. Combining their
   // commands into one Path2D changes overlap/winding semantics. Nested clips are
-  // intersections. Two reusable surfaces preserve those rules for all paints.
+  // intersections. Source masks are composed recursively before their component
+  // joins the union, using a bounded pool of reusable Canvas surfaces.
   class ClipRenderer {
-    constructor({maxSurfacePixels=16*1024*1024,maxReadPixels=16*1024*1024,maxReadTilePixels=262144,createCanvas}={}) {
-      for(const value of [maxSurfacePixels,maxReadPixels,maxReadTilePixels])if(!Number.isSafeInteger(value)||value<1)throw new Error('Clipping budgets must be positive safe integers.');
-      Object.assign(this,{maxSurfacePixels,maxReadPixels,maxReadTilePixels});this.surfaces=[];this.readPixels=0;
+    constructor({maxSurfacePixels=16*1024*1024,maxScratchPixels=32*1024*1024,maxReadPixels=16*1024*1024,maxReadTilePixels=262144,createCanvas}={}) {
+      for(const value of [maxSurfacePixels,maxScratchPixels,maxReadPixels,maxReadTilePixels])if(!Number.isSafeInteger(value)||value<1)throw new Error('Clipping budgets must be positive safe integers.');
+      Object.assign(this,{maxSurfacePixels,maxScratchPixels,maxReadPixels,maxReadTilePixels});this.surfaces=[];this.readPixels=0;
       this.createCanvas=createCanvas||(()=>typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
     }
     beginFrame(){this.readPixels=0;}
     clear(){for(const surface of this.surfaces){surface.width=1;surface.height=1;}this.surfaces=[];this.readPixels=0;}
     surface(index,width,height){
+      const retained=()=>this.surfaces.reduce((sum,s,i)=>sum+(i===index?0:s.width*s.height),width*height);
+      if(retained()>this.maxScratchPixels){
+        // Deeper surfaces are inactive when a shallower stack slot is reused.
+        for(let i=index+1;i<this.surfaces.length;i++){this.surfaces[i].width=1;this.surfaces[i].height=1;}
+        if(retained()>this.maxScratchPixels)throw new RangeError('Nested mask scratch surfaces exceed the pixel budget; reduce publication dimensions or mask nesting.');
+      }
       const surface=this.surfaces[index]||(this.surfaces[index]=this.createCanvas());
       if(surface.width!==width||surface.height!==height){surface.width=1;surface.height=height;surface.width=width;}
       const ctx=surface.getContext('2d');if(!ctx)throw new Error('Canvas 2D clipping surface is unavailable.');
       ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,width,height);return ctx;
+    }
+    maskGroup(group,table,cache,shifted,width,height,bitmaps,index,ancestors) {
+      if(ancestors.has(group.id)||ancestors.size>=32)throw new Error('Runtime mask dependencies are cyclic or exceed 32 levels.');
+      const next=new Set(ancestors);next.add(group.id);
+      const mask=this.surface(index,width,height);mask.fillStyle='#fff';
+      for(const component of group.components){
+        const m=multiply(shifted,component.matrix),d=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(d)||d===0)continue;
+        const dependencies=clipGroups(component.clip_ids,table);
+        const source=dependencies.length?this.surface(index+1,width,height):mask;
+        source.save();
+        try{
+          source.setTransform(...m);source.fillStyle='#fff';
+          if(typeof component.alpha==='number')source.globalAlpha=Math.max(0,Math.min(1,component.alpha));
+          const p=cache.get(component.commands),rule=component.fill_rule||'nonzero';
+          if(component.fill_gradient){source.clip(p,rule);brush(source,component.fill_gradient,width,height);}
+          else if(component.fill_bitmap){source.clip(p,rule);bitmapBrush(source,component.fill_bitmap,bitmaps,width,height);}
+          else if(component.resource_bitmap)throw new Error('Runtime mask bitmap was not decoded by the shared core; re-export this project.');
+          else source.fill(p,rule);
+        }finally{source.restore();}
+        for(const dependency of dependencies){
+          const nested=this.maskGroup(dependency,table,cache,shifted,width,height,bitmaps,index+2,next);
+          source.setTransform(1,0,0,1,0,0);source.globalAlpha=1;source.globalCompositeOperation='destination-in';source.drawImage(nested.canvas,0,0);
+        }
+        if(dependencies.length){source.globalCompositeOperation='source-over';mask.drawImage(source.canvas,0,0);}
+      }
+      return mask;
     }
     draw(context,item,table,cache,draw,{bounds=null,readBounds=false,bitmaps=null}={}) {
       const groups=clipGroups(item.clip_ids,table);if(!groups.length){draw(context);return undefined;}if(groups.some(g=>!g.components.length))return null;
@@ -280,25 +321,7 @@
       if(readBounds&&this.readPixels+width*height>this.maxReadPixels)throw new RangeError('Clipped semantic coverage exceeds the per-frame readback budget; reduce semantic clipped coverage.');
       const content=this.surface(0,width,height),shifted=[base[0],base[1],base[2],base[3],base[4]-left,base[5]-top];content.setTransform(...shifted);draw(content);
       for(const group of groups){
-        const mask=this.surface(1,width,height);mask.fillStyle='#fff';
-        for(const component of group.components){
-          const m=multiply(shifted,component.matrix),d=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(d)||d===0)continue;
-          mask.save();
-          try{
-            mask.setTransform(...m);
-            if(typeof component.alpha==='number')mask.globalAlpha=Math.max(0,Math.min(1,component.alpha));
-            const p=cache.get(component.commands),rule=component.fill_rule||'nonzero';
-            if(component.fill_gradient){
-              mask.clip(p,rule);
-              brush(mask,component.fill_gradient,width,height);
-            }else if(component.fill_bitmap&&bitmaps){
-              mask.clip(p,rule);
-              bitmapBrush(mask,component.fill_bitmap,bitmaps,width,height);
-            }else{
-              mask.fill(p,rule);
-            }
-          }finally{mask.restore();}
-        }
+        const mask=this.maskGroup(group,table,cache,shifted,width,height,bitmaps,1,new Set());
         content.setTransform(1,0,0,1,0,0);content.globalAlpha=1;content.globalCompositeOperation='destination-in';content.drawImage(mask.canvas,0,0);
       }
       content.globalCompositeOperation='source-over';

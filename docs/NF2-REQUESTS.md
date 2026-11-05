@@ -718,3 +718,18 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   properties rows; `exports/panels/{dark,light}/boards/png/brushes-pencil-panels.png`; `TypeHeader` implementation.
 - **Proposal (optional):** add a compact `TypeHeader` variant/API with the approved geometry, preserving the
   existing 48 pt default for other properties panels. No editor-local replacement or locked-file changes made.
+
+### R-048 · Explicit soft-alpha mode for timeline masks
+- **Status:** open
+- **Requested by / for:** implementation track · T-062 timeline and scripted masking
+- **Where:** `panels/layer_properties.rs` (DL-16), layer context menu / `Folder and mask…`.
+- **Need:** an approved way to select geometry masking versus soft alpha masking on a mask layer, including
+  the default state, labels, explanatory text and placement in the existing layer controls.
+- **Why:** legacy geometry masks ignore source opacity. Gradients and PNG alpha must use an explicit mode so
+  opening old documents preserves their appearance. The shared engine can store and evaluate the mode;
+  AS2/AS3 separately retain their existing target-plus-source `cacheAsBitmap` contract.
+- **Checked:** `interface/design-system/docs/data/outline/panels-symbols-panels.txt` DL-16 Layer properties
+  (Normal/Guide/Guided/Mask/Masked/Folder types, Outline and Layer height), `docs-timeline-layers.txt`, current
+  `panels/layer_properties.rs`, and `layer_controls.rs`. None specifies a geometry/alpha selector.
+- **Proposal (optional):** a design-owned Select or Radio state on Mask properties with Geometry as the legacy
+  default and Alpha as the explicit alternative. No new editor-local control or locked visual changes made.

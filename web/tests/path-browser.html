@@ -34,6 +34,49 @@ test('Cubic stroke follows its true curve',()=>{check(hit(cubic,60,90));check(!h
 test('Open contours do not invent a closing stroke',()=>{const open=path([move(0,0),line(120,0),line(120,120)],{fill:[0,0,0,0],stroke:[255,255,255,255],stroke_width:10});check(!hit(open,60,60));check(hit({...open,commands:[...open.commands,close()]},60,60))});
 test('Round line caps use the declared stroke width',()=>{const stroke=path([move(0,0),line(120,0)],{fill:[0,0,0,0],stroke:[255,255,255,255],stroke_width:10});check(hit(stroke,-4,0));check(!hit(stroke,-6,0))});
 test('Hit testing ignores DPR and restores caller transform',()=>{context.setTransform(2,0,0,3,45,67);check(hit(concave,15,90));const matrix=context.getTransform();check(matrix.a===2&&matrix.d===3&&matrix.e===45&&matrix.f===67);context.resetTransform()});
+// Canvas compositing assertions read actual pixels, including gradients and
+// decoded bitmap alpha. These supplement the WASM/project clipping family.
+const maskCanvas=document.createElement('canvas');maskCanvas.width=160;maskCanvas.height=120;
+const maskContext=maskCanvas.getContext('2d'),maskCache=new NeoFlashPaths.PathCache(),maskRenderer=new NeoFlashPaths.ClipRenderer();
+const component=(commands,options={})=>({commands,fill_rule:'nonzero',matrix:[1,0,0,1,0,0],...options});
+function maskPixels(clips,ids,points,bitmaps=null){
+  maskContext.clearRect(0,0,160,120);maskRenderer.beginFrame();
+  maskRenderer.draw(maskContext,{clip_ids:ids},NeoFlashPaths.clipTable(clips),maskCache,c=>{c.fillStyle='#f05028';c.fillRect(0,0,160,120);},{bitmaps});
+  return points.map(([x,y])=>maskContext.getImageData(x,y,1,1).data[3]);
+}
+const alphaNear=(actual,expected)=>check(actual.length===expected.length&&actual.every((v,i)=>Math.abs(v-expected[i])<=2),`alpha ${actual}; expected ${expected}`);
+test('Soft mask preserves a gradient while geometry remains opaque',()=>{
+  const c=component(square(0,0,100)),gradient={kind:'linear',matrix:[100/1638.4,0,0,1,50,0],focal_point_ratio:0,stops:[{ratio:0,color:[0,0,0,0]},{ratio:255,color:[0,0,0,255]}]};
+  alphaNear(maskPixels([{id:'g',components:[c],alpha_components:[{...c,alpha:1,fill_gradient:gradient}]}],['g'],[[0,40],[50,40],[99,40]]),[1,129,254]);
+  alphaNear(maskPixels([{id:'g',components:[c]}],['g'],[[0,40],[50,40],[99,40]]),[255,255,255]);
+  alphaNear(maskPixels([{id:'g',components:[c],alpha_components:[]}],['g'],[[50,40]]),[0]);
+});
+test('Mixed bitmap and vector masks preserve alpha with affine transforms',()=>{
+  const bitmap=document.createElement('canvas');bitmap.width=3;bitmap.height=1;const b=bitmap.getContext('2d'),bytes=new Uint8ClampedArray([0,0,0,0,0,0,0,128,0,0,0,255]);b.putImageData(new ImageData(bytes,3,1),0,0);
+  const c=component(square(0,0,3),{matrix:[20,0,0,20,10,10],alpha:1,fill_bitmap:{pixel_ref:{id:'test'},matrix:[1,0,0,1,0,0],repeat:false,smoothing:false}}),v=component(square(10,50,20),{alpha:0.25});
+  const cache={paint:(_paint,draw)=>draw({canvas:bitmap,width:3,height:1,bytes})};
+  alphaNear(maskPixels([{id:'mixed',components:[],alpha_components:[c,v]}],['mixed'],[[20,20],[40,20],[60,20],[20,60],[90,20]],cache),[0,128,255,64,0]);
+});
+test('Nested source masks intersect before source components are united',()=>{
+  const outer=component(square(0,0,100),{alpha:0.5,clip_ids:['hole']}),island=component(square(110,20,20),{alpha:0.25});
+  const hole=component([...square(0,0,100),...square(30,30,40)],{fill_rule:'evenodd',alpha:0.5});
+  alphaNear(maskPixels([{id:'outer',components:[],alpha_components:[outer,island]},{id:'hole',components:[],alpha_components:[hole]}],['outer'],[[10,20],[50,50],[120,30],[140,30]]),[64,0,64,0]);
+  const geometric=NeoFlashPaths.clipTable([{id:'outer',components:[{...outer,alpha:1},island]},{id:'hole',components:[hole]}]);
+  check(!NeoFlashPaths.clipsContain(maskContext,['outer'],geometric,50,50,maskCache));
+  check(NeoFlashPaths.clipsContain(maskContext,['outer'],geometric,10,20,maskCache));
+});
+test('Mask union paints overlap once and applies alpha to assembled target artwork',()=>{
+  const c=component(square(0,0,100),{alpha:0.5});maskContext.clearRect(0,0,160,120);
+  maskRenderer.draw(maskContext,{clip_ids:['soft']},NeoFlashPaths.clipTable([{id:'soft',components:[],alpha_components:[c]}]),maskCache,ctx=>{ctx.fillStyle='#ff0000';ctx.fillRect(0,0,80,80);ctx.fillStyle='#00ff00';ctx.fillRect(40,0,60,80);});
+  const pixel=Array.from(maskContext.getImageData(60,40,1,1).data);check(pixel[0]===0&&pixel[1]===255&&Math.abs(pixel[3]-128)<=1,`assembled target: ${pixel}`);
+  alphaNear(maskPixels([{id:'geometry',components:[component(square(0,0,80)),component(square(40,0,60))]}],['geometry'],[[60,40]]),[255]);
+});
+test('Nested masks reject cycles and enforce a combined scratch budget',()=>{
+  const c=component(square(0,0,100),{clip_ids:['cycle']});let cycle=false;
+  try{maskPixels([{id:'cycle',components:[c]}],['cycle'],[[10,10]])}catch(error){cycle=/cyclic/.test(error.message)}check(cycle,'cycle must diagnose');
+  const bounded=new NeoFlashPaths.ClipRenderer({maxScratchPixels:20000});let limited=false;
+  try{bounded.draw(maskContext,{clip_ids:['outer']},NeoFlashPaths.clipTable([{id:'outer',components:[{...c,clip_ids:['inner']}]},{id:'inner',components:[component(square(0,0,100))]}]),maskCache,ctx=>ctx.fillRect(0,0,160,120))}catch(error){limited=/pixel budget/.test(error.message)}check(limited,'nested allocation must diagnose');
+});
 const summary=`${passed} passed · ${failed} failed`;document.getElementById('summary').textContent=summary;document.title='NeoFlash path tests — '+summary;
 for(const [index,shape] of [concave,donut,quadratic,cubic].entries()){context.save();context.translate(40+index*220,50);const geometry=NeoFlashPaths.createPath(shape.commands);context.fillStyle='rgb('+shape.fill.slice(0,3).join(',')+')';if(shape.fill[3])context.fill(geometry,shape.fill_rule);context.strokeStyle='rgb('+shape.stroke.slice(0,3).join(',')+')';context.lineWidth=shape.stroke_width;context.lineCap='round';context.lineJoin='round';if(shape.stroke[3])context.stroke(geometry);context.restore()}
 </script>

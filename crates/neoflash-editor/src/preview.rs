@@ -1,8 +1,8 @@
 //! Ephemeral transport state. The serialized document stays authored and pure.
 use crate::app::Editor;
 use neoflash_core::{
-    AuthoredDraw, AuthoredPlayback, AuthoredScene, Id, Project, RuntimeClip, SoundCommand,
-    evaluate_scene, evaluate_scene_with_buttons,
+    AuthoredDraw, AuthoredPlayback, AuthoredScene, Id, Project, SoundCommand, evaluate_scene,
+    evaluate_scene_with_buttons,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -113,7 +113,7 @@ impl Editor {
         for f in frames {
             let ghost = evaluate_scene(&eval_project, symbol_id, f, true, show_masking);
             let mut added_this_frame = HashSet::new();
-            let mut used_clips = HashSet::new();
+            let prefix = |id: &str| format!("@emf-{f}:{id}");
             for mut draw in ghost.draws {
                 let Some(top) = draw.item.instance_path.first() else {
                     continue;
@@ -122,27 +122,30 @@ impl Editor {
                     continue;
                 }
                 added_this_frame.insert(top.clone());
-                draw.clip_ids = draw
-                    .clip_ids
-                    .into_iter()
-                    .map(|cid| {
-                        let prefixed = format!("@emf-{f}:{cid}");
-                        used_clips.insert((cid, prefixed.clone()));
-                        prefixed
-                    })
-                    .collect();
+                draw.clip_ids = draw.clip_ids.iter().map(|id| prefix(id)).collect();
+                draw.mask_group = draw.mask_group.as_deref().map(prefix);
                 merged.draws.push(AuthoredDraw { ..draw });
             }
-            if !used_clips.is_empty() {
-                for clip in ghost.clips {
-                    if let Some((_, prefixed)) =
-                        used_clips.iter().find(|(orig, _)| *orig == clip.id)
-                    {
-                        merged.clips.push(RuntimeClip {
-                            id: prefixed.clone(),
-                            ..clip
-                        });
+            if !added_this_frame.is_empty() {
+                // Keep the transitive mask/group graph: an outer source may depend on a mask
+                // that does not appear directly in any visible draw's clip list.
+                for mut clip in ghost.clips {
+                    clip.id = prefix(&clip.id);
+                    for component in &mut clip.components {
+                        component.clip_ids =
+                            component.clip_ids.iter().map(|id| prefix(id)).collect();
                     }
+                    for component in clip.alpha_components.iter_mut().flatten() {
+                        component.clip_ids =
+                            component.clip_ids.iter().map(|id| prefix(id)).collect();
+                    }
+                    merged.clips.push(clip);
+                }
+                for mut group in ghost.mask_groups {
+                    group.id = prefix(&group.id);
+                    group.parent_id = group.parent_id.as_deref().map(prefix);
+                    group.clip_ids = group.clip_ids.iter().map(|id| prefix(id)).collect();
+                    merged.mask_groups.push(group);
                 }
             }
             seen_top.extend(added_this_frame);

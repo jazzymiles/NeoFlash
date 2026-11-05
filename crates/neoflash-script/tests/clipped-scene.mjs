@@ -2,7 +2,7 @@
 // Pointer geometry and clipped semantic silhouettes are checked in the browser.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
@@ -58,5 +58,60 @@ export async function verifyClippedScene(root,cargo) {
     assert.throws(()=>oldViewport.scrollRect,/stale|previous|removed|replaced|live|another player/i);
     host.stage().handlePointer('click',{},scene.cards[0]);assert.equal(scene.cards[0].hits,1);
   } finally {host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
+  await verifySoftMaskSources(root,cargo);
   console.log('Clipped scene: published compound mask unions, nested scroll clips, copied Rectangle state, AS2 absence/setMask, linked identity and Restart passed.');
+}
+
+
+// Authored paint enters the same masks through both language facades. Keep this
+// in the shared clipping workflow; Canvas pixel acceptance lives in path-browser.
+export async function verifySoftMaskSources(root,cargo,runtime=null) {
+  const directory=mkdtempSync(resolve(root,'target/clipped-soft-sources-'));
+  const transform=(x=0)=>({x,y:0,scale_x:1,scale_y:1,rotation:0,alpha:1});
+  const rectangle=[{op:'move_to',x:0,y:0},{op:'line_to',x:100,y:0},{op:'line_to',x:100,y:100},{op:'line_to',x:0,y:100},{op:'close'}];
+  const element=(id,kind)=>({id,name:id,transform:transform(),kind,scripts:[]});
+  const target=id=>element(id,{type:'instance',symbol_id:'target-art',playback:'independent'});
+  const targetShape=element('target-fill',{type:'rectangle',width:100,height:100,fill:[240,80,40,255],stroke:[0,0,0,0],stroke_width:0});
+  const gradient=element('maskGradient',{type:'gradient_path',commands:rectangle,fill_rule:'nonzero',fill:[0,0,0,255],stroke:[0,0,0,0],stroke_width:0,
+    fill_gradient:{kind:'linear',matrix:[100/1638.4,0,0,1,50,0],focal_point_ratio:0,stops:[{ratio:0,color:[0,0,0,0]},{ratio:255,color:[0,0,0,255]}]}});
+  const bitmap=element('maskBitmap',{type:'bitmap',resource_id:'alpha-image',width:4,height:1,smoothing:false});
+  const layer=(id,elements)=>({id,name:id,visible:true,locked:false,keyframes:[{frame:0,label:'',tween:null,elements}]});
+  try {
+    for(const language of ['action_script2','action_script3']) {
+      const isAS2=language==='action_script2';
+      const assignment=(target,mask)=>isAS2?`this.${target}.setMask(this.${mask});`:`this.${target}.mask=this.${mask};`;
+      const source=`stop();this.targetGradient.cacheAsBitmap=true;this.maskGradient.cacheAsBitmap=true;this.targetBitmap.cacheAsBitmap=true;this.maskBitmap.cacheAsBitmap=true;${assignment('targetGradient','maskGradient')}${assignment('targetBitmap','maskBitmap')}this.masksReady=true;`;
+      const animated=layer('gradient',[gradient]);animated.keyframes[0].tween='linear';animated.keyframes.push({frame:2,label:'',tween:null,elements:[{...gradient,transform:transform(20)}]});
+      const project={format_version:8,name:'Cached authored mask sources',width:160,height:120,fps:24,background:[0,0,0,0],root:'scene',resources:[{
+        id:'alpha-image',path:'alpha.png',media_type:'image/png',data_base64:'iVBORw0KGgoAAAANSUhEUgAAAAQAAAABCAYAAAD5PA/NAAAAEUlEQVR4nGNggIBQIF4FxP8BB18B/xuQSbAAAAAASUVORK5CYII='
+      }],symbols:[{id:'scene',name:'Main',kind:'movie_clip',timeline:{frame_count:3,layers:[layer('content',[target('targetGradient'),target('targetBitmap'),bitmap]),animated],scripts:[{frame:0,script:{language,source}}]}},{id:'target-art',name:'Target artwork',kind:'movie_clip',timeline:{frame_count:1,layers:[layer('target-art-layer',[targetShape])],scripts:[]}}]};
+      const file=resolve(directory,`${language}.nflash`),output=resolve(directory,language);writeFileSync(file,JSON.stringify(project));
+      const args=['run','--quiet','--locked','-p','neoflash-export','--',file,'--output',output];if(runtime)args.push('--runtime',runtime);
+      const exported=spawnSync(cargo,args,{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+      const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
+      vm.runInContext(readFileSync(resolve(output,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
+      vm.runInContext(readFileSync(resolve(output,'neoflash_web.js'),'utf8'),sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');
+      const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);
+      const player=new wasm.WebPlayer(JSON.stringify(bundle.project));let host;
+      try {
+        ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle}));
+        host.dispatchScripts();assert.equal(host.proxyFor([]).masksReady,true,language);
+        const check=x=>{
+          const snapshot=JSON.parse(player.runtime_snapshot_json());
+          const components=snapshot.clips.flatMap(clip=>clip.alpha_components??[]);
+          const ramp=components.find(component=>component.fill_gradient),png=components.find(component=>component.fill_bitmap);
+          assert.ok(ramp,`${language}: authored gradient survives cached mask`);
+          assert.deepEqual(ramp.fill_gradient.stops.map(stop=>stop.color[3]),[0,255]);assert.equal(ramp.matrix[4],x);
+          assert.ok(png,`${language}: decoded authored PNG survives cached mask`);
+          const bytes=Array.from(player.bitmap_pixels(JSON.stringify(png.fill_bitmap.pixel_ref)));
+          assert.deepEqual(bytes.filter((_,i)=>i%4===3),[0,85,170,255]);
+          assert.equal(snapshot.draws.some(draw=>['maskGradient','maskBitmap'].includes(draw.element_id)),false);
+        };
+        check(0);player.control('[]','goto_and_stop',1);host.dispatchScripts();check(10);
+        player.control('[]','goto_and_stop',2);host.dispatchScripts();check(20);
+        host.resetProject();assert.equal(host.proxyFor([]).masksReady,true);check(0);
+      }finally{host?.disposeFamily();player.free();}
+    }
+  }finally{rmSync(directory,{recursive:true,force:true});}
+  console.log('Clipped sources: AS2/AS3 authored gradient and decoded PNG alpha, tweened positions and Restart passed.');
 }

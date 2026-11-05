@@ -179,25 +179,7 @@ impl ClipMeshes {
     pub(crate) fn new(clips: &[RuntimeClip], origin: Pos2, zoom: f32) -> Result<Self, String> {
         let mut map = HashMap::new();
         for clip in clips {
-            let mut triangles = vec![];
-            for component in &clip.components {
-                let tess = crate::vector::tessellate(
-                    &component.commands,
-                    component.fill_rule,
-                    None,
-                    (0.25 / zoom.max(0.01)).clamp(0.001, 1.),
-                )?;
-                for indices in tess.indices.as_chunks::<3>().0 {
-                    triangles.push(std::array::from_fn(|i| {
-                        let point = tess.vertices[indices[i] as usize];
-                        origin
-                            + crate::stage::affine(component.matrix, Pos2::new(point.x, point.y))
-                                .to_vec2()
-                                * zoom
-                    }));
-                }
-            }
-            map.insert(clip.id.clone(), MaskMesh::new(triangles)?);
+            prepare_mask(&clip.id, clips, origin, zoom, &mut map, &mut Vec::new())?;
         }
         Ok(Self(map))
     }
@@ -227,26 +209,66 @@ impl ClipMeshes {
     }
 }
 
+fn prepare_mask(
+    id: &str,
+    clips: &[RuntimeClip],
+    origin: Pos2,
+    zoom: f32,
+    map: &mut HashMap<String, MaskMesh>,
+    active: &mut Vec<String>,
+) -> Result<(), String> {
+    if map.contains_key(id) {
+        return Ok(());
+    }
+    if active.len() >= 64 || active.iter().any(|current| current == id) {
+        return Err("Mask preview contains a cycle or excessive nesting".into());
+    }
+    let clip = clips
+        .iter()
+        .find(|clip| clip.id == id)
+        .ok_or_else(|| format!("Missing authored mask {id}"))?;
+    active.push(id.into());
+    let mut triangles = Vec::new();
+    for component in &clip.components {
+        let tess = crate::vector::tessellate(
+            &component.commands,
+            component.fill_rule,
+            None,
+            (0.25 / zoom.max(0.01)).clamp(0.001, 1.),
+        )?;
+        let mut mesh = Mesh::default();
+        for point in tess.vertices {
+            mesh.colored_vertex(
+                origin
+                    + crate::stage::affine(component.matrix, Pos2::new(point.x, point.y)).to_vec2()
+                        * zoom,
+                Color32::WHITE,
+            );
+        }
+        mesh.indices = tess.indices;
+        for dependency in &component.clip_ids {
+            prepare_mask(dependency, clips, origin, zoom, map, active)?;
+            mesh = intersect_mesh(&mesh, &map[dependency])?;
+        }
+        triangles.extend(
+            mesh.indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|indices| indices.map(|i| mesh.vertices[i as usize].pos)),
+        );
+    }
+    active.pop();
+    map.insert(id.into(), MaskMesh::new(triangles)?);
+    Ok(())
+}
+
 fn paint_clipped(
     painter: &egui::Painter,
     clip: impl Fn(&Mesh) -> Result<Mesh, String>,
     paint: impl FnOnce(&egui::Painter),
 ) -> Result<(), String> {
-    let layer = egui::LayerId::new(
-        egui::Order::Background,
-        egui::Id::new("neoflash-mask-scratch"),
-    );
-    let scratch = egui::Painter::new(painter.ctx().clone(), layer, painter.clip_rect());
-    paint(&scratch);
-    let shapes = painter.ctx().graphics_mut(|graphics| {
-        let list = graphics.entry(layer);
-        let shapes = list.all_entries().cloned().collect();
-        *list = Default::default();
-        shapes
-    });
-    let primitives = painter
-        .ctx()
-        .tessellate(shapes, painter.ctx().pixels_per_point());
+    let primitives = capture(painter, paint);
     // Complete every clip before emitting any mesh, so failures cannot leave half an overlay.
     let mut clipped = Vec::new();
     for primitive in primitives {
@@ -260,6 +282,27 @@ fn paint_clipped(
             .add(Shape::mesh(mesh));
     }
     Ok(())
+}
+
+pub(crate) fn capture(
+    painter: &egui::Painter,
+    paint: impl FnOnce(&egui::Painter),
+) -> Vec<egui::ClippedPrimitive> {
+    let layer = egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("neoflash-mask-scratch"),
+    );
+    let scratch = egui::Painter::new(painter.ctx().clone(), layer, painter.clip_rect());
+    paint(&scratch);
+    let shapes = painter.ctx().graphics_mut(|graphics| {
+        let list = graphics.entry(layer);
+        let shapes = list.all_entries().cloned().collect();
+        *list = Default::default();
+        shapes
+    });
+    painter
+        .ctx()
+        .tessellate(shapes, painter.ctx().pixels_per_point())
 }
 
 /// Geometry only: the union of visible vector fills and strokes in the requested space.
@@ -543,15 +586,18 @@ mod tests {
     #[test]
     fn overlapping_mask_components_paint_once_and_preserve_interpolated_attributes() {
         let clip = RuntimeClip {
+            alpha_components: None,
             id: "overlap".into(),
             components: vec![
                 neoflash_core::ClipComponent {
+                    clip_ids: vec![],
                     commands: rectangle(0., 0., 60., 80.),
                     fill_rule: FillRule::NonZero,
                     matrix: [1., 0., 0., 1., 0., 0.],
                 },
                 // Reverse orientation through a reflection: the component still adds area.
                 neoflash_core::ClipComponent {
+                    clip_ids: vec![],
                     commands: rectangle(0., 0., 60., 80.),
                     fill_rule: FillRule::NonZero,
                     matrix: [-1., 0., 0., 1., 100., 20.],

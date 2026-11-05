@@ -776,25 +776,39 @@ impl Editor {
             timeline.layers.remove(index + 1);
         });
     }
-    fn set_layer_role(&mut self, index: usize, role: LayerRole) {
+    pub(crate) fn set_layer_role(&mut self, index: usize, role: LayerRole) {
         self.layer_change(|project, symbol| {
             let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
             let id = timeline.layers[index].id.clone();
             timeline.layers[index].properties.role = role;
             timeline.layers[index].properties.mask = None;
             if role != LayerRole::Mask {
+                timeline.layers[index].properties.mask_mode = MaskMode::Geometry;
                 for layer in &mut timeline.layers {
                     if layer.properties.mask.as_ref() == Some(&id) {
                         layer.properties.mask = None;
                     }
                 }
-            } else if let Some(target) = timeline
-                .layers
-                .iter_mut()
-                .skip(index + 1)
-                .find(|l| l.properties.role == LayerRole::Normal)
-            {
-                target.properties.mask = Some(id);
+            } else {
+                // Rows are displayed front-to-back, the reverse of serialized paint order.
+                // Stay within this folder and never steal another mask/guide's child.
+                let parent = timeline.layers[index].properties.parent.clone();
+                let rows = visible_layer_indices(timeline);
+                let target = rows
+                    .iter()
+                    .skip_while(|&&row| row != index)
+                    .skip(1)
+                    .copied()
+                    .find(|&row| {
+                        let properties = &timeline.layers[row].properties;
+                        properties.role == LayerRole::Normal
+                            && properties.parent == parent
+                            && properties.mask.is_none()
+                            && properties.motion_guide.is_none()
+                    });
+                if let Some(target) = target {
+                    timeline.layers[target].properties.mask = Some(id);
+                }
             }
         });
     }

@@ -369,6 +369,9 @@ impl Editor {
                     layer.keyframes.clear();
                 }
             }
+            if draft.kind != LayerTypeChoice::Mask {
+                layer.properties.mask_mode = MaskMode::Geometry;
+            }
             if draft.kind == LayerTypeChoice::Guide {
                 layer.properties.blend_mode = BlendMode::Normal;
                 layer.properties.sync_timeline = false;

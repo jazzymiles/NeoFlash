@@ -5,19 +5,29 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone, Debug)]
 pub(crate) struct LayerMaskPlan {
     pub id: String,
+    pub mode: MaskMode,
     pub sources: Vec<Vec<Id>>,
     pub targets: Vec<Vec<Id>>,
+    pub target_groups: Vec<(String, Vec<Vec<Id>>)>,
 }
 #[derive(Clone, Debug)]
 pub struct AuthoredDraw {
     pub item: DrawItem,
     pub clip_ids: Vec<String>,
     pub outline_color: Option<Color>,
+    pub mask_group: Option<String>,
+}
+#[derive(Clone, Debug)]
+pub struct AuthoredMaskGroup {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub clip_ids: Vec<String>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct AuthoredScene {
     pub draws: Vec<AuthoredDraw>,
     pub clips: Vec<RuntimeClip>,
+    pub mask_groups: Vec<AuthoredMaskGroup>,
 }
 
 /// A stable, opaque editor color. Explicit colors survive renaming/reordering;
@@ -140,10 +150,14 @@ impl AuthoredScene {
         else {
             return false;
         };
-        draw.clip_ids.iter().all(|id| {
-            self.clips
+        fn inside(scene: &AuthoredScene, id: &str, point: [f64; 2], depth: usize) -> bool {
+            if depth > 64 {
+                return false;
+            }
+            scene
+                .clips
                 .iter()
-                .find(|clip| &clip.id == id)
+                .find(|clip| clip.id == id)
                 .is_some_and(|clip| {
                     clip.components.iter().any(|component| {
                         let m = component.matrix;
@@ -166,9 +180,14 @@ impl AuthoredScene {
                             FlattenOptions::default(),
                         )
                         .unwrap_or(false)
+                            && component
+                                .clip_ids
+                                .iter()
+                                .all(|id| inside(scene, id, point, depth + 1))
                     })
                 })
-        })
+        }
+        draw.clip_ids.iter().all(|id| inside(self, id, point, 0))
     }
 }
 
@@ -202,6 +221,23 @@ pub(crate) fn layer_mask_plans(
                     "layer:{}",
                     serde_json::to_string(&identity).unwrap_or_default()
                 ),
+                target_groups: timeline
+                    .layers
+                    .iter()
+                    .filter(|target| target.properties.mask.as_ref() == Some(&layer.id))
+                    .map(|target| {
+                        let mut group_identity = parent.to_vec();
+                        group_identity.push(target.id.clone());
+                        (
+                            format!(
+                                "layer-group:{}",
+                                serde_json::to_string(&group_identity).unwrap_or_default()
+                            ),
+                            paths(target),
+                        )
+                    })
+                    .collect(),
+                mode: layer.properties.mask_mode,
                 sources: paths(layer),
                 targets: timeline
                     .layers
@@ -289,65 +325,175 @@ pub(crate) fn scene_from_evaluation(
                     item,
                     clip_ids: vec![],
                     outline_color,
+                    mask_group: None,
                 }
             })
             .collect(),
         clips: vec![],
+        mask_groups: vec![],
     };
     if !show_masking {
         return scene;
     }
-    let mut consumed = HashSet::new();
-    for plan in evaluation.masks {
-        let components = scene
-            .draws
-            .iter()
-            .filter(|draw| {
-                plan.sources
-                    .iter()
-                    .any(|p| draw.item.instance_path.starts_with(p))
-            })
-            .filter_map(|draw| {
-                crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
-                    |(commands, fill_rule)| ClipComponent {
-                        commands,
-                        fill_rule,
-                        matrix: draw.item.transform,
-                    },
-                )
-            })
-            .collect();
-        for draw in &mut scene.draws {
-            if plan
-                .sources
-                .iter()
-                .any(|p| draw.item.instance_path.starts_with(p))
-            {
-                consumed.insert(draw.item.instance_path.clone());
-            }
-            if plan
-                .targets
-                .iter()
-                .any(|p| draw.item.instance_path.starts_with(p))
-            {
-                draw.clip_ids.push(plan.id.clone());
+    // Attach all relationships first: a mask inside a source symbol must clip
+    // that source's painted content before it becomes the outer mask.
+    for plan in &evaluation.masks {
+        for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
+            for draw in &mut scene.draws {
+                if roots.iter().any(|p| draw.item.instance_path.starts_with(p)) {
+                    draw.clip_ids
+                        .push(target_clip_id(&plan.id, plan.target_groups.len(), index));
+                }
             }
         }
+    }
+    let source_owner = |path: &[Id]| {
+        evaluation
+            .masks
+            .iter()
+            .enumerate()
+            .flat_map(|(index, plan)| {
+                plan.sources
+                    .iter()
+                    .filter(move |p| path.starts_with(p))
+                    .map(move |p| (p.len(), index))
+            })
+            .max()
+            .map(|(_, index)| index)
+    };
+    for (index, plan) in evaluation.masks.iter().enumerate() {
+        // An ancestor target's mask is deferred until that target is composed.
+        // It must not also attenuate a mask source inside the target subtree.
+        let inherited: HashSet<_> = evaluation
+            .masks
+            .iter()
+            .flat_map(|other| {
+                other
+                    .target_groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, roots))| {
+                        plan.sources
+                            .iter()
+                            .any(|source| roots.iter().any(|target| source.starts_with(target)))
+                    })
+                    .map(|(index, _)| target_clip_id(&other.id, other.target_groups.len(), index))
+            })
+            .collect();
+        let source_clips = |ids: &[String]| {
+            ids.iter()
+                .filter(|id| !inherited.contains(*id))
+                .cloned()
+                .collect()
+        };
+        let sources: Vec<_> = scene
+            .draws
+            .iter()
+            .filter(|draw| source_owner(&draw.item.instance_path) == Some(index))
+            .collect();
+        let alpha_components = (plan.mode == MaskMode::Alpha).then(|| {
+            sources
+                .iter()
+                .filter_map(|draw| {
+                    alpha_component(
+                        &draw.item.kind,
+                        draw.item.transform,
+                        draw.item.color_transform,
+                        source_clips(&draw.clip_ids),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        let components = if let Some(alpha) = &alpha_components {
+            alpha.iter().map(alpha_geometry).collect()
+        } else {
+            sources
+                .iter()
+                .filter_map(|draw| {
+                    crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
+                        |(commands, fill_rule)| ClipComponent {
+                            commands,
+                            fill_rule,
+                            matrix: draw.item.transform,
+                            clip_ids: source_clips(&draw.clip_ids),
+                        },
+                    )
+                })
+                .collect()
+        };
         scene.clips.push(RuntimeClip {
-            id: plan.id,
+            id: plan.id.clone(),
             components,
+            alpha_components,
         });
     }
     scene
         .draws
-        .retain(|draw| !consumed.contains(&draw.item.instance_path));
+        .retain(|draw| source_owner(&draw.item.instance_path).is_none());
+    for plan in &evaluation.masks {
+        alias_target_clips(&mut scene.clips, &plan.id, plan.target_groups.len());
+    }
+    crate::mask_composition::factor_alpha_clip_groups(&mut scene.clips);
+    let groups: Vec<_> = evaluation
+        .masks
+        .iter()
+        .filter(|plan| clip_uses_alpha(&scene.clips, &plan.id, 0))
+        .flat_map(|plan| {
+            plan.target_groups
+                .iter()
+                .enumerate()
+                .map(move |(index, (id, roots))| {
+                    (
+                        id,
+                        roots,
+                        target_clip_id(&plan.id, plan.target_groups.len(), index),
+                    )
+                })
+        })
+        .collect();
+    let matching_groups = |path: &[Id]| {
+        let mut matches: Vec<_> = groups
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (_, roots, _))| {
+                roots
+                    .iter()
+                    .filter(|root| path.starts_with(root))
+                    .map(Vec::len)
+                    .max()
+                    .map(|depth| (depth, index))
+            })
+            .collect();
+        matches.sort_unstable();
+        matches
+    };
+    for (index, (id, roots, clip)) in groups.iter().enumerate() {
+        let parent = roots.first().and_then(|root| {
+            matching_groups(root)
+                .into_iter()
+                .rfind(|(_, found)| *found != index)
+                .map(|(_, found)| groups[found].0.clone())
+        });
+        scene.mask_groups.push(AuthoredMaskGroup {
+            id: (*id).clone(),
+            parent_id: parent,
+            clip_ids: vec![clip.clone()],
+        });
+    }
+    for draw in &mut scene.draws {
+        draw.mask_group = matching_groups(&draw.item.instance_path)
+            .last()
+            .map(|(_, index)| groups[*index].0.clone());
+    }
+
     scene
 }
 
 pub(crate) struct RuntimeLayerMask {
     pub id: String,
+    pub mode: MaskMode,
     pub sources: Vec<ObjectRef>,
-    pub targets: Vec<ObjectRef>,
+    pub target_groups: Vec<(String, Vec<ObjectRef>)>,
 }
 impl LayerMaskPlan {
     pub fn resolve(
@@ -357,8 +503,18 @@ impl LayerMaskPlan {
     ) -> RuntimeLayerMask {
         RuntimeLayerMask {
             id: format!("{namespace}:{}", self.id),
+            target_groups: self
+                .target_groups
+                .iter()
+                .map(|(id, roots)| {
+                    (
+                        format!("{namespace}:{id}"),
+                        roots.iter().filter_map(|p| resolve(p)).collect(),
+                    )
+                })
+                .collect(),
+            mode: self.mode,
             sources: self.sources.iter().filter_map(|p| resolve(p)).collect(),
-            targets: self.targets.iter().filter_map(|p| resolve(p)).collect(),
         }
     }
 }
@@ -384,65 +540,424 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
         }
         false
     };
-    let mut consumed = HashSet::new();
+    // Record target clips before capturing any source; nested masks are
+    // expressed by component clip IDs, not flattened contour winding.
     for plan in plans {
-        let components: Vec<_> = snapshot
-            .draws
-            .iter()
-            .filter(|draw| belongs(&draw.owner_ref, &plan.sources))
-            .filter_map(|draw| {
-                let geometry = match &draw.item.kind {
-                    RuntimeDrawKind::Element(kind) => {
-                        crate::runtime_graph::clipping::vector_path(kind)
-                    }
-                    RuntimeDrawKind::GradientPath {
-                        commands,
-                        fill_rule,
-                        ..
-                    } => Some((commands.clone(), *fill_rule)),
-                    _ => None,
-                };
-                geometry.map(|(commands, fill_rule)| ClipComponent {
-                    commands,
-                    fill_rule,
-                    matrix: draw.item.transform,
-                })
-            })
-            .collect();
-        let empty = components.is_empty();
-        for node in &mut snapshot.objects {
-            if belongs(&node.object_ref, &plan.sources) {
-                consumed.insert(node.object_ref.clone());
-                node.display.effective_visible = false;
+        for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
+            let clip = target_clip_id(&plan.id, plan.target_groups.len(), index);
+            for node in &mut snapshot.objects {
+                if belongs(&node.object_ref, roots) {
+                    node.clip_ids.push(clip.clone());
+                }
             }
-            if belongs(&node.object_ref, &plan.targets) {
-                node.clip_ids.push(plan.id.clone());
-                if empty {
-                    node.display.effective_visible = false;
+            for draw in &mut snapshot.draws {
+                if belongs(&draw.owner_ref, roots) {
+                    draw.clip_ids.push(clip.clone());
+                }
+            }
+            for node in &mut snapshot.semantics {
+                if belongs(&node.owner_ref, roots) {
+                    node.clip_ids.push(clip.clone());
                 }
             }
         }
-        for draw in &mut snapshot.draws {
-            if belongs(&draw.owner_ref, &plan.targets) {
-                draw.clip_ids.push(plan.id.clone());
+    }
+    let source_owner = |reference: &ObjectRef| {
+        // The nearest source ancestor owns this primitive. An outer source
+        // excludes its inner mask artwork but includes its clipped targets.
+        let mut current = Some(reference);
+        for _ in 0..=parents.len() {
+            let value = current?;
+            if let Some(index) = plans.iter().position(|plan| plan.sources.contains(value)) {
+                return Some(index);
             }
+            current = parents.get(value).and_then(|p| p.as_ref());
         }
-        for semantic in &mut snapshot.semantics {
-            if belongs(&semantic.owner_ref, &plan.targets) {
-                semantic.clip_ids.push(plan.id.clone());
-            }
-        }
+        None
+    };
+    for (index, plan) in plans.iter().enumerate() {
+        let inherited: HashSet<_> = plans
+            .iter()
+            .flat_map(|other| {
+                other
+                    .target_groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, roots))| {
+                        plan.sources.iter().any(|source| belongs(source, roots))
+                    })
+                    .map(|(index, _)| target_clip_id(&other.id, other.target_groups.len(), index))
+            })
+            .collect();
+        let source_clips = |ids: &[String]| {
+            ids.iter()
+                .filter(|id| !inherited.contains(*id))
+                .cloned()
+                .collect()
+        };
+        let sources: Vec<_> = snapshot
+            .draws
+            .iter()
+            .filter(|draw| source_owner(&draw.owner_ref) == Some(index))
+            .collect();
+        let alpha_components = (plan.mode == MaskMode::Alpha).then(|| {
+            sources
+                .iter()
+                .filter_map(|draw| {
+                    runtime_alpha_component(draw).map(|mut component| {
+                        component.clip_ids = source_clips(&component.clip_ids);
+                        component
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let components = if let Some(alpha) = &alpha_components {
+            alpha.iter().map(alpha_geometry).collect()
+        } else {
+            sources
+                .iter()
+                .filter_map(|draw| {
+                    let geometry = match &draw.item.kind {
+                        RuntimeDrawKind::Element(kind) => {
+                            crate::runtime_graph::clipping::vector_path(kind)
+                        }
+                        RuntimeDrawKind::GradientPath {
+                            commands,
+                            fill_rule,
+                            ..
+                        } => Some((commands.clone(), *fill_rule)),
+                        _ => None,
+                    };
+                    geometry.map(|(commands, fill_rule)| ClipComponent {
+                        commands,
+                        fill_rule,
+                        matrix: draw.item.transform,
+                        clip_ids: source_clips(&draw.clip_ids),
+                    })
+                })
+                .collect()
+        };
         snapshot.clips.push(RuntimeClip {
             id: plan.id.clone(),
             components,
+            alpha_components,
         });
+    }
+    for plan in plans {
+        alias_target_clips(&mut snapshot.clips, &plan.id, plan.target_groups.len());
+    }
+    let empty: HashSet<_> = snapshot
+        .clips
+        .iter()
+        .filter(|clip| clip.components.is_empty())
+        .map(|clip| clip.id.as_str())
+        .collect();
+    for node in &mut snapshot.objects {
+        if source_owner(&node.object_ref).is_some() {
+            node.authored_mask_source = true;
+            node.display.effective_visible = false;
+        }
+        if node.clip_ids.iter().any(|id| empty.contains(id.as_str())) {
+            node.display.effective_visible = false;
+        }
     }
     snapshot
         .draws
-        .retain(|draw| !consumed.contains(&draw.owner_ref));
+        .retain(|draw| source_owner(&draw.owner_ref).is_none());
     snapshot
         .semantics
-        .retain(|node| !consumed.contains(&node.owner_ref));
+        .retain(|node| source_owner(&node.owner_ref).is_none());
+}
+
+fn alpha_geometry(component: &AlphaClipComponent) -> ClipComponent {
+    ClipComponent {
+        commands: component.commands.clone(),
+        fill_rule: component.fill_rule,
+        matrix: component.matrix,
+        clip_ids: component.clip_ids.clone(),
+    }
+}
+
+/// Preserve the same paint data in pure authoring and script mask snapshots.
+/// `color` already includes placement and ancestor alpha.
+pub(crate) fn alpha_component(
+    kind: &ElementKind,
+    matrix: [f64; 6],
+    color: ColorTransform,
+    clip_ids: Vec<String>,
+) -> Option<AlphaClipComponent> {
+    let mut fill_gradient = None;
+    let mut resource_bitmap = None;
+    let (commands, fill_rule, alpha) = match kind {
+        ElementKind::Bitmap {
+            resource_id,
+            width,
+            height,
+            smoothing,
+        } => {
+            resource_bitmap = Some(MaskResourceBitmap {
+                resource_id: resource_id.clone(),
+                width: *width,
+                height: *height,
+                smoothing: *smoothing,
+                color_transform: color,
+            });
+            (
+                mask_rectangle(f64::from(*width), f64::from(*height)),
+                FillRule::NonZero,
+                1.,
+            )
+        }
+        ElementKind::Rectangle { fill, .. }
+        | ElementKind::Ellipse { fill, .. }
+        | ElementKind::Path { fill, .. }
+        | ElementKind::PaintedPath { fill, .. } => {
+            let (commands, rule) = crate::runtime_graph::clipping::vector_path(kind)?;
+            let alpha = if let ElementKind::PaintedPath {
+                fill_gradient: Some(gradient),
+                ..
+            } = kind
+            {
+                let mut gradient = gradient.clone();
+                for stop in &mut gradient.stops {
+                    stop.color = color.apply(stop.color);
+                }
+                fill_gradient = Some(gradient);
+                1.
+            } else {
+                f64::from(color.apply(*fill)[3]) / 255.
+            };
+            (commands, rule, alpha)
+        }
+        _ => return None,
+    };
+    Some(AlphaClipComponent {
+        commands,
+        fill_rule,
+        matrix,
+        clip_ids,
+        alpha,
+        fill_gradient,
+        fill_bitmap: None,
+        resource_bitmap,
+    })
+}
+
+fn mask_rectangle(width: f64, height: f64) -> Vec<PathCommand> {
+    vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::LineTo { x: width, y: 0. },
+        PathCommand::LineTo {
+            x: width,
+            y: height,
+        },
+        PathCommand::LineTo { x: 0., y: height },
+        PathCommand::Close,
+    ]
+}
+
+fn runtime_alpha_component(draw: &RuntimeDrawItem) -> Option<AlphaClipComponent> {
+    match &draw.item.kind {
+        RuntimeDrawKind::Element(kind) => alpha_component(
+            kind,
+            draw.item.transform,
+            draw.item.color_transform,
+            draw.clip_ids.clone(),
+        ),
+        RuntimeDrawKind::GradientPath {
+            commands,
+            fill_rule,
+            fill,
+            fill_gradient,
+            fill_bitmap,
+            ..
+        } => {
+            // Runtime Graphics paints are already color-transformed.
+            Some(AlphaClipComponent {
+                commands: commands.clone(),
+                fill_rule: *fill_rule,
+                matrix: draw.item.transform,
+                clip_ids: draw.clip_ids.clone(),
+                alpha: if fill_gradient.is_some() || fill_bitmap.is_some() {
+                    1.
+                } else {
+                    f64::from(fill[3]) / 255.
+                },
+                fill_gradient: fill_gradient.clone(),
+                fill_bitmap: fill_bitmap.clone(),
+                resource_bitmap: None,
+            })
+        }
+        RuntimeDrawKind::BitmapPixels {
+            pixel_ref,
+            width,
+            height,
+            revision,
+            smoothing,
+            color_transform,
+            ..
+        } => Some(AlphaClipComponent {
+            commands: mask_rectangle(f64::from(*width), f64::from(*height)),
+            fill_rule: FillRule::NonZero,
+            matrix: draw.item.transform,
+            clip_ids: draw.clip_ids.clone(),
+            alpha: 1.,
+            fill_gradient: None,
+            resource_bitmap: None,
+            fill_bitmap: Some(BitmapPaint {
+                pixel_ref: pixel_ref.clone(),
+                width: *width,
+                height: *height,
+                revision: revision.clone(),
+                matrix: [1., 0., 0., 1., 0., 0.],
+                repeat: false,
+                smoothing: *smoothing,
+                color_transform: *color_transform,
+            }),
+        }),
+        _ => None,
+    }
+}
+
+// Distinct linked target layers are independent composites even when they use
+// the same mask paint. Alias IDs preserve that identity inside nested sources.
+fn target_clip_id(id: &str, count: usize, index: usize) -> String {
+    if count <= 1 {
+        id.into()
+    } else {
+        format!("{id}:target:{index}")
+    }
+}
+fn alias_target_clips(clips: &mut Vec<RuntimeClip>, id: &str, count: usize) {
+    if count <= 1 {
+        return;
+    }
+    if let Some(template) = clips.iter().find(|clip| clip.id == id).cloned() {
+        for index in 0..count {
+            clips.push(RuntimeClip {
+                id: target_clip_id(id, count, index),
+                ..template.clone()
+            });
+        }
+    }
+}
+
+fn clip_uses_alpha(clips: &[RuntimeClip], id: &str, depth: usize) -> bool {
+    if depth > 64 {
+        return false;
+    }
+    clips.iter().find(|clip| clip.id == id).is_some_and(|clip| {
+        clip.alpha_components.is_some()
+            || clip
+                .components
+                .iter()
+                .flat_map(|c| &c.clip_ids)
+                .any(|id| clip_uses_alpha(clips, id, depth + 1))
+    })
+}
+
+/// Isolate each alpha-masked target layer before its shared coverage is applied.
+/// Existing object filter groups remain inside this layer group; ancestor groups
+/// remain outside. This prevents overlapping targets multiplying alpha twice.
+pub(crate) fn isolate_runtime_alpha_layers(
+    snapshot: &mut RuntimeSnapshot,
+    plans: &[RuntimeLayerMask],
+) {
+    let parents: HashMap<_, _> = snapshot
+        .objects
+        .iter()
+        .map(|node| (node.object_ref.clone(), node.parent_ref.clone()))
+        .collect();
+    let belongs = |reference: &ObjectRef, roots: &[ObjectRef]| {
+        let mut current = Some(reference);
+        for _ in 0..=parents.len() {
+            let Some(value) = current else {
+                return false;
+            };
+            if roots.contains(value) {
+                return true;
+            }
+            current = parents.get(value).and_then(|p| p.as_ref());
+        }
+        false
+    };
+    // Evaluation orders outer timelines before nested timelines. Inserting outer
+    // groups first lets the nested layer use it as its nearest external parent.
+    for plan in plans
+        .iter()
+        .filter(|plan| clip_uses_alpha(&snapshot.clips, &plan.id, 0))
+    {
+        for (index, (id, roots)) in plan.target_groups.iter().enumerate() {
+            let Some(first) = snapshot
+                .draws
+                .iter()
+                .find(|draw| belongs(&draw.owner_ref, roots))
+            else {
+                continue;
+            };
+            let mut parent = first.filter_id.clone();
+            while let Some(group) = parent
+                .as_ref()
+                .and_then(|id| snapshot.filter_groups.iter().find(|g| &g.id == id))
+            {
+                if !belongs(&group.owner_ref, roots) {
+                    break;
+                }
+                parent = group.parent_id.clone();
+            }
+            let owner_ref = roots.first().expect("nonempty matched layer").clone();
+            let mut clip_ids = Vec::new();
+            let mut ancestor = parent.as_ref();
+            for _ in 0..=snapshot.filter_groups.len() {
+                let Some(group) =
+                    ancestor.and_then(|id| snapshot.filter_groups.iter().find(|g| &g.id == id))
+                else {
+                    break;
+                };
+                for clip in &group.clip_ids {
+                    if !clip_ids.contains(clip) {
+                        clip_ids.push(clip.clone());
+                    }
+                }
+                ancestor = group.parent_id.as_ref();
+            }
+            let own_clip = target_clip_id(&plan.id, plan.target_groups.len(), index);
+            if !clip_ids.contains(&own_clip) {
+                clip_ids.push(own_clip);
+            }
+            let owned: HashSet<_> = snapshot
+                .filter_groups
+                .iter()
+                .filter(|g| belongs(&g.owner_ref, roots))
+                .map(|g| g.id.clone())
+                .collect();
+            for group in &mut snapshot.filter_groups {
+                if owned.contains(&group.id)
+                    && group.parent_id.as_ref().is_none_or(|p| !owned.contains(p))
+                {
+                    group.parent_id = Some(id.clone());
+                }
+            }
+            for draw in &mut snapshot.draws {
+                if belongs(&draw.owner_ref, roots)
+                    && draw.filter_id.as_ref().is_none_or(|id| !owned.contains(id))
+                {
+                    draw.filter_id = Some(id.clone());
+                }
+            }
+            snapshot.filter_groups.push(RuntimeFilterGroup {
+                id: id.clone(),
+                owner_ref,
+                parent_id: parent,
+                filters: vec![],
+                clip_ids,
+                composite_operation: "source-over".into(),
+                opaque_background: None,
+                cache_as_bitmap: false,
+                alpha_masks: vec![],
+            });
+        }
+    }
 }
 
 pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String> {
@@ -451,29 +966,47 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
     if project.format_version < 4 && layers.iter().any(|l| !l.properties.is_default()) {
         errors.push("Layer roles, masks and folders require document format 4".into());
     }
-    fn vector_symbol(project: &Project, symbol: &Symbol, visiting: &mut HashSet<Id>) -> bool {
-        if !visiting.insert(symbol.id.clone()) {
-            return false;
+    fn source_kind(
+        project: &Project,
+        kind: &ElementKind,
+        mode: MaskMode,
+        visiting: &mut HashSet<Id>,
+    ) -> bool {
+        match kind {
+            ElementKind::Instance { symbol_id, .. } => {
+                let Some(symbol) = project.symbol(symbol_id) else {
+                    return false;
+                };
+                if !visiting.insert(symbol.id.clone()) {
+                    return false;
+                }
+                let valid = symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .filter(|l| l.properties.role != LayerRole::Guide)
+                    .all(|layer| {
+                        let mode = if layer.properties.role == LayerRole::Mask {
+                            layer.properties.mask_mode
+                        } else {
+                            mode
+                        };
+                        layer
+                            .keyframes
+                            .iter()
+                            .flat_map(|k| &k.elements)
+                            .all(|e| source_kind(project, &e.kind, mode, visiting))
+                    });
+                visiting.remove(&symbol.id);
+                valid
+            }
+            ElementKind::Bitmap { resource_id, .. } if mode == MaskMode::Alpha => project
+                .resources
+                .iter()
+                .find(|resource| &resource.id == resource_id)
+                .is_some_and(|resource| resource.decode_image().is_ok()),
+            kind => crate::runtime_graph::clipping::vector_path(kind).is_some(),
         }
-        let valid = symbol
-            .timeline
-            .layers
-            .iter()
-            .filter(|l| l.properties.role != LayerRole::Guide)
-            .all(|l| {
-                l.properties.role != LayerRole::Mask
-                    && l.keyframes
-                        .iter()
-                        .flat_map(|k| &k.elements)
-                        .all(|e| match &e.kind {
-                            ElementKind::Instance { symbol_id, .. } => project
-                                .symbol(symbol_id)
-                                .is_some_and(|s| vector_symbol(project, s, visiting)),
-                            kind => crate::runtime_graph::clipping::vector_path(kind).is_some(),
-                        })
-            });
-        visiting.remove(&symbol.id);
-        valid
     }
     for layer in layers {
         if layer.properties.role == LayerRole::Folder
@@ -545,19 +1078,28 @@ pub(crate) fn validate_layers(project: &Project, symbol: &Symbol) -> Vec<String>
                 next = parent.properties.parent.as_ref();
             }
         }
+        if layer.properties.mask_mode == MaskMode::Alpha && layer.properties.role != LayerRole::Mask
+        {
+            errors.push(format!(
+                "Layer '{}' can use alpha mask mode only with the Mask role",
+                layer.name
+            ));
+        }
         if layer.properties.role == LayerRole::Mask {
             let valid = layer
                 .keyframes
                 .iter()
-                .flat_map(|k| &k.elements)
-                .all(|e| match &e.kind {
-                    ElementKind::Instance { symbol_id, .. } => project
-                        .symbol(symbol_id)
-                        .is_some_and(|s| vector_symbol(project, s, &mut HashSet::new())),
-                    kind => crate::runtime_graph::clipping::vector_path(kind).is_some(),
+                .flat_map(|key| &key.elements)
+                .all(|e| {
+                    source_kind(
+                        project,
+                        &e.kind,
+                        layer.properties.mask_mode,
+                        &mut HashSet::new(),
+                    )
                 });
             if !valid {
-                errors.push(format!("Mask '{}' supports vector fills and vector symbols; convert text/bitmaps to vector shapes and remove nested mask roles", layer.name));
+                errors.push(format!("Mask '{}' requires vector fills or nested vector symbols in Geometry mode; Alpha mode also accepts decodable bitmap images and mixed symbols. Convert text/video to supported artwork", layer.name));
             }
         }
     }

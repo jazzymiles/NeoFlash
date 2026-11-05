@@ -157,6 +157,30 @@ impl Player {
             if existing.len() + usize::from(state.isolated() || !node.filters.is_empty()) > 128 {
                 return Err(error("AS2 raster/filter groups exceed128 objects"));
             }
+            // Cache state selects geometric versus alpha clipping. Do not
+            // discard a live PNG mask when either cache flag is switched off.
+            // Prepare follows the same candidate validation without committing.
+            if request["name"] == "cacheAsBitmap" && !self.graph.masks.is_empty() {
+                let previous = self
+                    .graph
+                    .as2_render_states
+                    .insert(target.clone(), state.clone());
+                let validation = self.graph.validate_clipping(
+                    project,
+                    &scene,
+                    &self.graph.masks,
+                    &self.graph.scroll_rects,
+                    None,
+                );
+                if let Some(previous) = previous {
+                    self.graph
+                        .as2_render_states
+                        .insert(target.clone(), previous);
+                } else {
+                    self.graph.as2_render_states.remove(target);
+                }
+                validation?;
+            }
             if request["op"] == "set" {
                 match request["name"].as_str().unwrap_or("") {
                     "blendMode" => {

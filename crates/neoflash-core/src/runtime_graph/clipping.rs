@@ -33,11 +33,16 @@ pub struct ClipComponent {
     pub commands: Vec<PathCommand>,
     pub fill_rule: FillRule,
     pub matrix: [f64; 6],
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clip_ids: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeClip {
     pub id: String,
     pub components: Vec<ClipComponent>,
+    /// None preserves geometric clipping; Some(empty) is an empty alpha mask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha_components: Option<Vec<AlphaClipComponent>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AlphaClipComponent {
@@ -45,10 +50,24 @@ pub struct AlphaClipComponent {
     pub fill_rule: FillRule,
     pub matrix: [f64; 6],
     pub alpha: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clip_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_bitmap: Option<MaskResourceBitmap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_gradient: Option<crate::GradientPaint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_bitmap: Option<crate::BitmapPaint>,
+}
+/// Authored image coverage references portable project resources, not runtime pixel arenas.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MaskResourceBitmap {
+    pub resource_id: Id,
+    pub width: u32,
+    pub height: u32,
+    pub smoothing: bool,
+    #[serde(default, skip_serializing_if = "ColorTransform::is_identity")]
+    pub color_transform: ColorTransform,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAlphaMask {
@@ -131,6 +150,7 @@ impl RuntimeGraph {
         &self,
         objects: &HashMap<&ObjectRef, &RuntimeObject>,
         target: &ObjectRef,
+        singular: &BTreeSet<ObjectRef>,
     ) -> Vec<RuntimeAlphaMask> {
         let Some(source) = self.masks.get(target) else {
             return vec![];
@@ -145,15 +165,19 @@ impl RuntimeGraph {
                 continue;
             };
             let matrix = node.display.world;
-            if !nonsingular(node.local_matrix) || !nonsingular(matrix) {
+            if node.authored_mask_source || singular.contains(&reference) || !nonsingular(matrix) {
                 continue;
             }
             if let Some(dynamic) = self.dynamic.get(&reference) {
-                components.extend(dynamic.graphics.alpha_mask_components(
+                let mut graphics = dynamic.graphics.alpha_mask_components(
                     &self.pixels,
                     node.concatenated_color_transform,
                     matrix,
-                ));
+                );
+                for component in &mut graphics {
+                    component.clip_ids = node.clip_ids.clone();
+                }
+                components.extend(graphics);
             }
             if let Some(bmp) = &node.bitmap
                 && !bmp.disposed
@@ -164,7 +188,10 @@ impl RuntimeGraph {
                     commands: rectangle(bmp.width as f64, bmp.height as f64),
                     fill_rule: FillRule::NonZero,
                     matrix,
-                    alpha: node.display.transform.alpha,
+                    // The concatenated color transform includes placement alpha.
+                    alpha: 1.,
+                    clip_ids: node.clip_ids.clone(),
+                    resource_bitmap: None,
                     fill_gradient: None,
                     fill_bitmap: Some(crate::BitmapPaint {
                         pixel_ref: bmp.pixel_ref.clone(),
@@ -179,34 +206,21 @@ impl RuntimeGraph {
                 });
             }
             if let Some(kind) = &node.display.kind
-                && let Some((commands, fill_rule)) = vector_path(kind)
-            {
-                let fill_alpha = match kind {
-                    ElementKind::Rectangle { fill, .. }
-                    | ElementKind::Ellipse { fill, .. }
-                    | ElementKind::Path { fill, .. } => {
-                        f64::from(node.concatenated_color_transform.apply(*fill)[3]) / 255.0
-                    }
-                    _ => node.display.transform.alpha,
-                };
-                components.push(AlphaClipComponent {
-                    commands,
-                    fill_rule,
+                && vector_path(kind).is_some()
+                && let Some(component) = crate::authored_layers::alpha_component(
+                    kind,
                     matrix,
-                    alpha: fill_alpha,
-                    fill_gradient: None,
-                    fill_bitmap: None,
-                });
+                    node.concatenated_color_transform,
+                    node.clip_ids.clone(),
+                )
+            {
+                components.push(component);
             }
         }
-        if components.is_empty() {
-            vec![]
-        } else {
-            vec![RuntimeAlphaMask {
-                clip_id,
-                components,
-            }]
-        }
+        vec![RuntimeAlphaMask {
+            clip_id,
+            components,
+        }]
     }
     fn require_clip_object(&self, target: &ObjectRef) -> Result<(), DisplayError> {
         if self.alive(target) {
@@ -257,7 +271,7 @@ impl RuntimeGraph {
             .iter()
             .map(|n| (&n.object_ref, n))
             .collect();
-        let mut masked = BTreeSet::new();
+        let mut masked = BTreeMap::new();
         for node in &snapshot.objects {
             let mut current = Some(node.object_ref.clone());
             let mut source_count = 0;
@@ -301,41 +315,40 @@ impl RuntimeGraph {
                         .iter()
                         .any(|(tgt, s)| s == src && self.is_cached_as_bitmap(tgt))
             });
-            if node.display.total_frames > 1
-                || (matches!(node.display.owner.as_str(), "text" | "bitmap" | "video")
-                    && !(alpha_mask && node.display.owner == "bitmap"))
+            if matches!(node.display.owner.as_str(), "text" | "bitmap" | "video")
+                && !(alpha_mask && node.display.owner == "bitmap")
             {
                 return Err(error(
-                    "Mask sources currently support vector fills and one-frame vector containers; text, bitmap, video and animated authored timelines are pending",
+                    "Mask sources support vector fills and animated vector containers; bitmap sources require cacheAsBitmap on both mask and target, and text/video must be converted to supported artwork",
                 ));
             }
             if let Some(kind) = &node.display.kind {
-                vector_cost(kind)?;
+                vector_cost(kind, alpha_mask)?;
             }
-            masked.insert(&node.object_ref);
+            masked.insert(&node.object_ref, alpha_mask);
         }
         // Reserve each outer authored branch once. Its static symbol closure
         // includes all descendants (also hidden layers), without double-counting
         // nested instance geometry or unrelated placements of the same symbol.
-        let mut authored_counts = BTreeMap::<&str, usize>::new();
-        for reference in &masked {
+        let mut authored_counts = BTreeMap::<(&str, bool), usize>::new();
+        for (reference, alpha_mask) in &masked {
             let node = objects[reference];
             let Some(id) = node.source_path.as_ref().and_then(|p| p.last()) else {
                 continue;
             };
             let authored_parent = parent_of(reference).as_ref().is_some_and(|parent| {
-                masked.contains(parent)
+                masked.contains_key(parent)
                     && objects
                         .get(parent)
                         .is_some_and(|n| n.source_path.as_ref().is_some_and(|p| !p.is_empty()))
             });
             if !authored_parent {
-                *authored_counts.entry(id).or_default() += 1;
+                *authored_counts.entry((id, *alpha_mask)).or_default() += 1;
             }
         }
         // A continuing authored ID may change in a later outer keyframe.
         // Validate every occurrence and reserve its largest possible closure.
-        let mut future_cost = BTreeMap::<&str, usize>::new();
+        let mut future_cost = BTreeMap::<(&str, bool), usize>::new();
         let mut symbol_costs = BTreeMap::new();
         for element in project
             .symbols
@@ -344,10 +357,14 @@ impl RuntimeGraph {
             .flat_map(|l| &l.keyframes)
             .flat_map(|k| &k.elements)
         {
-            if authored_counts.contains_key(element.id.as_str()) {
-                let cost = static_kind_cost(project, &element.kind, 0, &mut symbol_costs)?;
-                let entry = future_cost.entry(&element.id).or_default();
-                *entry = (*entry).max(cost);
+            for alpha_mask in [false, true] {
+                let key = (element.id.as_str(), alpha_mask);
+                if authored_counts.contains_key(&key) {
+                    let cost =
+                        static_kind_cost(project, &element.kind, alpha_mask, 0, &mut symbol_costs)?;
+                    let entry = future_cost.entry(key).or_default();
+                    *entry = (*entry).max(cost);
+                }
             }
         }
         let authored_cost = authored_counts.iter().fold(0usize, |sum, (id, count)| {
@@ -406,6 +423,7 @@ impl RuntimeGraph {
                     commands: rectangle(rect.width, rect.height),
                     fill_rule: FillRule::NonZero,
                     matrix,
+                    clip_ids: vec![],
                 }]
             } else {
                 vec![]
@@ -413,6 +431,7 @@ impl RuntimeGraph {
             snapshot.clips.push(RuntimeClip {
                 id: id.clone(),
                 components,
+                alpha_components: None,
             });
             own_clips.entry(target.clone()).or_default().push(id);
         }
@@ -426,7 +445,10 @@ impl RuntimeGraph {
                     continue;
                 };
                 let matrix = node.display.world;
-                if singular.contains(&reference) || !nonsingular(matrix) {
+                if node.authored_mask_source
+                    || singular.contains(&reference)
+                    || !nonsingular(matrix)
+                {
                     continue;
                 }
                 // Alpha and visible are deliberately ignored for uncached
@@ -437,6 +459,7 @@ impl RuntimeGraph {
                             commands: commands.to_vec(),
                             fill_rule,
                             matrix,
+                            clip_ids: node.clip_ids.clone(),
                         },
                     ));
                 }
@@ -450,6 +473,7 @@ impl RuntimeGraph {
                         commands: rectangle(bmp.width as f64, bmp.height as f64),
                         fill_rule: FillRule::NonZero,
                         matrix,
+                        clip_ids: node.clip_ids.clone(),
                     });
                 }
                 if let Some(kind) = &node.display.kind
@@ -459,19 +483,36 @@ impl RuntimeGraph {
                         commands,
                         fill_rule,
                         matrix,
+                        clip_ids: node.clip_ids.clone(),
                     });
                 }
             }
+            let alpha_components = if alpha_mask {
+                Some(
+                    self.collect_alpha_masks(&objects, target, &singular)
+                        .into_iter()
+                        .flat_map(|mask| mask.components)
+                        .filter(|component| nonsingular(component.matrix))
+                        .collect(),
+                )
+            } else {
+                None
+            };
             snapshot.clips.push(RuntimeClip {
                 id: id.clone(),
                 components,
+                alpha_components,
             });
             own_clips.entry(target.clone()).or_default().push(id);
         }
         let empty: BTreeSet<_> = snapshot
             .clips
             .iter()
-            .filter(|clip| clip.components.is_empty())
+            .filter(|clip| {
+                clip.alpha_components
+                    .as_ref()
+                    .map_or_else(|| clip.components.is_empty(), Vec::is_empty)
+            })
             .map(|clip| clip.id.as_str())
             .collect();
         let mut inherited = HashMap::<ObjectRef, Vec<String>>::new();
@@ -482,6 +523,13 @@ impl RuntimeGraph {
                 .and_then(|p| inherited.get(p))
                 .cloned()
                 .unwrap_or_default();
+            ids.extend(
+                node.clip_ids
+                    .iter()
+                    .filter(|id| !ids.contains(id))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            );
             ids.extend(own_clips.remove(&node.object_ref).unwrap_or_default());
             if consumed.contains(&node.object_ref)
                 || ids.iter().any(|id| empty.contains(id.as_str()))
@@ -508,7 +556,7 @@ fn nonsingular(m: [f64; 6]) -> bool {
     let determinant = m[0] * m[3] - m[1] * m[2];
     determinant.is_finite() && determinant != 0.
 }
-fn vector_cost(kind: &ElementKind) -> Result<usize, DisplayError> {
+fn vector_cost(kind: &ElementKind, alpha_mask: bool) -> Result<usize, DisplayError> {
     match kind {
         ElementKind::Rectangle { .. } => Ok(5),
         ElementKind::Ellipse { .. } => Ok(6),
@@ -516,32 +564,29 @@ fn vector_cost(kind: &ElementKind) -> Result<usize, DisplayError> {
             Ok(commands.len())
         }
         ElementKind::Instance { .. } => Ok(0),
+        ElementKind::Bitmap { .. } if alpha_mask => Ok(5),
         _ => Err(error(
-            "Text/bitmap/video mask sources require an unsupported raster/alpha-mask profile",
+            "Bitmap mask sources require cacheAsBitmap on both mask and target; convert text/video mask sources to vector or bitmap artwork",
         )),
     }
 }
 fn static_kind_cost(
     project: &Project,
     kind: &ElementKind,
+    alpha_mask: bool,
     depth: usize,
-    costs: &mut BTreeMap<Id, usize>,
+    costs: &mut BTreeMap<(Id, bool), usize>,
 ) -> Result<usize, DisplayError> {
     if depth > MAX_GRAPH_DEPTH {
         return Err(error("Mask source symbol nesting exceeds 64"));
     }
     if let ElementKind::Instance { symbol_id, .. } = kind {
-        if let Some(cost) = costs.get(symbol_id) {
+        if let Some(cost) = costs.get(&(symbol_id.clone(), alpha_mask)) {
             return Ok(*cost);
         }
         let symbol = project
             .symbol(symbol_id)
             .ok_or_else(|| error("Mask source symbol is missing"))?;
-        if symbol.timeline.frame_count != 1 {
-            return Err(error(
-                "Animated authored mask timelines are not supported yet",
-            ));
-        }
         let mut cost = 0usize;
         for element in symbol
             .timeline
@@ -550,15 +595,21 @@ fn static_kind_cost(
             .flat_map(|l| &l.keyframes)
             .flat_map(|k| &k.elements)
         {
-            cost = cost.saturating_add(static_kind_cost(project, &element.kind, depth + 1, costs)?);
+            cost = cost.saturating_add(static_kind_cost(
+                project,
+                &element.kind,
+                alpha_mask,
+                depth + 1,
+                costs,
+            )?);
             if cost > MAX_AUTHORED_MASK_COMMANDS {
                 return Err(error("Authored mask geometry exceeds 100000 commands"));
             }
         }
-        costs.insert(symbol_id.clone(), cost);
+        costs.insert((symbol_id.clone(), alpha_mask), cost);
         Ok(cost)
     } else {
-        vector_cost(kind)
+        vector_cost(kind, alpha_mask)
     }
 }
 fn rectangle(width: f64, height: f64) -> Vec<PathCommand> {

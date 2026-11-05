@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=8) {
+    if !matches!(project.format_version, 1..=9) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 8",
+                "unsupported version {}; supported versions are 1 through 9",
                 project.format_version
             ),
         );
@@ -88,6 +88,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "format_version".into(),
             "editable motion paths, classic guide endpoint snapping, layer blend modes and timeline-synced layers require document version 8"
                 .into(),
+        );
+    }
+    if project.uses_format_9() && project.format_version < 9 {
+        add(
+            "format_version".into(),
+            "painted-alpha timeline masks require document version 9".into(),
         );
     }
     let mut scene_ids = HashSet::new();

@@ -898,14 +898,15 @@ re-encoding at publish lands. P3.
 | DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), Outline colour + outlines toggle, Layer height `Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
-**Layer and scripted mask coverage — partial (DL-16).** Existing timeline masks are geometric: compound
-vector fills, holes and nested vector symbols are supported, but gradient opacity is ignored and bitmap/mixed
-sources are rejected. The scripted cached-alpha path supports dynamically created gradient and bitmap/vector
-sources; authored gradient/PNG sources do not yet have equivalent behavior. Required completion covers both
-AS2 `setMask` and AS3 `mask`, explicit alpha masking on the timeline, moving masks, nested transforms and mixed
-sources, with matching native/HTML5 pixels, Undo and save/reopen. Preserve geometric masking and existing
-projects; do not reinterpret every gradient as an alpha mask. Use existing approved controls, or request the
-missing state from the design track. See task card22 in [the wiring plan](NF2-WIRING-PLAN.md#74-remaining-timeline-work-task-cards).
+**Layer and scripted mask coverage — engine implemented; mode UI pending (DL-16).** Geometry remains the
+legacy default. Format 9 adds explicit painted-alpha masks with gradient transparency, decoded PNG alpha,
+compound holes, nested/mixed sources and moving/tweened transforms. Native stage and HTML5 share the Rust
+clip graph; target layers composite before coverage so overlaps and nested masks retain the correct alpha.
+AS2 `setMask` / AS3 `mask` preserve the existing source-plus-target `cacheAsBitmap` contract, including authored
+gradient/PNG sources. The Mask command links the eligible sibling below in displayed order, with one Undo;
+mode data survives save/reopen. Text/video sources and fully scripted mask-of-mask graphs remain outside the
+supported profile. The alpha-mode selector is requested in R-048; no unapproved control has been added.
+See task card22 in [the wiring plan](NF2-WIRING-PLAN.md#74-remaining-timeline-work-task-cards).
 
 ## 11. Menus (`panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus)
 

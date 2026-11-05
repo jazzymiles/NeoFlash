@@ -11,7 +11,10 @@ mod as2_render;
 mod as2_snapshot;
 mod bitmap;
 pub(crate) mod clipping;
-pub use clipping::{ClipComponent, RuntimeClip, ScrollRect};
+pub use clipping::{
+    AlphaClipComponent, ClipComponent, MaskResourceBitmap, RuntimeAlphaMask, RuntimeClip,
+    ScrollRect,
+};
 mod filters;
 pub use filters::RuntimeFilterGroup;
 mod hierarchy;
@@ -142,6 +145,8 @@ pub struct RuntimeObject {
     pub filters: Vec<FilterSpec>,
     pub color_transform: ColorTransform,
     pub concatenated_color_transform: ColorTransform,
+    #[serde(skip)]
+    pub(crate) authored_mask_source: bool,
 }
 
 /// Runtime pixels have their own identity; authoring resource IDs remain immutable.
@@ -1230,12 +1235,15 @@ impl Player {
                 },
                 color_transform,
                 concatenated_color_transform,
+                authored_mask_source: false,
             });
         }
         RuntimeGraph::sanitize_input(&mut result);
-        self.graph.apply_clipping(&mut result);
         crate::authored_layers::apply_runtime_masks(&mut result, &layer_masks);
+        self.graph.apply_clipping(&mut result);
+        crate::mask_composition::factor_alpha_clip_groups(&mut result.clips);
         self.graph.apply_filters(&mut result);
+        crate::authored_layers::isolate_runtime_alpha_layers(&mut result, &layer_masks);
         // Eligibility follows final descendant paint alpha. A signed parent
         // transform may hide 0..255 itself while a child's unclamped transform
         // produces a visible concatenation, so never prune whole subtrees early.

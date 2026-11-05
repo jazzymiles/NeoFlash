@@ -205,6 +205,21 @@ pub enum LayerRole {
     Folder,
 }
 
+/// Geometric masks preserve legacy fill silhouettes. Alpha masks composite the
+/// source's painted opacity, including gradients and decoded bitmap pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaskMode {
+    #[default]
+    Geometry,
+    Alpha,
+}
+impl MaskMode {
+    pub fn is_geometry(&self) -> bool {
+        *self == Self::Geometry
+    }
+}
+
 /// Authoring relationships use document IDs, never row positions or UI paths.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayerProperties {
@@ -218,6 +233,9 @@ pub struct LayerProperties {
     pub parent: Option<Id>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<Id>,
+    /// Applies to a Mask layer's source, never to its linked target layers.
+    #[serde(default, skip_serializing_if = "MaskMode::is_geometry")]
+    pub mask_mode: MaskMode,
     #[serde(default)]
     pub outline: bool,
     /// Authoring-only RGB; None uses the stable layer palette without changing
@@ -328,6 +346,17 @@ impl Project {
         if self.uses_format_8() {
             self.format_version = self.format_version.max(8);
         }
+        if self.uses_format_9() {
+            self.format_version = self.format_version.max(9);
+        }
+    }
+
+    /// Explicit painted-alpha timeline masks (format 9).
+    pub fn uses_format_9(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .any(|layer| !layer.properties.mask_mode.is_geometry())
     }
 
     /// Editable spatial motion curves, classic guide endpoint snapping, layer blend modes and

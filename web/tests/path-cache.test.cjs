@@ -68,3 +68,19 @@ test('GradientRenderer renders bitmap fills in repeat and clamped-edge modes',()
   assert.equal(ops.filter(o=>o.op==='drawImage').length,5,'clamped fill draws center + 4 stretched edge strips');
   assert.equal(ops.filter(o=>o.op==='fillRect').length,4,'clamped fill paints 4 corner quadrants');
 });
+
+
+test('mask clip table and filter cache preserve explicit alpha and nested revisions',()=>{
+  const {clipTable}=require('../path.js'),{Renderer}=require('../filters.js');
+  const source={commands:segment(0),matrix:[1,0,0,1,0,0],fill_rule:'nonzero'};
+  const clips=[{id:'outer',components:[{...source,clip_ids:['inner']}]},{id:'inner',components:[source],alpha_components:[]}];
+  const table=clipTable(clips,[{alpha_masks:[{clip_id:'inner',components:[{...source,alpha:1}]}]}]);
+  assert.deepEqual(table.get('inner').components,[],'explicit empty soft mask beats legacy group metadata');
+  const renderer=new Renderer({player:{filter_rgba(){},filter_padding(){}}});
+  renderer.clipVersions({clips});const first=renderer.clips.get('outer').version;
+  renderer.clipVersions({clips});assert.equal(renderer.clips.get('outer').version,first);
+  clips[1].alpha_components=[{...source,alpha:0.5}];renderer.clipVersions({clips});
+  assert.notEqual(renderer.clips.get('outer').version,first,'nested alpha changes invalidate an ancestor cached source');
+  clips[1].alpha_components[0].clip_ids=['outer'];
+  assert.throws(()=>renderer.clipVersions({clips}),/cyclic/);
+});

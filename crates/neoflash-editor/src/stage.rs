@@ -1,3 +1,6 @@
+#[path = "stage_alpha_masks.rs"]
+mod alpha_masks;
+
 use crate::app::{Editor, Tool};
 use crate::theme::UiPalette;
 use eframe::egui::{
@@ -191,6 +194,7 @@ pub(crate) fn hit_item_with_slop(
         _ => true,
     }
 }
+#[derive(Clone, Copy)]
 struct DrawStyle {
     origin: Pos2,
     zoom: f32,
@@ -1050,6 +1054,12 @@ impl Editor {
         scene: &AuthoredScene,
         style: DrawStyle,
     ) {
+        if scene.clips.iter().any(|clip| clip.alpha_components.is_some()) {
+            if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
+                self.message(error);
+            }
+            return;
+        }
         let DrawStyle {
             origin,
             zoom,

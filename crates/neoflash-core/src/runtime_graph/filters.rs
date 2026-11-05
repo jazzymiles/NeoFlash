@@ -166,11 +166,6 @@ impl RuntimeGraph {
     pub(super) fn apply_filters(&self, snapshot: &mut RuntimeSnapshot) {
         // Objects are emitted parent-first. A single optional ID per object/draw
         // avoids cloning an inherited chain into every descendant primitive.
-        let objects: HashMap<_, _> = snapshot
-            .objects
-            .iter()
-            .map(|n| (&n.object_ref, n))
-            .collect();
         let mut nearest: HashMap<ObjectRef, Option<String>> = HashMap::new();
         for object in &snapshot.objects {
             let parent = object
@@ -191,7 +186,17 @@ impl RuntimeGraph {
                     "filter-{}-{}",
                     object.object_ref.generation, object.object_ref.id
                 );
-                let alpha_masks = self.collect_alpha_masks(&objects, &object.object_ref);
+                let alpha_masks = object
+                    .clip_ids
+                    .iter()
+                    .filter_map(|id| {
+                        let clip = snapshot.clips.iter().find(|clip| &clip.id == id)?;
+                        Some(RuntimeAlphaMask {
+                            clip_id: id.clone(),
+                            components: clip.alpha_components.clone()?,
+                        })
+                    })
+                    .collect();
                 snapshot.filter_groups.push(RuntimeFilterGroup {
                     id: id.clone(),
                     owner_ref: object.object_ref.clone(),

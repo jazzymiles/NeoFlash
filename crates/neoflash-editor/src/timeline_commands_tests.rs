@@ -1551,3 +1551,83 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
         "{labels:?}"
     );
 }
+
+#[test]
+fn mask_context_command_links_displayed_lower_sibling_and_roundtrips_with_one_undo() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 4;
+    let original = project.symbols[0].timeline.layers[0].clone();
+    let mut layers = Vec::new();
+    for id in ["outside", "inside-bottom", "inside-top", "folder"] {
+        let mut layer = original.clone();
+        layer.id = id.into();
+        layer.name = id.into();
+        layer.keyframes[0].elements = vec![element(&format!("{id}-art"), rectangle(), 0.)];
+        if id.starts_with("inside") {
+            layer.properties.parent = Some("folder".into());
+        }
+        if id == "folder" {
+            layer.properties.role = LayerRole::Folder;
+            layer.keyframes.clear();
+        }
+        layers.push(layer);
+    }
+    project.symbols[0].timeline.layers = layers;
+    project.validate().unwrap();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.set_layer_role(2, LayerRole::Mask);
+    let layers = &editor.symbol().timeline.layers;
+    assert_eq!(layers[1].properties.mask.as_deref(), Some("inside-top"));
+    assert!(
+        layers[0].properties.mask.is_none(),
+        "mask stays within its folder"
+    );
+    assert_eq!(
+        crate::layer_controls::visible_layer_indices(&editor.symbol().timeline),
+        [3, 2, 1, 0]
+    );
+    editor.project.validate().unwrap();
+    let reopened = Project::from_json(&editor.project.to_json().unwrap()).unwrap();
+    reopened.validate().unwrap();
+    assert_eq!(reopened, editor.project);
+    undo_restores(&mut editor, &before);
+    assert!(!editor.history.can_undo());
+    editor.set_layer_role(2, LayerRole::Mask);
+    editor.project.format_version = 9;
+    editor.symbol_mut().timeline.layers[2].properties.mask_mode = MaskMode::Alpha;
+    editor.history = History::new(150);
+    let alpha_before = editor.project.clone();
+    editor.set_layer_role(2, LayerRole::Normal);
+    assert_eq!(
+        editor.symbol().timeline.layers[2].properties.mask_mode,
+        MaskMode::Geometry
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &alpha_before);
+    use crate::panels::layer_properties::{LayerTypeChoice, edit_layer_properties_draft};
+    editor.open_layer_properties(&ctx, 2);
+    edit_layer_properties_draft(&ctx, |draft| draft.kind = LayerTypeChoice::Normal);
+    editor.confirm_layer_properties(&ctx).unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[2].properties.mask_mode,
+        MaskMode::Geometry
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &alpha_before);
+    editor.project = before.clone();
+    editor.history = History::new(150);
+    // The bottom child has no eligible sibling below in its folder; unrelated root artwork stays free.
+    editor.set_layer_role(1, LayerRole::Mask);
+    assert!(
+        editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .all(|l| l.properties.mask.is_none())
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+}
