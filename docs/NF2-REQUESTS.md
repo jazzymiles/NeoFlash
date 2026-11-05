@@ -55,6 +55,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Error (error line, no badge, + `Retry`). Step buttons stay visible and are drawn inactive unless Paused. Without a
   paused frame Call stack and Variables show a tertiary hint; Watch shows an info line “Watch expressions are not
   available yet …” instead of rows until evaluation exists. New shared piece: wavy range underline painter.
+  Addendum (approved 5 November 2026, R-044 frame): F8 precedence — (1) a paused debug session → Continue;
+  (2) else keyboard focus in the Actions editor → Next problem (caret moves, its peek opens; `⇧F8` previous);
+  (3) else → `Modify ▸ Convert to Symbol`. Hovering a range still opens the peek.
 
 ### R-001 · Ruler pointer-position marker
 - **Status:** open
@@ -544,44 +547,63 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   (rect) → Rect` = bottom-right 12 × 12 pt of the 32 pt button.
 
 ### R-039 · Intra-layer object depth arrangement controls and default shortcut confirmation
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track (`gemini`) · MN-05 / T-041 (`Modify ▸ Arrange`: Bring to front, Bring forward, Send backward, Send to back)
 - **Where:** `panels/align.rs` / `panels/properties.rs` / `panels/transform.rs`, stage object context menu (`stage.rs`), `authoring_modify.rs::arrange_menu`, and `commands.rs` (`ModifyArrangeFront`, `ModifyArrangeForward`, `ModifyArrangeBackward`, `ModifyArrangeBack`).
 - **Need:** (1) Dedicated NF2 icon buttons or panel section for intra-layer object z-order / depth arrangement (`Bring to front`, `Bring forward`, `Send backward`, `Send to back`) in `Align`, `Transform`, or `Properties` when multiple objects sit on the same layer, plus four 16 px arrange icons and a stage object context-menu `Arrange ▸` submenu placement; and (2) design-track confirmation of the primary vs. secondary default keyboard shortcuts (`⇧⌘↑` / `⌘↑` / `⌘↓` / `⇧⌘↓` from Flash CS4 vs. `⇧⌘]` / `⌘]` / `⌘[` / `⇧⌘[` from modern macOS tools).
 - **Why:** Engine and menu support (`Modify ▸ Arrange`, group-atomic depth stepping, boundary no-op disabling, held-frame keyframing, and both `⇧⌘↑`/`⌘↑`/`⌘↓`/`⇧⌘↓` + `⇧⌘]`/`⌘]`/`⌘[`/`⇧⌘[` chords in `commands.rs`) are implemented and tested, but there are no visible 1-click Arrange buttons in any docked panel (`Align`, `Transform`, or `Properties`), and the locked panel layouts and stage object context menu cannot be modified without design approval.
 - **Checked:** `interface/design-system/docs/data/outline/panels-menus.txt`, `panels-panel-align-transform-info.txt`, `panels-properties-panel-all-variants.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` §8 (`Modify ▸ Arrange`).
 - **Proposal (optional):** Add a 4-button `Arrange` row (`IconButton` 24×24 with `bring-to-front`, `bring-forward`, `send-backward`, `send-to-back` icons) to the `Align` or `Transform` panel, add `Arrange ▸` to the stage object context menu, and keep `⇧⌘↑` / `⌘↑` / `⌘↓` / `⇧⌘↓` as primary menu labels with `⇧⌘]` / `⌘]` / `⌘[` / `⇧⌘[` as secondary chords.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — R-044 · Gemini R-039…R-042 …” (Dark `138:20571`, Light `141:21821`), column Gemini.
+  `Modify ▸ Arrange` and the Stage object context menu `Arrange ▸` list Bring to front `⇧⌘↑`, Bring forward `⌘↑`,
+  Send backward `⌘↓`, Send to back `⇧⌘↓` (the shortcuts shown); `⇧⌘]` / `⌘]` / `⌘[` / `⇧⌘[` stay as silent
+  secondary chords. Items at the boundary are Disabled. Declined: no Arrange buttons or new icons in Align, Transform
+  or Properties. Uses existing Menu Item states only.
 
 ### R-040 · Layer blend modes (AE / Animate CC style) in Layer Properties, Frame Properties and Timeline layer rows
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track (`gemini`) · T-036 (`LayerProperties.blend_mode`)
 - **Where:** `panels/layer_properties.rs` (`Layer properties` modal dialog), `panels/properties.rs` (Frame / Layer context when no stage object is selected), and `panels/timeline.rs` (`LayerRow` header column).
 - **Need:** Approved NF2 placement for `LayerProperties.blend_mode` (`Blending` select with all 14 Flash blend modes `Normal`..`Erase`): (1) a `Blending` row in the `Layer properties` modal dialog (`panels-dialog-layer-properties.txt`), (2) whether `Properties` (when inspecting a frame/layer with no stage selection) should also show the layer `Blending` select alongside `Window ▸ Filters`, and (3) an optional compact badge or mode indicator on `LayerRow` when a layer uses a non-`Normal` blend mode.
 - **Why:** `LayerProperties.blend_mode` (format 8) and folder-inherited `layer_effective_blend_mode` are implemented in `neoflash-core` and wired today in the layer right-click menu (`Blending: <mode>` submenu), `Folder and mask…` dialog, and `Window ▸ Filters` (`Blending` select when no stage object is selected), while `panels/layer_properties.rs`, `panels/properties.rs`, and `LayerRow` are governed by the locked NF2 outlines.
 - **Checked:** `interface/design-system/docs/data/outline/panels-dialog-layer-properties.txt`, `panels-properties-panel-all-variants.txt`, `interface-timeline-states-legend.txt`, `panels/layer_properties.rs`, `panels/filters.rs`.
 - **Proposal (optional):** Add a `Blending` `c::Select` row to `Layer properties` below `Outline color` and a subtle pill/badge on `LayerRow` when `blend_mode != BlendMode::Normal`.
-- **Answer:**
+- **Answer:** approved 5 November 2026. (1) Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — R-044 · Gemini R-039…R-042 …” (Dark `138:20571`, Light `141:21821`): `Layer properties` gets a `Blending: <mode>` Select
+  next to `Layer height` (inherited folder value reads `Blending: Inherited (<mode>)`). (2) `Properties` stays
+  element-only — no layer Blending there. (3) Timeline row — chosen direction is Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Classic timeline + layer Mode & Solo” (Dark `143:22609`, Light `144:25676`): a 64 pt `Mode` cell between
+  the layer name and the toggles (header “Mode”), `Normal` in text/tertiary, other modes in text/primary, hover =
+  bg/hover; click opens a Menu with the 14 modes grouped Normal·Layer / Darken·Multiply / Lighten·Screen·Add /
+  Overlay·Hard light / Difference·Subtract·Invert / Alpha·Erase (Checked = current), one Undo step. Guide, Motion
+  guide and Sound rows have no Mode cell. The layer column grows from 280 to 372 pt together with Solo (R-045).
+  The AE-style “indicators slot” in the alternative version is not adopted.
 
 ### R-041 · AE-style Option-drag (Alt-drag) symbol replacement visual feedback, target highlight and cursor
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track (`gemini`) · PR-06 / T-037 (`swap_layer_or_selected_symbol` on `⌥`-drag from Library)
 - **Where:** `graphic_import.rs::stage_library_drop`, `panels/timeline.rs` (`timeline_contents` layer row & span drop target), and `neoflash-ui` cursors/overlays.
 - **Need:** Approved NF2 visual feedback when holding `⌥` (`Alt`) while dragging a symbol from `Library` over the Stage or over a Timeline layer row / frame span to replace its symbol: (1) target highlight style on the Stage instance / Timeline layer row (currently uses the 2 px accent selection stroke and `CursorIcon::Copy`), and (2) whether an inline floating chip/tooltip (e.g. `"Replace with <Symbol>"` or a dedicated swap cursor) should appear during `⌥`-drag.
 - **Why:** `swap_layer_or_selected_symbol` (replacing the symbol on the selected instance or active/hovered layer across its keyframes in one Undo step while preserving transform, instance name, scripts, filters, and blend mode) is implemented and works on `⌥`-drop onto both Stage and Timeline, plus via `Library ▸ Swap symbol` when a layer is selected; any custom NF2 badge, ghost chip, or cursor requires design-track approval.
 - **Checked:** `interface/design-system/docs/data/outline/panels-panel-library.txt`, `interface-timeline-states-legend.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-06.
 - **Proposal (optional):** Keep the 2 px accent outline on the hovered Timeline layer row / Stage target and add a compact `NF2/Tooltip` chip `"Replace symbol: <target>"` next to the cursor while `⌥` is held.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — R-044 · Gemini R-039…R-042 …” (Dark `138:20571`, Light `141:21821`), column Gemini. While `⌥` is held over a valid target the
+  target shows the existing `Selection Box` (Symbol) and the drag chip `NF2/Drag Ghost` reads `Replace “<old>” with
+  “<new>”`; without `⌥` it reads `Place “<new>”`. Over a timeline layer row: selected row fill + 1 pt accent/default
+  outline and `Replace on all keyframes of “<layer>”`. No new cursor. Release = one Undo step; Esc cancels.
 
 ### R-042 · Timeline-synchronized layer crop (`Sync layer to timeline`) and MovieClip/Graphic `First frame` ("Start from") controls
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track (`gemini`) · PR-07 / T-038 (`LayerProperties.sync_timeline` and instance `First frame`)
 - **Where:** `authoring_symbols.rs::instance_playback_ui` (`Properties` symbol playback section), `panels/layer_properties.rs`, `layer_controls.rs`, and `panels/timeline_controls.rs` (`timeline_frame_view_menu` `⋯` dropdown).
 - **Need:** Design review and UX confirmation after human testing for: (1) exposing `First frame` (`1..=frame_count`, Flash "Start from") in `Properties` for both `Graphic` and `MovieClip` instances (and whether `MovieClip` instances should show a dedicated `"Start from frame"` label or the shared `Playback` + `First frame` rows), (2) placement of the layer-level `Sync layer to timeline` (`LayerProperties.sync_timeline`) checkbox in the Timeline `⋯` dropdown, layer context menu, and `Layer properties` dialog, and (3) whether a synced layer whose early frames (`1..6`) are blank should display a distinct span marker/crop indicator on the timeline grid at the frame (`7`) where the symbol enters at its synchronized frame `7`.
 - **Why:** Both mechanisms are implemented and ready for human UX testing (`First frame` in `instance_playback_ui` and `Sync layer to timeline` in the layer context menu, `Folder and mask…`, and Timeline `⋯` menu, backed by `LayerProperties.sync_timeline` in format 8), but the user flagged this workflow as needing human testing and NF2 design confirmation for its permanent controls and visual indicators.
 - **Checked:** `interface/design-system/docs/data/outline/panels-properties-panel-all-variants.txt`, `panels-dialog-layer-properties.txt`, `interface-timeline-states-legend.txt`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-07.
 - **Proposal (optional):** Retain `First frame` (`1..=count`) in `Properties` for `Graphic` and `MovieClip`, keep `Sync layer to timeline` as a checked `MenuItem` in the layer context menu and Timeline `⋯` menu (plus a checkbox in `Layer properties`), and optionally show a small crop/sync tick on the leading keyframe of a synced layer span.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — R-044 · Gemini R-039…R-042 …” (Dark `138:20571`, Light `141:21821`), column Gemini. Graphic: keep the approved `Looping`
+  section (First / Last steppers + thumbnail picker). Movie clip: a `Timeline` section (expanded) above `Display` with a
+  `Start at frame` Stepper (1…frame count) and the tertiary note “Scripts that call gotoAndPlay take over after it
+  starts.” `Layer properties`: Switch `Sync layer to timeline` under the Outline/Blending row with a tertiary
+  explanation; the layer context menu and Timeline `⋯` keep the checked `Sync layer to timeline` item. No extra
+  span marker on the grid.
 
 ### R-043 · Lottie JSON export modal dialog, Publish settings target and warning summary
 - **Status:** answered
@@ -613,7 +635,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   icon) with the same groups minus Source and Range; footer lists both outputs.
 
 ### R-044 · Shared toast host placement and lifetime
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track (`codex`) · ST-09 / W0.8; R-034 drawing refusal feedback
 - **Where:** window chrome (`shell.rs`), existing `neoflash_ui::components::Toast`.
 - **Need:** authoritative anchor and edge offsets, width/available-space behavior, stack direction/limit,
@@ -624,4 +646,26 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `docs-technical.txt` Toast shelf, design reference component table, ST-09 and WIRING-PLAN W0.8
   (placement/stacking/timing explicitly unspecified), `components/display.rs::Toast`, `shell.rs`.
 - **Proposal (optional):** one shared host consuming the existing Toast component; retain messages in Output.
-- **Answer:**
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Answers — R-044 · Gemini R-039…R-042 …” (Dark `138:20571`, Light `141:21821`), column R-044. One host for the window: bottom-centre of
+  the canvas viewport, 16 pt above its bottom edge (never over the timeline, docks or Properties); with the canvas
+  hidden, bottom-centre of the window 16 pt above the status bar. Width hugs content, 320–480 pt, at most viewport
+  − 32 pt. Stack newest at the bottom, 8 pt gap, max 3 (a 4th drops the oldest). Lifetime: Info / Success 4 s,
+  Warning 6 s, Error until closed or its action is used; hover pauses. A repeated visible message restarts its timer
+  and shows `×2`, `×3` instead of stacking. Toasts never take focus and have no shortcut; × always closes. While a
+  modal dialog is open new toasts wait until it closes. Every toast is also written to Output. Uses the existing
+  Toast component (action text right of the label, before ×).
+
+### R-045 · Layer Solo toggle on the classic timeline
+- **Status:** answered
+- **Requested by / for:** project owner · timeline layer display (with R-040 Mode cell); replaces the AE-style EXP-01…06 direction
+- **Where:** `panels/timeline.rs` layer rows and header (`NF2/TL Layer`, `NF2/TL Layers Header`, `NF2/TL Toggle`).
+- **Need:** a per-layer Solo switch next to visibility, without property rows, parenting or other AE additions.
+- **Answer:** approved 5 November 2026. Figma `BUz3pseopiuOg2Uiy3Fog7` › v2 · Panels › “Classic timeline + layer Mode & Solo” (Dark `143:22609`, Light `144:25676`). A 20 pt Solo cell right after the eye toggle (new `NF2/TL Toggle`
+  kind Solo: 8 pt dot, off = 1.5 pt ring text/tertiary, on = accent/default fill); header shows the ring icon after
+  the eye. Click toggles; several layers may be soloed; `⌥`-click solos only that layer. While any layer is soloed the
+  stage renders only soloed layers (folders: soloing a folder solos its children) and the frame cells of other rows
+  are drawn at 45 %. Solo is editor view state: it never changes Visibility, is not saved in the document, is not
+  part of Undo and never affects publish/export. Tooltip “Solo — show only soloed layers (⌥-click: only this one)”.
+  The AE-style alternative (filter chips, Shy, parenting column, property rows, work area, markers) in `138:20571`
+  is kept for reference only and is not approved for implementation.
+
