@@ -5206,3 +5206,92 @@ fn onion_skin_outline_mode_and_ruler_range_handles_work_without_off_by_one() {
     assert_eq!(d.editor.onion_before, 4);
     assert_eq!(d.editor.onion_range(), (1, 10));
 }
+
+#[test]
+fn preferences_header_stays_top_aligned_when_pages_have_different_heights() {
+    use crate::panels::preferences::{PAGE_CODE_EDITOR, PAGE_GENERAL};
+
+    let mut d = Driver::new();
+    d.editor.open_preferences(PAGE_GENERAL);
+    d.settle();
+    let general_close = d.find("Close").expect("Preferences close button");
+
+    d.editor.preferences.as_mut().unwrap().page = PAGE_CODE_EDITOR;
+    d.settle();
+    let code_close = d.find("Close").expect("Preferences close button");
+
+    assert!(
+        (general_close.min - code_close.min).length() < 0.1,
+        "Preferences header must not jump when page height changes: {general_close:?} vs {code_close:?}"
+    );
+    assert!(
+        code_close.top() < 100.0,
+        "Preferences header must stay at the top of the window: {code_close:?}"
+    );
+}
+
+#[test]
+fn preferences_short_window_keeps_header_and_footer_visible() {
+    use crate::panels::preferences::PAGE_CODE_EDITOR;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.open_preferences(PAGE_CODE_EDITOR);
+    let render = |editor: &mut Editor, time| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1024.0, 720.0))),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| editor.preferences_dialog(ctx),
+        )
+    };
+    render(&mut editor, 0.1);
+    let out = render(&mut editor, 0.2);
+    let close = named_bounds(&out, "Close").expect("Preferences close button");
+    let save = named_bounds(&out, "Save").expect("Preferences save button");
+
+    assert!(close.top() < 100.0, "header must remain visible: {close:?}");
+    assert!(
+        save.bottom() <= 720.0,
+        "footer must remain inside the short window: {save:?}"
+    );
+    assert!(
+        named_bounds(&out, "Vertical scroll").is_some(),
+        "only the tall page body should scroll in a short window"
+    );
+}
+
+#[test]
+fn timeline_horizontal_scrollbar_is_only_visible_when_frames_overflow() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let has_wide_horizontal_track = |out: &egui::FullOutput| {
+        let track = crate::theme::UiPalette::current(&ctx).scrollbar_track;
+        out.shapes.iter().any(|shape| {
+            matches!(
+                &shape.shape,
+                egui::Shape::Rect(rect)
+                    if rect.fill == track
+                        && rect.rect.width() > 400.0
+                        && rect.rect.height() <= 20.0
+            )
+        })
+    };
+
+    frame(&mut editor, &ctx, Vec2::new(1920.0, 1080.0), 0.1, vec![]);
+    let wide = frame(&mut editor, &ctx, Vec2::new(1920.0, 1080.0), 0.2, vec![]);
+    assert!(
+        !has_wide_horizontal_track(&wide),
+        "timeline must not reserve a scrollbar strip when all frames fit"
+    );
+
+    frame(&mut editor, &ctx, Vec2::new(1024.0, 720.0), 0.3, vec![]);
+    let narrow = frame(&mut editor, &ctx, Vec2::new(1024.0, 720.0), 0.4, vec![]);
+    assert!(
+        has_wide_horizontal_track(&narrow),
+        "timeline scrollbar must remain available when frames overflow"
+    );
+}

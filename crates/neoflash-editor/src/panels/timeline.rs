@@ -474,7 +474,7 @@ impl Editor {
                         let frames = egui::ScrollArea::horizontal()
                             .id_salt("frames")
                             .scroll_source(scroll_source)
-                            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
                             .auto_shrink([false, false])
                             .themed().show(ui, |ui| {
                                 let width = ((if button_states { count.saturating_add(1) } else { count.saturating_add(4).max(72) }) as f32 * cell_width)

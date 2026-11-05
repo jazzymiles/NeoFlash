@@ -11,7 +11,7 @@ use super::planned::{
     switch,
 };
 use crate::app::Editor;
-use crate::theme::ThemeMode;
+use crate::theme::{ScrollTheme as _, ThemeMode};
 use crate::workspace::{
     ClipboardPrefs, CodeEditorPrefs, DrawingPrefs, FramePreview, GeneralPrefs, PublishPrefs,
     PublishTarget, ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
@@ -265,7 +265,12 @@ impl Editor {
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut close_save = false;
-        let modal = egui::Modal::new(egui::Id::new("preferences"))
+        let modal_id = egui::Id::new("preferences");
+        let modal = egui::Modal::new(modal_id)
+            .area(
+                egui::Modal::default_area(modal_id)
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, space::S5)),
+            )
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
@@ -285,7 +290,28 @@ impl Editor {
                     .show(ui, |ui| {
                         ui.set_width(WIDTH - 2.0 * space::S5);
                         ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                        match body(ui, &mut draft) {
+                        let footer_height = metrics::CONTROL + 2.0 * space::S2;
+                        let body_height = (ctx.content_rect().height()
+                            - 2.0 * space::S5
+                            - metrics::DIALOG_HEADER
+                            - 2.0 * space::S5
+                            - footer_height)
+                            .max(metrics::CONTROL);
+                        egui::ScrollArea::vertical()
+                            .id_salt("preferences-body")
+                            .max_height(body_height)
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                            )
+                            .auto_shrink([false, true])
+                            .themed()
+                            .show(ui, |ui| body(ui, &mut draft));
+                        match footer_clicked(
+                            ui,
+                            "",
+                            Some(("Reset to defaults", draft.page_has_settings())),
+                            &["Cancel", "Save"],
+                        ) {
                             Some(FooterClick::Ghost) => {
                                 draft.reset_page();
                                 if draft.page == PAGE_SHORTCUTS {
@@ -337,8 +363,8 @@ impl Editor {
     }
 }
 
-/// Category list + the selected page + footer.
-fn body(ui: &mut Ui, draft: &mut PreferencesDraft) -> Option<FooterClick> {
+/// Category list + the selected page.
+fn body(ui: &mut Ui, draft: &mut PreferencesDraft) {
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
             egui::vec2(196.0, 0.0),
@@ -382,12 +408,6 @@ fn body(ui: &mut Ui, draft: &mut PreferencesDraft) -> Option<FooterClick> {
             _ => disabled(ui, prefs_updates),
         });
     });
-    footer_clicked(
-        ui,
-        "",
-        Some(("Reset to defaults", draft.page_has_settings())),
-        &["Cancel", "Save"],
-    )
 }
 
 fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
