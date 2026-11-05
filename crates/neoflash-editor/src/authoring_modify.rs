@@ -1572,8 +1572,11 @@ impl Editor {
                 ui.close();
             }
             neoflash_ui::components::menu_separator(ui);
-            menu_popup(ui, "Bitmap", "Trace bitmap…", "", |ui| {
-                if menu_item_enabled(ui, self.can_trace_bitmap(), "Trace bitmap…", "").clicked() {
+            let trace_sc = self.sc(C::ModifyTraceBitmap);
+            menu_popup(ui, "Bitmap", "Trace bitmap…", &trace_sc, |ui| {
+                if menu_item_enabled(ui, self.can_trace_bitmap(), "Trace bitmap…", &trace_sc)
+                    .clicked()
+                {
                     self.open_trace_bitmap(ui.ctx());
                     ui.close();
                 }
@@ -3691,7 +3694,7 @@ fn around(p: Pos2, mut m: [f64; 6]) -> [f64; 6] {
     m[5] += p.y as f64 - m[1] * p.x as f64 - m[3] * p.y as f64;
     m
 }
-fn affine_transform(old: Transform, matrix: [f64; 6]) -> Option<Transform> {
+pub(crate) fn affine_transform(old: Transform, matrix: [f64; 6]) -> Option<Transform> {
     let mut new = Transform::from_matrix(affine_multiply(matrix, transform_matrix(old)))?;
     new.alpha = old.alpha;
     new.color_transform = old.color_transform;

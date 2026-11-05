@@ -310,3 +310,71 @@ fn trace_bitmap_family_controls_cancel_stale_and_one_undo() {
         e.bitmap_trace.cancel();
     }
 }
+
+#[test]
+fn trace_bitmap_menu_traces_imported_graphic_symbol_instance_and_undoes() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut e = Editor::from_project(&ctx, Project::blank());
+    let image = image::RgbaImage::from_fn(24, 20, |x, _y| {
+        image::Rgba(if x < 12 {
+            [230, 60, 30, 255]
+        } else {
+            [20, 120, 230, 255]
+        })
+    });
+    let mut bytes = Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let resource = ResourceUnit::from_bytes(
+        new_id("bitmap"),
+        "imported.png",
+        "image/png",
+        bytes.get_ref(),
+    )
+    .unwrap();
+    let resource_id = resource.id.clone();
+    e.add_resource_units(vec![resource]).unwrap();
+    e.place_graphic_resource(&resource_id, Some([240., 180.]))
+        .unwrap();
+
+    // Placing an imported graphic wraps the bitmap in a 1-frame Graphic symbol instance on Stage.
+    let placed_el = e.symbol().timeline.layers[0].keyframes[0].elements[0].clone();
+    assert!(matches!(placed_el.kind, ElementKind::Instance { .. }));
+    assert!(e.can_trace_bitmap());
+
+    // Deselecting still allows Modify ▸ Bitmap ▸ Trace bitmap… when a single bitmap is on Stage.
+    e.clear_selection();
+    assert!(e.can_trace_bitmap());
+
+    let before_trace = e.project.clone();
+    e.open_trace_bitmap(&ctx);
+    assert!(e.bitmap_trace.is_open());
+    assert_eq!(e.selection.targets.len(), 1);
+    wait(&mut e, &ctx);
+    assert!(e.bitmap_trace.dialog.as_ref().unwrap().preview.is_some());
+
+    e.bitmap_trace.dialog.as_mut().unwrap().options = TraceOptions {
+        noise: 1,
+        paths: 100.,
+        corners: 100.,
+        ..Default::default()
+    };
+    e.bitmap_trace.request(true);
+    wait(&mut e, &ctx);
+    assert!(!e.bitmap_trace.is_open());
+    e.project.validate().unwrap();
+
+    let layer = &e.symbol().timeline.layers[0];
+    assert!(
+        layer.keyframes[0]
+            .elements
+            .iter()
+            .all(|el| matches!(el.kind, ElementKind::Path { .. })
+                && el.transform == placed_el.transform)
+    );
+    assert!(e.selection.targets.len() >= 2);
+
+    // One Undo restores the imported Graphic symbol instance on Stage.
+    e.undo();
+    assert_eq!(e.project, before_trace);
+}

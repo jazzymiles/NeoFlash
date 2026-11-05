@@ -1764,6 +1764,9 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::ModifyBreakApart) && !self.selection.is_empty() {
             self.break_apart_selection();
         }
+        if self.take_command_shortcut(ctx, C::ModifyTraceBitmap) && self.can_trace_bitmap() {
+            self.open_trace_bitmap(ctx);
+        }
         if self.take_command_shortcut(ctx, C::ModifyTimelineLayerProperties) {
             self.open_layer_properties(ctx, self.layer);
         }

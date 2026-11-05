@@ -73,6 +73,7 @@ pub(crate) struct TraceTarget {
     symbol: Id,
     frame: u32,
     pub target: SelectionTarget,
+    pub source_element: Element,
     pub element: Element,
     opaque_placement: bool,
 }
@@ -280,30 +281,217 @@ fn run_request(
         trace,
     }))
 }
+fn combine_bitmap_transforms(child: Transform, parent: Transform) -> Option<Transform> {
+    if child == Transform::default() {
+        return Some(parent);
+    }
+    let mut combined = crate::authoring_modify::affine_transform(child, transform_matrix(parent))?;
+    if child.alpha == 1.0 && child.color_transform.is_identity() {
+        combined.alpha = parent.alpha;
+        combined.color_transform = parent.color_transform;
+    } else {
+        combined.alpha = 1.0;
+        combined.color_transform = child
+            .color_transform
+            .with_alpha(child.alpha)
+            .then(parent.color_transform.with_alpha(parent.alpha));
+        if combined.color_transform.validate().is_err() {
+            return None;
+        }
+    }
+    Some(combined)
+}
+
+fn resolve_bitmap_element_depth(
+    project: &Project,
+    source: &Element,
+    sampled: &Element,
+    depth: usize,
+) -> Option<(Element, bool)> {
+    if depth > 4 {
+        return None;
+    }
+    match &source.kind {
+        ElementKind::Bitmap { .. } => {
+            let opaque = source.transform.alpha == 1.0
+                && source.transform.color_transform.is_identity()
+                && sampled.transform.alpha == 1.0
+                && sampled.transform.color_transform.is_identity();
+            Some((source.clone(), opaque))
+        }
+        ElementKind::Instance {
+            symbol_id,
+            playback,
+        } => {
+            let symbol = project.symbol(symbol_id)?;
+            let single_frame = match playback {
+                InstancePlayback::SingleFrame(f) => {
+                    Some((*f).min(symbol.timeline.frame_count.saturating_sub(1)))
+                }
+                _ if symbol.timeline.frame_count == 1 => Some(0),
+                _ => None,
+            }?;
+            if symbol.class_name.is_some()
+                || !symbol.timeline.scripts.is_empty()
+                || symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .any(|l| !l.visible || l.locked || l.properties != LayerProperties::default())
+            {
+                return None;
+            }
+            let mut children: Vec<Element> = symbol
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|l| sample_layer(l, single_frame))
+                .collect();
+            if children.len() != 1 {
+                return None;
+            }
+            let child = children.remove(0);
+            let (resolved_child, child_opaque) =
+                resolve_bitmap_element_depth(project, &child, &child, depth + 1)?;
+            let combined = combine_bitmap_transforms(resolved_child.transform, source.transform)?;
+            let combined_sampled =
+                combine_bitmap_transforms(resolved_child.transform, sampled.transform)?;
+            let opaque = child_opaque
+                && combined.alpha == 1.0
+                && combined.color_transform.is_identity()
+                && combined_sampled.alpha == 1.0
+                && combined_sampled.color_transform.is_identity();
+            let mut resolved = source.clone();
+            if resolved.name.is_empty() {
+                resolved.name = if !symbol.name.is_empty() {
+                    symbol.name.clone()
+                } else {
+                    resolved_child.name
+                };
+            }
+            resolved.transform = combined;
+            resolved.kind = resolved_child.kind;
+            if resolved.scripts.is_empty() {
+                resolved.scripts = resolved_child.scripts;
+            }
+            if resolved.filters.is_empty() {
+                resolved.filters = resolved_child.filters;
+            }
+            if resolved.blend_mode == BlendMode::Normal {
+                resolved.blend_mode = resolved_child.blend_mode;
+            }
+            resolved.cache_as_bitmap |= resolved_child.cache_as_bitmap;
+            if resolved.accessibility.is_none() {
+                resolved.accessibility = resolved_child.accessibility;
+            }
+            Some((resolved, opaque))
+        }
+        _ => None,
+    }
+}
+
+fn resolve_bitmap_element(
+    project: &Project,
+    source: &Element,
+    sampled: &Element,
+) -> Option<(Element, bool)> {
+    resolve_bitmap_element_depth(project, source, sampled, 0)
+}
+
 impl Editor {
+    fn resolve_trace_target(&self) -> Option<(SelectionTarget, Element, Element, bool)> {
+        if !self.selection.is_empty() {
+            let mut targets = self.sampled_targets();
+            if targets.len() != 1 {
+                return None;
+            }
+            let (target, sampled) = targets.remove(0);
+            if !self.target_editable(&target) {
+                return None;
+            }
+            let index = self.target_layer_index(&target)?;
+            let source_element = self.symbol().timeline.layers[index]
+                .key_at(self.frame)
+                .and_then(|k| k.elements.iter().find(|e| e.id == target.element))?
+                .clone();
+            let (resolved, opaque) =
+                resolve_bitmap_element(&self.project, &source_element, &sampled)?;
+            return Some((target, source_element, resolved, opaque));
+        }
+        let timeline = &self.symbol().timeline;
+        let mut candidates = Vec::new();
+        for layer in &timeline.layers {
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                continue;
+            }
+            let Some(key) = layer.key_at(self.frame) else {
+                continue;
+            };
+            for sampled in sample_layer_in(timeline, layer, self.frame) {
+                let target = SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: sampled.id.clone(),
+                };
+                if !self.target_editable(&target) {
+                    continue;
+                }
+                let Some(source_element) =
+                    key.elements.iter().find(|e| e.id == sampled.id).cloned()
+                else {
+                    continue;
+                };
+                if let Some((resolved, opaque)) =
+                    resolve_bitmap_element(&self.project, &source_element, &sampled)
+                {
+                    candidates.push((target, source_element, resolved, opaque));
+                }
+            }
+        }
+        if candidates.len() == 1 {
+            return candidates.pop();
+        }
+        if let Some(lib_sym) = self.library_selected.as_deref() {
+            let mut matched: Vec<_> = candidates
+                .iter()
+                .filter(|(_, src, _, _)| {
+                    matches!(&src.kind, ElementKind::Instance { symbol_id, .. } if symbol_id == lib_sym)
+                })
+                .cloned()
+                .collect();
+            if matched.len() == 1 {
+                return matched.pop();
+            }
+        }
+        if let Some(res_id) = self.resource_panel.selected.as_deref() {
+            let mut matched: Vec<_> = candidates
+                .into_iter()
+                .filter(|(_, _, resolved, _)| {
+                    matches!(&resolved.kind, ElementKind::Bitmap { resource_id, .. } if resource_id == res_id)
+                })
+                .collect();
+            if matched.len() == 1 {
+                return matched.pop();
+            }
+        }
+        None
+    }
     pub(crate) fn can_trace_bitmap(&self) -> bool {
-        let targets = self.sampled_targets();
-        targets.len() == 1
-            && self.target_editable(&targets[0].0)
-            && matches!(targets[0].1.kind, ElementKind::Bitmap { .. })
+        self.resolve_trace_target().is_some()
     }
     pub(crate) fn open_trace_bitmap(&mut self, ctx: &egui::Context) {
-        if !self.can_trace_bitmap() {
+        let Some((target, source_element, element, opaque_placement)) = self.resolve_trace_target()
+        else {
             self.message("Select one editable bitmap to trace.");
             return;
-        }
+        };
         self.finish_edits();
         self.set_playing(false);
-        let (target, sampled) = self.sampled_targets().remove(0);
-        let index = self.target_layer_index(&target).unwrap();
-        let element = self.symbol().timeline.layers[index]
-            .key_at(self.frame)
-            .and_then(|k| k.elements.iter().find(|e| e.id == target.element))
-            .cloned();
-        let Some(element) = element else {
-            self.message("Trace requires a bitmap at the current frame.");
-            return;
-        };
+        if self.selection.targets != std::slice::from_ref(&target) {
+            self.set_selection(vec![target.clone()]);
+        }
         let ElementKind::Bitmap {
             ref resource_id, ..
         } = element.kind
@@ -327,10 +515,8 @@ impl Editor {
                 symbol: self.symbol_id().to_owned(),
                 frame: self.frame,
                 target,
-                opaque_placement: element.transform.alpha == 1.0
-                    && element.transform.color_transform.is_identity()
-                    && sampled.transform.alpha == 1.0
-                    && sampled.transform.color_transform.is_identity(),
+                source_element,
+                opaque_placement,
                 element,
             },
             resource,
@@ -410,7 +596,16 @@ impl Editor {
         let current = layer
             .key_at(self.frame)
             .and_then(|k| k.elements.iter().find(|e| e.id == target.target.element));
-        if current != Some(&target.element) {
+        if current != Some(&target.source_element) {
+            return Err("The bitmap changed during tracing. Close and reopen Trace bitmap.".into());
+        }
+        let sampled_now = sample_layer_in(&self.symbol().timeline, layer, self.frame)
+            .into_iter()
+            .find(|e| e.id == target.target.element);
+        let resolved_now = sampled_now
+            .as_ref()
+            .and_then(|s| resolve_bitmap_element(&self.project, &target.source_element, s));
+        if resolved_now.as_ref().map(|(el, _)| el) != Some(&target.element) {
             return Err("The bitmap changed during tracing. Close and reopen Trace bitmap.".into());
         }
         if !target.element.scripts.is_empty()
@@ -452,6 +647,20 @@ impl Editor {
                 editor.project.format_version = editor.project.format_version.max(4);
             }
             editor.ensure_key_for(&target.target.layer, false);
+            let raw_base = editor.symbol().timeline.layers[index]
+                .key_at(target.frame)
+                .unwrap()
+                .elements
+                .iter()
+                .find(|e| e.id == target.target.element)
+                .unwrap()
+                .clone();
+            let base = resolve_bitmap_element(&editor.project, &raw_base, &raw_base)
+                .map(|(el, _)| el)
+                .unwrap_or(raw_base);
+            if base.transform.skew != 0.0 || !base.transform.color_transform.is_identity() {
+                editor.project.format_version = editor.project.format_version.max(5);
+            }
             let layer = &mut editor.symbol_mut().timeline.layers[index];
             let key = layer.key_at_mut(target.frame).unwrap();
             let at = key
@@ -459,7 +668,6 @@ impl Editor {
                 .iter()
                 .position(|e| e.id == target.target.element)
                 .unwrap();
-            let base = key.elements[at].clone();
             let members: Vec<_> = shapes
                 .into_iter()
                 .enumerate()
