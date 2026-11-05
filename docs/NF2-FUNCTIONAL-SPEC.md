@@ -286,7 +286,9 @@ preserves the selected tool and document Undo. Commands remains unavailable unti
 The approved 36 pt Brush/Pencil type header still needs a compact shared API; the existing locked `TypeHeader`
 remains 48 pt.
 
-Modify ▸ Bitmap ▸ Trace bitmap converts one selected bitmap into editable vector paths with cancellable background
+Modify ▸ Bitmap ▸ Trace bitmap (`CommandId::ModifyTraceBitmap`) converts one selected bitmap (either a direct
+`ElementKind::Bitmap` placement or a static 1-frame `Graphic` symbol instance wrapping a bitmap, such as images placed
+via `Import graphics to Stage…`, drag-and-drop or `Place on Stage`) into editable vector paths with cancellable background
 preview, colour/palette presets, curve/noise controls, fill/stroke output and Ignore white. Success preserves
 placement and the selected tool and creates one Undo; multicolour output is grouped, while a single-colour compound
 path preserves holes and islands. Limits are 4096×4096 source pixels, 20,000 contours, 1,000,000 boundary edges and
@@ -622,7 +624,7 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Purpose: Library tree shows all item types with icons; document select switches between open documents; pin keeps
   the library on one document.
 - Data: images/audio/video are `ResourceUnit`s managed in `resources.rs` (separate panel). Fonts are not library
-  items (**NEW** with DL-11). Multiple documents are available through the top-bar tabs and Window document list;
+  items (**NEW** with DL-11). Multiple documents are available through the document tabs below the main menu and Window document list;
   the Library currently follows the active document. Its independent document picker and pin remain unavailable.
 - Depends on: editor. Acceptance: an imported PNG appears in the Library tree and can be dragged to the stage.
 

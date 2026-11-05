@@ -43,6 +43,33 @@ impl Editor {
             .collect()
     }
 
+    /// Horizontal document tab bar rendered directly below the main menu bar.
+    pub(crate) fn document_bar(&mut self, ctx: &egui::Context) {
+        if !self.has_document() {
+            return;
+        }
+        let p = neoflash_ui::palette(ctx);
+        egui::TopBottomPanel::top("document-tabs")
+            .exact_height(neoflash_ui::metrics::PANEL_HEADER)
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(p.bg_app)
+                    .inner_margin(egui::Margin::symmetric(space::S3 as i8, 0)),
+            )
+            .show(ctx, |ui| {
+                let bar = ui.max_rect();
+                ui.painter().hline(
+                    bar.x_range(),
+                    bar.bottom() - 0.5,
+                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                );
+                ui.horizontal_centered(|ui| {
+                    self.document_strip(ui);
+                });
+            });
+    }
+
     pub(crate) fn document_strip(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let width = ui.available_width();
@@ -59,14 +86,15 @@ impl Editor {
         let mut close = None;
         ui.allocate_ui_with_layout(
             egui::vec2(width, nf::headers::DOCUMENT_TAB_HEIGHT),
-            egui::Layout::right_to_left(egui::Align::Center),
+            egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                let list = ui.add(nf::IconButton::new(i16::CHEVDOWN, "Open documents"));
-                nf::popup_below(&list, 280., |ui| self.document_list(ui, &ctx));
+                ui.spacing_mut().item_spacing.x = space::S1;
+                let max_tabs_width = (width - neoflash_ui::metrics::CONTROL - space::S1).max(0.);
                 let tabs = self.document_tabs();
                 egui::ScrollArea::horizontal()
                     .id_salt("document-strip")
-                    .auto_shrink([false, true])
+                    .max_width(max_tabs_width)
+                    .auto_shrink([true, true])
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -95,6 +123,8 @@ impl Editor {
                             }
                         });
                     });
+                let list = ui.add(nf::IconButton::new(i16::CHEVDOWN, "Open documents"));
+                nf::popup_below(&list, 280., |ui| self.document_list(ui, &ctx));
             },
         );
         if let Some(index) = close {

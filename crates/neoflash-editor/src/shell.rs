@@ -50,7 +50,6 @@ impl Editor {
                         self.workspace_menu(ui, &ctx);
                     });
             }
-            self.document_strip(ui);
         });
     }
 

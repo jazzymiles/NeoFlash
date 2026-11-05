@@ -30,6 +30,7 @@ fn frame(
             if !editor.panels_hidden {
                 editor.dock_grid(ctx);
             }
+            editor.document_bar(ctx);
             editor.stage(ctx);
         },
     )
@@ -1635,6 +1636,7 @@ fn full_frame(
                 if !editor.panels_hidden {
                     editor.dock_grid(ctx);
                 }
+                editor.document_bar(ctx);
                 editor.stage(ctx);
             } else {
                 editor.no_document_view(ctx);
@@ -1680,24 +1682,33 @@ impl Driver {
         self.step(vec![]);
         self.step(vec![]);
     }
-    /// Bounds of the control named `label`; dock tabs are skipped (menu rows share panel names).
+    /// Bounds of the control named `label`; dock tabs are skipped (menu rows share panel names),
+    /// and non-tab controls (such as open menu items) take precedence over background document tabs.
     fn find(&self, label: &str) -> Option<Rect> {
-        self.out
-            .platform_output
-            .accesskit_update
-            .as_ref()?
-            .nodes
+        let nodes = &self.out.platform_output.accesskit_update.as_ref()?.nodes;
+        let to_rect = |r: egui::accesskit::Rect| {
+            Rect::from_min_max(
+                Pos2::new(r.x0 as f32, r.y0 as f32),
+                Pos2::new(r.x1 as f32, r.y1 as f32),
+            )
+        };
+        nodes
             .iter()
             .find_map(|(_, node)| {
-                (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
-                    .then(|| node.bounds())
-                    .flatten()
-                    .map(|r| {
-                        Rect::from_min_max(
-                            Pos2::new(r.x0 as f32, r.y0 as f32),
-                            Pos2::new(r.x1 as f32, r.y1 as f32),
-                        )
-                    })
+                (node.label() == Some(label)
+                    && node.role() != egui::accesskit::Role::Tab
+                    && node.toggled().is_none())
+                .then(|| node.bounds())
+                .flatten()
+                .map(to_rect)
+            })
+            .or_else(|| {
+                nodes.iter().find_map(|(_, node)| {
+                    (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(to_rect)
+                })
             })
     }
     fn labels(&self) -> Vec<String> {
@@ -5033,7 +5044,11 @@ fn document_strip_list_close_cancel_empty_state_and_shortcuts_work_in_both_theme
         let alpha = named_bounds(&d.out, "Alpha — unsaved").expect("visible document tab");
         let beta = named_bounds(&d.out, "Beta — unsaved").expect("visible active document tab");
         assert!(alpha.right() <= beta.left());
-        assert!(alpha.top() >= 0. && alpha.bottom() <= neoflash_ui::metrics::TOP_BAR);
+        assert!(
+            alpha.top() >= neoflash_ui::metrics::TOP_BAR
+                && alpha.bottom()
+                    <= neoflash_ui::metrics::TOP_BAR + neoflash_ui::metrics::PANEL_HEADER
+        );
         assert!((96. ..=220.).contains(&alpha.width()));
         d.press(alpha.center(), egui::PointerButton::Primary);
         assert_eq!(d.editor.project.name, "Alpha");

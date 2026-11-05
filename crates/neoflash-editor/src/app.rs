@@ -2328,6 +2328,7 @@ impl eframe::App for Editor {
             if !self.panels_hidden {
                 self.dock_grid(ctx);
             }
+            self.document_bar(ctx);
             self.stage(ctx);
         } else {
             self.no_document_view(ctx);

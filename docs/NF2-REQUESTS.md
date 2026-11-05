@@ -492,6 +492,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   on that document; a failed save shows an Error toast and stops. Last document closed: the window stays with an
   Empty State `No document open` (Primary `New document`, Ghost `Open…`); document menus and Publish/Test Movie are
   disabled.
+- **Owner directive addendum (5 November 2026, `T-068` / `R-050`):** Personal instruction from the project owner: open document tabs must be placed **below the main menu bar** in their own horizontal bar (`TopBottomPanel::top("document-tabs")`), not inline inside the 48 pt main menu bar row (`TopBottomPanel::top("menu")`). Implemented in the editor in `T-068`; `claude` must update the NF2 design system (Figma `NF2 / Editor — Main` and `R-035` shelf, outlines and docs) to match — see `R-050`.
 
 ### R-036 · Named workspace presets
 - **Status:** resolved — shared inline message line (`InlineMessage`) is in `neoflash-ui` (`0113b61`)
@@ -744,3 +745,11 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** The project owner explicitly requested AE-style mask inversion (`mask_invert`) and Color/Luminance (`цвет и альфа`) mask modes with **2 icons from Claude** placed on the layer row right after `Mode` (authorizing temporary After Effects-style icons on the layer row after `Mode` in the editor until Claude delivers the 2 official NF2 icons).
 - **Checked:** `Figma 143:22609` (Dark) / `144:25676` (Light) (`R-040` `Mode` cell + `R-045` `Solo` column at `LAYER_COLUMN_MODE_SOLO = 372`), `crates/neoflash-ui/src/icons.rs`, `crates/neoflash-ui/src/components/timeline.rs`.
 - **Proposal (optional):** Add 2 vector icons (`Icon::MaskAlphaLuma` / `Icon::MaskLuma` and `Icon::MaskInvert`) to `neoflash-ui::icons` and reserve compact inline toggle slots right after `Mode` on mask rows (and matching controls in `Layer properties` / context menu). Until `R-049` lands in `neoflash-ui`, the editor paints temporary AE-style inline icons right after `Mode` in `panels/timeline.rs` without touching locked `neoflash-ui` files.
+
+### R-050 · Move open document tabs strip (`R-035`) below the main menu bar in the NF2 design system (personal owner directive)
+- **Status:** open
+- **Requested by / for:** project owner (personal directive, recorded by `gemini` in `T-068`) · `claude` design system update for `R-035`
+- **Where:** Figma `BUz3pseopiuOg2Uiy3Fog7` (`NF2 / Editor — Main` and `v2 · Panels` › `R-035`), `interface/design-system/docs/data/outline/interface-editor-main.txt`, `docs/DESIGN-SYSTEM.md`; editor implementation in `crates/neoflash-editor/src/{document_chrome,shell,dock_grid,app}.rs`.
+- **Need:** Update the NF2 design system so the open document tabs strip (`NF2/Document Tab` + `⌄` `Open documents` button) sits in its own horizontal bar **directly below the 48 pt main menu bar** (`TopBottomPanel::top("document-tabs")`, 40 pt height, `bg/app` fill, 12 pt horizontal padding, 1 px `border/subtle` bottom divider) instead of inside the 48 pt main menu bar row between `Help` and the workspace selector.
+- **Why:** Direct personal instruction from the project owner (5 November 2026: *"вкладки с открытыми документами должны быть ниже главного меню; поправь и отпишись чтобы клод поправил это в дизайн системе — это мое личное указание"*). Placing document tabs on the same row as the main menu (`File Edit View...`) crowded the top bar and separated the tab strip from the `⌄` overflow button; the editor has already been updated in `T-068` to render the document tab bar directly below the main menu bar using existing NF2 components and tokens.
+- **Checked:** `docs/NF2-REQUESTS.md` R-035, `interface/design-system/docs/data/outline/interface-editor-main.txt`, `crates/neoflash-ui/src/components/headers.rs` (`DocumentTab`), `crates/neoflash-editor/src/document_chrome.rs`.
