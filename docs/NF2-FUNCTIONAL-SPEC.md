@@ -943,7 +943,9 @@ the last tab shows New document/Open and disables document commands. Recovery co
 Named workspaces save layout only, not document-tab sessions; built-in layouts and up to 32 named presets preserve
 panel visibility, active tabs, dock sizes and floating/native windows. Explicit Replace/Update, collision-safe
 Rename, Reset and Delete preserve documents and unfinished edits. Deleting the active preset keeps its arrangement
-as Unsaved layout. Tests: `document_sessions_tests`, document-strip `panel_tests`, `workspace_editor_tests`, recovery
+as Unsaved layout. When an NF2 revision changes the canonical built-in composition, older live built-in layouts
+refresh once to that composition; theme, Timeline/editor/tool/publish preferences and saved named layouts remain
+intact. Tests: `document_sessions_tests`, document-strip `panel_tests`, `workspace_editor_tests`, recovery
 and notification families.
 
 Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight menus,

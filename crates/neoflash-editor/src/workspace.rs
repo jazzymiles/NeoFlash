@@ -2,12 +2,11 @@
 use crate::{app::BottomTab, theme::ThemeMode};
 use serde::{Deserialize, Serialize};
 
-/// v2 = NF2 layout (bottom dock with Timeline · Actions · Output · Accessibility). Layouts saved
-/// under v1 are not migrated: the NF2 default replaces them once.
+/// The storage key stays stable so non-layout preferences survive layout migrations.
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2798,15 +2797,15 @@ impl WorkspacePrefs {
         let Ok(mut prefs) = serde_json::from_str::<Self>(json) else {
             return Self::default();
         };
-        if prefs.version != 1 && prefs.version != VERSION {
+        if !(1..=VERSION).contains(&prefs.version) {
             return Self::default();
         }
+        let saved_version = prefs.version;
         // Version 1 shipped Span-based selection as an always-on default. Restore the ordinary
         // timeline contract for existing workspaces: a plain click targets exactly one frame.
-        // Version 2 still preserves an explicit opt-in chosen after this migration.
-        if prefs.version == 1 {
+        // Later versions still preserve an explicit opt-in chosen after this migration.
+        if saved_version == 1 {
             prefs.timeline_prefs.span_selection = false;
-            prefs.version = VERSION;
         }
         // Earlier preferences stored fixed panel sizes and detached flags.
         // Migrate once; thereafter the grid is the authoritative dock layout.
@@ -2821,6 +2820,21 @@ impl WorkspacePrefs {
                 .dock
                 .select(PanelId::from_bottom_tab(prefs.active_bottom));
         }
+        // NF2 v2.2 changed the canonical built-in compositions. A version-2 live layout can keep
+        // stale visibility (for example Color as the only right inspector) even though the current
+        // template is correct. Refresh that live composition once while preserving editor, timeline,
+        // publish and tool preferences plus every explicitly saved named layout.
+        if saved_version < 3 {
+            let (dock, panels, active_bottom) = prefs.template.layout();
+            prefs.dock = dock;
+            prefs.panels = panels;
+            prefs.active_bottom = active_bottom;
+            prefs.detached = DetachedPanels::default();
+            prefs.floating.clear();
+            prefs.active_named_preset = None;
+            prefs.unsaved_layout = false;
+        }
+        prefs.version = VERSION;
         prefs.sanitize();
         prefs
     }
@@ -3539,6 +3553,51 @@ mod tests {
         assert!(restored.timeline_prefs.span_selection);
     }
     #[test]
+    fn version_two_builtin_layout_refreshes_without_losing_preferences_or_named_presets() {
+        let mut legacy = WorkspacePrefs::default();
+        legacy.version = 2;
+        legacy.apply_template(WorkspaceTemplate::Developer);
+        legacy.version = 2;
+        legacy.panels.library = false;
+        legacy.panels.properties = false;
+        legacy.panels.color = true;
+        legacy.dock.right.groups[0].active = PanelId::Color;
+        legacy.detached.color.placement = PanelPlacement::Detached;
+        legacy.active_named_preset = Some("My layout".into());
+        legacy.unsaved_layout = true;
+        legacy.theme = ThemeMode::Dark;
+        legacy.timeline.compact_rows = true;
+        legacy.timeline.loop_playback = false;
+        legacy.code_editor.word_wrap = true;
+        legacy.publish.html_wrapper = false;
+
+        let mut named = WorkspacePrefs::default();
+        named.apply_template(WorkspaceTemplate::Designer);
+        let named = WorkspacePreset::capture(&named);
+        legacy
+            .named_presets
+            .insert("My layout".into(), named.clone());
+
+        let migrated = WorkspacePrefs::from_json(&serde_json::to_string(&legacy).unwrap());
+        let (dock, panels, active_bottom) = WorkspaceTemplate::Developer.layout();
+        assert_eq!(migrated.version, VERSION);
+        assert_eq!(migrated.template, WorkspaceTemplate::Developer);
+        assert_eq!(migrated.dock, dock);
+        assert_eq!(migrated.panels, panels);
+        assert_eq!(migrated.active_bottom, active_bottom);
+        assert_eq!(migrated.detached, DetachedPanels::default());
+        assert!(migrated.floating.is_empty());
+        assert_eq!(migrated.active_named_preset, None);
+        assert!(!migrated.unsaved_layout);
+
+        assert_eq!(migrated.theme, ThemeMode::Dark);
+        assert!(migrated.timeline.compact_rows);
+        assert!(!migrated.timeline.loop_playback);
+        assert!(migrated.code_editor.word_wrap);
+        assert!(!migrated.publish.html_wrapper);
+        assert_eq!(migrated.named_presets.get("My layout"), Some(&named));
+    }
+    #[test]
     fn malformed_large_unknown_version_and_unknown_theme_preferences_fail_soft() {
         let default = WorkspacePrefs::default();
         assert_eq!(WorkspacePrefs::load(None), default);
@@ -3546,7 +3605,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":3,"theme":"dark"}"#,
+            r#"{"version":4,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {
