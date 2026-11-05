@@ -1587,7 +1587,7 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
-        page: Rect,
+        _page: Rect,
         rect: Rect,
     ) {
         let stale = self.shape_draft.as_ref().is_some_and(|draft| {
@@ -1614,7 +1614,6 @@ impl Editor {
                     ..
                 } if matches!(self.tool, Tool::Rectangle | Tool::Ellipse)
                     && rect.contains(pos)
-                    && page.contains(pos)
                     && self.layer_editable()
                     && ui
                         .ctx()

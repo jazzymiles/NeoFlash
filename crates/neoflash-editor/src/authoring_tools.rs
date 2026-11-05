@@ -851,7 +851,7 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
-        page: Rect,
+        _page: Rect,
         view: Rect,
         scene: &[DrawItem],
     ) -> bool {
@@ -920,7 +920,6 @@ impl Editor {
                             if self.authoring_tools.pressure_contact.is_none()
                                 && self.tool == Tool::Brush
                                 && !space
-                                && page.contains(pos)
                                 && view.contains(pos)
                                 && ui
                                     .ctx()
@@ -959,10 +958,8 @@ impl Editor {
                         .is_none_or(|layer| layer == ui.layer_id()) =>
                 {
                     let tool = if space { Tool::Hand } else { self.tool };
-                    if !matches!(tool, Tool::Hand | Tool::Zoom | Tool::Lasso)
-                        && (!page.contains(pos)
-                            || (matches!(tool, Tool::Line | Tool::PolyStar | Tool::Brush)
-                                && !self.layer_editable()))
+                    if matches!(tool, Tool::Line | Tool::PolyStar | Tool::Brush)
+                        && !self.layer_editable()
                     {
                         continue;
                     }

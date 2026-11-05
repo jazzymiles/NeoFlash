@@ -1354,7 +1354,7 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
-        page: Rect,
+        _page: Rect,
         response: &egui::Response,
     ) {
         let zoom = self.zoom;
@@ -1393,7 +1393,6 @@ impl Editor {
             && self.vector.draft.is_none()
             && self.layer_editable()
             && let Some(hover_pos) = canvas_hover
-            && page.contains(hover_pos)
             && self.pen_subdivide_candidate(origin, hover_pos).is_some()
         {
             self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
@@ -1406,8 +1405,7 @@ impl Editor {
                         button: egui::PointerButton::Primary,
                         pressed: true,
                         ..
-                    } if page.contains(pos)
-                        && response.rect.contains(pos)
+                    } if response.rect.contains(pos)
                         && ui
                             .ctx()
                             .layer_id_at(pos)

@@ -1917,7 +1917,7 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
         );
     }
 
-    // 5. Modify ▸ Combine objects (Union & Punch) on Object Drawing shapes.
+    // 5. Modify ▸ Combine objects (Union, Intersect, Punch, Crop) and downstream shape workflows.
     editor.workspace.drawing.object_drawing = true;
     editor.symbol_mut().timeline.layers[1].keyframes[0]
         .elements
@@ -1927,11 +1927,11 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
             width: 80.0,
             height: 80.0,
             fill: [100, 100, 240, 255],
-            stroke: [0; 4],
-            stroke_width: 0.0,
+            stroke: [20, 30, 40, 255],
+            stroke_width: 2.0,
         },
-        0.0,
-        0.0,
+        100.0,
+        50.0,
     );
     let id_a = editor.symbol().timeline.layers[1].keyframes[0].elements[0]
         .id
@@ -1944,35 +1944,85 @@ fn merge_drawing_mode_punches_slices_splits_and_combines_objects() {
             stroke: [0; 4],
             stroke_width: 0.0,
         },
-        40.0,
-        0.0,
+        140.0,
+        50.0,
     );
     let id_b = editor.symbol().timeline.layers[1].keyframes[0].elements[1]
         .id
         .clone();
     let layer_id = editor.symbol().timeline.layers[1].id.clone();
-    editor.set_selection(vec![
+    let both_targets = vec![
         crate::selection::SelectionTarget {
             layer: layer_id.clone(),
-            element: id_a,
+            element: id_a.clone(),
         },
         crate::selection::SelectionTarget {
-            layer: layer_id,
+            layer: layer_id.clone(),
             element: id_b,
         },
-    ]);
-    assert!(editor.can_combine_objects());
-    let before_combine = editor.project.clone();
-    editor.combine_objects_selection(BooleanOp::Union, false);
-    editor.project.validate().unwrap();
-    assert_eq!(
-        editor.symbol().timeline.layers[1].keyframes[0]
-            .elements
-            .len(),
-        1
-    );
-    editor.undo();
-    assert_eq!(editor.project, before_combine);
+    ];
+    for (op, crop_by_top, expected_x, expected_w) in [
+        (BooleanOp::Union, false, 100.0, 120.0),
+        (BooleanOp::Intersection, false, 140.0, 40.0),
+        (BooleanOp::Difference, false, 100.0, 40.0),
+        (BooleanOp::Intersection, true, 140.0, 40.0),
+    ] {
+        editor.set_selection(both_targets.clone());
+        assert!(editor.can_combine_objects());
+        let before_combine = editor.project.clone();
+        editor.combine_objects_selection(op, crop_by_top);
+        editor.project.validate().unwrap();
+        assert_eq!(
+            editor.symbol().timeline.layers[1].keyframes[0]
+                .elements
+                .len(),
+            1
+        );
+        let combined_el = &editor.symbol().timeline.layers[1].keyframes[0].elements[0];
+        assert!((combined_el.transform.x - expected_x).abs() < 1e-6);
+        assert!((combined_el.transform.y - 50.0).abs() < 1e-6);
+        let ElementKind::Path {
+            commands,
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } = &combined_el.kind
+        else {
+            panic!("expected combined Path");
+        };
+        assert_eq!(*fill, [100, 100, 240, 255]);
+        assert_eq!(*stroke, [20, 30, 40, 255]);
+        assert!((*stroke_width - 2.0).abs() < 1e-6);
+        let b = neoflash_core::path_bounds(commands).unwrap().unwrap();
+        assert!(b.x_min.abs() < 1e-6 && b.y_min.abs() < 1e-6);
+        assert!((b.width() - expected_w).abs() < 1e-6);
+
+        // Downstream edits on the combined shape: Subselect point deletion and Break Apart.
+        let before_point_del = editor.project.clone();
+        editor.set_tool(Tool::Subselect);
+        editor.vector.selected_anchors = Some((combined_el.id.clone(), vec![1]));
+        assert!(editor.delete_selected_vector_points());
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before_point_del);
+
+        editor.set_tool(Tool::Select);
+        editor.break_apart_selection();
+        editor.project.validate().unwrap();
+        assert_eq!(
+            editor.symbol().timeline.layers[1].keyframes[0]
+                .elements
+                .len(),
+            2,
+            "Break Apart splits combined Object Drawing shape into Merge fill + stroke"
+        );
+        editor.undo();
+        assert_eq!(editor.project, before_point_del);
+
+        editor.undo();
+        assert_eq!(editor.project, before_combine);
+    }
 
     // Grouped Merge artwork is isolated both from drawing and from dropping raw shapes onto it.
     editor.symbol_mut().timeline.layers = vec![layer("group-layer", vec![], false)];
@@ -2526,4 +2576,87 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
     );
     assert_eq!(editor.project, before_nested);
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn pasteboard_objects_render_full_artwork_and_support_authoring_tools_outside_page() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let fill = [220, 60, 40, 255];
+    let fill_color = egui::Color32::from_rgba_unmultiplied(fill[0], fill[1], fill[2], fill[3]);
+    let mut offstage = object("pasteboard-rect", -110., 120.);
+    offstage.kind = ElementKind::Rectangle {
+        width: 80.,
+        height: 50.,
+        fill,
+        stroke: [15, 25, 35, 255],
+        stroke_width: 3.,
+    };
+    editor.symbol_mut().timeline.layers = vec![layer("pasteboard-layer", vec![offstage], false)];
+    editor.clear_selection();
+    editor.history.clear();
+    editor.project.validate().unwrap();
+
+    let out = stage_input_frame(&mut editor, &ctx, 1., vec![]);
+    let canvas = editor.stage_view.canvas;
+    let expected_center = page.min + egui::vec2(-70., 145.);
+    assert!(
+        canvas.contains(expected_center) && !page.contains(expected_center),
+        "test point must lie on the visible pasteboard outside the stage page"
+    );
+    let painted_offstage_fill = out.shapes.iter().any(|clipped| {
+        clipped.clip_rect.contains(expected_center)
+            && match &clipped.shape {
+                egui::Shape::Mesh(mesh) => mesh
+                    .vertices
+                    .iter()
+                    .any(|v| v.color == fill_color && !page.contains(v.pos)),
+                egui::Shape::Rect(rect) => {
+                    rect.fill == fill_color && rect.rect.contains(expected_center)
+                }
+                _ => false,
+            }
+    });
+    assert!(
+        painted_offstage_fill,
+        "pasteboard object must render its filled artwork outside page, not only a selection contour"
+    );
+
+    // Paint Bucket works on pasteboard objects outside `page` and records one Undo step.
+    let before_bucket = editor.project.clone();
+    editor.fill = [40, 190, 110, 255];
+    editor.set_tool(Tool::Bucket);
+    crate::tests::pen_click(&mut editor, &ctx, 2., expected_center, expected_center);
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Rectangle {
+            fill: [40, 190, 110, 255],
+            ..
+        }
+    ));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_bucket);
+    assert!(!editor.history.can_undo());
+
+    // Drawing a new rectangle directly on the right pasteboard (outside `page`, inside `canvas`) works.
+    editor.set_tool(Tool::Rectangle);
+    let drag_start = egui::pos2(page.max.x + 25., page.min.y + 80.);
+    let drag_end = egui::pos2(page.max.x + 95., page.min.y + 130.);
+    assert!(canvas.contains(drag_start) && canvas.contains(drag_end));
+    assert!(!page.contains(drag_start) && !page.contains(drag_end));
+    crate::tests::pen_click(&mut editor, &ctx, 3., drag_start, drag_end);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        2
+    );
+    let created = editor.selected_element().unwrap();
+    assert_eq!(
+        (created.transform.x, created.transform.y),
+        (editor.project.width as f64 + 25., 80.)
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_bucket);
 }

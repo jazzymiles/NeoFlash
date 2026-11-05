@@ -609,7 +609,7 @@ impl Editor {
                 if !self.stage_view.prefs.grid_over_objects {
                     self.paint_stage_grid(&p, page, origin);
                 }
-                let content = p.with_clip_rect(page.intersect(rect));
+                let content = p.with_clip_rect(rect);
                 if nested {
                     content.line_segment(
                         [origin - Vec2::new(8., 0.), origin + Vec2::new(8., 0.)],
@@ -765,7 +765,7 @@ impl Editor {
                         if clicked
                             && self.tool == Tool::Text
                             && let Some(pos) = response.interact_pointer_pos()
-                            && page.contains(pos)
+                            && rect.contains(pos)
                         {
                             let local = to_local(pos);
                             // Preferences ▸ Text ▸ Default font and size.
