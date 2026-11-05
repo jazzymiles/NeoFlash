@@ -333,7 +333,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer:**
 
 ### R-032 · Publish size scale with weight breakdown in Publish settings
-- **Status:** answered
+- **Status:** resolved — shared `WeightBar`, `weight_legend`, `weight_totals` and `InlineMessage` are in `neoflash-ui` (`0113b61`)
 - **Requested by / for:** implementation track · DL-03 (Publish settings, HTML5 target)
 - **Where:** `crates/neoflash-editor/src/panels/planned_dialogs.rs` (`publish_settings`, `Runtime` group and footer `Estimated size`)
 - **Need:** (1) a four-stop size scale in the HTML5 `Runtime` group: `Full` · `Balanced` · `Compact` · `Shared runtime`, with a selected stop, a `Custom` state when an individual option differs, and a runtime URL field shown only for `Shared runtime`. (2) a stacked weight bar under it with segments `WebAssembly`, `Runtime scripts`, `Project scripts`, `Content`, `Resources`, `Fonts`, `Page`, two totals (`on disk` and `transfer, gzip`), an optional budget line (for example 150 KB) and a computing state while the estimate runs. (3) a short trade-off line per stop (for example "Needs HTTP(S) hosting", or "Left out: AIR desktop APIs; …") and a warning style when a left-out family could matter.
@@ -473,7 +473,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   Uses existing components only.
 
 ### R-035 · Multiple open documents
-- **Status:** answered
+- **Status:** resolved — shared `NF2/Document Tab` (`DocumentTab`) and `EmptyState` are in `neoflash-ui` (`0113b61`)
 - **Requested by / for:** implementation track · editor workspace/document follow-ups
 - **Where:** top bar, File/Window menus and `document_sessions.rs::DocumentSession`.
 - **Need:** document switcher/tab placement, active/dirty/close states, overflow, and New/Open/Close/Quit transitions.
@@ -494,7 +494,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   disabled.
 
 ### R-036 · Named workspace presets
-- **Status:** answered
+- **Status:** resolved — shared inline message line (`InlineMessage`) is in `neoflash-ui` (`0113b61`)
 - **Requested by / for:** implementation track · editor workspace follow-ups
 - **Where:** top-bar workspace selector and `shell.rs::workspace_menu`.
 - **Need:** Save/Rename/Delete menu order and labels, name-entry/overwrite/delete states, active user-preset label and reset semantics.
@@ -638,7 +638,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   icon) with the same groups minus Source and Range; footer lists both outputs.
 
 ### R-044 · Shared toast host placement and lifetime
-- **Status:** answered
+- **Status:** resolved — uses the existing `Toast` component; no new design-system piece needed
 - **Requested by / for:** implementation track (`codex`) · ST-09 / W0.8; R-034 drawing refusal feedback
 - **Where:** window chrome (`shell.rs`), existing `neoflash_ui::components::Toast`.
 - **Need:** authoritative anchor and edge offsets, width/available-space behavior, stack direction/limit,
