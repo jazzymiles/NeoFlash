@@ -10,12 +10,14 @@
 //! [`LottieExportReport::warnings`] instead of failing or silently dropping artwork.
 
 use crate::ExportError;
+use base64::Engine as _;
+use image::{ExtendedColorType, ImageEncoder as _};
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FillRule, GradientKind,
     GradientPaint, InstancePlayback, Layer, LayerRole, PathCommand, Project, Symbol, Timeline,
     Transform, TweenKind, TweenProperty, effective_property_ease, flatten_scenes_with_ranges,
     layer_effective_blend_mode, layer_effectively_synced, layer_effectively_visible, motion_span,
-    placement_start, sample_layer, sample_layer_in,
+    placement_start, sample_layer_in,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -394,28 +396,104 @@ impl<'a> LottieBuilder<'a> {
             return asset_id;
         }
         if let Some(unit) = self.project.resources.iter().find(|r| r.id == resource_id) {
-            let (w, h) = unit
-                .decode_image()
+            let decoded = unit.decode_image().ok();
+            let (w, h) = decoded
+                .as_ref()
                 .map(|img| (img.width, img.height))
                 .unwrap_or((fallback_w.max(1), fallback_h.max(1)));
-            let ext = match self.options.image_format {
-                LottieImageFormat::Png => "png",
-                LottieImageFormat::Jpeg => "jpg",
+            let raw_bytes = unit.decoded_bytes().ok();
+            let is_png = raw_bytes
+                .as_deref()
+                .is_some_and(|b| b.starts_with(b"\x89PNG\r\n\x1a\n"));
+            let is_jpeg = raw_bytes
+                .as_deref()
+                .is_some_and(|b| b.starts_with(b"\xFF\xD8\xFF"));
+
+            let (ext, mime_type, encoded_bytes) = match self.options.image_format {
                 LottieImageFormat::Original => {
-                    if unit.media_type.contains("jpeg") || unit.media_type.contains("jpg") {
-                        "jpg"
+                    let (ext, mime) = if is_jpeg
+                        || unit.media_type.contains("jpeg")
+                        || unit.media_type.contains("jpg")
+                    {
+                        ("jpg", "image/jpeg")
+                    } else if raw_bytes
+                        .as_deref()
+                        .is_some_and(|b| b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a"))
+                        || unit.media_type.contains("gif")
+                    {
+                        ("gif", "image/gif")
                     } else {
-                        "png"
-                    }
+                        ("png", "image/png")
+                    };
+                    (ext, mime, raw_bytes.unwrap_or_default())
+                }
+                LottieImageFormat::Png => {
+                    let bytes = if is_png {
+                        raw_bytes.unwrap_or_default()
+                    } else if let Some(img) = &decoded {
+                        let mut buf = Vec::new();
+                        if image::codecs::png::PngEncoder::new(&mut buf)
+                            .write_image(&img.rgba, img.width, img.height, ExtendedColorType::Rgba8)
+                            .is_ok()
+                        {
+                            buf
+                        } else {
+                            raw_bytes.unwrap_or_default()
+                        }
+                    } else {
+                        raw_bytes.unwrap_or_default()
+                    };
+                    ("png", "image/png", bytes)
+                }
+                LottieImageFormat::Jpeg => {
+                    let bytes = if is_jpeg {
+                        raw_bytes.unwrap_or_default()
+                    } else if let Some(img) = &decoded {
+                        let has_alpha = img.rgba.as_chunks::<4>().0.iter().any(|px| px[3] < 255);
+                        if has_alpha {
+                            self.add_note(
+                                LottieNoteKind::Approximated,
+                                format!("Resource '{}'", unit.id),
+                                format!(
+                                    "Bitmap '{}' has transparency, which JPEG does not support; composited over stage background.",
+                                    unit.path
+                                ),
+                                None,
+                                None,
+                                None,
+                            );
+                        }
+                        let bg = self.project.background;
+                        let mut rgb =
+                            Vec::with_capacity((img.width as usize) * (img.height as usize) * 3);
+                        for px in img.rgba.as_chunks::<4>().0 {
+                            let a = px[3] as u16;
+                            let inv = 255 - a;
+                            rgb.push(((px[0] as u16 * a + bg[0] as u16 * inv + 127) / 255) as u8);
+                            rgb.push(((px[1] as u16 * a + bg[1] as u16 * inv + 127) / 255) as u8);
+                            rgb.push(((px[2] as u16 * a + bg[2] as u16 * inv + 127) / 255) as u8);
+                        }
+                        let mut buf = Vec::new();
+                        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 92)
+                            .write_image(&rgb, img.width, img.height, ExtendedColorType::Rgb8)
+                            .is_ok()
+                        {
+                            buf
+                        } else {
+                            raw_bytes.unwrap_or_default()
+                        }
+                    } else {
+                        raw_bytes.unwrap_or_default()
+                    };
+                    ("jpg", "image/jpeg", bytes)
                 }
             };
-            if self.options.image_mode == LottieImageMode::Folder
-                && let Ok(bytes) = unit.decoded_bytes()
-            {
+
+            if self.options.image_mode == LottieImageMode::Folder && !encoded_bytes.is_empty() {
                 let filename = format!("{asset_id}.{ext}");
                 self.external_images.push(ExternalImageFile {
                     relative_path: format!("images/{filename}"),
-                    bytes,
+                    bytes: encoded_bytes,
                 });
                 self.assets.push(json!({
                     "id": asset_id,
@@ -428,7 +506,12 @@ impl<'a> LottieBuilder<'a> {
                 self.exported_count += 1;
                 return asset_id;
             }
-            let data_uri = format!("data:{};base64,{}", unit.media_type, unit.data_base64);
+            let b64 = if !encoded_bytes.is_empty() {
+                base64::engine::general_purpose::STANDARD.encode(&encoded_bytes)
+            } else {
+                unit.data_base64.to_string()
+            };
+            let data_uri = format!("data:{mime_type};base64,{b64}");
             self.assets.push(json!({
                 "id": asset_id,
                 "w": w,
@@ -654,22 +737,58 @@ impl<'a> LottieBuilder<'a> {
 
         // Group elements by their ID across the span, rendered top-to-bottom (reverse of
         // `elements` slice order, since `elements.last()` is on top in NeoFlash).
+        // Sample `sample_layer_in` at most once per needed frame (either dense for guided/curved
+        // spans, or at keyframe/span boundaries for standard spans) instead of re-sampling per
+        // element, avoiding O(N_elements^2 * N_frames) overhead on multi-shape layers (T-060).
+        let dense = layer.properties.motion_guide.is_some()
+            || layer.keyframes.iter().any(|k| {
+                k.motion_path.is_some()
+                    || k.orient_to_path
+                    || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
+                    || k.property_eases
+                        .iter()
+                        .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
+            });
+        let sample_frames: Vec<u32> = if dense {
+            (span.start_frame..span.end_frame).collect()
+        } else {
+            let mut frames = BTreeSet::new();
+            frames.insert(span.start_frame);
+            frames.insert(span.end_frame.saturating_sub(1).max(span.start_frame));
+            for kf in &layer.keyframes {
+                if kf.frame >= span.start_frame && kf.frame < span.end_frame {
+                    frames.insert(kf.frame);
+                    frames.insert(kf.frame.saturating_sub(1).max(span.start_frame));
+                }
+            }
+            frames.into_iter().collect()
+        };
+
         let mut tracks: Vec<String> = Vec::new();
-        for f in span.start_frame..span.end_frame {
+        let mut track_samples: BTreeMap<String, Vec<(u32, Element)>> = BTreeMap::new();
+        for f in sample_frames {
             for el in sample_layer_in(timeline, layer, f) {
-                if !tracks.contains(&el.id) {
+                if !track_samples.contains_key(&el.id) {
                     tracks.push(el.id.clone());
+                    track_samples.insert(el.id.clone(), Vec::new());
+                }
+                if el.visible
+                    && let Some(vec) = track_samples.get_mut(&el.id)
+                {
+                    vec.push((f, el));
                 }
             }
         }
 
         let mut out = Vec::new();
         for element_id in tracks.into_iter().rev() {
+            let Some(samples) = track_samples.remove(&element_id) else {
+                continue;
+            };
             if let Some(val) = self.emit_element_track(
                 timeline,
                 layer,
-                span,
-                &element_id,
+                samples,
                 total_frames,
                 layer_bm,
                 layer_synced,
@@ -700,7 +819,7 @@ impl<'a> LottieBuilder<'a> {
         let mut frame_shapes: Vec<(u32, Element)> = Vec::new();
         let mut single_track = true;
         for f in span.start_frame..span.end_frame {
-            let mut els = sample_layer_in(timeline, layer, f);
+            let mut els = sample_shape_tween_frame(timeline, layer, f);
             if els.len() == 1 && els[0].to_path_commands().is_some() {
                 frame_shapes.push((f, els.pop().unwrap()));
             } else {
@@ -777,6 +896,18 @@ impl<'a> LottieBuilder<'a> {
         let mut contours_per_frame: Vec<(u32, Vec<LottieBezier>, [u8; 4], [u8; 4], f64, FillRule)> =
             Vec::with_capacity(frame_shapes.len());
         for (f, el) in frame_shapes {
+            if matches!(
+                &el.kind,
+                ElementKind::PaintedPath {
+                    fill_gradient: Some(_),
+                    ..
+                } | ElementKind::PaintedPath {
+                    stroke_gradient: Some(_),
+                    ..
+                }
+            ) {
+                return None;
+            }
             let (cmds, fill_rule) = el.to_path_commands()?;
             let m = neoflash_core::transform_matrix(Transform {
                 x: el.transform.x + origin_offset[0],
@@ -788,7 +919,9 @@ impl<'a> LottieBuilder<'a> {
             if contours.is_empty() {
                 return None;
             }
-            let (fill, stroke, stroke_width) = extract_element_paint(el);
+            let (raw_fill, raw_stroke, stroke_width) = extract_element_paint(el);
+            let fill = el.transform.color_transform.apply(raw_fill);
+            let stroke = el.transform.color_transform.apply(raw_stroke);
             contours_per_frame.push((*f, contours, fill, stroke, stroke_width, fill_rule));
         }
 
@@ -835,25 +968,141 @@ impl<'a> LottieBuilder<'a> {
         }
 
         let (_, _, fill0, stroke0, sw0, fill_rule0) = &contours_per_frame[0];
-        if fill0[3] > 0 {
-            let [r, g, b, a] = *fill0;
+        if contours_per_frame
+            .iter()
+            .any(|(_, _, fill, _, _, _)| fill[3] > 0)
+        {
+            let fill_rgb_varies = contours_per_frame
+                .iter()
+                .any(|(_, _, f, _, _, _)| f[0..3] != fill0[0..3]);
+            let fill_alpha_varies = contours_per_frame
+                .iter()
+                .any(|(_, _, f, _, _, _)| f[3] != fill0[3]);
+            let c_val = if fill_rgb_varies && contours_per_frame.len() > 1 {
+                let kfs: Vec<Value> = contours_per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, _, [r, g, b, _], _, _, _))| {
+                        let c = [
+                            round4(f64::from(*r) / 255.0),
+                            round4(f64::from(*g) / 255.0),
+                            round4(f64::from(*b) / 255.0),
+                            1.0,
+                        ];
+                        if idx + 1 < contours_per_frame.len() {
+                            json!({"t": *f, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        } else {
+                            json!({"t": *f, "s": c})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                let [r, g, b, _] = *fill0;
+                json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
+            };
+            let o_val = if fill_alpha_varies && contours_per_frame.len() > 1 {
+                let kfs: Vec<Value> = contours_per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, _, [_, _, _, a], _, _, _))| {
+                        let o = round4(f64::from(*a) / 255.0 * 100.0);
+                        if idx + 1 < contours_per_frame.len() {
+                            json!({"t": *f, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        } else {
+                            json!({"t": *f, "s": [o]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(f64::from(fill0[3]) / 255.0 * 100.0)})
+            };
             items.push(json!({
                 "ty": "fl",
                 "nm": "Fill",
-                "c": {"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]},
-                "o": {"a": 0, "k": round4(f64::from(a) / 255.0 * 100.0)},
+                "c": c_val,
+                "o": o_val,
                 "r": if *fill_rule0 == FillRule::EvenOdd { 2 } else { 1 },
                 "bm": 0
             }));
         }
-        if stroke0[3] > 0 && *sw0 > 0.0 {
-            let [r, g, b, a] = *stroke0;
+        if contours_per_frame
+            .iter()
+            .any(|(_, _, _, stroke, sw, _)| stroke[3] > 0 && *sw > 0.0)
+        {
+            let stroke_rgb_varies = contours_per_frame
+                .iter()
+                .any(|(_, _, _, s, _, _)| s[0..3] != stroke0[0..3]);
+            let stroke_alpha_varies = contours_per_frame
+                .iter()
+                .any(|(_, _, _, s, _, _)| s[3] != stroke0[3]);
+            let sw_varies = contours_per_frame
+                .iter()
+                .any(|(_, _, _, _, sw, _)| (*sw - *sw0).abs() > 1e-4);
+            let c_val = if stroke_rgb_varies && contours_per_frame.len() > 1 {
+                let kfs: Vec<Value> = contours_per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, _, _, [r, g, b, _], _, _))| {
+                        let c = [
+                            round4(f64::from(*r) / 255.0),
+                            round4(f64::from(*g) / 255.0),
+                            round4(f64::from(*b) / 255.0),
+                            1.0,
+                        ];
+                        if idx + 1 < contours_per_frame.len() {
+                            json!({"t": *f, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        } else {
+                            json!({"t": *f, "s": c})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                let [r, g, b, _] = *stroke0;
+                json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
+            };
+            let o_val = if stroke_alpha_varies && contours_per_frame.len() > 1 {
+                let kfs: Vec<Value> = contours_per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, _, _, [_, _, _, a], _, _))| {
+                        let o = round4(f64::from(*a) / 255.0 * 100.0);
+                        if idx + 1 < contours_per_frame.len() {
+                            json!({"t": *f, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        } else {
+                            json!({"t": *f, "s": [o]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(f64::from(stroke0[3]) / 255.0 * 100.0)})
+            };
+            let w_val = if sw_varies && contours_per_frame.len() > 1 {
+                let kfs: Vec<Value> = contours_per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, _, _, _, sw, _))| {
+                        let w = round4(*sw);
+                        if idx + 1 < contours_per_frame.len() {
+                            json!({"t": *f, "s": [w], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        } else {
+                            json!({"t": *f, "s": [w]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(*sw0)})
+            };
             items.push(json!({
                 "ty": "st",
                 "nm": "Stroke",
-                "c": {"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]},
-                "o": {"a": 0, "k": round4(f64::from(a) / 255.0 * 100.0)},
-                "w": {"a": 0, "k": round4(*sw0)},
+                "c": c_val,
+                "o": o_val,
+                "w": w_val,
                 "lc": 2,
                 "lj": 2,
                 "bm": 0
@@ -899,8 +1148,7 @@ impl<'a> LottieBuilder<'a> {
         &mut self,
         timeline: &Timeline,
         layer: &Layer,
-        span: &LayerSpan,
-        element_id: &str,
+        samples: Vec<(u32, Element)>,
         _total_frames: u32,
         layer_bm: u32,
         layer_synced: bool,
@@ -909,15 +1157,6 @@ impl<'a> LottieBuilder<'a> {
         stack: &mut Vec<String>,
         next_ind: &mut u32,
     ) -> Option<Value> {
-        let mut samples: Vec<(u32, Element)> = Vec::new();
-        for f in span.start_frame..span.end_frame {
-            if let Some(el) = sample_layer_in(timeline, layer, f)
-                .into_iter()
-                .find(|e| e.id == element_id && e.visible)
-            {
-                samples.push((f, el));
-            }
-        }
         if samples.is_empty() {
             return None;
         }
@@ -1017,6 +1256,7 @@ impl<'a> LottieBuilder<'a> {
                 if let Some(tm) = self.build_instance_time_remap(
                     timeline,
                     layer,
+                    &representative.id,
                     symbol_id,
                     effective_playback,
                     layer_synced,
@@ -1243,6 +1483,7 @@ impl<'a> LottieBuilder<'a> {
         &self,
         timeline: &Timeline,
         layer: &Layer,
+        element_id: &str,
         symbol_id: &str,
         playback: InstancePlayback,
         layer_synced: bool,
@@ -1254,7 +1495,7 @@ impl<'a> LottieBuilder<'a> {
         if child_len <= 1 {
             return None;
         }
-        let span_start = placement_start(layer, first_frame, symbol_id);
+        let span_start = placement_start(layer, first_frame, element_id);
         let child_frame_at = |parent_frame: u32| -> u32 {
             let age = if layer_synced {
                 parent_frame
@@ -1490,7 +1731,7 @@ impl<'a> LottieBuilder<'a> {
     }
 
     fn attach_masks(
-        &self,
+        &mut self,
         layer_obj: &mut Value,
         timeline: &Timeline,
         mask_layer: Option<&Layer>,
@@ -1504,20 +1745,106 @@ impl<'a> LottieBuilder<'a> {
         if !layer_effectively_visible(timeline, mask_layer) {
             return;
         }
+        if mask_layer.properties.mask_mode != neoflash_core::MaskMode::Geometry {
+            self.add_note(
+                LottieNoteKind::Approximated,
+                format!("Mask layer '{}'", mask_layer.name),
+                "Alpha mask layer exported as vector contour mask; Lottie does not support soft alpha/gradient/bitmap mask coverage.",
+                None,
+                Some(mask_layer.id.clone()),
+                Some(first_frame),
+            );
+        }
         let inv_target = invert_affine(neoflash_core::transform_matrix(target_transform));
-        let mask_els = sample_layer(mask_layer, first_frame);
+        let mask_contours_at = |frame: u32| -> Vec<LottieBezier> {
+            let mut out = Vec::new();
+            for el in sample_layer_in(timeline, mask_layer, frame) {
+                let Some((cmds, _)) = el.to_path_commands() else {
+                    continue;
+                };
+                let mask_m = neoflash_core::transform_matrix(el.transform);
+                let combined = match inv_target {
+                    Some(inv) => neoflash_core::affine_multiply(inv, mask_m),
+                    None => mask_m,
+                };
+                let local_cmds = transform_path_commands(&cmds, combined);
+                out.extend(path_commands_to_lottie_beziers(&local_cmds));
+            }
+            out
+        };
+
+        let first_contours = mask_contours_at(first_frame);
+        if first_contours.is_empty() {
+            return;
+        }
+
+        let mask_animated = last_frame > first_frame + 1
+            && (mask_layer.keyframes.len() > 1
+                || mask_layer.keyframes.iter().any(|k| k.tween.is_some()));
         let mut masks_props = Vec::new();
-        for el in mask_els {
-            let Some((cmds, _)) = el.to_path_commands() else {
-                continue;
-            };
-            let mask_m = neoflash_core::transform_matrix(el.transform);
-            let combined = match inv_target {
-                Some(inv) => neoflash_core::affine_multiply(inv, mask_m),
-                None => mask_m,
-            };
-            let local_cmds = transform_path_commands(&cmds, combined);
-            for bez in path_commands_to_lottie_beziers(&local_cmds) {
+        if mask_animated {
+            let per_frame: Vec<(u32, Vec<LottieBezier>)> = (first_frame..last_frame)
+                .map(|f| (f, mask_contours_at(f)))
+                .collect();
+            let count = first_contours.len();
+            let v_counts: Vec<usize> = first_contours.iter().map(|c| c.v.len()).collect();
+            let compatible = per_frame.iter().all(|(_, cs)| {
+                cs.len() == count
+                    && cs
+                        .iter()
+                        .zip(&v_counts)
+                        .all(|(c, &expected)| c.v.len() == expected)
+            });
+            if compatible {
+                for c_idx in 0..count {
+                    let kfs: Vec<Value> = per_frame
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, (f, cs))| {
+                            let bez = cs[c_idx].to_json();
+                            if idx + 1 < per_frame.len() {
+                                json!({
+                                    "t": *f,
+                                    "s": [bez],
+                                    "i": {"x": [1.0], "y": [1.0]},
+                                    "o": {"x": [0.0], "y": [0.0]}
+                                })
+                            } else {
+                                json!({"t": *f, "s": [bez]})
+                            }
+                        })
+                        .collect();
+                    masks_props.push(json!({
+                        "inv": false,
+                        "mode": "a",
+                        "pt": {"a": 1, "k": kfs},
+                        "o": {"a": 0, "k": 100},
+                        "x": {"a": 0, "k": 0},
+                        "nm": mask_layer.name
+                    }));
+                }
+            } else {
+                self.add_note(
+                    LottieNoteKind::Approximated,
+                    format!("Mask layer '{}'", mask_layer.name),
+                    "Mask contour topology changes mid-span; exported static first-frame mask contour.",
+                    None,
+                    Some(mask_layer.id.clone()),
+                    Some(first_frame),
+                );
+                for bez in first_contours {
+                    masks_props.push(json!({
+                        "inv": false,
+                        "mode": "a",
+                        "pt": {"a": 0, "k": bez.to_json()},
+                        "o": {"a": 0, "k": 100},
+                        "x": {"a": 0, "k": 0},
+                        "nm": mask_layer.name
+                    }));
+                }
+            }
+        } else {
+            for bez in first_contours {
                 masks_props.push(json!({
                     "inv": false,
                     "mode": "a",
@@ -1528,7 +1855,6 @@ impl<'a> LottieBuilder<'a> {
                 }));
             }
         }
-        let _ = last_frame;
         if !masks_props.is_empty()
             && let Some(map) = layer_obj.as_object_mut()
         {
@@ -1568,6 +1894,39 @@ fn collect_layer_spans(layer: &Layer, layer_end: u32) -> Vec<LayerSpan> {
         });
     }
     spans
+}
+
+fn sample_shape_tween_frame(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<Element> {
+    if let Some((idx, kf)) = layer
+        .keyframes
+        .iter()
+        .enumerate()
+        .find(|(_, k)| k.frame == frame)
+    {
+        if kf.tween.is_some()
+            && kf.tween_kind == TweenKind::Shape
+            && let Some(next_kf) = layer.keyframes.get(idx + 1)
+        {
+            return neoflash_core::shape_tween_elements_with_hints(
+                &kf.elements,
+                &next_kf.elements,
+                &kf.shape_hints,
+                0.0,
+            );
+        }
+        if idx > 0 {
+            let prev_kf = &layer.keyframes[idx - 1];
+            if prev_kf.tween.is_some() && prev_kf.tween_kind == TweenKind::Shape {
+                return neoflash_core::shape_tween_elements_with_hints(
+                    &prev_kf.elements,
+                    &kf.elements,
+                    &prev_kf.shape_hints,
+                    1.0,
+                );
+            }
+        }
+    }
+    sample_layer_in(timeline, layer, frame)
 }
 
 fn collect_transform_keyframes(
@@ -2241,8 +2600,8 @@ where
         project: &working_project,
         options,
         fps: f64::from(fps_u32),
-        comp_w,
-        comp_h,
+        comp_w: working_project.width.max(1),
+        comp_h: working_project.height.max(1),
         assets: Vec::new(),
         external_images: Vec::new(),
         exported_precomps: BTreeSet::new(),
@@ -2401,8 +2760,8 @@ where
         "fr": round4(builder.fps),
         "ip": ip,
         "op": op,
-        "w": builder.comp_w,
-        "h": builder.comp_h,
+        "w": comp_w,
+        "h": comp_h,
         "nm": comp_name,
         "ddd": 0,
         "assets": builder.assets,
@@ -2446,8 +2805,8 @@ where
         path: None,
         html_preview_path: None,
         name: comp_name,
-        width: builder.comp_w,
-        height: builder.comp_h,
+        width: comp_w,
+        height: comp_h,
         fps: fps_u32,
         in_point: ip,
         frame_count: exported_frames,
@@ -2498,13 +2857,32 @@ pub fn export_lottie_json(
     project: &Project,
     options: &LottieOptions,
 ) -> Result<(String, LottieExportReport), ExportError> {
-    let (value, mut report) = export_lottie_value(project, options)?;
+    export_lottie_json_with_progress(project, options, |_| true)
+}
+
+/// Serialize `project` into a Lottie JSON string along with [`LottieExportReport`],
+/// reporting progress and supporting cancellation (`on_progress` returning `false`).
+pub fn export_lottie_json_with_progress<F>(
+    project: &Project,
+    options: &LottieOptions,
+    mut on_progress: F,
+) -> Result<(String, LottieExportReport), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let (value, mut report, external_images) =
+        export_lottie_internal(project, options, &mut on_progress)?;
     let json = if options.pretty {
         serde_json::to_string_pretty(&value)?
     } else {
         serde_json::to_string(&value)?
     };
-    report.bytes = json.len();
+    if options.format == LottieFormat::DotLottie {
+        let img_bytes: usize = external_images.iter().map(|i| i.bytes.len() + 96).sum();
+        report.bytes = json.len() + 256 + img_bytes;
+    } else {
+        report.bytes = json.len();
+    }
     Ok((json, report))
 }
 
@@ -2562,8 +2940,8 @@ where
             ("manifest.json".into(), manifest_bytes),
             ("animations/animation.json".into(), json.as_bytes().to_vec()),
         ];
-        for img in external_images {
-            zip_entries.push((img.relative_path, img.bytes));
+        for img in &external_images {
+            zip_entries.push((img.relative_path.clone(), img.bytes.clone()));
         }
         let zip_bytes = build_stored_zip(&zip_entries);
         fs::write(output_file, &zip_bytes)?;
@@ -2571,16 +2949,18 @@ where
     } else {
         fs::write(output_file, json.as_bytes())?;
         report.bytes = json.len();
-        if !external_images.is_empty()
-            && let Some(parent) = output_file.parent()
-        {
-            for img in external_images {
-                let path = parent.join(&img.relative_path);
-                if let Some(img_parent) = path.parent() {
-                    fs::create_dir_all(img_parent)?;
-                }
-                fs::write(path, &img.bytes)?;
+    }
+
+    if (!is_dotlottie || options.html_preview)
+        && !external_images.is_empty()
+        && let Some(parent) = output_file.parent()
+    {
+        for img in &external_images {
+            let path = parent.join(&img.relative_path);
+            if let Some(img_parent) = path.parent() {
+                fs::create_dir_all(img_parent)?;
             }
+            fs::write(path, &img.bytes)?;
         }
     }
 
@@ -2657,13 +3037,45 @@ fn build_stored_zip(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
     out
 }
 
+fn escape_html_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn escape_json_for_html_script(json: &str) -> String {
+    let mut out = String::with_capacity(json.len() + 16);
+    for ch in json.chars() {
+        match ch {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn build_lottie_html_preview(title: &str, width: u32, height: u32, lottie_json: &str) -> String {
+    let safe_title = escape_html_text(title);
+    let safe_json = escape_json_for_html_script(lottie_json);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{title} — Lottie Preview</title>
+<title>{safe_title} — Lottie Preview</title>
 <style>
   body {{ margin: 0; background: #14171f; color: #e6e9f0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }}
   #player {{ width: {width}px; height: {height}px; max-width: 92vw; max-height: 80vh; background: #1e222d; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); }}
@@ -2673,9 +3085,9 @@ fn build_lottie_html_preview(title: &str, width: u32, height: u32, lottie_json: 
 </head>
 <body>
   <div id="player"></div>
-  <div class="meta">{title} · {width} × {height} · Bodymovin v{LOTTIE_VERSION}</div>
+  <div class="meta">{safe_title} · {width} × {height} · Bodymovin v{LOTTIE_VERSION}</div>
   <script>
-    const animationData = {lottie_json};
+    const animationData = {safe_json};
     if (window.lottie) {{
       window.lottie.loadAnimation({{
         container: document.getElementById('player'),
@@ -3080,5 +3492,1164 @@ mod tests {
             report.notes
         );
         assert!(report.not_exported_count >= 2);
+    }
+
+    #[test]
+    fn html_preview_escapes_script_tags_and_image_formats_transcode_and_dotlottie_preview_writes_folder_assets()
+     {
+        let mut project = Project::blank();
+        project.format_version = 8;
+        project.name =
+            "Literal </script><script>globalThis.__t051_marker=true</script> name".into();
+
+        // Create a valid 2x2 translucent PNG resource
+        let mut png_bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png_bytes)
+            .write_image(
+                &[
+                    255, 0, 0, 255, // opaque red
+                    0, 255, 0, 128, // translucent green
+                    0, 0, 255, 255, // opaque blue
+                    255, 255, 0, 255,
+                ],
+                2,
+                2,
+                ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes("red", "red.png", "image/png", &png_bytes)
+                .unwrap(),
+        );
+        let root = project.root.clone();
+        project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "bitmap".into(),
+                name: "red".into(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "red".into(),
+                    width: 2,
+                    height: 2,
+                    smoothing: false,
+                },
+                ..Element::default()
+            });
+        project.validate().unwrap();
+
+        let dir = std::env::temp_dir().join(format!("neoflash-lottie-qa-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // T-057: HTML preview escapes `</script>` and title HTML entities
+        let title_out = dir.join("title.json");
+        let title_report = export_project_lottie(
+            &project,
+            &title_out,
+            &LottieOptions {
+                html_preview: true,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        let html = fs::read_to_string(title_report.html_preview_path.unwrap()).unwrap();
+        assert!(
+            !html.contains("</script><script>"),
+            "HTML preview must not contain unescaped closing </script> inside title or script data"
+        );
+        assert!(
+            html.contains(
+                "&lt;/script&gt;&lt;script&gt;globalThis.__t051_marker=true&lt;/script&gt;"
+            ),
+            "Title and meta should HTML-escape angle brackets"
+        );
+        assert!(
+            html.contains("\\u003c/script\\u003e\\u003cscript\\u003e"),
+            "Inline script JSON should escape < and > as \\u003c and \\u003e"
+        );
+
+        // T-058: PNG -> JPEG in Folder and Embed modes produces real JPEG bytes (\xFF\xD8\xFF)
+        let folder_jpeg_out = dir.join("folder-jpeg.json");
+        let folder_jpeg_report = export_project_lottie(
+            &project,
+            &folder_jpeg_out,
+            &LottieOptions {
+                image_mode: LottieImageMode::Folder,
+                image_format: LottieImageFormat::Jpeg,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        let written_jpg = fs::read(dir.join("images/img_red.jpg")).unwrap();
+        assert!(
+            written_jpg.starts_with(b"\xFF\xD8\xFF"),
+            "Folder JPEG output must have JPEG magic bytes, got: {:?}",
+            &written_jpg[..written_jpg.len().min(8)]
+        );
+        assert!(
+            folder_jpeg_report
+                .notes
+                .iter()
+                .any(|n| n.kind == LottieNoteKind::Approximated
+                    && n.message.contains("JPEG does not support")),
+            "Translucent PNG exported as JPEG should record an Approximated note"
+        );
+
+        let (embed_jpeg_val, _) = export_lottie_value(
+            &project,
+            &LottieOptions {
+                image_mode: LottieImageMode::Embed,
+                image_format: LottieImageFormat::Jpeg,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        let data_uri = embed_jpeg_val["assets"][0]["p"].as_str().unwrap();
+        assert!(
+            data_uri.starts_with("data:image/jpeg;base64,"),
+            "Embed JPEG must use data:image/jpeg;base64, prefix, got: {data_uri}"
+        );
+        let decoded_embed = base64::engine::general_purpose::STANDARD
+            .decode(data_uri.trim_start_matches("data:image/jpeg;base64,"))
+            .unwrap();
+        assert!(
+            decoded_embed.starts_with(b"\xFF\xD8\xFF"),
+            "Embed JPEG base64 payload must decode to JPEG magic bytes"
+        );
+
+        // T-059: dotLottie + Images Folder + HTML preview writes external images alongside .preview.html
+        let dot_dir = dir.join("dotlottie-sub");
+        let dot_out = dot_dir.join("folder.lottie");
+        let dot_report = export_project_lottie(
+            &project,
+            &dot_out,
+            &LottieOptions {
+                format: LottieFormat::DotLottie,
+                image_mode: LottieImageMode::Folder,
+                image_format: LottieImageFormat::Original,
+                html_preview: true,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(dot_report.html_preview_path.unwrap().exists());
+        let loose_png = dot_dir.join("images/img_red.png");
+        assert!(
+            loose_png.exists(),
+            "dotLottie with Folder images + HTML preview must also write images/img_red.png next to .preview.html"
+        );
+        assert!(
+            fs::read(&loose_png)
+                .unwrap()
+                .starts_with(b"\x89PNG\r\n\x1a\n")
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn large_static_timeline_estimate_is_fast_and_cancellable() {
+        let mut p = Project::blank();
+        p.name = "Lottie UI estimate 50s 150 shapes".into();
+        p.format_version = 8;
+        let id = p.root.clone();
+        let t = &mut p.symbol_mut(&id).unwrap().timeline;
+        t.frame_count = 1200;
+        t.layers[0].keyframes[0].elements = (0..150)
+            .map(|i| Element {
+                id: format!("shape-{i}"),
+                name: format!("Rectangle {i}"),
+                kind: ElementKind::Rectangle {
+                    width: 10.0,
+                    height: 10.0,
+                    fill: [255, 0, 0, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            })
+            .collect();
+        p.validate().unwrap();
+
+        let start = std::time::Instant::now();
+        let (json, report) = export_lottie_json(&p, &LottieOptions::default()).unwrap();
+        let elapsed_ms = start.elapsed().as_millis();
+        assert_eq!(report.frame_count, 1200);
+        assert_eq!(report.layer_count, 151); // 150 shapes + 1 background
+        assert!(json.len() > 100_000);
+        assert!(
+            elapsed_ms < 250,
+            "1200 frames x 150 static rectangles should export in <250ms even in debug build, took {elapsed_ms}ms"
+        );
+
+        let err = export_lottie_json_with_progress(&p, &LottieOptions::default(), |prog| {
+            prog.completed_steps < 1
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn midnight_express_multi_scene_cartoon_stress_test() {
+        use image::codecs::png::PngEncoder;
+        use image::{ExtendedColorType, ImageEncoder};
+        use neoflash_core::{
+            AuthoredPlayback, BlendMode, Easing, Element, ElementKind, FillRule, FilterSpec,
+            FrameRange, FrameSound, GradientKind, GradientPaint, GradientStop, InstancePlayback,
+            Keyframe, Layer, LayerProperties, LayerRole, PathCommand, PrimitiveOptions, Project,
+            RectangleOptions, ResourceUnit, ShapeHint, SoundEffect, SoundSync, Symbol, SymbolKind,
+            Timeline, TimelineEdit, Transform, TweenKind, TweenProperty, edit_frames, evaluate,
+            flatten_scenes_with_ranges,
+        };
+
+        // 1. Build a valid 8 kHz mono 16-bit PCM WAV whistle/chug audio resource (0.5s = 4000 samples).
+        let sample_rate = 8000u32;
+        let num_samples = 4000u32;
+        let data_bytes = num_samples * 2;
+        let mut wav = Vec::with_capacity((44 + data_bytes) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // Mono
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        for i in 0..num_samples {
+            let t = i as f64 / sample_rate as f64;
+            let chord = ((t * 440.0 * std::f64::consts::TAU).sin()
+                + 0.6 * (t * 554.37 * std::f64::consts::TAU).sin())
+                * 0.4;
+            let s = (chord * 32767.0).clamp(-32768.0, 32767.0) as i16;
+            wav.extend_from_slice(&s.to_le_bytes());
+        }
+
+        // 2. Build a 16x16 neon billboard PNG resource.
+        let mut png_bytes = Vec::new();
+        let mut rgba = Vec::with_capacity(16 * 16 * 4);
+        for y in 0..16u8 {
+            for x in 0..16u8 {
+                let border = !(2..14).contains(&x) || !(2..14).contains(&y);
+                if border {
+                    rgba.extend_from_slice(&[0, 240, 255, 255]);
+                } else {
+                    rgba.extend_from_slice(&[24, 18, 56, 220]);
+                }
+            }
+        }
+        PngEncoder::new(&mut png_bytes)
+            .write_image(&rgba, 16, 16, ExtendedColorType::Rgba8)
+            .unwrap();
+
+        let mut p = Project::blank();
+        p.format_version = 9;
+        p.name = "Midnight Express — Classic Flash Cartoon".into();
+        p.width = 960;
+        p.height = 540;
+        p.fps = 24;
+        p.background = [12, 16, 34, 255];
+        p.resources.push(
+            ResourceUnit::from_bytes("res-whistle", "audio/whistle.wav", "audio/wav", &wav)
+                .unwrap(),
+        );
+        p.resources.push(
+            ResourceUnit::from_bytes(
+                "res-billboard",
+                "images/billboard.png",
+                "image/png",
+                &png_bytes,
+            )
+            .unwrap(),
+        );
+
+        // 3. Nested Graphic symbol: `sym-train` (6 frames, looping locomotive with pulsing headlight).
+        let train_symbol = Symbol {
+            id: "sym-train".into(),
+            name: "Locomotive".into(),
+            folder: "Vehicles".into(),
+            kind: SymbolKind::Graphic,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 6,
+                scripts: vec![],
+                guides: vec![],
+                layers: vec![Layer {
+                    id: "train-body-layer".into(),
+                    name: "Train Body".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: (0..6)
+                        .map(|f| Keyframe {
+                            frame: f,
+                            elements: vec![
+                                Element {
+                                    id: "cabin".into(),
+                                    name: "Cabin".into(),
+                                    transform: Transform {
+                                        x: -60.0,
+                                        y: -24.0,
+                                        primitive: Some(PrimitiveOptions::Rectangle(
+                                            RectangleOptions {
+                                                corner_radii: [8.0, 8.0, 4.0, 4.0],
+                                                corners_locked: false,
+                                            },
+                                        )),
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Rectangle {
+                                        width: 120.0,
+                                        height: 44.0,
+                                        fill: [220, 52, 74, 255],
+                                        stroke: [255, 215, 110, 255],
+                                        stroke_width: 3.0,
+                                    },
+                                    ..Element::default()
+                                },
+                                Element {
+                                    id: "headlight".into(),
+                                    name: "Headlight".into(),
+                                    transform: Transform {
+                                        x: 52.0 + f as f64 * 4.0,
+                                        y: -14.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Ellipse {
+                                        width: 18.0 + f as f64 * 2.0,
+                                        height: 18.0 + f as f64 * 2.0,
+                                        fill: [255, 244, 160, 255],
+                                        stroke: [255, 180, 40, 255],
+                                        stroke_width: 2.0,
+                                    },
+                                    ..Element::default()
+                                },
+                            ],
+                            ..Keyframe::default()
+                        })
+                        .collect(),
+                }],
+            },
+        };
+
+        // 4. Nested MovieClip symbol: `sym-drone` (4 frames, glowing escort drone).
+        let drone_symbol = Symbol {
+            id: "sym-drone".into(),
+            name: "Escort Drone".into(),
+            folder: "Vehicles".into(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 4,
+                scripts: vec![],
+                guides: vec![],
+                layers: vec![Layer {
+                    id: "drone-layer".into(),
+                    name: "Drone".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            tween: Some(Easing::EaseInOut),
+                            elements: vec![Element {
+                                id: "drone-hull".into(),
+                                name: "Hull".into(),
+                                filters: vec![FilterSpec::Glow {
+                                    color: 0x00F0FF,
+                                    alpha: 0.85,
+                                    blur_x: 12.0,
+                                    blur_y: 12.0,
+                                    strength: 2.0,
+                                    quality: 2,
+                                    inner: false,
+                                    knockout: false,
+                                }],
+                                kind: ElementKind::Ellipse {
+                                    width: 48.0,
+                                    height: 22.0,
+                                    fill: [40, 225, 255, 255],
+                                    stroke: [255, 255, 255, 255],
+                                    stroke_width: 2.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 3,
+                            elements: vec![Element {
+                                id: "drone-hull".into(),
+                                name: "Hull".into(),
+                                transform: Transform {
+                                    y: -8.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Ellipse {
+                                    width: 48.0,
+                                    height: 22.0,
+                                    fill: [40, 225, 255, 255],
+                                    stroke: [255, 255, 255, 255],
+                                    stroke_width: 2.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                    ],
+                }],
+            },
+        };
+
+        p.library_folders = vec!["Vehicles".into()];
+        p.symbols.push(train_symbol);
+        p.symbols.push(drone_symbol);
+
+        // 5. Scene 1 (`p.root`): "Night Station" (24 frames).
+        let scene1_id = p.root.clone();
+        {
+            let scene1 = p.symbol_mut(&scene1_id).unwrap();
+            scene1.name = "Night Station".into();
+            scene1.timeline.frame_count = 24;
+            scene1.timeline.layers = vec![
+                // Layer 0: Night Sky Gradient Backdrop + Moon + Platform
+                Layer {
+                    id: "s1-backdrop".into(),
+                    name: "Night Sky Backdrop".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        label: "station_start".into(),
+                        elements: vec![
+                            Element {
+                                id: "sky-grad".into(),
+                                name: "Sky".into(),
+                                kind: ElementKind::PaintedPath {
+                                    commands: vec![
+                                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                                        PathCommand::LineTo { x: 960.0, y: 0.0 },
+                                        PathCommand::LineTo { x: 960.0, y: 540.0 },
+                                        PathCommand::LineTo { x: 0.0, y: 540.0 },
+                                        PathCommand::Close,
+                                    ],
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [16, 22, 48, 255],
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                    fill_gradient: Some(GradientPaint {
+                                        kind: GradientKind::Linear,
+                                        matrix: [0.3, 0.0, 0.0, 0.3, 480.0, 270.0],
+                                        stops: vec![
+                                            GradientStop {
+                                                ratio: 0,
+                                                color: [10, 14, 36, 255],
+                                            },
+                                            GradientStop {
+                                                ratio: 165,
+                                                color: [28, 42, 88, 255],
+                                            },
+                                            GradientStop {
+                                                ratio: 255,
+                                                color: [62, 38, 82, 255],
+                                            },
+                                        ],
+                                        focal_point_ratio: 0.0,
+                                    }),
+                                    stroke_gradient: None,
+                                },
+                                ..Element::default()
+                            },
+                            Element {
+                                id: "full-moon".into(),
+                                name: "Moon".into(),
+                                transform: Transform {
+                                    x: 760.0,
+                                    y: 64.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Ellipse {
+                                    width: 84.0,
+                                    height: 84.0,
+                                    fill: [255, 246, 200, 255],
+                                    stroke: [255, 225, 130, 180],
+                                    stroke_width: 4.0,
+                                },
+                                ..Element::default()
+                            },
+                            Element {
+                                id: "platform-deck".into(),
+                                name: "Platform".into(),
+                                transform: Transform {
+                                    x: 0.0,
+                                    y: 440.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Rectangle {
+                                    width: 960.0,
+                                    height: 100.0,
+                                    fill: [24, 28, 44, 255],
+                                    stroke: [90, 110, 160, 255],
+                                    stroke_width: 2.0,
+                                },
+                                ..Element::default()
+                            },
+                        ],
+                        ..Keyframe::default()
+                    }],
+                },
+                // Layer 1: Masked Clouds (revealed by the animated Searchlight Mask above it)
+                Layer {
+                    id: "s1-lit-clouds".into(),
+                    name: "Searchlight Clouds".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        mask: Some("s1-searchlight-mask".into()),
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "cloud-band".into(),
+                            name: "Illuminated Clouds".into(),
+                            transform: Transform {
+                                x: 120.0,
+                                y: 90.0,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Rectangle {
+                                width: 680.0,
+                                height: 140.0,
+                                fill: [110, 220, 255, 220],
+                                stroke: [255, 255, 255, 255],
+                                stroke_width: 2.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                },
+                // Layer 2: Animated Searchlight Mask (sweeps across the sky)
+                Layer {
+                    id: "s1-searchlight-mask".into(),
+                    name: "Searchlight Mask".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        role: LayerRole::Mask,
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            tween: Some(Easing::EaseInOut),
+                            elements: vec![Element {
+                                id: "beam-cone".into(),
+                                name: "Beam".into(),
+                                transform: Transform {
+                                    x: 120.0,
+                                    y: 80.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Ellipse {
+                                    width: 180.0,
+                                    height: 160.0,
+                                    fill: [255, 255, 255, 255],
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 23,
+                            elements: vec![Element {
+                                id: "beam-cone".into(),
+                                name: "Beam".into(),
+                                transform: Transform {
+                                    x: 560.0,
+                                    y: 80.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Ellipse {
+                                    width: 180.0,
+                                    height: 160.0,
+                                    fill: [255, 255, 255, 255],
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                    ],
+                },
+                // Layer 3: Curved Railway Motion Guide
+                Layer {
+                    id: "s1-track-guide".into(),
+                    name: "Track Guide".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        role: LayerRole::Guide,
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "guide-rail".into(),
+                            name: "Rail".into(),
+                            kind: ElementKind::Path {
+                                commands: vec![
+                                    PathCommand::MoveTo { x: 80.0, y: 410.0 },
+                                    PathCommand::QuadraticTo {
+                                        cx: 360.0,
+                                        cy: 320.0,
+                                        x: 540.0,
+                                        y: 380.0,
+                                    },
+                                    PathCommand::QuadraticTo {
+                                        cx: 720.0,
+                                        cy: 430.0,
+                                        x: 880.0,
+                                        y: 360.0,
+                                    },
+                                ],
+                                fill_rule: FillRule::NonZero,
+                                fill: [0, 0, 0, 0],
+                                stroke: [120, 200, 255, 255],
+                                stroke_width: 2.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                },
+                // Layer 4: Guided Express Train (`orient_to_path` + `snap_to_guide` + Graphic `Loop`)
+                Layer {
+                    id: "s1-express-train".into(),
+                    name: "Express Train".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        motion_guide: Some("s1-track-guide".into()),
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            tween: Some(Easing::EaseIn),
+                            orient_to_path: true,
+                            snap_to_guide: true,
+                            elements: vec![Element {
+                                id: "train-inst".into(),
+                                name: "Train".into(),
+                                transform: Transform {
+                                    x: 80.0,
+                                    y: 410.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Instance {
+                                    symbol_id: "sym-train".into(),
+                                    playback: InstancePlayback::Loop,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 23,
+                            elements: vec![Element {
+                                id: "train-inst".into(),
+                                name: "Train".into(),
+                                transform: Transform {
+                                    x: 880.0,
+                                    y: 360.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Instance {
+                                    symbol_id: "sym-train".into(),
+                                    playback: InstancePlayback::Loop,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                    ],
+                },
+                // Layer 5: Shape Tween Steam Puff with ShapeHints + Color/Alpha Morph
+                Layer {
+                    id: "s1-steam-morph".into(),
+                    name: "Steam Puff Morph".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            tween: Some(Easing::EaseOut),
+                            tween_kind: TweenKind::Shape,
+                            shape_hints: vec![ShapeHint {
+                                label: 'a',
+                                start_uv: [0.0, 0.5],
+                                end_uv: [0.0, 0.5],
+                            }],
+                            elements: vec![Element {
+                                id: "steam-puff".into(),
+                                name: "Steam".into(),
+                                transform: Transform {
+                                    x: 160.0,
+                                    y: 330.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Ellipse {
+                                    width: 36.0,
+                                    height: 28.0,
+                                    fill: [240, 248, 255, 230],
+                                    stroke: [180, 220, 255, 200],
+                                    stroke_width: 2.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 23,
+                            elements: vec![Element {
+                                id: "steam-puff".into(),
+                                name: "Steam".into(),
+                                transform: Transform {
+                                    x: 520.0,
+                                    y: 190.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Rectangle {
+                                    width: 140.0,
+                                    height: 54.0,
+                                    fill: [130, 170, 230, 90],
+                                    stroke: [120, 180, 255, 60],
+                                    stroke_width: 5.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                    ],
+                },
+                // Layer 6: Motion Tween Neon Station Sign with ◆ property keyframe + Screen Blend Mode
+                Layer {
+                    id: "s1-neon-sign".into(),
+                    name: "Neon Sign Glow".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        blend_mode: BlendMode::Screen,
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            tween: Some(Easing::EaseInOut),
+                            tween_kind: TweenKind::Motion,
+                            motion_path: None,
+                            elements: vec![Element {
+                                id: "neon-banner".into(),
+                                name: "Neon Banner".into(),
+                                transform: Transform {
+                                    x: 240.0,
+                                    y: 56.0,
+                                    alpha: 0.75,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Text {
+                                    text: "SCENE 1 · MIDNIGHT STATION".into(),
+                                    font_family: "Helvetica".into(),
+                                    font_size: 26.0,
+                                    color: [255, 90, 200, 255],
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 12,
+                            keyed_properties: Some(vec![
+                                TweenProperty::X,
+                                TweenProperty::Y,
+                                TweenProperty::Alpha,
+                            ]),
+                            elements: vec![Element {
+                                id: "neon-banner".into(),
+                                name: "Neon Banner".into(),
+                                transform: Transform {
+                                    x: 280.0,
+                                    y: 48.0,
+                                    alpha: 1.0,
+                                    ..Transform::default()
+                                },
+                                kind: ElementKind::Text {
+                                    text: "SCENE 1 · MIDNIGHT STATION".into(),
+                                    font_family: "Helvetica".into(),
+                                    font_size: 26.0,
+                                    color: [255, 90, 200, 255],
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        },
+                    ],
+                },
+                // Layer 7: Sound Layer (Stream whistle + stereo envelope)
+                Layer {
+                    id: "s1-audio".into(),
+                    name: "Whistle Audio".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        sound: Some(FrameSound {
+                            resource: "res-whistle".into(),
+                            sync: SoundSync::Stream,
+                            loops: 1,
+                            loop_forever: false,
+                            effect: SoundEffect::Custom,
+                            in_point: Some(0.0),
+                            out_point: None,
+                            envelope: Some(vec![[0.0, 0.3, 0.9], [0.4, 0.9, 0.4]]),
+                        }),
+                        ..Keyframe::default()
+                    }],
+                },
+            ];
+        }
+
+        // 6. Scene 2: "Neon Bridge Chase" (24 frames), exercising T-055 (synced layer in Scene 2)
+        // and T-056 (reversed Flash easing curve).
+        let scene2 = Symbol {
+            id: "scene-bridge".into(),
+            name: "Neon Bridge Chase".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 24,
+                scripts: vec![],
+                guides: vec![],
+                layers: vec![
+                    Layer {
+                        id: "s2-bridge".into(),
+                        name: "Bridge Horizon".into(),
+                        visible: true,
+                        locked: false,
+                        properties: LayerProperties::default(),
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            label: "bridge_chase".into(),
+                            elements: vec![
+                                Element {
+                                    id: "bridge-deck".into(),
+                                    name: "Bridge Deck".into(),
+                                    transform: Transform {
+                                        x: 0.0,
+                                        y: 400.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Rectangle {
+                                        width: 960.0,
+                                        height: 36.0,
+                                        fill: [50, 62, 96, 255],
+                                        stroke: [0, 230, 255, 255],
+                                        stroke_width: 3.0,
+                                    },
+                                    ..Element::default()
+                                },
+                                Element {
+                                    id: "neon-billboard".into(),
+                                    name: "Billboard".into(),
+                                    transform: Transform {
+                                        x: 740.0,
+                                        y: 180.0,
+                                        scale_x: 6.0,
+                                        scale_y: 6.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Bitmap {
+                                        resource_id: "res-billboard".into(),
+                                        width: 16,
+                                        height: 16,
+                                        smoothing: true,
+                                    },
+                                    ..Element::default()
+                                },
+                            ],
+                            ..Keyframe::default()
+                        }],
+                    },
+                    // Synced layer in Scene 2 with delayed placement at scene-local frame 4 (T-055!)
+                    Layer {
+                        id: "s2-synced-train".into(),
+                        name: "Synced Bridge Train".into(),
+                        visible: true,
+                        locked: false,
+                        properties: LayerProperties {
+                            sync_timeline: true,
+                            ..LayerProperties::default()
+                        },
+                        keyframes: vec![
+                            Keyframe {
+                                frame: 0,
+                                elements: vec![],
+                                ..Keyframe::default()
+                            },
+                            Keyframe {
+                                frame: 4,
+                                tween: Some(Easing::Linear),
+                                elements: vec![Element {
+                                    id: "s2-train-inst".into(),
+                                    name: "Bridge Train".into(),
+                                    transform: Transform {
+                                        x: 140.0,
+                                        y: 388.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Instance {
+                                        symbol_id: "sym-train".into(),
+                                        playback: InstancePlayback::Loop,
+                                    },
+                                    ..Element::default()
+                                }],
+                                ..Keyframe::default()
+                            },
+                            Keyframe {
+                                frame: 23,
+                                elements: vec![Element {
+                                    id: "s2-train-inst".into(),
+                                    name: "Bridge Train".into(),
+                                    transform: Transform {
+                                        x: 820.0,
+                                        y: 388.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Instance {
+                                        symbol_id: "sym-train".into(),
+                                        playback: InstancePlayback::Loop,
+                                    },
+                                    ..Element::default()
+                                }],
+                                ..Keyframe::default()
+                            },
+                        ],
+                    },
+                    // Drone Escort layer whose tween we reverse via TimelineEdit::Reverse (T-056!)
+                    Layer {
+                        id: "s2-drone-escort".into(),
+                        name: "Drone Escort".into(),
+                        visible: true,
+                        locked: false,
+                        properties: LayerProperties::default(),
+                        keyframes: vec![
+                            Keyframe {
+                                frame: 0,
+                                tween: Some(Easing::Flash { acceleration: 70.0 }),
+                                elements: vec![Element {
+                                    id: "s2-drone".into(),
+                                    name: "Drone".into(),
+                                    transform: Transform {
+                                        x: 120.0,
+                                        y: 160.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Instance {
+                                        symbol_id: "sym-drone".into(),
+                                        playback: InstancePlayback::Independent,
+                                    },
+                                    ..Element::default()
+                                }],
+                                ..Keyframe::default()
+                            },
+                            Keyframe {
+                                frame: 23,
+                                elements: vec![Element {
+                                    id: "s2-drone".into(),
+                                    name: "Drone".into(),
+                                    transform: Transform {
+                                        x: 780.0,
+                                        y: 140.0,
+                                        ..Transform::default()
+                                    },
+                                    kind: ElementKind::Instance {
+                                        symbol_id: "sym-drone".into(),
+                                        playback: InstancePlayback::Independent,
+                                    },
+                                    ..Element::default()
+                                }],
+                                ..Keyframe::default()
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+        p.symbols.push(scene2);
+        p.scenes = vec![scene1_id.clone(), "scene-bridge".into()];
+        p.upgrade_format_for_features();
+        p.validate().unwrap();
+
+        // Exercise TimelineEdit::Reverse on Scene 2's Drone Escort layer and verify T-056 easing inversion!
+        edit_frames(
+            &mut p,
+            "scene-bridge",
+            TimelineEdit::Reverse {
+                range: FrameRange {
+                    layers: vec!["s2-drone-escort".into()],
+                    start: 0,
+                    end: 23,
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            p.symbol("scene-bridge").unwrap().timeline.layers[2].keyframes[0].tween,
+            Some(Easing::Flash {
+                acceleration: -70.0
+            })
+        );
+
+        // Save the cartoon example to `examples/midnight-express.nflash` when running in the repo checkout.
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let example_path = repo_root.join("examples/midnight-express.nflash");
+        if example_path.parent().is_some_and(|d| d.exists()) {
+            fs::write(&example_path, p.to_json().unwrap()).unwrap();
+        }
+
+        // Verify Scene 1 and Scene 2 flattened evaluation matches authored scene-local evaluation on every frame (T-055).
+        let (flat, ranges) = flatten_scenes_with_ranges(&p);
+        flat.validate().unwrap();
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].start, 0);
+        assert_eq!(ranges[1].start, 24);
+        for f in 0..24 {
+            let s1_authored = evaluate(&p, &scene1_id, f);
+            let s1_flat = evaluate(&flat, &flat.root, ranges[0].start + f);
+            assert_eq!(s1_authored.len(), s1_flat.len(), "Scene 1 frame {f}");
+            let s2_authored = evaluate(&p, "scene-bridge", f);
+            let s2_flat = evaluate(&flat, &flat.root, ranges[1].start + f);
+            assert_eq!(s2_authored.len(), s2_flat.len(), "Scene 2 frame {f}");
+            for (a, b) in s2_authored.iter().zip(s2_flat.iter()) {
+                assert_eq!(
+                    a.transform, b.transform,
+                    "Scene 2 frame {f} item {} transform mismatch",
+                    a.element_id
+                );
+            }
+        }
+
+        // Verify sound playback emits the Stream whistle command on frame 0.
+        let mut playback = AuthoredPlayback::new(&flat, &flat.root, 0);
+        let initial_sounds = playback.drain_sound_commands();
+        assert_eq!(initial_sounds.len(), 1);
+
+        // Export to Lottie JSON, dotLottie, and HTML Preview in `target/cartoon-qa/`.
+        let qa_dir = repo_root.join("target/cartoon-qa");
+        let _ = fs::create_dir_all(&qa_dir);
+        let lottie_json_path = qa_dir.join("midnight-express.lottie.json");
+        let json_report = export_project_lottie(
+            &p,
+            &lottie_json_path,
+            &LottieOptions {
+                format: LottieFormat::Json,
+                image_mode: LottieImageMode::Folder,
+                image_format: LottieImageFormat::Jpeg,
+                html_preview: true,
+                scale: 1.5,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(json_report.width, 1440);
+        assert_eq!(json_report.height, 810);
+        assert_eq!(json_report.frame_count, 48);
+        assert!(lottie_json_path.exists());
+        assert!(json_report.html_preview_path.unwrap().exists());
+        assert!(
+            qa_dir.join("images/img_res-billboard.jpg").exists(),
+            "Billboard PNG should be transcoded to JPEG in Folder mode"
+        );
+        let dotlottie_path = qa_dir.join("midnight-express.lottie");
+        let dot_report = export_project_lottie(
+            &p,
+            &dotlottie_path,
+            &LottieOptions {
+                format: LottieFormat::DotLottie,
+                image_mode: LottieImageMode::Embed,
+                image_format: LottieImageFormat::Png,
+                html_preview: true,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(dotlottie_path.exists());
+        assert!(dot_report.html_preview_path.unwrap().exists());
+        let web_runtime = repo_root.join("target/web-runtime");
+        if web_runtime.join("neoflash_web_bg.wasm").exists() {
+            let html5_dir = qa_dir.join("html5");
+            crate::export_project_with_options(
+                &p,
+                &html5_dir,
+                &web_runtime,
+                &crate::PublishOptions::default(),
+            )
+            .unwrap();
+            assert!(html5_dir.join("index.html").exists());
+        }
+        let parsed_lottie: Value =
+            serde_json::from_str(&fs::read_to_string(&lottie_json_path).unwrap()).unwrap();
+        let bg_layer = parsed_lottie["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["nm"] == "Stage Background")
+            .unwrap();
+        assert_eq!(
+            bg_layer["sw"], 960,
+            "Stage Background must use unscaled stage width because it is parented to Stage Scale (Bug C)"
+        );
+        let masked_clouds = parsed_lottie["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["nm"] == "Searchlight Clouds · Illuminated Clouds")
+            .unwrap();
+        assert_eq!(
+            masked_clouds["masksProperties"][0]["pt"]["a"], 1,
+            "Animated Searchlight Mask must export animated mask path keyframes (Bug B)"
+        );
+        let steam_layer = parsed_lottie["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["nm"] == "Steam Puff Morph · Steam")
+            .unwrap();
+        let steam_items = steam_layer["shapes"][0]["it"].as_array().unwrap();
+        let steam_fill = steam_items.iter().find(|it| it["ty"] == "fl").unwrap();
+        assert_eq!(
+            steam_fill["c"]["a"], 1,
+            "Shape tween with changing fill color must animate Lottie fill color (Bug D)"
+        );
+        assert_eq!(
+            steam_fill["o"]["a"], 1,
+            "Shape tween with changing fill alpha must animate Lottie fill opacity (Bug D)"
+        );
     }
 }

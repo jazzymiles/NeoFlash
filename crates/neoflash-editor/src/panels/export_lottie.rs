@@ -18,6 +18,13 @@ use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
+use std::path::PathBuf;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU32, Ordering},
+    mpsc::{self, Receiver, RecvTimeoutError, TryRecvError},
+};
+use std::time::Duration;
 
 fn select_index(
     ui: &mut egui::Ui,
@@ -64,6 +71,207 @@ const SCALE_PRESETS: &[(f64, &str)] = &[
 
 const FPS_PRESETS: &[Option<u32>] = &[None, Some(12), Some(24), Some(30), Some(60)];
 
+#[derive(Debug)]
+enum LottieTaskOutcome {
+    Estimate(Result<LottieExportReport, String>),
+    Export {
+        path: PathBuf,
+        result: Result<LottieExportReport, String>,
+    },
+}
+
+struct RunningLottieTask {
+    generation: u64,
+    is_export: bool,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<AtomicU32>,
+    rx: Receiver<Option<LottieTaskOutcome>>,
+}
+
+#[derive(Default)]
+pub(crate) struct LottieAsyncWorker {
+    generation: u64,
+    running: Option<RunningLottieTask>,
+}
+
+impl std::fmt::Debug for LottieAsyncWorker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LottieAsyncWorker")
+            .field("generation", &self.generation)
+            .field("busy", &self.running.is_some())
+            .finish()
+    }
+}
+
+impl Drop for LottieAsyncWorker {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+impl LottieAsyncWorker {
+    fn cancel(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if let Some(task) = self.running.take() {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|r| r.generation == self.generation)
+    }
+
+    fn is_exporting(&self) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|r| r.generation == self.generation && r.is_export)
+    }
+
+    fn progress(&self) -> f32 {
+        self.running
+            .as_ref()
+            .filter(|r| r.generation == self.generation)
+            .map(|r| f32::from_bits(r.progress.load(Ordering::Relaxed)))
+            .unwrap_or(0.0)
+    }
+
+    fn spawn_estimate(
+        &mut self,
+        project: Project,
+        options: LottieOptions,
+    ) -> Option<LottieTaskOutcome> {
+        self.cancel();
+        let generation = self.generation;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(AtomicU32::new(0.0_f32.to_bits()));
+        let cancel_worker = cancel.clone();
+        let progress_worker = progress.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let res = neoflash_export::export_lottie_json_with_progress(&project, &options, |p| {
+                if cancel_worker.load(Ordering::Relaxed) {
+                    return false;
+                }
+                let frac = if p.total_steps > 0 {
+                    (p.completed_steps as f32 / p.total_steps as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                progress_worker.store(frac.to_bits(), Ordering::Relaxed);
+                true
+            });
+            if cancel_worker.load(Ordering::Relaxed) {
+                let _ = tx.send(None);
+                return;
+            }
+            let outcome = match res {
+                Ok((_, report)) => LottieTaskOutcome::Estimate(Ok(report)),
+                Err(e) => LottieTaskOutcome::Estimate(Err(e.to_string())),
+            };
+            let _ = tx.send(Some(outcome));
+        });
+
+        // Fast-path non-blocking budget (12 ms < 1 frame at 60Hz): resolves instant estimates
+        // without flicker while keeping large documents and transcoding off the UI thread.
+        match rx.recv_timeout(Duration::from_millis(12)) {
+            Ok(Some(outcome)) => Some(outcome),
+            Ok(None) | Err(RecvTimeoutError::Disconnected) => None,
+            Err(RecvTimeoutError::Timeout) => {
+                self.running = Some(RunningLottieTask {
+                    generation,
+                    is_export: false,
+                    cancel,
+                    progress,
+                    rx,
+                });
+                None
+            }
+        }
+    }
+
+    fn spawn_export(
+        &mut self,
+        project: Project,
+        path: PathBuf,
+        options: LottieOptions,
+    ) -> Option<LottieTaskOutcome> {
+        self.cancel();
+        let generation = self.generation;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(AtomicU32::new(0.0_f32.to_bits()));
+        let cancel_worker = cancel.clone();
+        let progress_worker = progress.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let res = neoflash_export::export_project_lottie_with_progress(
+                &project,
+                &path,
+                &options,
+                |p| {
+                    if cancel_worker.load(Ordering::Relaxed) {
+                        return false;
+                    }
+                    let frac = if p.total_steps > 0 {
+                        (p.completed_steps as f32 / p.total_steps as f32).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    progress_worker.store(frac.to_bits(), Ordering::Relaxed);
+                    true
+                },
+            );
+            if cancel_worker.load(Ordering::Relaxed) {
+                let _ = tx.send(None);
+                return;
+            }
+            let outcome = LottieTaskOutcome::Export {
+                path,
+                result: res.map_err(|e| e.to_string()),
+            };
+            let _ = tx.send(Some(outcome));
+        });
+
+        match rx.recv_timeout(Duration::from_millis(12)) {
+            Ok(Some(outcome)) => Some(outcome),
+            Ok(None) | Err(RecvTimeoutError::Disconnected) => None,
+            Err(RecvTimeoutError::Timeout) => {
+                self.running = Some(RunningLottieTask {
+                    generation,
+                    is_export: true,
+                    cancel,
+                    progress,
+                    rx,
+                });
+                None
+            }
+        }
+    }
+
+    fn poll(&mut self, ctx: &egui::Context) -> Option<LottieTaskOutcome> {
+        let Some(running) = &self.running else {
+            return None;
+        };
+        match running.rx.try_recv() {
+            Ok(outcome) => {
+                let gen_match = running.generation == self.generation;
+                self.running = None;
+                ctx.request_repaint();
+                if gen_match { outcome } else { None }
+            }
+            Err(TryRecvError::Empty) => {
+                ctx.request_repaint();
+                None
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.running = None;
+                None
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ExportLottieDraft {
     pub(crate) source: LottieSourceChoice,
@@ -81,6 +289,7 @@ pub(crate) struct ExportLottieDraft {
     pub(crate) blocking_error: Option<String>,
     pub(crate) show_notes_modal: bool,
     pub(crate) dirty: bool,
+    pub(crate) worker: Arc<Mutex<LottieAsyncWorker>>,
 }
 
 impl ExportLottieDraft {
@@ -112,9 +321,28 @@ impl ExportLottieDraft {
             blocking_error: None,
             show_notes_modal: false,
             dirty: true,
+            worker: Arc::new(Mutex::new(LottieAsyncWorker::default())),
         };
         draft.refresh_estimate(project);
         draft
+    }
+
+    pub(crate) fn cancel_worker(&self) {
+        if let Ok(mut w) = self.worker.lock() {
+            w.cancel();
+        }
+    }
+
+    pub(crate) fn is_busy(&self) -> bool {
+        self.worker.lock().is_ok_and(|w| w.busy())
+    }
+
+    pub(crate) fn is_exporting(&self) -> bool {
+        self.worker.lock().is_ok_and(|w| w.is_exporting())
+    }
+
+    pub(crate) fn progress(&self) -> f32 {
+        self.worker.lock().map(|w| w.progress()).unwrap_or(0.0)
     }
 
     pub(crate) fn sync_options(&mut self, project: &Project) {
@@ -163,15 +391,23 @@ impl ExportLottieDraft {
         self.sync_options(project);
         self.dirty = false;
         if self.blocking_error.is_some() {
+            self.cancel_worker();
             return;
         }
-        match neoflash_export::export_lottie_json(project, &self.options) {
-            Ok((_, report)) => {
-                self.preview_report = Some(report);
-                self.blocking_error = None;
-            }
-            Err(e) => {
-                self.blocking_error = Some(e.to_string());
+        let outcome = self
+            .worker
+            .lock()
+            .ok()
+            .and_then(|mut w| w.spawn_estimate(project.clone(), self.options.clone()));
+        if let Some(LottieTaskOutcome::Estimate(res)) = outcome {
+            match res {
+                Ok(report) => {
+                    self.preview_report = Some(report);
+                    self.blocking_error = None;
+                }
+                Err(err) => {
+                    self.blocking_error = Some(err);
+                }
             }
         }
     }
@@ -231,14 +467,12 @@ impl Editor {
         self.export_lottie = Some(ExportLottieDraft::for_project(&self.project, symbol_id));
     }
 
-    /// Export using a specific `LottieOptions` configuration to `path`.
-    pub fn export_lottie_with_options_to_path(
+    fn finish_lottie_export(
         &mut self,
         path: &std::path::Path,
-        options: &LottieOptions,
+        result: Result<LottieExportReport, String>,
     ) -> Result<LottieExportReport, String> {
-        self.finish_edits();
-        match neoflash_export::export_project_lottie(&self.project, path, options) {
+        match result {
             Ok(report) => {
                 self.message(format!(
                     "Lottie exported: {} ({} bytes, {} layers, {} frames)",
@@ -265,7 +499,20 @@ impl Editor {
         }
     }
 
-    fn save_export_lottie_draft(&mut self, draft: &ExportLottieDraft) -> bool {
+    /// Export using a specific `LottieOptions` configuration to `path`.
+    #[cfg(test)]
+    pub fn export_lottie_with_options_to_path(
+        &mut self,
+        path: &std::path::Path,
+        options: &LottieOptions,
+    ) -> Result<LottieExportReport, String> {
+        self.finish_edits();
+        let res = neoflash_export::export_project_lottie(&self.project, path, options)
+            .map_err(|e| e.to_string());
+        self.finish_lottie_export(path, res)
+    }
+
+    fn choose_export_lottie_path(&self, draft: &ExportLottieDraft) -> Option<PathBuf> {
         let base_name = match &draft.source {
             LottieSourceChoice::AllScenes => self.project.name.as_str(),
             LottieSourceChoice::Scene(id) | LottieSourceChoice::Symbol(id) => self
@@ -294,16 +541,11 @@ impl Editor {
             LottieFormat::DotLottie => ("lottie", "dotLottie archive", &["lottie"]),
         };
         let file_name = format!("{clean_stem}.{ext}");
-        let Some(path) = rfd::FileDialog::new()
+        rfd::FileDialog::new()
             .set_title("Export Lottie")
             .add_filter(filter_name, filter_exts)
             .set_file_name(&file_name)
             .save_file()
-        else {
-            return false;
-        };
-        self.export_lottie_with_options_to_path(&path, &draft.options)
-            .is_ok()
     }
 
     pub(crate) fn jump_to_lottie_note(&mut self, note: &LottieNote) {
@@ -332,7 +574,26 @@ impl Editor {
         let Some(mut draft) = self.export_lottie.clone() else {
             return;
         };
-        if draft.dirty {
+
+        let polled = draft.worker.lock().ok().and_then(|mut w| w.poll(ctx));
+        if let Some(outcome) = polled {
+            match outcome {
+                LottieTaskOutcome::Estimate(Ok(report)) => {
+                    draft.preview_report = Some(report);
+                    draft.blocking_error = None;
+                }
+                LottieTaskOutcome::Estimate(Err(err)) => {
+                    draft.blocking_error = Some(err);
+                }
+                LottieTaskOutcome::Export { path, result } => {
+                    let _ = self.finish_lottie_export(&path, result);
+                    self.export_lottie = None;
+                    return;
+                }
+            }
+        }
+
+        if draft.dirty && !draft.is_exporting() {
             draft.refresh_estimate(&self.project);
         }
 
@@ -937,6 +1198,9 @@ impl Editor {
                         });
                     });
 
+                let busy = draft.is_busy();
+                let exporting = draft.is_exporting();
+                let progress = draft.progress();
                 let footer_summary = if let Some(rep) = &draft.preview_report {
                     format!(
                         "~ {} · {} layers · {} frames",
@@ -950,12 +1214,20 @@ impl Editor {
                 c::surface::dialog_footer(
                     ui,
                     |ui| {
-                        ui.label(rich(&footer_summary, TextStyle::Small).color(nf.text_secondary));
+                        if exporting {
+                            c::progress(ui, "Exporting Lottie…", Some(progress), 260.0);
+                        } else if busy {
+                            c::progress(ui, "Computing estimate…", Some(progress), 260.0);
+                        } else {
+                            ui.label(
+                                rich(&footer_summary, TextStyle::Small).color(nf.text_secondary),
+                            );
+                        }
                     },
                     |ui| {
                         do_export |= ui
                             .add_enabled(
-                                draft.blocking_error.is_none(),
+                                !exporting && draft.blocking_error.is_none(),
                                 c::Button::primary("Export Lottie"),
                             )
                             .clicked();
@@ -964,15 +1236,35 @@ impl Editor {
                 );
             });
 
-        do_export |= draft.blocking_error.is_none()
+        do_export |= !draft.is_exporting()
+            && draft.blocking_error.is_none()
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
 
         if cancel || modal.should_close() {
-            self.export_lottie = None;
+            let was_exporting = draft.is_exporting();
+            draft.cancel_worker();
+            if was_exporting {
+                self.message("Lottie export cancelled.");
+                self.export_lottie = Some(draft);
+            } else {
+                self.export_lottie = None;
+            }
         } else if do_export {
             draft.sync_options(&self.project);
-            self.export_lottie = None;
-            self.save_export_lottie_draft(&draft);
+            if let Some(path) = self.choose_export_lottie_path(&draft) {
+                let immediate = draft.worker.lock().ok().and_then(|mut w| {
+                    w.spawn_export(self.project.clone(), path, draft.options.clone())
+                });
+                if let Some(LottieTaskOutcome::Export { path, result }) = immediate {
+                    let _ = self.finish_lottie_export(&path, result);
+                    self.export_lottie = None;
+                } else {
+                    ctx.request_repaint();
+                    self.export_lottie = Some(draft);
+                }
+            } else {
+                self.export_lottie = Some(draft);
+            }
         } else {
             self.export_lottie = Some(draft);
         }

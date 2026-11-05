@@ -1,0 +1,1539 @@
+{
+  "format_version": 9,
+  "name": "Midnight Express — Classic Flash Cartoon",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    12,
+    16,
+    34,
+    255
+  ],
+  "root": "symbol-50",
+  "symbols": [
+    {
+      "id": "symbol-50",
+      "name": "Night Station",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 24,
+        "layers": [
+          {
+            "id": "s1-backdrop",
+            "name": "Night Sky Backdrop",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "sky-grad",
+                    "name": "Sky",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        16,
+                        22,
+                        48,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.3,
+                          0.0,
+                          0.0,
+                          0.3,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              10,
+                              14,
+                              36,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 165,
+                            "color": [
+                              28,
+                              42,
+                              88,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              62,
+                              38,
+                              82,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "full-moon",
+                    "name": "Moon",
+                    "transform": {
+                      "x": 760.0,
+                      "y": 64.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 84.0,
+                      "height": 84.0,
+                      "fill": [
+                        255,
+                        246,
+                        200,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        225,
+                        130,
+                        180
+                      ],
+                      "stroke_width": 4.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "platform-deck",
+                    "name": "Platform",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 440.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 960.0,
+                      "height": 100.0,
+                      "fill": [
+                        24,
+                        28,
+                        44,
+                        255
+                      ],
+                      "stroke": [
+                        90,
+                        110,
+                        160,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "station_start"
+              }
+            ]
+          },
+          {
+            "id": "s1-lit-clouds",
+            "name": "Searchlight Clouds",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "cloud-band",
+                    "name": "Illuminated Clouds",
+                    "transform": {
+                      "x": 120.0,
+                      "y": 90.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 680.0,
+                      "height": 140.0,
+                      "fill": [
+                        110,
+                        220,
+                        255,
+                        220
+                      ],
+                      "stroke": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "normal",
+              "mask": "s1-searchlight-mask",
+              "outline": false,
+              "collapsed": false
+            }
+          },
+          {
+            "id": "s1-searchlight-mask",
+            "name": "Searchlight Mask",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "beam-cone",
+                    "name": "Beam",
+                    "transform": {
+                      "x": 120.0,
+                      "y": 80.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 180.0,
+                      "height": 160.0,
+                      "fill": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "beam-cone",
+                    "name": "Beam",
+                    "transform": {
+                      "x": 560.0,
+                      "y": 80.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 180.0,
+                      "height": 160.0,
+                      "fill": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "mask",
+              "outline": false,
+              "collapsed": false
+            }
+          },
+          {
+            "id": "s1-track-guide",
+            "name": "Track Guide",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "guide-rail",
+                    "name": "Rail",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 80.0,
+                          "y": 410.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 360.0,
+                          "cy": 320.0,
+                          "x": 540.0,
+                          "y": 380.0
+                        },
+                        {
+                          "op": "quadratic_to",
+                          "cx": 720.0,
+                          "cy": 430.0,
+                          "x": 880.0,
+                          "y": 360.0
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke": [
+                        120,
+                        200,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "guide",
+              "outline": false,
+              "collapsed": false
+            }
+          },
+          {
+            "id": "s1-express-train",
+            "name": "Express Train",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "train-inst",
+                    "name": "Train",
+                    "transform": {
+                      "x": 80.0,
+                      "y": 410.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-train",
+                      "playback": "loop"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in",
+                "label": "",
+                "orient_to_path": true,
+                "snap_to_guide": true
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "train-inst",
+                    "name": "Train",
+                    "transform": {
+                      "x": 880.0,
+                      "y": 360.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-train",
+                      "playback": "loop"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "role": "normal",
+              "outline": false,
+              "collapsed": false,
+              "motion_guide": "s1-track-guide"
+            }
+          },
+          {
+            "id": "s1-steam-morph",
+            "name": "Steam Puff Morph",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "steam-puff",
+                    "name": "Steam",
+                    "transform": {
+                      "x": 160.0,
+                      "y": 330.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 36.0,
+                      "height": 28.0,
+                      "fill": [
+                        240,
+                        248,
+                        255,
+                        230
+                      ],
+                      "stroke": [
+                        180,
+                        220,
+                        255,
+                        200
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_out",
+                "label": "",
+                "tween_kind": "shape",
+                "shape_hints": [
+                  {
+                    "label": "a",
+                    "start_uv": [
+                      0.0,
+                      0.5
+                    ],
+                    "end_uv": [
+                      0.0,
+                      0.5
+                    ]
+                  }
+                ]
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "steam-puff",
+                    "name": "Steam",
+                    "transform": {
+                      "x": 520.0,
+                      "y": 190.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 140.0,
+                      "height": 54.0,
+                      "fill": [
+                        130,
+                        170,
+                        230,
+                        90
+                      ],
+                      "stroke": [
+                        120,
+                        180,
+                        255,
+                        60
+                      ],
+                      "stroke_width": 5.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "s1-neon-sign",
+            "name": "Neon Sign Glow",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "neon-banner",
+                    "name": "Neon Banner",
+                    "transform": {
+                      "x": 240.0,
+                      "y": 56.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 0.75
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "SCENE 1 · MIDNIGHT STATION",
+                      "font_family": "Helvetica",
+                      "font_size": 26.0,
+                      "color": [
+                        255,
+                        90,
+                        200,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": "",
+                "tween_kind": "motion"
+              },
+              {
+                "frame": 12,
+                "elements": [
+                  {
+                    "id": "neon-banner",
+                    "name": "Neon Banner",
+                    "transform": {
+                      "x": 280.0,
+                      "y": 48.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "SCENE 1 · MIDNIGHT STATION",
+                      "font_family": "Helvetica",
+                      "font_size": 26.0,
+                      "color": [
+                        255,
+                        90,
+                        200,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "",
+                "keyed_properties": [
+                  "x",
+                  "y",
+                  "alpha"
+                ]
+              }
+            ],
+            "properties": {
+              "role": "normal",
+              "outline": false,
+              "collapsed": false,
+              "blend_mode": "screen"
+            }
+          },
+          {
+            "id": "s1-audio",
+            "name": "Whistle Audio",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": "",
+                "sound": {
+                  "resource": "res-whistle",
+                  "sync": "stream",
+                  "effect": "custom",
+                  "envelope": [
+                    [
+                      0.0,
+                      0.3,
+                      0.9
+                    ],
+                    [
+                      0.4,
+                      0.9,
+                      0.4
+                    ]
+                  ],
+                  "in_point": 0.0
+                }
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "sym-train",
+      "name": "Locomotive",
+      "folder": "Vehicles",
+      "kind": "graphic",
+      "timeline": {
+        "frame_count": 6,
+        "layers": [
+          {
+            "id": "train-body-layer",
+            "name": "Train Body",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 52.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 18.0,
+                      "height": 18.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 56.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 20.0,
+                      "height": 20.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 2,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 60.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 22.0,
+                      "height": 22.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 64.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24.0,
+                      "height": 24.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 68.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 26.0,
+                      "height": 26.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 5,
+                "elements": [
+                  {
+                    "id": "cabin",
+                    "name": "Cabin",
+                    "transform": {
+                      "x": -60.0,
+                      "y": -24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0,
+                      "primitive": {
+                        "kind": "rectangle",
+                        "corner_radii": [
+                          8.0,
+                          8.0,
+                          4.0,
+                          4.0
+                        ],
+                        "corners_locked": false
+                      }
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 120.0,
+                      "height": 44.0,
+                      "fill": [
+                        220,
+                        52,
+                        74,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        215,
+                        110,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "headlight",
+                    "name": "Headlight",
+                    "transform": {
+                      "x": 72.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 28.0,
+                      "height": 28.0,
+                      "fill": [
+                        255,
+                        244,
+                        160,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        180,
+                        40,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "sym-drone",
+      "name": "Escort Drone",
+      "folder": "Vehicles",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 4,
+        "layers": [
+          {
+            "id": "drone-layer",
+            "name": "Drone",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "drone-hull",
+                    "name": "Hull",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 48.0,
+                      "height": 22.0,
+                      "fill": [
+                        40,
+                        225,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": [],
+                    "filters": [
+                      {
+                        "type": "glow",
+                        "color": 61695,
+                        "alpha": 0.85,
+                        "blur_x": 12.0,
+                        "blur_y": 12.0,
+                        "strength": 2.0,
+                        "quality": 2,
+                        "inner": false,
+                        "knockout": false
+                      }
+                    ]
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [
+                  {
+                    "id": "drone-hull",
+                    "name": "Hull",
+                    "transform": {
+                      "x": 0.0,
+                      "y": -8.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 48.0,
+                      "height": 22.0,
+                      "fill": [
+                        40,
+                        225,
+                        255,
+                        255
+                      ],
+                      "stroke": [
+                        255,
+                        255,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scene-bridge",
+      "name": "Neon Bridge Chase",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 24,
+        "layers": [
+          {
+            "id": "s2-bridge",
+            "name": "Bridge Horizon",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "bridge-deck",
+                    "name": "Bridge Deck",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 400.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 960.0,
+                      "height": 36.0,
+                      "fill": [
+                        50,
+                        62,
+                        96,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        230,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 3.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "neon-billboard",
+                    "name": "Billboard",
+                    "transform": {
+                      "x": 740.0,
+                      "y": 180.0,
+                      "scale_x": 6.0,
+                      "scale_y": 6.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "bitmap",
+                      "resource_id": "res-billboard",
+                      "width": 16,
+                      "height": 16,
+                      "smoothing": true
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "bridge_chase"
+              }
+            ],
+            "properties": {
+              "end_frame": 24,
+              "role": "normal",
+              "outline": false,
+              "collapsed": false
+            }
+          },
+          {
+            "id": "s2-synced-train",
+            "name": "Synced Bridge Train",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "s2-train-inst",
+                    "name": "Bridge Train",
+                    "transform": {
+                      "x": 140.0,
+                      "y": 388.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-train",
+                      "playback": "loop"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "linear",
+                "label": ""
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "s2-train-inst",
+                    "name": "Bridge Train",
+                    "transform": {
+                      "x": 820.0,
+                      "y": 388.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-train",
+                      "playback": "loop"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "end_frame": 24,
+              "role": "normal",
+              "outline": false,
+              "collapsed": false,
+              "sync_timeline": true
+            }
+          },
+          {
+            "id": "s2-drone-escort",
+            "name": "Drone Escort",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "s2-drone",
+                    "name": "Drone",
+                    "transform": {
+                      "x": 780.0,
+                      "y": 140.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-drone",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": {
+                  "flash": {
+                    "acceleration": -70.0
+                  }
+                },
+                "label": ""
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "s2-drone",
+                    "name": "Drone",
+                    "transform": {
+                      "x": 120.0,
+                      "y": 160.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sym-drone",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ],
+            "properties": {
+              "end_frame": 24,
+              "role": "normal",
+              "outline": false,
+              "collapsed": false
+            }
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "library_folders": [
+    "Vehicles"
+  ],
+  "resources": [
+    {
+      "id": "res-whistle",
+      "path": "audio/whistle.wav",
+      "media_type": "audio/wav",
+      "data_base64": "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"
+    },
+    {
+      "id": "res-billboard",
+      "path": "images/billboard.png",
+      "media_type": "image/png",
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAfUlEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a+ya/NvR/DvQ+WZrnvoqzyVf4V7nvZHDwMI/n0I/n0I/n0I/n0I/n0I/n0I/n0I/n0I/n0I/n0I/n0Quzb/dgT/PvwjOHkKAHpH0DIAAAAASUVORK5CYII="
+    }
+  ],
+  "scenes": [
+    "symbol-50",
+    "scene-bridge"
+  ]
+}

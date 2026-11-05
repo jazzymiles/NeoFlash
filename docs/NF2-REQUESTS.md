@@ -733,3 +733,14 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `panels/layer_properties.rs`, and `layer_controls.rs`. None specifies a geometry/alpha selector.
 - **Proposal (optional):** a design-owned Select or Radio state on Mask properties with Geometry as the legacy
   default and Alpha as the explicit alternative. No new editor-local control or locked visual changes made.
+
+### R-049 · Two timeline layer-row icons after `Mode` for AE-style Mask Channel (Alpha / Color-Luminance) and Mask Inversion
+- **Status:** open
+- **Requested by / for:** project owner & implementation track (`gemini`) · T-064 / T-062 follow-up
+- **Where:** `crates/neoflash-ui/src/components/timeline.rs` (`LayerRow` / `LayerColumns` right after `ModeCell`), `crates/neoflash-editor/src/panels/timeline.rs`, `crates/neoflash-editor/src/panels/layer_properties.rs`.
+- **Need:** **2 official NF2 16×16 icons** placed on the timeline layer row right after the `Mode` cell (when a layer is a `Mask` or linked to a mask), matching After Effects Track Matte / Mask inline toggles:
+  1. **Mask channel icon (Alpha vs Color / Luminance, plus Geometry silhouette):** switches or indicates whether the mask evaluates **Alpha** (`α` / transparency channel), **Color / Luminance** (`Luma` — BT.709 luminance `0.2126 R + 0.7152 G + 0.0722 B × α`), or classic **Geometry** silhouette.
+  2. **Mask Invert icon (`Inverted`):** toggles `mask_invert` (`1.0 - coverage` for Alpha/Luminance masks; exterior stage-bounds minus interior silhouette for Geometry masks), just like the `Inverted` checkbox/icon next to Track Matte in After Effects.
+- **Why:** The project owner explicitly requested AE-style mask inversion (`mask_invert`) and Color/Luminance (`цвет и альфа`) mask modes with **2 icons from Claude** placed on the layer row right after `Mode` (authorizing temporary After Effects-style icons on the layer row after `Mode` in the editor until Claude delivers the 2 official NF2 icons).
+- **Checked:** `Figma 143:22609` (Dark) / `144:25676` (Light) (`R-040` `Mode` cell + `R-045` `Solo` column at `LAYER_COLUMN_MODE_SOLO = 372`), `crates/neoflash-ui/src/icons.rs`, `crates/neoflash-ui/src/components/timeline.rs`.
+- **Proposal (optional):** Add 2 vector icons (`Icon::MaskAlphaLuma` / `Icon::MaskLuma` and `Icon::MaskInvert`) to `neoflash-ui::icons` and reserve compact inline toggle slots right after `Mode` on mask rows (and matching controls in `Layer properties` / context menu). Until `R-049` lands in `neoflash-ui`, the editor paints temporary AE-style inline icons right after `Mode` in `panels/timeline.rs` without touching locked `neoflash-ui` files.

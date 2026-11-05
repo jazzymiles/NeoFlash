@@ -547,6 +547,8 @@ impl Editor {
         } else if !set.remove(&layer_id) {
             set.insert(layer_id);
         }
+        self.finish_edits();
+        self.normalize_targets();
         true
     }
 

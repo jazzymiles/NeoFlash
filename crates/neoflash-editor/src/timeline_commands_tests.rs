@@ -1631,3 +1631,56 @@ fn mask_context_command_links_displayed_lower_sibling_and_roundtrips_with_one_un
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn solo_hidden_layers_are_excluded_from_selection_and_edits_and_reconciled_on_toggle() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let mut l0 = project.symbols[0].timeline.layers[0].clone();
+    l0.id = "l0".into();
+    l0.name = "Bottom".into();
+    l0.keyframes[0].elements = vec![element("bottom-box", rectangle(), 0.)];
+    let mut l1 = l0.clone();
+    l1.id = "l1".into();
+    l1.name = "Top".into();
+    l1.keyframes[0].elements = vec![element("top-box", rectangle(), 80.)];
+    project.symbols[0].timeline.layers = vec![l0, l1];
+    project.validate().unwrap();
+    let before = project.clone();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.select_all();
+    assert_eq!(editor.selection.targets.len(), 2);
+
+    // Toggling Solo on the top layer immediately drops the non-soloed bottom layer from selection.
+    editor.toggle_layer_solo(1, false);
+    assert_eq!(editor.selection.targets.len(), 1);
+    assert_eq!(editor.selection.targets[0].element, "top-box");
+
+    // Select All while Solo is active selects only solo-visible artwork.
+    editor.clear_selection();
+    editor.select_all();
+    assert_eq!(editor.selection.targets.len(), 1);
+    assert_eq!(editor.selection.targets[0].element, "top-box");
+
+    // Deleting selection while Solo is active removes only the solo-visible top-box; bottom-box survives.
+    editor.delete_selected();
+    editor.clear_all_solo_layers();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].id,
+        "bottom-box"
+    );
+    assert!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+}

@@ -213,6 +213,25 @@ fn subdivide_cubic_bezier([x1, y1, x2, y2]: [f64; 4], t0: f64, t1: f64) -> Optio
     })
 }
 
+fn reverse_easing(ease: Easing) -> Easing {
+    match ease {
+        Easing::Linear => Easing::Linear,
+        Easing::EaseIn => Easing::EaseOut,
+        Easing::EaseOut => Easing::EaseIn,
+        Easing::EaseInOut => Easing::EaseInOut,
+        Easing::Flash { acceleration } => Easing::Flash {
+            acceleration: -acceleration,
+        },
+        Easing::CubicBezier { x1, y1, x2, y2 } => Easing::CubicBezier {
+            x1: 1.0 - x2,
+            y1: 1.0 - y2,
+            x2: 1.0 - x1,
+            y2: 1.0 - y1,
+        },
+        Easing::Bounce | Easing::Elastic => ease,
+    }
+}
+
 fn subdivide_single_ease(ease: Easing, t0: f64, t1: f64) -> Option<Easing> {
     if t1 - t0 <= 1e-9 {
         return None;
@@ -1255,14 +1274,22 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 let tweens: Vec<_> = inside.iter().map(|key| key.tween).collect();
                 let count = inside.len();
                 for (i, key) in inside.iter_mut().enumerate() {
-                    // A segment a→b becomes b'→a' and keeps a's tween. Motion tween
-                    // tracks do not survive reversal; their poses become classic keys.
+                    // A segment a→b becomes b'→a' and keeps a's tween with time-reversed easing.
+                    // Motion tween tracks do not survive reversal; their poses become classic keys.
                     if key.keyed_properties.take().is_some() || key.tween_kind == TweenKind::Motion
                     {
                         key.elements = sample_layer_in(timeline, &original, key.frame);
                         key.tween_kind = TweenKind::Classic;
                     }
-                    key.tween = tweens[if i == 0 { count - 1 } else { i - 1 }];
+                    let source_tween = tweens[if i == 0 { count - 1 } else { i - 1 }];
+                    key.tween = if i == 0 {
+                        source_tween
+                    } else {
+                        source_tween.map(reverse_easing)
+                    };
+                    for (_, ease) in &mut key.property_eases {
+                        *ease = reverse_easing(*ease);
+                    }
                     key.frame = first + final_frame - key.frame;
                 }
                 layer.keyframes.extend(inside);
@@ -1370,4 +1397,92 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
     candidate.validate().map_err(|error| error.to_string())?;
     *project = candidate;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reverse_frames_inverts_easing_curves_to_mirror_poses_in_time() {
+        for ease in [
+            Easing::EaseIn,
+            Easing::EaseOut,
+            Easing::EaseInOut,
+            Easing::Flash { acceleration: 60.0 },
+            Easing::CubicBezier {
+                x1: 0.25,
+                y1: 0.1,
+                x2: 0.25,
+                y2: 1.0,
+            },
+        ] {
+            let mut p = Project::blank();
+            p.format_version = 6;
+            let root = p.root.clone();
+            let lid = p.symbols[0].timeline.layers[0].id.clone();
+            let rect = |x: f64| Element {
+                id: "r".into(),
+                transform: Transform {
+                    x,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 10.0,
+                    height: 10.0,
+                    fill: [0, 0, 0, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            };
+            p.symbols[0].timeline.frame_count = 11;
+            p.symbols[0].timeline.layers[0].keyframes = vec![
+                Keyframe {
+                    frame: 0,
+                    elements: vec![rect(0.0)],
+                    tween: Some(ease),
+                    ..Keyframe::default()
+                },
+                Keyframe {
+                    frame: 10,
+                    elements: vec![rect(100.0)],
+                    ..Keyframe::default()
+                },
+            ];
+            p.upgrade_format_for_features();
+            p.validate().unwrap();
+            let original_xs: Vec<f64> = (0..=10)
+                .map(|f| {
+                    sample_layer(&p.symbols[0].timeline.layers[0], f)[0]
+                        .transform
+                        .x
+                })
+                .collect();
+
+            edit_frames(
+                &mut p,
+                &root,
+                TimelineEdit::Reverse {
+                    range: FrameRange {
+                        layers: vec![lid],
+                        start: 0,
+                        end: 10,
+                    },
+                },
+            )
+            .unwrap();
+
+            for f in 0..=10 {
+                let reversed_x = sample_layer(&p.symbols[0].timeline.layers[0], f)[0]
+                    .transform
+                    .x;
+                let expected_x = original_xs[(10 - f) as usize];
+                assert!(
+                    (reversed_x - expected_x).abs() < 1e-4,
+                    "ease {ease:?} frame {f}: reversed_x={reversed_x} != expected_x={expected_x}"
+                );
+            }
+        }
+    }
 }

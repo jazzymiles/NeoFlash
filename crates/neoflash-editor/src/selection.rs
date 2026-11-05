@@ -32,6 +32,7 @@ impl Editor {
         layer.properties.role != LayerRole::Folder
             && layer_effectively_visible(&self.symbol().timeline, layer)
             && !layer_effectively_locked(&self.symbol().timeline, layer)
+            && self.is_layer_id_effectively_soloed(&layer.id)
     }
 
     fn element_in_edit_scope<'a>(&self, layer: &'a Layer, id: &str) -> Option<&'a Element> {
@@ -237,6 +238,9 @@ impl Editor {
             return None;
         }
         let target = self.selection.single()?;
+        if !self.target_editable(target) {
+            return None;
+        }
         let layer = self
             .symbol()
             .timeline
@@ -249,6 +253,9 @@ impl Editor {
             return None;
         }
         let target = self.selection.single()?;
+        if !self.target_editable(target) {
+            return None;
+        }
         let layer = &self.symbol().timeline.layers[self.target_layer_index(target)?];
         sample_layer(layer, self.frame)
             .into_iter()
@@ -265,6 +272,9 @@ impl Editor {
             return None;
         }
         let target = self.selection.single()?.clone();
+        if !self.target_editable(&target) {
+            return None;
+        }
         let index = self.target_layer_index(&target)?;
         let frame = self.frame;
         let multiple = self.timeline_edit.edit_multiple;

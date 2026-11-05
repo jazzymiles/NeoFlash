@@ -1054,7 +1054,11 @@ impl Editor {
         scene: &AuthoredScene,
         style: DrawStyle,
     ) {
-        if scene.clips.iter().any(|clip| clip.alpha_components.is_some()) {
+        if scene
+            .clips
+            .iter()
+            .any(|clip| clip.alpha_components.is_some())
+        {
             if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
                 self.message(error);
             }

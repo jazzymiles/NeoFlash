@@ -234,12 +234,16 @@ mod tests {
     }
 
     fn running(pid: libc::pid_t) -> bool {
-        let output = Command::new("/bin/ps")
+        match Command::new("/bin/ps")
             .args(["-o", "state=", "-p", &pid.to_string()])
             .output()
-            .unwrap();
-        let state = String::from_utf8_lossy(&output.stdout);
-        !state.trim().is_empty() && !state.trim().starts_with('Z')
+        {
+            Ok(output) => {
+                let state = String::from_utf8_lossy(&output.stdout);
+                !state.trim().is_empty() && !state.trim().starts_with('Z')
+            }
+            Err(_) => unsafe { libc::kill(pid, 0) == 0 },
+        }
     }
 
     #[test]

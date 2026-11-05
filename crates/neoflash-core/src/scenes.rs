@@ -117,6 +117,7 @@ pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange
             renamed.insert(layer.id.as_str(), fresh);
         }
         for source in &symbol.timeline.layers {
+            let synced = crate::authored_layers::layer_effectively_synced(&symbol.timeline, source);
             let mut layer = source.clone();
             if let Some(fresh) = renamed.get(source.id.as_str()) {
                 layer.id = fresh.clone();
@@ -135,6 +136,68 @@ pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange
             }
             let end = properties.end_frame.unwrap_or(count).min(count);
             properties.end_frame = Some(offset.saturating_add(end));
+            if offset > 0 {
+                properties.sync_timeline = false;
+                if synced {
+                    for key in &mut layer.keyframes {
+                        let key_frame = key.frame;
+                        for element in &mut key.elements {
+                            if let ElementKind::Instance {
+                                symbol_id,
+                                playback,
+                            } = &mut element.kind
+                            {
+                                let p_local = crate::evaluate::placement_start(
+                                    source,
+                                    key_frame,
+                                    &element.id,
+                                );
+                                let child_len = project
+                                    .symbol(symbol_id)
+                                    .map_or(1, |s| s.timeline.frame_count.max(1));
+                                *playback = match *playback {
+                                    InstancePlayback::Independent | InstancePlayback::Loop => {
+                                        let start = p_local % child_len;
+                                        if start == 0 {
+                                            InstancePlayback::Loop
+                                        } else {
+                                            InstancePlayback::LoopFrom(start)
+                                        }
+                                    }
+                                    InstancePlayback::LoopFrom(start) => {
+                                        let start = start.saturating_add(p_local) % child_len;
+                                        if start == 0 {
+                                            InstancePlayback::Loop
+                                        } else {
+                                            InstancePlayback::LoopFrom(start)
+                                        }
+                                    }
+                                    InstancePlayback::PlayOnce => {
+                                        let start = p_local.min(child_len - 1);
+                                        if start == 0 {
+                                            InstancePlayback::PlayOnce
+                                        } else {
+                                            InstancePlayback::PlayOnceFrom(start)
+                                        }
+                                    }
+                                    InstancePlayback::PlayOnceFrom(start) => {
+                                        let start =
+                                            start.saturating_add(p_local).min(child_len - 1);
+                                        if start == 0 {
+                                            InstancePlayback::PlayOnce
+                                        } else {
+                                            InstancePlayback::PlayOnceFrom(start)
+                                        }
+                                    }
+                                    InstancePlayback::SingleFrame(f) => {
+                                        InstancePlayback::SingleFrame(f)
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            }
             for key in &mut layer.keyframes {
                 key.frame = key.frame.saturating_add(offset);
             }
@@ -658,5 +721,116 @@ mod tests {
             vec![FrameLabel::new("middle".into(), 2)]
         );
         assert_eq!(metadata[0].labels.len(), 2);
+    }
+
+    #[test]
+    fn flatten_scenes_preserves_scene_local_time_for_synced_layers() {
+        let rect = |frame: u32| Element {
+            id: "dot".into(),
+            name: "dot".into(),
+            transform: Transform {
+                x: frame as f64 * 10.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        };
+        let mut p = Project::blank();
+        p.symbols[0].name = "Scene 1".into();
+        p.symbols[0].timeline.frame_count = 3;
+        let mut child = p.symbols[0].clone();
+        child.id = "child".into();
+        child.name = "Child".into();
+        child.kind = SymbolKind::MovieClip;
+        child.timeline = Timeline {
+            frame_count: 10,
+            layers: vec![layer(
+                "child-layer",
+                (0..10)
+                    .map(|f| Keyframe {
+                        frame: f,
+                        elements: vec![rect(f)],
+                        ..Default::default()
+                    })
+                    .collect(),
+            )],
+            scripts: vec![],
+            guides: vec![],
+        };
+        let mut scene = p.symbols[0].clone();
+        scene.id = "scene2".into();
+        scene.name = "Scene 2".into();
+        let instance = Element {
+            id: "instance".into(),
+            kind: ElementKind::Instance {
+                symbol_id: "child".into(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Default::default()
+        };
+        let delayed = Element {
+            id: "delayed".into(),
+            transform: Transform {
+                y: 50.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: "child".into(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Default::default()
+        };
+        let mut sync = layer(
+            "scene2-layer",
+            vec![Keyframe {
+                frame: 0,
+                elements: vec![instance],
+                ..Default::default()
+            }],
+        );
+        sync.properties.sync_timeline = true;
+        let mut sync_delayed = layer(
+            "scene2-delayed",
+            vec![
+                key(0, ""),
+                Keyframe {
+                    frame: 2,
+                    elements: vec![delayed],
+                    ..Default::default()
+                },
+            ],
+        );
+        sync_delayed.properties.sync_timeline = true;
+        scene.timeline = Timeline {
+            frame_count: 6,
+            layers: vec![sync, sync_delayed],
+            scripts: vec![],
+            guides: vec![],
+        };
+        p.scenes = vec![p.root.clone(), scene.id.clone()];
+        p.symbols.push(scene);
+        p.symbols.push(child);
+        p.upgrade_format_for_features();
+        p.validate().unwrap();
+
+        let (flat, ranges) = flatten_scenes_with_ranges(&p);
+        flat.validate().unwrap();
+        for f in 0..6 {
+            let authored = evaluate(&p, "scene2", f);
+            let flattened = evaluate(&flat, &flat.root, ranges[1].start + f);
+            assert_eq!(authored.len(), flattened.len(), "frame {f} item count");
+            for (a, b) in authored.iter().zip(flattened.iter()) {
+                assert_eq!(
+                    a.transform, b.transform,
+                    "scene2 frame {f} transform mismatch"
+                );
+            }
+        }
     }
 }

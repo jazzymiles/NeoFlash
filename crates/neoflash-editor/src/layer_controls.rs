@@ -739,6 +739,12 @@ impl Editor {
         merged.properties.end_frame = (end < timeline.frame_count).then_some(end);
         // Guide transforms are baked below using the original timeline, before either layer moves.
         merged.properties.motion_guide = None;
+        let first_blend = first.properties.blend_mode;
+        let next_blend = next.properties.blend_mode;
+        let differing_layer_blends = first_blend != next_blend;
+        if differing_layer_blends {
+            merged.properties.blend_mode = BlendMode::Normal;
+        }
         let mut group_ids: HashSet<_> = merged
             .properties
             .groups
@@ -756,9 +762,34 @@ impl Editor {
             .into_iter()
             .map(|frame| {
                 let mut elements = sample_layer_in(timeline, first, frame);
-                elements.extend(sample_layer_in(timeline, next, frame));
+                if differing_layer_blends && !first_blend.is_normal() {
+                    for el in &mut elements {
+                        if el.blend_mode.is_normal() {
+                            el.blend_mode = first_blend;
+                        }
+                    }
+                }
+                let mut next_elements = sample_layer_in(timeline, next, frame);
+                if differing_layer_blends && !next_blend.is_normal() {
+                    for el in &mut next_elements {
+                        if el.blend_mode.is_normal() {
+                            el.blend_mode = next_blend;
+                        }
+                    }
+                }
+                elements.extend(next_elements);
                 let first_key = first.keyframes.iter().find(|key| key.frame == frame);
                 let next_key = next.keyframes.iter().find(|key| key.frame == frame);
+                let mut shape_hints = first_key
+                    .map(|key| key.shape_hints.clone())
+                    .unwrap_or_default();
+                if let Some(nk) = next_key {
+                    for hint in &nk.shape_hints {
+                        if !shape_hints.iter().any(|h| h.label == hint.label) {
+                            shape_hints.push(*hint);
+                        }
+                    }
+                }
                 Keyframe {
                     frame,
                     elements,
@@ -766,6 +797,7 @@ impl Editor {
                     sound: first_key
                         .and_then(|key| key.sound.clone())
                         .or_else(|| next_key.and_then(|key| key.sound.clone())),
+                    shape_hints,
                     ..Default::default()
                 }
             })
@@ -812,6 +844,30 @@ impl Editor {
             }
         });
     }
+    pub(crate) fn lock_other_layers(&mut self, index: usize) {
+        self.layer_change(|p, id| {
+            let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+            let selected = group_indices(layers, index);
+            for (i, l) in layers.iter_mut().enumerate() {
+                l.locked = !selected.contains(&i) && l.properties.role != LayerRole::Folder;
+            }
+        });
+    }
+    pub(crate) fn hide_other_layers(&mut self, index: usize) {
+        self.layer_change(|p, id| {
+            let layers = &mut p.symbol_mut(id).unwrap().timeline.layers;
+            let selected = group_indices(layers, index);
+            let keep_masks: HashSet<Id> = selected
+                .iter()
+                .filter_map(|&i| layers[i].properties.mask.clone())
+                .collect();
+            for (i, l) in layers.iter_mut().enumerate() {
+                l.visible = selected.contains(&i)
+                    || l.properties.role == LayerRole::Folder
+                    || keep_masks.contains(&l.id);
+            }
+        });
+    }
     /// Returns true when the caller should enter its inline name editor.
     pub(crate) fn timeline_layer_menu(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         crate::ui_icons::menu_contents(ui, 280., |ui| self.timeline_layer_commands(ui, index))
@@ -841,38 +897,8 @@ impl Editor {
                 }
             )
         );
-        action!(
-            "Lock others",
-            self.layer_change(|p, id| {
-                for (i, l) in p
-                    .symbol_mut(id)
-                    .unwrap()
-                    .timeline
-                    .layers
-                    .iter_mut()
-                    .enumerate()
-                {
-                    l.locked = i != index && l.properties.role != LayerRole::Folder;
-                }
-            })
-        );
-        action!(
-            "Hide others",
-            self.layer_change(|p, id| {
-                for (i, l) in p
-                    .symbol_mut(id)
-                    .unwrap()
-                    .timeline
-                    .layers
-                    .iter_mut()
-                    .enumerate()
-                {
-                    l.visible = i == index
-                        || l.properties.role == LayerRole::Folder
-                        || Some(&l.id) == layer.properties.mask.as_ref();
-                }
-            })
-        );
+        action!("Lock others", self.lock_other_layers(index));
+        action!("Hide others", self.hide_other_layers(index));
         let mut solo = self.is_layer_soloed(index);
         if menu_toggle(ui, &mut solo, "Solo", "")
             .on_hover_text("Solo — show only soloed layers (⌥-click: only this one)")
@@ -1511,6 +1537,40 @@ mod tests {
         for (frame, expected) in expected.iter().enumerate() {
             assert_eq!(&sample_layer(merged, frame as u32), expected);
         }
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn folder_hide_others_and_lock_others_preserve_folder_descendants() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        let folder = blank_layer("Folder".into(), LayerRole::Folder, None);
+        let mut child = blank_layer("Inside".into(), LayerRole::Normal, Some(folder.id.clone()));
+        child.keyframes[0].elements.push(shape("blue", 20.));
+        let mut outside = blank_layer("Outside".into(), LayerRole::Normal, None);
+        outside.keyframes[0].elements.push(shape("orange", 80.));
+        project.symbols[0].timeline.layers = vec![outside, child, folder];
+        project.validate().unwrap();
+        let before = project.clone();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.hide_other_layers(2);
+        let layers = &editor.symbol().timeline.layers;
+        assert!(!layers[0].visible, "outside layer should be hidden");
+        assert!(layers[1].visible, "folder child should stay visible");
+        assert!(layers[2].visible, "folder should stay visible");
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        editor.lock_other_layers(2);
+        let layers = &editor.symbol().timeline.layers;
+        assert!(layers[0].locked, "outside layer should be locked");
+        assert!(!layers[1].locked, "folder child should stay unlocked");
+        assert!(!layers[2].locked, "folder should stay unlocked");
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(editor.project, before);
