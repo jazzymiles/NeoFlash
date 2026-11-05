@@ -349,13 +349,10 @@ impl Editor {
                 }
                 let prev = layer.key_at(frame)?;
                 (prev.frame < frame && prev.tween.is_none()).then(|| {
-                    let motion_ok = prev.elements.len() == 1
-                        && matches!(
-                            prev.elements[0].kind,
-                            ElementKind::Instance { .. }
-                                | ElementKind::Text { .. }
-                                | ElementKind::TextBox { .. }
-                        );
+                    // Every element has a stable ID and an independent transform track. The
+                    // motion evaluator therefore supports several objects in one layer; only an
+                    // empty keyframe is unsuitable for automatic Motion tween creation.
+                    let motion_ok = !prev.elements.is_empty();
                     (prev.frame, motion_ok)
                 })
             });
@@ -380,7 +377,7 @@ impl Editor {
                 self.project.upgrade_format_for_features();
                 return;
             }
-            self.message("A motion tween needs exactly one symbol instance or text block on its keyframe. Convert the artwork to a symbol (F8) first.");
+            self.message("A motion tween needs at least one object on its keyframe.");
         }
 
         self.ensure_key_for(layer_id, false);

@@ -164,15 +164,12 @@ impl Editor {
                 }
             }
             TweenKind::Motion => {
-                if key.elements.len() != 1
-                    || !matches!(
-                        key.elements[0].kind,
-                        ElementKind::Instance { .. }
-                            | ElementKind::Text { .. }
-                            | ElementKind::TextBox { .. }
-                    )
-                {
-                    self.message("A motion tween needs exactly one symbol instance or text block on its keyframe. Convert the artwork to a symbol (F8) first.");
+                // Motion tracks are keyed by stable element ID, so every object on the layer can
+                // carry an independent transform through the same span. Keeping the old
+                // single-object restriction here made the UI reject a graph the evaluator and
+                // property-key recorder already support.
+                if key.elements.is_empty() {
+                    self.message("A motion tween needs at least one object on its keyframe.");
                     return;
                 }
             }

@@ -105,7 +105,7 @@ fn shape_and_motion_tweens_explain_unsuitable_content() {
     assert!(editor.status.contains("Shape tweens need shapes"));
     editor.toggle_tween(TweenKind::Motion);
     assert_eq!(editor.project, before);
-    assert!(editor.status.contains("motion tween needs exactly one"));
+    assert!(editor.status.contains("motion tween needs at least one"));
 }
 
 #[test]

@@ -207,7 +207,11 @@ impl Editor {
             // Frame exposures are ordered by their frame, independent of JSON order.
             let layer_indices = visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
+                let previous_layer = self.layer;
                 self.layer = layer_indices.iter().copied().rfind(|index| *index < self.layer).unwrap_or(0);
+                if self.layer != previous_layer {
+                    self.clear_timeline_frame_selection();
+                }
                 self.clear_selection();
             }
             let depths: Vec<usize> = {
@@ -350,11 +354,12 @@ impl Editor {
                                                 row.mode.then_some(egui::SetOpenCommand::Toggle),
                                             )
                                             .gap(space::S1)
+                                            .width(180.0)
                                             .frame(nf::popover_frame(ui.ctx()))
                                             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
                                             .show(|ui| {
+                                                nf::menu::menu_style(ui.style_mut());
                                                 ui.set_min_width(180.0);
-                                                ui.spacing_mut().item_spacing.y = 2.0;
                                                 crate::layer_controls::populate_blend_mode_menu(
                                                     ui,
                                                     layer.properties.blend_mode,
@@ -437,7 +442,11 @@ impl Editor {
                                         if !self.is_layer_row_selected(idx) {
                                             self.select_layer_row(idx, false, false);
                                         } else {
+                                            let previous_layer = self.layer;
                                             self.layer = idx;
+                                            if self.layer != previous_layer {
+                                                self.clear_timeline_frame_selection();
+                                            }
                                         }
                                         self.clear_selection();
                                     }
@@ -858,7 +867,11 @@ impl Editor {
                             );
                             if !down {
                                 self.library_panel.drag = None;
+                                let previous_layer = self.layer;
                                 self.layer = target_layer_idx;
+                                if self.layer != previous_layer {
+                                    self.clear_timeline_frame_selection();
+                                }
                                 self.swap_layer_or_selected_symbol(target_layer_idx, &sym_id);
                             }
                         }
@@ -1562,11 +1575,12 @@ impl Editor {
         .kind(egui::PopupKind::Menu)
         .open_memory(open_popup.then_some(egui::SetOpenCommand::Toggle))
         .gap(space::S1)
+        .width(180.0)
         .frame(nf::popover_frame(ui.ctx()))
         .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
         .show(|ui| {
+            nf::menu::menu_style(ui.style_mut());
             ui.set_min_width(180.0);
-            ui.spacing_mut().item_spacing.y = 2.0;
             crate::layer_controls::populate_mask_mode_menu(ui, mask_mode, |picked| {
                 self.set_layer_mask_mode(idx, picked);
             });

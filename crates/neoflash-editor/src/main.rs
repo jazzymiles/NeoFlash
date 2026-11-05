@@ -86,6 +86,8 @@ mod timeline_motion_tests;
 #[cfg(test)]
 mod timeline_panels_tests;
 #[cfg(test)]
+mod timeline_regression_tests;
+#[cfg(test)]
 mod timeline_shape_hints_tests;
 #[cfg(test)]
 mod timeline_sound_tests;

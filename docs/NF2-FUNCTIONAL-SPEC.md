@@ -187,14 +187,16 @@ groups.
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
 - Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease or per-property ease overrides (`Keyframe.property_eases` in format 7, `evaluate::sample_motion`), Orient to path along the X/Y track direction, continuous Graphic symbol playback (`Keyframe.sync_symbols`), and guide endpoint snapping (`Keyframe.snap_to_guide`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005; `TimelineView { show_motion_path, show_motion_frame_dots }`) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Properties — Motion tween (PR-10) is done and Motion editor (PP-02) is partial. Bézier segment/handle editing and Paste motion special are available (R-006/R-008). Selective paste materializes affected spans to preserve unticked animation; range cuts/reverse bake curved paths.
 - Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
-- Behaviour: on a frame with exactly one symbol instance → convert span to a motion tween; dragging the instance on a
-  later frame creates property keyframes; path visible on stage; edited in Motion editor (PP-02) and Properties —
-  Motion tween (PR-10). Non-symbol content → offer Convert to Symbol (F8) or a diagnostic.
+- Behaviour: on a non-empty frame → convert every object on the layer to one motion span, matching independent
+  property tracks by stable object ID; dragging any member on a later frame creates a full-pose ◆ key that keys only
+  the changed properties. The path is visible on stage and uses the first object as the shared curved-path reference;
+  the span is edited in Motion editor (PP-02) and Properties — Motion tween (PR-10). Empty content produces an
+  actionable diagnostic.
 - Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties`, `property_eases`,
   `sync_symbols`, `snap_to_guide` (tracks are derived from them, not stored separately).
 - Depends on: engine (done for tracks, per-property eases, orient, sync, snap and format-8 Bézier paths).
-- Acceptance: create/remove with one Undo each; ◆ markers render; X/Y/rotation/scale/alpha tracks interpolate
-  independently in editor and HTML5; classic tweens unchanged.
+- Acceptance: create/remove with one Undo each; ◆ markers render; several objects on one layer retain their stable IDs
+  and interpolate X/Y/rotation/scale/alpha independently in editor and HTML5; classic tweens unchanged.
 
 **TL-06 · Ease panel button** — `timeline_frame_tools` · done
 - Done: enabled only while the playhead is inside a tween (classic, shape or motion); opens the Ease panel (PP-01). Frame

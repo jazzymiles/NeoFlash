@@ -99,6 +99,18 @@ impl Editor {
         self.timeline_edit.focused = true;
     }
 
+    /// Drop the transient frame target when the user explicitly activates another layer row.
+    /// Keeping the old range here is dangerous: frame commands prefer it over the playhead and
+    /// would otherwise edit the former layer even though the new layer is visibly active.
+    pub(crate) fn clear_timeline_frame_selection(&mut self) {
+        self.timeline_edit.focused = false;
+        self.timeline_edit.range = None;
+        self.timeline_edit.anchor = None;
+        self.timeline_edit.gesture = None;
+        self.timeline_edit.viewport = None;
+        self.timeline_key_drag = None;
+    }
+
     fn frame_rectangle(
         &self,
         rows: &[usize],

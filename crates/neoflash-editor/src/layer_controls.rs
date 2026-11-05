@@ -347,6 +347,7 @@ impl Editor {
         if index >= layers.len() {
             return;
         }
+        let previous_layer = self.layer;
         let key = self.selected_layers_key();
         if shift {
             let rows = visible_layer_indices(&self.symbol().timeline);
@@ -399,6 +400,9 @@ impl Editor {
                 guard.remove(&key);
             }
             self.layer = index;
+        }
+        if self.layer != previous_layer {
+            self.clear_timeline_frame_selection();
         }
     }
 

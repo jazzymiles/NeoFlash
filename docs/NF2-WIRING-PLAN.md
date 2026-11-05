@@ -377,6 +377,8 @@ Orient to path for motion tweens, Show path / Show frame dots (`TimelineView`), 
 (`Keyframe.sync_symbols`), Snap to motion guide (`Keyframe.snap_to_guide`), motion path on the stage, Motion editor
 (`panels/motion_editor.rs`), Properties — Motion tween (`panels/motion_tween.rs`), Copy / Paste motion and Paste motion
 special; Bézier segment/handle editing uses the approved R-008 painter.
+Motion spans accept every object on a non-empty layer and keep independent property tracks by stable object ID;
+the first object remains the shared reference only for a curved spatial path.
 Registry: `animation-motion-tween`, `animation-easing`.
 
 **W2.2 · Ease presets Bounce/Elastic + per-property curves (PP-01 rest)** — E-02 — **done** (§7.4 rows 1–2).
