@@ -314,3 +314,60 @@ fn timeline_blend_mode_popup_is_compact_and_changes_one_layer_with_one_undo() {
     editor.undo();
     assert_eq!(editor.project, before);
 }
+
+#[test]
+fn onion_range_fill_is_painted_after_the_ruler_background() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.frame = 5;
+    editor.onion_before = 3;
+    editor.onion_after = 3;
+    editor.onion = true;
+
+    let output = timeline_panel_frame(&mut editor, &ctx, 0.1, vec![]);
+    let palette = neoflash_ui::palette(&ctx);
+    let mut band = None;
+    let mut last_covering_background = None;
+    let mut handles = Vec::new();
+    for (index, clipped) in output.shapes.iter().enumerate() {
+        let egui::epaint::Shape::Rect(rect) = &clipped.shape else {
+            continue;
+        };
+        if rect.fill == palette.accent_subtle
+            && (rect.rect.height() - 24.0).abs() < 0.2
+            && (rect.rect.width() - 7.0 * editor.timeline_cell).abs() < 0.5
+            && clipped.clip_rect.contains_rect(rect.rect)
+        {
+            band = Some((index, rect.rect));
+        }
+        if rect.fill == palette.timeline_onion
+            && (rect.rect.width() - 3.0).abs() < 0.2
+            && (rect.rect.height() - 24.0).abs() < 0.2
+            && clipped.clip_rect.contains_rect(rect.rect)
+        {
+            handles.push(rect.rect);
+        }
+        if let Some((_, range)) = band
+            && rect.fill == palette.bg_panel
+            && clipped.clip_rect.intersects(range)
+            && rect.rect.contains_rect(range)
+        {
+            last_covering_background = Some(index);
+        }
+    }
+
+    let (band_index, band) = band.expect("NF2/TL Onion Range must paint its 24 pt Range fill");
+    assert!(
+        last_covering_background.is_none_or(|index| index < band_index),
+        "the ruler background must not erase the onion Range fill"
+    );
+    handles.sort_by(|left, right| left.left().total_cmp(&right.left()));
+    handles.dedup_by(|left, right| (left.left() - right.left()).abs() < 0.5);
+    assert_eq!(handles.len(), 2, "the Range fill must retain both handles");
+    assert!((band.left() - handles[0].left()).abs() < 0.2);
+    assert!((band.right() - handles[1].right()).abs() < 0.2);
+    assert!(
+        (band.width() - 7.0 * editor.timeline_cell).abs() < 0.5,
+        "frames 2..=8 must fill exactly seven frame cells"
+    );
+}

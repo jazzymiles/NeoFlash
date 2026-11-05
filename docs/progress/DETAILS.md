@@ -388,11 +388,11 @@ Nested instances, frames, interpolation and safe authoring previews.
 - Working: Loop playback on or off
 - Working: Edit multiple frames view
 
-**Scope:** Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.
+**Scope:** Authored evaluation without script execution; onion skin with a filled NF2 before/after ruler range and draggable handles, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.
 
 **Limitations:** Editing multiple frames is outside onion preview.
 
-**Evidence:** [crates/neoflash-editor/src/panels/timeline.rs](../../crates/neoflash-editor/src/panels/timeline.rs), [crates/neoflash-editor/src/stage.rs](../../crates/neoflash-editor/src/stage.rs), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [crates/neoflash-editor/src/timeline_commands_tests.rs](../../crates/neoflash-editor/src/timeline_commands_tests.rs)
+**Evidence:** [crates/neoflash-editor/src/panels/timeline.rs](../../crates/neoflash-editor/src/panels/timeline.rs), [crates/neoflash-editor/src/stage.rs](../../crates/neoflash-editor/src/stage.rs), [crates/neoflash-core/src/evaluate.rs](../../crates/neoflash-core/src/evaluate.rs), [crates/neoflash-core/tests/core.rs](../../crates/neoflash-core/tests/core.rs), [crates/neoflash-editor/src/timeline_commands_tests.rs](../../crates/neoflash-editor/src/timeline_commands_tests.rs), [crates/neoflash-editor/src/timeline_regression_tests.rs](../../crates/neoflash-editor/src/timeline_regression_tests.rs)
 
 ### Shape morphing
 

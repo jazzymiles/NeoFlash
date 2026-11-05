@@ -704,11 +704,10 @@ impl Editor {
                 rp.rect_filled(ruler, 0, p.bg_panel);
                 rp.hline(ruler.x_range(), ruler.bottom() - 0.5, Stroke::new(1.0_f32, p.border_subtle));
                 let show_onion_range = self.onion || self.timeline_edit.edit_multiple;
-                let onion_handles = if show_onion_range {
+                let onion_range = if show_onion_range {
                     let (start, end) = self.onion_range();
                     let (x0, x1) = (geo.frame_x(start + 1), geo.frame_x(end + 2));
-                    let handles = tl::paint_onion_range(&rp, &ctx, ruler, x0, x1);
-                    Some((x0, x1, handles))
+                    Some((x0, x1))
                 } else {
                     None
                 };
@@ -742,13 +741,8 @@ impl Editor {
                 let response =
                     ui.interact(ruler, ui.id().with("ruler_seek"), Sense::click_and_drag());
                 let mut onion_handle_busy = false;
-                if let Some((x0, x1, handles)) = onion_handles {
-                    for bar_x in [x0..=x0 + 3.0, x1 - 3.0..=x1] {
-                        let clip = Rect::from_x_y_ranges(bar_x, ruler.y_range()).intersect(ruler);
-                        if clip.is_positive() {
-                            tl::paint_onion_range(&rp.with_clip_rect(clip), &ctx, ruler, x0, x1);
-                        }
-                    }
+                if let Some((x0, x1)) = onion_range {
+                    let handles = tl::paint_onion_range(&rp, &ctx, ruler, x0, x1);
                     let mid = (x0 + x1) * 0.5;
                     let r0 = Rect::from_min_max(
                         handles.0.min,

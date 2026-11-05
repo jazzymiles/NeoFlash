@@ -1330,7 +1330,7 @@
       "category": "animation",
       "title": "Onion skin and scrubbing",
       "status": "implemented",
-      "scope": "Authored evaluation without script execution; onion skin with before/after range, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.",
+      "scope": "Authored evaluation without script execution; onion skin with a filled NF2 before/after ruler range and draggable handles, anchoring, outlines and opacity. The stage header identifies active onion skin so neighbouring-frame ghosts are distinguishable from the current frame.",
       "limitations": "Editing multiple frames is outside onion preview.",
       "items": [
         {
@@ -1374,7 +1374,8 @@
         "crates/neoflash-editor/src/stage.rs",
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
-        "crates/neoflash-editor/src/timeline_commands_tests.rs"
+        "crates/neoflash-editor/src/timeline_commands_tests.rs",
+        "crates/neoflash-editor/src/timeline_regression_tests.rs"
       ]
     },
     {
