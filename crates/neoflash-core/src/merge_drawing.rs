@@ -210,21 +210,61 @@ fn build_fill_element(
     paint: &FillPaint,
     merge: bool,
 ) -> Element {
-    let kind = match paint {
-        FillPaint::Solid(color) => ElementKind::Path {
+    // Width zero disables rendering; it does not mean the stored paint was cleared.
+    // Retain dormant stroke settings when normalizing or rebuilding a Merge fill.
+    let (stroke, stroke_gradient) = match &template.kind {
+        ElementKind::Rectangle {
+            stroke,
+            stroke_width: 0.,
+            ..
+        }
+        | ElementKind::Ellipse {
+            stroke,
+            stroke_width: 0.,
+            ..
+        }
+        | ElementKind::Path {
+            stroke,
+            stroke_width: 0.,
+            ..
+        } => (*stroke, None),
+        ElementKind::PaintedPath {
+            stroke,
+            stroke_gradient,
+            stroke_width: 0.,
+            ..
+        } => (
+            *stroke,
+            stroke_gradient
+                .as_ref()
+                .map(|g| world_gradient(template, g)),
+        ),
+        _ => ([0; 4], None),
+    };
+    let kind = match (paint, stroke_gradient) {
+        (FillPaint::Solid(color), None) => ElementKind::Path {
             commands,
             fill_rule,
             fill: *color,
-            stroke: [0; 4],
+            stroke,
             stroke_width: 0.0,
         },
-        FillPaint::Gradient(grad) => ElementKind::PaintedPath {
+        (FillPaint::Solid(color), Some(stroke_gradient)) => ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill: *color,
+            stroke,
+            stroke_width: 0.,
+            fill_gradient: None,
+            stroke_gradient: Some(stroke_gradient),
+        },
+        (FillPaint::Gradient(grad), stroke_gradient) => ElementKind::PaintedPath {
             commands,
             fill_rule,
             fill: [0, 0, 0, 255],
-            stroke: [0; 4],
+            stroke,
             fill_gradient: Some(world_gradient(template, grad)),
-            stroke_gradient: None,
+            stroke_gradient,
             stroke_width: 0.0,
         },
     };
@@ -2171,6 +2211,65 @@ mod tests {
             let (commands, rule) = element_world_commands(e).unwrap();
             point_in_rings(point, &flatten_closed_rings(&commands), rule)
         })
+    }
+
+    #[test]
+    fn zero_width_merge_fills_keep_dormant_stroke_paint_and_gradients() {
+        let gradient = GradientPaint {
+            stops: vec![
+                crate::runtime_graphics::GradientStop {
+                    ratio: 0,
+                    color: [10, 20, 30, 180],
+                },
+                crate::runtime_graphics::GradientStop {
+                    ratio: 255,
+                    color: [200, 100, 50, 240],
+                },
+            ],
+            kind: crate::runtime_graphics::GradientKind::Linear,
+            matrix: [0.02, 0., 0., 0.02, 0., 0.],
+            focal_point_ratio: 0.,
+        };
+        let source = Element {
+            id: "zero-width".into(),
+            transform: Transform {
+                x: 20.,
+                y: 30.,
+                ..Default::default()
+            },
+            kind: ElementKind::PaintedPath {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0., y: 0. },
+                    PathCommand::LineTo { x: 40., y: 0. },
+                    PathCommand::LineTo { x: 40., y: 40. },
+                    PathCommand::LineTo { x: 0., y: 40. },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [80, 100, 200, 255],
+                stroke: [120, 40, 210, 173],
+                fill_gradient: None,
+                stroke_gradient: Some(gradient.clone()),
+                stroke_width: 0.,
+            },
+            ..Default::default()
+        };
+        let (fill, strokes) = decompose_element_to_merge_parts(&source).unwrap();
+        assert!(strokes.is_empty(), "width zero creates no visible stroke");
+        let fill = fill.unwrap();
+        assert!(is_merge_fill(&fill));
+        let ElementKind::PaintedPath {
+            stroke,
+            stroke_width,
+            stroke_gradient: Some(saved),
+            ..
+        } = fill.kind
+        else {
+            panic!("paint must be retained")
+        };
+        assert_eq!(stroke, [120, 40, 210, 173]);
+        assert_eq!(stroke_width, 0.);
+        assert_eq!(saved, world_gradient(&source, &gradient));
     }
 
     #[test]

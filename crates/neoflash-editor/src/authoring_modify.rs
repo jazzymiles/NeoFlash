@@ -2288,59 +2288,6 @@ impl Editor {
         true
     }
 
-    /// Properties changes made while Brush is active also set the outline for the next stroke.
-    /// Merely selecting/moving artwork, or editing it with Selection, never changes tool paints.
-    pub(crate) fn remember_brush_outline_edit(
-        &mut self,
-        original: &Element,
-        edited: &mut Element,
-    ) -> bool {
-        if self.tool != crate::app::Tool::Brush {
-            return true;
-        }
-        let (Some(old), Some(new)) = (
-            paints_with_gradients(&original.kind),
-            paints_with_gradients(&edited.kind),
-        ) else {
-            return true;
-        };
-        if !new.supports_stroke
-            || (old.stroke == new.stroke
-                && old.stroke_width == new.stroke_width
-                && old.stroke_gradient == new.stroke_gradient)
-        {
-            return true;
-        }
-        if (old.stroke[3] == 0 || old.stroke_width == 0.) && new.stroke_width > 0. {
-            match &mut edited.kind {
-                ElementKind::Path {
-                    commands,
-                    fill_rule,
-                    ..
-                }
-                | ElementKind::PaintedPath {
-                    commands,
-                    fill_rule,
-                    ..
-                } if commands.iter().any(|c| matches!(c, PathCommand::Close)) => {
-                    let contours =
-                        crate::authoring_tools::brush_outer_contours(commands, *fill_rule);
-                    if contours.is_empty() {
-                        self.message("Cannot resolve this brush outline. Use a simpler stroke.");
-                        return false;
-                    }
-                    *commands = contours;
-                }
-                _ => {}
-            }
-        }
-        self.stroke = new.stroke;
-        self.stroke_width = new.stroke_width;
-        self.authoring_modify.drawing_stroke_gradient = new.stroke_gradient;
-        self.authoring_tools.brush_outline = true;
-        true
-    }
-
     pub(crate) fn set_selection_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
         if !self.authoring_modify.color_selection {
             self.set_drawing_fill_type(stroke_well, mode);

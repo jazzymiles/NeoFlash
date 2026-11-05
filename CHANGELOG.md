@@ -2,7 +2,7 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
-- Brush remembers stroke colour, opacity and width edited in Properties while the Brush tool is active and reuses them for following strokes. Visible outlines follow the exterior brush contour without internal triangle or tip seams; ordinary Selection edits remain local, and Undo removes artwork without clearing the chosen brush style.
+- Zero-width strokes retain their selected RGB, alpha and gradient instead of clearing them during Brush creation or Merge Drawing normalization. Brush remains fill-only; setting width to zero hides the stroke without erasing its paint settings.
 
 - NF2 workspace delivery (`T-085`): saved version-2 built-in workspaces refresh once to the current NF2 composition, preventing a stale Color-only inspector from replacing Properties and Library after an update. The migration preserves theme, Timeline/editor/tool/publish preferences and named layout presets. macOS packages are rebuilt from a clean committed tree and record their exact Git commit and build profile in `Info.plist`.
 

@@ -56,9 +56,6 @@ pub(crate) struct AuthoringToolsState {
     pub brush_smoothing: f64,
     pub brush_pressure: bool,
     pub brush_lock_fill: bool,
-    /// Explicitly styling a brush path in Properties opts subsequent strokes into outlining.
-    /// Ordinary brushes stay fill-only until the user edits their outline.
-    pub brush_outline: bool,
     brush_resize: Option<(Pos2, f32)>,
     pub brush_search: String,
     pub eraser_size: f32,
@@ -83,7 +80,6 @@ impl Default for AuthoringToolsState {
             brush_smoothing: 50.,
             brush_pressure: true,
             brush_lock_fill: false,
-            brush_outline: false,
             brush_resize: None,
             brush_search: String::new(),
             eraser_size: 16.,
@@ -1243,9 +1239,6 @@ impl Editor {
                     || (g.tool == Tool::Line
                         && g.points[0].distance(*g.points.last().unwrap()) < 0.1)
                 {
-                    if g.tool == Tool::Brush && self.authoring_tools.brush_outline {
-                        self.message("Cannot resolve this brush outline. Use a simpler stroke.");
-                    }
                     return;
                 }
                 if commands.len() > 100_000 {
@@ -1261,13 +1254,10 @@ impl Editor {
                         } else {
                             [0; 4]
                         },
-                        stroke: if g.tool == Tool::Line || self.authoring_tools.brush_outline {
-                            self.stroke
-                        } else {
-                            [0; 4]
-                        },
-                        stroke_width: if g.tool == Tool::Line || self.authoring_tools.brush_outline
-                        {
+                        // A fill-only brush has zero stroke width, not an erased stroke paint.
+                        // Keep the chosen RGB/alpha available in Properties and the next tool.
+                        stroke: self.stroke,
+                        stroke_width: if g.tool == Tool::Line {
                             self.stroke_width
                         } else {
                             0.
@@ -1466,29 +1456,6 @@ impl Editor {
                                 self.fill[1],
                                 self.fill[2],
                                 self.fill[3],
-                            );
-                            for point in geometry.vertices {
-                                mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
-                            }
-                            mesh.indices = geometry.indices;
-                            p.add(Shape::mesh(mesh));
-                        }
-                        if self.authoring_tools.brush_outline
-                            && self.stroke[3] > 0
-                            && self.stroke_width > 0.
-                            && let Ok(geometry) = crate::vector::tessellate(
-                                &commands,
-                                FillRule::NonZero,
-                                Some(self.stroke_width),
-                                0.3,
-                            )
-                        {
-                            let mut mesh = egui::Mesh::default();
-                            let color = Color32::from_rgba_unmultiplied(
-                                self.stroke[0],
-                                self.stroke[1],
-                                self.stroke[2],
-                                self.stroke[3],
                             );
                             for point in geometry.vertices {
                                 mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
@@ -2526,32 +2493,13 @@ impl Editor {
         } else {
             vec![1.; points.len()]
         };
-        let commands = shaped_brush_outline(
+        shaped_brush_outline(
             &points,
             &pressure,
             self.authoring_tools.brush_size,
             self.authoring_tools.brush_shape,
-        );
-        if self.authoring_tools.brush_outline && self.stroke_width > 0. {
-            brush_outer_contours(&commands, FillRule::NonZero)
-        } else {
-            commands
-        }
+        )
     }
-}
-
-/// Brush fills may be overlapping tips or tessellation triangles. Resolve the filled region
-/// through the shared core before stroking it; otherwise every internal seam gets an outline.
-pub(crate) fn brush_outer_contours(commands: &[PathCommand], rule: FillRule) -> Vec<PathCommand> {
-    let Ok(mesh) = crate::vector::tessellate(commands, rule, None, 0.3) else {
-        return vec![];
-    };
-    let vertices: Vec<_> = mesh
-        .vertices
-        .iter()
-        .map(|p| [p.x as f64, p.y as f64])
-        .collect();
-    fill_mesh_boundary(&vertices, &mesh.indices).unwrap_or_default()
 }
 
 /// Sweep the exact same convex tip used by the shared cursor. Adjacent hulls overlap, so

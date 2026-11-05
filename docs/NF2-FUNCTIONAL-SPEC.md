@@ -354,11 +354,11 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Brush: Round, Flat and Chisel presets; eight tip shapes; Size 1–200 px in document units; smoothing; pressure size
   control; Lock fill for gradient placement. The shared cursor follows zoom and ⌥⌘-drag resizes the brush. Existing
   artwork is unchanged. Pressure-bearing touch and macOS tablet-point samples drive 10–100% width when enabled;
-  mouse input stays constant. Preview and saved strokes share geometry; cancellation leaves no commit. Stroke edits in Properties while Brush is active also set the next strokes’ outline colour/alpha/width; fill-only is the initial default. Outlines follow external contours, not tip or triangle seams. Selection-tool edits stay local; Undo does not clear tool style.
+  mouse input stays constant. Preview and saved strokes share geometry; cancellation leaves no commit. Brush retains the chosen stroke RGB/alpha/gradient with zero width; Merge normalization keeps that dormant paint without creating a visible outline.
 - Pencil: independent Straighten, Smooth and Ink modes, with per-tool smoothing strength based on Drawing
   preferences. Smooth produces editable cubic curves; Ink preserves the sampled path without recognition/smoothing.
   Stroke-width presets include 0.25 and 0.5 px; the field and preset list preserve fractional values.
-- Remaining: physical tablet acceptance, tilt, brush modes beyond Paint normal, custom/artistic/pattern brushes,
+- Remaining: tilt, brush modes beyond Paint normal, custom/artistic/pattern brushes,
   advanced Pencil stroke styles/caps/joins/hinting/scaling and predictive smoothing-ahead feedback.
 - Available R-034 controls: Bucket Gap size (None/Small/Medium/Large: 0/6/14/28 screen px) and Eraser Cut strokes; per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key insertion if it would move the artwork. Partial-fill erasing is not implemented. A refused cut cancels the entire gesture without mutation or Undo; reasons appear as Warning notifications and in status/Output.
 - Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
