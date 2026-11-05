@@ -1413,6 +1413,26 @@ fn layer_blend_mode_sync_timeline_first_frame_and_alt_drag_symbol_swap_with_undo
         .unwrap();
     assert_eq!(sym_report.name, "HeroB");
     assert_eq!(sym_report.frame_count, 8);
+
+    // Opening the R-043 `Export Lottie` modal preselects the symbol, disables background for symbol
+    // exports, computes live compatibility estimates, and renders both the main dialog and the
+    // compatibility notes modal without mutating the document or Undo history.
+    editor.open_export_lottie(Some("sym-b"));
+    let draft = editor.export_lottie.as_ref().unwrap();
+    assert!(!draft.options.include_background);
+    assert!(draft.preview_report.is_some());
+    for theme in [neoflash_ui::Theme::Dark, neoflash_ui::Theme::Light] {
+        neoflash_ui::theme::install(&ctx, theme);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            editor.export_lottie_modal(ctx);
+        });
+    }
+    editor.export_lottie.as_mut().unwrap().show_notes_modal = true;
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.export_lottie_modal(ctx);
+    });
+    editor.export_lottie = None;
+
     assert_eq!(editor.project, before_lottie);
     assert!(!editor.history.can_undo());
     let _ = std::fs::remove_dir_all(&dir);

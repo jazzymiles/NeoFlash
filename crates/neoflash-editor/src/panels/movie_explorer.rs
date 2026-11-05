@@ -723,7 +723,7 @@ pub(crate) fn build_movie_explorer_rows(editor: &Editor) -> Vec<MovieRow> {
 }
 
 impl Editor {
-    fn enter_explorer_timeline(&mut self, symbol_id: &str) {
+    pub(crate) fn enter_explorer_timeline(&mut self, symbol_id: &str) {
         self.finish_edits();
         if self.symbol_id() != symbol_id {
             if self.project.is_scene(symbol_id) {

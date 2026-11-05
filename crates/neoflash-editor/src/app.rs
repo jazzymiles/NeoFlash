@@ -98,6 +98,8 @@ pub struct Editor {
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
+    pub(crate) export_lottie: Option<crate::panels::export_lottie::ExportLottieDraft>,
+    pub(crate) last_lottie_report: Option<neoflash_export::LottieExportReport>,
     /// Open Preferences dialog draft (`panels/preferences.rs`).
     pub(crate) preferences: Option<crate::panels::preferences::PreferencesDraft>,
     pub(crate) edit_envelope: Option<crate::panels::edit_envelope::EditEnvelopeDraft>,
@@ -310,7 +312,7 @@ impl Editor {
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
+            document_settings: None, export_lottie: None, last_lottie_report: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
             compiler_errors: Default::default(),
             code_snippets: Default::default(),
             movie_explorer: Default::default(),
@@ -481,6 +483,7 @@ impl Editor {
             || self.symbol_conversion.is_some()
             || self.timeline_motion.paste_special_open
             || self.document_settings.is_some()
+            || self.export_lottie.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
             || self.find_replace.is_some()
@@ -912,6 +915,7 @@ impl Editor {
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
                 self.document_settings = None;
+                self.export_lottie = None;
                 self.find_replace = None;
                 self.edit_envelope = None;
                 self.clear_simple_button_state();
@@ -1281,75 +1285,21 @@ impl Editor {
         self.publish_html5_to(&output, &Self::runtime_dir());
     }
     /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
+    #[cfg(test)]
     pub fn export_lottie_to_path(
         &mut self,
         path: &std::path::Path,
         symbol_id: Option<&str>,
     ) -> Result<neoflash_export::LottieExportReport, String> {
-        self.finish_edits();
         let options = neoflash_export::LottieOptions {
             symbol: symbol_id.map(str::to_owned),
             include_background: symbol_id.is_none(),
-            include_hidden_layers: false,
-            pretty: false,
+            ..neoflash_export::LottieOptions::default()
         };
-        match neoflash_export::export_project_lottie(&self.project, path, &options) {
-            Ok(report) => {
-                self.message(format!(
-                    "Lottie exported: {} ({} bytes, {} layers, {} frames)",
-                    path.display(),
-                    report.bytes,
-                    report.layer_count,
-                    report.frame_count
-                ));
-                for warning in &report.warnings {
-                    self.message(format!("Lottie note: {warning}"));
-                }
-                if !report.warnings.is_empty() {
-                    self.show_panel(PanelId::Output);
-                }
-                Ok(report)
-            }
-            Err(e) => {
-                let err = format!("Lottie export failed: {e}");
-                self.message(err.clone());
-                self.show_panel(PanelId::Output);
-                Err(err)
-            }
-        }
+        self.export_lottie_with_options_to_path(path, &options)
     }
     pub fn export_lottie_dialog(&mut self, symbol_id: Option<&str>) {
-        let base_name = symbol_id
-            .and_then(|id| self.project.symbol(id))
-            .map(|s| s.name.as_str())
-            .unwrap_or(self.project.name.as_str());
-        let stem: String = base_name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c.to_ascii_lowercase()
-                } else {
-                    '-'
-                }
-            })
-            .collect();
-        let file_name = format!(
-            "{}.lottie.json",
-            if stem.trim_matches('-').is_empty() {
-                "animation"
-            } else {
-                stem.trim_matches('-')
-            }
-        );
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Export Lottie JSON")
-            .add_filter("Lottie JSON", &["json"])
-            .set_file_name(&file_name)
-            .save_file()
-        else {
-            return;
-        };
-        let _ = self.export_lottie_to_path(&path, symbol_id);
+        self.open_export_lottie(symbol_id);
     }
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
@@ -1923,6 +1873,7 @@ impl Editor {
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
+        self.export_lottie_modal(ctx);
         if let Some(font) = self
             .preferences
             .as_ref()

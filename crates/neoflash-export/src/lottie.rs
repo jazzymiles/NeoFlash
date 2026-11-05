@@ -28,42 +28,261 @@ use std::{
 /// Bodymovin schema version targeted by the exporter.
 pub const LOTTIE_VERSION: &str = "5.7.14";
 
-/// Options controlling Lottie JSON generation.
+/// Output container format (`R-043`: `JSON | dotLottie (.lottie)`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieFormat {
+    #[default]
+    Json,
+    DotLottie,
+}
+
+impl LottieFormat {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Json => "JSON",
+            Self::DotLottie => "dotLottie (.lottie)",
+        }
+    }
+
+    pub const fn extension(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::DotLottie => "lottie",
+        }
+    }
+}
+
+/// Nested MovieClip handling (`R-043`: `Movie clips: Nested | First frame`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieMovieClipMode {
+    #[default]
+    Nested,
+    FirstFrame,
+}
+
+impl LottieMovieClipMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Nested => "Nested",
+            Self::FirstFrame => "First frame",
+        }
+    }
+}
+
+/// Text handling (`R-043`: `Text: Shapes | Text layers`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieTextMode {
+    Shapes,
+    #[default]
+    TextLayers,
+}
+
+impl LottieTextMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Shapes => "Shapes",
+            Self::TextLayers => "Text layers",
+        }
+    }
+}
+
+/// Bitmap image asset packaging (`R-043`: `Images: Embed | Folder`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieImageMode {
+    #[default]
+    Embed,
+    Folder,
+}
+
+impl LottieImageMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Embed => "Embed",
+            Self::Folder => "Folder",
+        }
+    }
+}
+
+/// Bitmap image format (`R-043`: `Image format: Original | PNG | JPEG`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieImageFormat {
+    #[default]
+    Original,
+    Png,
+    Jpeg,
+}
+
+impl LottieImageFormat {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Original => "Original",
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+        }
+    }
+}
+
+/// Target Lottie player profile (`R-043`: `Player: lottie-web | Mobile | Skottie`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieTargetPlayer {
+    #[default]
+    LottieWeb,
+    Mobile,
+    Skottie,
+}
+
+impl LottieTargetPlayer {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LottieWeb => "lottie-web",
+            Self::Mobile => "Mobile",
+            Self::Skottie => "Skottie",
+        }
+    }
+}
+
+/// Category of a structured compatibility note (`R-043`: `Missing / Approximated / Not exported`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LottieNoteKind {
+    Missing,
+    Approximated,
+    NotExported,
+}
+
+impl LottieNoteKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "Missing",
+            Self::Approximated => "Approximated",
+            Self::NotExported => "Not exported",
+        }
+    }
+}
+
+/// Structured compatibility note emitted during Lottie export (`R-043`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LottieNote {
+    pub kind: LottieNoteKind,
+    pub location: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<u32>,
+}
+
+/// Progress snapshot passed to [`export_lottie_with_progress`] (`R-043`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LottieProgress {
+    pub completed_steps: usize,
+    pub total_steps: usize,
+    pub current_stage: String,
+}
+
+/// Options controlling Lottie JSON / dotLottie generation (`R-043`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LottieOptions {
+    /// Output container format (`JSON` or `dotLottie (.lottie)`).
+    pub format: LottieFormat,
     /// Export a specific symbol by ID or name instead of the flattened root scene timeline.
     pub symbol: Option<String>,
+    /// Export a specific scene by ID or name instead of all scenes.
+    pub scene: Option<String>,
+    /// Optional 1-based inclusive frame range `(from_frame, to_frame)`.
+    pub frame_range: Option<(u32, u32)>,
+    /// Optional output width override (before `scale`).
+    pub width: Option<u32>,
+    /// Optional output height override (before `scale`).
+    pub height: Option<u32>,
+    /// Uniform output scale multiplier (`0.5`, `1.0`, `2.0`, etc.).
+    pub scale: f64,
+    /// Optional frame-rate override (`None` uses `project.fps`).
+    pub fps: Option<u32>,
     /// Emit a bottom solid layer (`ty: 1`) matching `project.background` when its alpha is > 0.
     pub include_background: bool,
     /// Include layers whose authoring visibility is turned off.
     pub include_hidden_layers: bool,
-    /// Format the JSON output with indentation (`serde_json::to_string_pretty`).
+    /// Emit frame labels and scene boundaries as Lottie `markers`.
+    pub include_markers: bool,
+    /// Export nested MovieClips as animated precomps (`Nested`) or frozen on frame 1 (`FirstFrame`).
+    pub movie_clip_mode: LottieMovieClipMode,
+    /// Export text as vector glyph outlines (`Shapes`) or Lottie `"ty": 5` text layers (`TextLayers`).
+    pub text_mode: LottieTextMode,
+    /// Embed bitmaps as base64 Data-URIs (`Embed`) or write external files into `images/` (`Folder`).
+    pub image_mode: LottieImageMode,
+    /// Keep original bitmap encoding or transcode (`Original`, `Png`, `Jpeg`).
+    pub image_format: LottieImageFormat,
+    /// Format the JSON output with indentation (`!pretty` = `Minify` switch in UI).
     pub pretty: bool,
+    /// Coordinate rounding precision in decimal places (`0..=4`, default `4`).
+    pub precision: u8,
+    /// Target Lottie player profile for compatibility notes (`lottie-web`, `Mobile`, `Skottie`).
+    pub player: LottieTargetPlayer,
+    /// Also write an interactive `<stem>.preview.html` file next to the exported file.
+    pub html_preview: bool,
 }
 
 impl Default for LottieOptions {
     fn default() -> Self {
         Self {
+            format: LottieFormat::Json,
             symbol: None,
+            scene: None,
+            frame_range: None,
+            width: None,
+            height: None,
+            scale: 1.0,
+            fps: None,
             include_background: true,
             include_hidden_layers: false,
+            include_markers: true,
+            movie_clip_mode: LottieMovieClipMode::Nested,
+            text_mode: LottieTextMode::TextLayers,
+            image_mode: LottieImageMode::Embed,
+            image_format: LottieImageFormat::Original,
             pretty: false,
+            precision: 4,
+            player: LottieTargetPlayer::LottieWeb,
+            html_preview: false,
         }
     }
 }
 
-/// Summary and diagnostics produced by a Lottie export.
+/// Summary and structured diagnostics produced by a Lottie export (`R-043`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LottieExportReport {
     pub path: Option<PathBuf>,
+    pub html_preview_path: Option<PathBuf>,
     pub name: String,
     pub width: u32,
     pub height: u32,
+    pub fps: u32,
+    pub in_point: u32,
     pub frame_count: u32,
     pub layer_count: usize,
     pub asset_count: usize,
+    pub marker_count: usize,
     pub bytes: usize,
+    pub exported_count: usize,
+    pub approximated_count: usize,
+    pub not_exported_count: usize,
+    pub notes: Vec<LottieNote>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct ExternalImageFile {
+    relative_path: String,
+    bytes: Vec<u8>,
 }
 
 struct LottieBuilder<'a> {
@@ -73,22 +292,56 @@ struct LottieBuilder<'a> {
     comp_w: u32,
     comp_h: u32,
     assets: Vec<Value>,
+    external_images: Vec<ExternalImageFile>,
     exported_precomps: BTreeSet<String>,
     exported_images: BTreeSet<String>,
+    exported_count: usize,
+    notes: Vec<LottieNote>,
     warnings: Vec<String>,
     warning_set: BTreeSet<String>,
 }
 
 impl<'a> LottieBuilder<'a> {
-    fn warn(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
-        if self.warning_set.insert(msg.clone()) {
-            self.warnings.push(msg);
+    fn add_note(
+        &mut self,
+        kind: LottieNoteKind,
+        location: impl Into<String>,
+        message: impl Into<String>,
+        symbol_id: Option<String>,
+        layer_id: Option<String>,
+        frame: Option<u32>,
+    ) {
+        let location = location.into();
+        let message = message.into();
+        let combined = if location.is_empty() {
+            message.clone()
+        } else {
+            format!("{location}: {message}")
+        };
+        if self.warning_set.insert(combined.clone()) {
+            self.warnings.push(combined);
+            self.notes.push(LottieNote {
+                kind,
+                location,
+                message,
+                symbol_id,
+                layer_id,
+                frame,
+            });
         }
     }
 
+    fn warn(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        let (loc, body) = match msg.split_once(": ") {
+            Some((l, b)) => (l.to_owned(), b.to_owned()),
+            None => ("Document".to_owned(), msg),
+        };
+        self.add_note(LottieNoteKind::NotExported, loc, body, None, None, None);
+    }
+
     fn map_blend_mode(&mut self, mode: BlendMode, context: &str) -> u32 {
-        match mode {
+        let bm = match mode {
             BlendMode::Normal | BlendMode::Layer => 0,
             BlendMode::Multiply => 1,
             BlendMode::Screen => 2,
@@ -99,13 +352,35 @@ impl<'a> LottieBuilder<'a> {
             BlendMode::Difference => 10,
             BlendMode::Add => 12,
             BlendMode::Subtract | BlendMode::Invert | BlendMode::Alpha | BlendMode::Erase => {
-                self.warn(format!(
-                    "{context}: blend mode '{}' is not supported by Lottie v{LOTTIE_VERSION}; exported as 'normal'.",
-                    mode.as_str()
-                ));
+                self.add_note(
+                    LottieNoteKind::NotExported,
+                    context,
+                    format!(
+                        "Blend mode '{}' is not supported by Lottie v{LOTTIE_VERSION}; exported as 'normal'.",
+                        mode.as_str()
+                    ),
+                    None,
+                    None,
+                    None,
+                );
                 0
             }
+        };
+        if bm != 0 && self.options.player != LottieTargetPlayer::LottieWeb {
+            self.add_note(
+                LottieNoteKind::Approximated,
+                context,
+                format!(
+                    "Blend mode '{}' may render as 'normal' on {} player.",
+                    mode.as_str(),
+                    self.options.player.label()
+                ),
+                None,
+                None,
+                None,
+            );
         }
+        bm
     }
 
     fn ensure_image_asset(
@@ -123,6 +398,36 @@ impl<'a> LottieBuilder<'a> {
                 .decode_image()
                 .map(|img| (img.width, img.height))
                 .unwrap_or((fallback_w.max(1), fallback_h.max(1)));
+            let ext = match self.options.image_format {
+                LottieImageFormat::Png => "png",
+                LottieImageFormat::Jpeg => "jpg",
+                LottieImageFormat::Original => {
+                    if unit.media_type.contains("jpeg") || unit.media_type.contains("jpg") {
+                        "jpg"
+                    } else {
+                        "png"
+                    }
+                }
+            };
+            if self.options.image_mode == LottieImageMode::Folder
+                && let Ok(bytes) = unit.decoded_bytes()
+            {
+                let filename = format!("{asset_id}.{ext}");
+                self.external_images.push(ExternalImageFile {
+                    relative_path: format!("images/{filename}"),
+                    bytes,
+                });
+                self.assets.push(json!({
+                    "id": asset_id,
+                    "w": w,
+                    "h": h,
+                    "u": "images/",
+                    "p": filename,
+                    "e": 0
+                }));
+                self.exported_count += 1;
+                return asset_id;
+            }
             let data_uri = format!("data:{};base64,{}", unit.media_type, unit.data_base64);
             self.assets.push(json!({
                 "id": asset_id,
@@ -132,10 +437,16 @@ impl<'a> LottieBuilder<'a> {
                 "p": data_uri,
                 "e": 1
             }));
+            self.exported_count += 1;
         } else {
-            self.warn(format!(
-                "Bitmap resource '{resource_id}' is missing from project resources."
-            ));
+            self.add_note(
+                LottieNoteKind::Missing,
+                format!("Resource '{resource_id}'"),
+                format!("Bitmap resource '{resource_id}' is missing from project resources."),
+                None,
+                None,
+                None,
+            );
         }
         asset_id
     }
@@ -659,6 +970,34 @@ impl<'a> LottieBuilder<'a> {
                 );
                 let ind = *next_ind;
                 *next_ind += 1;
+                let effective_playback = if self.options.movie_clip_mode
+                    == LottieMovieClipMode::FirstFrame
+                    && self
+                        .project
+                        .symbol(symbol_id)
+                        .is_some_and(|s| s.kind == neoflash_core::SymbolKind::MovieClip)
+                {
+                    if self
+                        .project
+                        .symbol(symbol_id)
+                        .is_some_and(|s| s.timeline.frame_count > 1)
+                    {
+                        self.add_note(
+                            LottieNoteKind::Approximated,
+                            format!("Layer '{}' · {}", layer.name, representative.name),
+                            format!(
+                                "MovieClip '{}' exported as first frame only (Movie clips: First frame).",
+                                symbol_id
+                            ),
+                            Some(symbol_id.clone()),
+                            Some(layer.id.clone()),
+                            Some(first_frame),
+                        );
+                    }
+                    InstancePlayback::SingleFrame(0)
+                } else {
+                    *playback
+                };
                 let mut obj = json!({
                     "ddd": 0,
                     "ind": ind,
@@ -679,7 +1018,7 @@ impl<'a> LottieBuilder<'a> {
                     timeline,
                     layer,
                     symbol_id,
-                    *playback,
+                    effective_playback,
                     layer_synced,
                     first_frame,
                     last_frame,
@@ -694,6 +1033,7 @@ impl<'a> LottieBuilder<'a> {
                     last_frame,
                     representative.transform,
                 );
+                self.exported_count += 1;
                 Some(obj)
             }
             ElementKind::Bitmap {
@@ -892,6 +1232,7 @@ impl<'a> LottieBuilder<'a> {
                     last_frame,
                     representative.transform,
                 );
+                self.exported_count += 1;
                 Some(obj)
             }
         }
@@ -1790,11 +2131,45 @@ pub fn export_lottie_value(
     project: &Project,
     options: &LottieOptions,
 ) -> Result<(Value, LottieExportReport), ExportError> {
+    let (value, report, _) = export_lottie_internal(project, options, |_| true)?;
+    Ok((value, report))
+}
+
+/// Build a Lottie (`v: "5.7.14"`) JSON [`Value`] and [`LottieExportReport`] from `project`,
+/// reporting progress and supporting cancellation (`on_progress` returning `false`).
+pub fn export_lottie_with_progress<F>(
+    project: &Project,
+    options: &LottieOptions,
+    on_progress: F,
+) -> Result<(Value, LottieExportReport), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let (value, report, _) = export_lottie_internal(project, options, on_progress)?;
+    Ok((value, report))
+}
+
+fn export_lottie_internal<F>(
+    project: &Project,
+    options: &LottieOptions,
+    mut on_progress: F,
+) -> Result<(Value, LottieExportReport, Vec<ExternalImageFile>), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
     project
         .validate()
         .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
 
-    let (working_project, scene_ranges, target_symbol_id, comp_name, include_bg) =
+    if !on_progress(&LottieProgress {
+        completed_steps: 0,
+        total_steps: 4,
+        current_stage: "Preparing timeline".into(),
+    }) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+
+    let (mut working_project, scene_ranges, target_symbol_id, comp_name, include_bg) =
         if let Some(sym_query) = options.symbol.as_deref() {
             let sym = resolve_target_symbol(project, sym_query).ok_or_else(|| {
                 ExportError::Options(format!(
@@ -1809,6 +2184,19 @@ pub fn export_lottie_value(
                 sym.name.clone(),
                 options.include_background && is_scene,
             )
+        } else if let Some(scene_query) = options.scene.as_deref() {
+            let sym = resolve_target_symbol(project, scene_query).ok_or_else(|| {
+                ExportError::Options(format!(
+                    "Scene '{scene_query}' was not found in the project."
+                ))
+            })?;
+            (
+                project.clone(),
+                Vec::new(),
+                sym.id.clone(),
+                sym.name.clone(),
+                options.include_background,
+            )
         } else {
             let (flattened, ranges) = flatten_scenes_with_ranges(project);
             let root_id = flattened.root.clone();
@@ -1821,27 +2209,97 @@ pub fn export_lottie_value(
             )
         };
 
+    let mut text_outlined_count = 0usize;
+    if options.text_mode == LottieTextMode::Shapes {
+        text_outlined_count = crate::fonts::convert_project_text_to_outlines(&mut working_project);
+    }
+
+    if !on_progress(&LottieProgress {
+        completed_steps: 1,
+        total_steps: 4,
+        current_stage: "Building layers and precomps".into(),
+    }) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+
     let target_symbol = working_project.symbol(&target_symbol_id).ok_or_else(|| {
         ExportError::InvalidProject(format!("Target symbol '{target_symbol_id}' is missing."))
     })?;
 
+    let scale = if options.scale.is_finite() && options.scale > 0.0 {
+        options.scale.clamp(0.1, 16.0)
+    } else {
+        1.0
+    };
+    let base_w = options.width.unwrap_or(working_project.width).max(1);
+    let base_h = options.height.unwrap_or(working_project.height).max(1);
+    let comp_w = ((base_w as f64) * scale).round().max(1.0) as u32;
+    let comp_h = ((base_h as f64) * scale).round().max(1.0) as u32;
+    let fps_u32 = options.fps.unwrap_or(working_project.fps).clamp(1, 240);
+
     let mut builder = LottieBuilder {
         project: &working_project,
         options,
-        fps: f64::from(working_project.fps.clamp(1, 240)),
-        comp_w: working_project.width.max(1),
-        comp_h: working_project.height.max(1),
+        fps: f64::from(fps_u32),
+        comp_w,
+        comp_h,
         assets: Vec::new(),
+        external_images: Vec::new(),
         exported_precomps: BTreeSet::new(),
         exported_images: BTreeSet::new(),
+        exported_count: 0,
+        notes: Vec::new(),
         warnings: Vec::new(),
         warning_set: BTreeSet::new(),
     };
 
+    if text_outlined_count > 0 {
+        builder.add_note(
+            LottieNoteKind::Approximated,
+            "Document · Text",
+            format!(
+                "Converted {text_outlined_count} text element(s) to vector shape outlines (Text: Shapes)."
+            ),
+            None,
+            None,
+            None,
+        );
+    } else if options.text_mode == LottieTextMode::TextLayers
+        && options.player != LottieTargetPlayer::LottieWeb
+        && working_project.symbols.iter().any(|s| {
+            s.timeline.layers.iter().any(|l| {
+                l.keyframes.iter().any(|k| {
+                    k.elements.iter().any(|e| {
+                        matches!(
+                            e.kind,
+                            ElementKind::Text { .. } | ElementKind::TextBox { .. }
+                        )
+                    })
+                })
+            })
+        })
+    {
+        builder.add_note(
+            LottieNoteKind::Approximated,
+            "Document · Text",
+            format!(
+                "Text layers on {} require font registration; switch Text to 'Shapes' for portable outlines.",
+                options.player.label()
+            ),
+            None,
+            None,
+            None,
+        );
+    }
+
     if working_project.has_program() {
-        builder.warn(
-            "Project scripts/classes (ActionScript/JavaScript) are not executed by Lottie players; timeline animation was exported."
-                .to_owned(),
+        builder.add_note(
+            LottieNoteKind::NotExported,
+            "Project · Scripts",
+            "Project scripts/classes (ActionScript/JavaScript) are not executed by Lottie players; timeline animation was exported.",
+            None,
+            None,
+            None,
         );
     }
 
@@ -1858,21 +2316,91 @@ pub fn export_lottie_value(
     };
 
     let mut stack = vec![target_symbol_id.clone()];
-    let layers = builder.build_timeline_layers(
+    let mut layers = builder.build_timeline_layers(
         &comp_name,
         &target_symbol.timeline,
         root_offset,
         include_bg,
         &mut stack,
     );
-    let markers = build_markers(&target_symbol.timeline, &scene_ranges);
-    let frame_count = target_symbol.timeline.frame_count.max(1);
 
-    let root = json!({
+    if !on_progress(&LottieProgress {
+        completed_steps: 2,
+        total_steps: 4,
+        current_stage: "Applying scale, precision and frame range".into(),
+    }) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+
+    let markers = if options.include_markers {
+        build_markers(&target_symbol.timeline, &scene_ranges)
+    } else {
+        Vec::new()
+    };
+    let total_frames = target_symbol.timeline.frame_count.max(1);
+    let (ip, op) = if let Some((from_1, to_1)) = options.frame_range {
+        let from0 = from_1.saturating_sub(1).min(total_frames.saturating_sub(1));
+        let to0 = to_1.max(from_1).min(total_frames);
+        if from0 >= to0 {
+            return Err(ExportError::Options(format!(
+                "Invalid frame range {from_1}..={to_1} (document has {total_frames} frames)."
+            )));
+        }
+        (from0, to0)
+    } else {
+        (0, total_frames)
+    };
+    let exported_frames = op.saturating_sub(ip).max(1);
+    if exported_frames == 1 {
+        builder.add_note(
+            LottieNoteKind::Approximated,
+            comp_name.clone(),
+            "Composition has 1 frame and will play as a still image.",
+            Some(target_symbol_id.clone()),
+            None,
+            Some(ip),
+        );
+    }
+
+    // If overall output dimensions were scaled relative to the authored stage, wrap all layers
+    // under a master null layer (`ty: 3`) or scale root layer positions/scales proportionally.
+    let sx = comp_w as f64 / working_project.width.max(1) as f64;
+    let sy = comp_h as f64 / working_project.height.max(1) as f64;
+    if (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4 {
+        let parent_ind = (layers.len() as u32) + 1000;
+        for l in &mut layers {
+            if let Some(obj) = l.as_object_mut()
+                && !obj.contains_key("parent")
+            {
+                obj.insert("parent".into(), json!(parent_ind));
+            }
+        }
+        layers.push(json!({
+            "ddd": 0,
+            "ind": parent_ind,
+            "ty": 3,
+            "nm": "Stage Scale",
+            "sr": 1,
+            "ks": {
+                "o": {"a": 0, "k": 0},
+                "r": {"a": 0, "k": 0},
+                "p": {"a": 0, "k": [0, 0, 0]},
+                "a": {"a": 0, "k": [0, 0, 0]},
+                "s": {"a": 0, "k": [round4(sx * 100.0), round4(sy * 100.0), 100.0]}
+            },
+            "ao": 0,
+            "ip": ip,
+            "op": op,
+            "st": 0,
+            "bm": 0
+        }));
+    }
+
+    let mut root = json!({
         "v": LOTTIE_VERSION,
         "fr": round4(builder.fps),
-        "ip": 0,
-        "op": frame_count,
+        "ip": ip,
+        "op": op,
         "w": builder.comp_w,
         "h": builder.comp_h,
         "nm": comp_name,
@@ -1882,19 +2410,87 @@ pub fn export_lottie_value(
         "markers": markers
     });
 
+    let precision = options.precision.min(4);
+    if precision < 4 {
+        round_json_numbers(&mut root, precision);
+    }
+
+    if !on_progress(&LottieProgress {
+        completed_steps: 4,
+        total_steps: 4,
+        current_stage: "Completed".into(),
+    }) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+
+    let approximated_count = builder
+        .notes
+        .iter()
+        .filter(|n| n.kind == LottieNoteKind::Approximated)
+        .count();
+    let not_exported_count = builder
+        .notes
+        .iter()
+        .filter(|n| {
+            matches!(
+                n.kind,
+                LottieNoteKind::NotExported | LottieNoteKind::Missing
+            )
+        })
+        .count();
+    let layer_count = root["layers"].as_array().map_or(0, Vec::len);
+    let asset_count = root["assets"].as_array().map_or(0, Vec::len);
+    let marker_count = root["markers"].as_array().map_or(0, Vec::len);
+
     let report = LottieExportReport {
         path: None,
+        html_preview_path: None,
         name: comp_name,
         width: builder.comp_w,
         height: builder.comp_h,
-        frame_count,
-        layer_count: root["layers"].as_array().map_or(0, Vec::len),
-        asset_count: root["assets"].as_array().map_or(0, Vec::len),
+        fps: fps_u32,
+        in_point: ip,
+        frame_count: exported_frames,
+        layer_count,
+        asset_count,
+        marker_count,
         bytes: 0,
+        exported_count: builder.exported_count.max(layer_count),
+        approximated_count,
+        not_exported_count,
+        notes: builder.notes,
         warnings: builder.warnings,
     };
 
-    Ok((root, report))
+    Ok((root, report, builder.external_images))
+}
+
+fn round_json_numbers(val: &mut Value, decimals: u8) {
+    let factor = 10_f64.powi(i32::from(decimals));
+    match val {
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64()
+                && n.as_i64().is_none()
+                && n.as_u64().is_none()
+            {
+                let rounded = (f * factor).round() / factor;
+                if let Some(num) = serde_json::Number::from_f64(rounded) {
+                    *n = num;
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                round_json_numbers(item, decimals);
+            }
+        }
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                round_json_numbers(v, decimals);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Serialize `project` into a Lottie JSON string along with [`LottieExportReport`].
@@ -1912,21 +2508,188 @@ pub fn export_lottie_json(
     Ok((json, report))
 }
 
-/// Write a Lottie `.json` file to `output_file` and return the resulting [`LottieExportReport`].
+/// Write a Lottie `.json` or `.lottie` file to `output_file` and return the resulting [`LottieExportReport`].
 pub fn export_project_lottie(
     project: &Project,
     output_file: &Path,
     options: &LottieOptions,
 ) -> Result<LottieExportReport, ExportError> {
-    let (json, mut report) = export_lottie_json(project, options)?;
+    export_project_lottie_with_progress(project, output_file, options, |_| true)
+}
+
+/// Write a Lottie `.json` or `.lottie` file to `output_file` with progress and cancellation support.
+pub fn export_project_lottie_with_progress<F>(
+    project: &Project,
+    output_file: &Path,
+    options: &LottieOptions,
+    on_progress: F,
+) -> Result<LottieExportReport, ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let (value, mut report, external_images) =
+        export_lottie_internal(project, options, on_progress)?;
+    let json = if options.pretty {
+        serde_json::to_string_pretty(&value)?
+    } else {
+        serde_json::to_string(&value)?
+    };
+
     if let Some(parent) = output_file.parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent)?;
     }
-    fs::write(output_file, json.as_bytes())?;
+
+    let is_dotlottie = options.format == LottieFormat::DotLottie
+        || output_file
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("lottie"));
+
+    if is_dotlottie {
+        let manifest = json!({
+            "version": "1.0",
+            "generator": "NeoFlash",
+            "animations": [{
+                "id": "animation",
+                "speed": 1,
+                "loop": true
+            }]
+        });
+        let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+        let mut zip_entries: Vec<(String, Vec<u8>)> = vec![
+            ("manifest.json".into(), manifest_bytes),
+            ("animations/animation.json".into(), json.as_bytes().to_vec()),
+        ];
+        for img in external_images {
+            zip_entries.push((img.relative_path, img.bytes));
+        }
+        let zip_bytes = build_stored_zip(&zip_entries);
+        fs::write(output_file, &zip_bytes)?;
+        report.bytes = zip_bytes.len();
+    } else {
+        fs::write(output_file, json.as_bytes())?;
+        report.bytes = json.len();
+        if !external_images.is_empty()
+            && let Some(parent) = output_file.parent()
+        {
+            for img in external_images {
+                let path = parent.join(&img.relative_path);
+                if let Some(img_parent) = path.parent() {
+                    fs::create_dir_all(img_parent)?;
+                }
+                fs::write(path, &img.bytes)?;
+            }
+        }
+    }
+
+    if options.html_preview {
+        let preview_path = output_file.with_extension("preview.html");
+        let html = build_lottie_html_preview(&report.name, report.width, report.height, &json);
+        fs::write(&preview_path, html.as_bytes())?;
+        report.html_preview_path = Some(preview_path);
+    }
+
     report.path = Some(output_file.to_path_buf());
     Ok(report)
+}
+
+fn build_stored_zip(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central_dir = Vec::new();
+    for (name, data) in entries {
+        let name_bytes = name.as_bytes();
+        let offset = out.len() as u32;
+        let mut crc = flate2::Crc::new();
+        crc.update(data);
+        let crc32 = crc.sum();
+        let size = data.len() as u32;
+
+        // Local file header (`PK\x03\x04`)
+        out.extend_from_slice(&0x0403_4b50_u32.to_le_bytes());
+        out.extend_from_slice(&20_u16.to_le_bytes());
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out.extend_from_slice(&0_u16.to_le_bytes()); // stored (0)
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out.extend_from_slice(&crc32.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0_u16.to_le_bytes());
+        out.extend_from_slice(name_bytes);
+        out.extend_from_slice(data);
+
+        // Central directory header (`PK\x01\x02`)
+        central_dir.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
+        central_dir.extend_from_slice(&20_u16.to_le_bytes());
+        central_dir.extend_from_slice(&20_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&crc32.to_le_bytes());
+        central_dir.extend_from_slice(&size.to_le_bytes());
+        central_dir.extend_from_slice(&size.to_le_bytes());
+        central_dir.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u16.to_le_bytes());
+        central_dir.extend_from_slice(&0_u32.to_le_bytes());
+        central_dir.extend_from_slice(&offset.to_le_bytes());
+        central_dir.extend_from_slice(name_bytes);
+    }
+    let cd_offset = out.len() as u32;
+    let cd_size = central_dir.len() as u32;
+    let count = entries.len() as u16;
+    out.extend_from_slice(&central_dir);
+    // End of central directory (`PK\x05\x06`)
+    out.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
+    out.extend_from_slice(&0_u16.to_le_bytes());
+    out.extend_from_slice(&0_u16.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0_u16.to_le_bytes());
+    out
+}
+
+fn build_lottie_html_preview(title: &str, width: u32, height: u32, lottie_json: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title} — Lottie Preview</title>
+<style>
+  body {{ margin: 0; background: #14171f; color: #e6e9f0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }}
+  #player {{ width: {width}px; height: {height}px; max-width: 92vw; max-height: 80vh; background: #1e222d; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); }}
+  .meta {{ margin-top: 12px; font-size: 13px; color: #9aa2b2; }}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+</head>
+<body>
+  <div id="player"></div>
+  <div class="meta">{title} · {width} × {height} · Bodymovin v{LOTTIE_VERSION}</div>
+  <script>
+    const animationData = {lottie_json};
+    if (window.lottie) {{
+      window.lottie.loadAnimation({{
+        container: document.getElementById('player'),
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        animationData
+      }});
+    }}
+  </script>
+</body>
+</html>
+"#
+    )
 }
 
 #[cfg(test)]
@@ -2146,12 +2909,50 @@ mod tests {
                 include_background: false,
                 include_hidden_layers: false,
                 pretty: true,
+                ..LottieOptions::default()
             },
         )
         .unwrap();
         assert_eq!(star_report.name, "Star");
         assert_eq!(star_report.frame_count, 4);
         assert!(star_json.contains("\"nm\": \"Star\""));
+
+        // Test progress callback + cancellation (`export_lottie_with_progress`), frame_range, scale,
+        // dotLottie `.lottie` ZIP packaging, and HTML preview output.
+        let mut seen_steps = Vec::new();
+        let err = export_lottie_with_progress(&project, &LottieOptions::default(), |p| {
+            seen_steps.push(p.completed_steps);
+            p.completed_steps < 1
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("cancelled"), "{err}");
+        assert_eq!(seen_steps, vec![0, 1]);
+
+        let dir = std::env::temp_dir().join(format!("neoflash-dotlottie-{}", std::process::id()));
+        let dot_path = dir.join("banner.lottie");
+        let dot_report = export_project_lottie_with_progress(
+            &project,
+            &dot_path,
+            &LottieOptions {
+                format: LottieFormat::DotLottie,
+                frame_range: Some((2, 6)),
+                scale: 2.0,
+                precision: 2,
+                html_preview: true,
+                ..LottieOptions::default()
+            },
+            |_| true,
+        )
+        .unwrap();
+        assert_eq!(dot_report.width, 1280);
+        assert_eq!(dot_report.height, 720);
+        assert_eq!(dot_report.in_point, 1);
+        assert_eq!(dot_report.frame_count, 5);
+        assert!(dot_report.bytes > 64);
+        assert!(dot_report.html_preview_path.as_ref().unwrap().exists());
+        let zip_bytes = fs::read(&dot_path).unwrap();
+        assert_eq!(&zip_bytes[0..4], b"PK\x03\x04");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2265,9 +3066,19 @@ mod tests {
             report
                 .warnings
                 .iter()
-                .any(|w| w.contains("blend mode 'invert' is not supported by Lottie")),
+                .any(|w| w.contains("Blend mode 'invert' is not supported by Lottie")),
             "expected blend mode diagnostic: {:?}",
             report.warnings
         );
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|n| n.kind == LottieNoteKind::NotExported
+                    && n.message.contains("Blend mode 'invert'")),
+            "expected structured NotExported note: {:?}",
+            report.notes
+        );
+        assert!(report.not_exported_count >= 2);
     }
 }

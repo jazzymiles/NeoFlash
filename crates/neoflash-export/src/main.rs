@@ -83,9 +83,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             &lottie_path,
             &LottieOptions {
                 symbol: lottie_symbol,
-                include_background: true,
-                include_hidden_layers: false,
                 pretty: lottie_pretty,
+                ..LottieOptions::default()
             },
         )?;
         println!(

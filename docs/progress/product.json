@@ -1558,8 +1558,8 @@
       "category": "web",
       "title": "Self-contained HTML5 publishing",
       "status": "partial",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences. Projects and individual Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON (`--lottie`, `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), covering vector shapes, solid/linear/radial gradients, classic/motion/shape tweens, nested precomps with playback/timeline-sync remapping, masks, blend modes, embedded bitmaps, text and scene/frame markers with actionable warnings for unsupported scripts/media.",
-      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full remains the editor default; its size selector/weight display awaits R-032, and document-stored profiles are not implemented. Lottie JSON export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit warnings; a dedicated pre-export options modal awaits R-043.",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options`): Full embeds everything, Balanced ships WebAssembly as a streamed file, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach, and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` measures every level on disk and with gzip. Estimates count every generated file; exact selected-option and cancellable APIs back an editor controller shared with Publish and publish-on-save. Size/font options persist in workspace preferences. Projects, individual scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and the 760 pt `Export Lottie` modal dialog (`File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`), with live stage preview, compatibility counters (`exported`/`approximated`/`not exported`), a grouped `Lottie export — N notes` report dialog (`Show` jump to timeline + `Copy report`), progress/cancellation callback, frame range, dimensions/scale/fps overrides, nested vs. first-frame MovieClip modes, precision rounding (`0..=4`), target-player diagnostics (`lottie-web`/`Mobile`/`Skottie`), and optional `<stem>.preview.html` generation.",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Balanced, Compact and relative Shared exports need HTTP(S) hosting; cross-origin WASM needs CORS. Compact cannot see class names built at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. Full remains the editor default; its size selector/weight display awaits R-032, and document-stored profiles are not implemented. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`); the Publish settings Lottie target awaits DL-03.",
       "items": [
         {
           "id": "self-contained",
@@ -1603,7 +1603,7 @@
         },
         {
           "id": "lottie-json-export",
-          "title": "Export project or Library symbol as Bodymovin Lottie JSON (--lottie, File ▸ Export ▸ Export Lottie…)",
+          "title": "Export project, scene or symbol as Bodymovin Lottie JSON or dotLottie (.lottie) with compatibility report dialog",
           "status": "working"
         },
         {
@@ -1615,6 +1615,7 @@
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
         "crates/neoflash-export/src/lottie.rs",
+        "crates/neoflash-editor/src/panels/export_lottie.rs",
         "crates/neoflash-export/src/publish.rs",
         "docs/decisions/0038-publish-size-levels.md",
         "scripts/build-web.sh",

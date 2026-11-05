@@ -809,9 +809,11 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032).
   Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
   using the same parameters; stale project/options/runtime results are discarded. No size controls are exposed yet.
-  Bodymovin v5.7.14 Lottie JSON export (`neoflash_export::export_project_lottie`, `export_lottie_json`,
-  `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L`, `Library ▸ Export symbol as Lottie…`, CLI `--lottie`) is also available;
-  its optional pre-export modal and Publish settings checkbox are tracked in `R-043`.
+  Bodymovin v5.7.14 Lottie JSON and dotLottie (`.lottie` ZIP) export (`neoflash_export::export_project_lottie_with_progress`,
+  `export_lottie_with_progress`, `LottieOptions`, `LottieExportReport`, `LottieNote`, `LottieProgress`, CLI `--lottie`)
+  and the approved R-043 760 pt `Export Lottie` modal dialog + `Lottie export — N notes` compatibility report modal
+  (`panels/export_lottie.rs`, opened from `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L` and `Library ▸ Export symbol as Lottie…`)
+  are also available; the Publish settings target checkbox remains tracked with `DL-03` / `R-043`.
   **NEW** `PublishSettings`
   stored in the document (Flash stores publish profiles in the document). Only HTML5 is a real target in `Publish settings`;
   others must stay disabled until wired.
