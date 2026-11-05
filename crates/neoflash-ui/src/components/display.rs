@@ -349,3 +349,87 @@ impl EmptyState<'_> {
         clicked
     }
 }
+
+/// `Type` of the inline message line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InlineMessageType {
+    /// Neutral explanation (publish trade-off, "Watch expressions are not available yet …").
+    #[default]
+    Info,
+    /// Allowed but needs attention ("… already exists. Replace overwrites …").
+    Warning,
+    /// Blocks the action (invalid name, invalid runtime URL, trace failed).
+    Error,
+}
+
+impl InlineMessageType {
+    pub fn icon(self) -> Icon {
+        match self {
+            Self::Info => i16::INFO,
+            Self::Warning => i16::WARNING,
+            Self::Error => i16::ERROR,
+        }
+    }
+    /// Icon and text colour: Info `text/secondary`, Warning `warning/default`, Error `danger/default`.
+    pub fn color(self, p: &crate::Palette) -> Color32 {
+        match self {
+            Self::Info => p.text_secondary,
+            Self::Warning => p.warning_default,
+            Self::Error => p.danger_default,
+        }
+    }
+}
+
+/// Inline message line (R-032 / R-033 / R-036 / R-022) — 16 pt icon, 8 pt gap and `NF2/Small` text in
+/// the tone colour, wrapped to the width. Sits under the field or group it explains; it never takes
+/// focus. Width = `width` or the available width.
+#[must_use = "add it with ui.add(…)"]
+pub struct InlineMessage<'a> {
+    kind: InlineMessageType,
+    text: &'a str,
+    width: Option<f32>,
+}
+
+impl<'a> InlineMessage<'a> {
+    pub fn new(kind: InlineMessageType, text: &'a str) -> Self {
+        Self {
+            kind,
+            text,
+            width: None,
+        }
+    }
+    pub fn info(text: &'a str) -> Self {
+        Self::new(InlineMessageType::Info, text)
+    }
+    pub fn warning(text: &'a str) -> Self {
+        Self::new(InlineMessageType::Warning, text)
+    }
+    pub fn error(text: &'a str) -> Self {
+        Self::new(InlineMessageType::Error, text)
+    }
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+}
+
+impl Widget for InlineMessage<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let p = palette(ui.ctx());
+        let color = self.kind.color(p);
+        let width = self.width.unwrap_or_else(|| ui.available_width()).max(48.0);
+        let text_w = width - 16.0 - space::S2;
+        let g = super::galley_wrapped(ui, self.text, TextStyle::Small, color, text_w);
+        let height = g.size().y.max(16.0);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+        if ui.is_rect_visible(rect) {
+            let icon = Rect::from_min_size(rect.min, egui::vec2(16.0, 16.0));
+            icons::paint(ui.painter(), ui.ctx(), icon, self.kind.icon(), color);
+            ui.painter()
+                .galley(egui::pos2(icon.right() + space::S2, rect.top()), g, color);
+        }
+        response
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, self.text));
+        response
+    }
+}

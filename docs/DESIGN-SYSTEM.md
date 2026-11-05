@@ -84,23 +84,25 @@ crates/neoflash-editor
 
 | File | Figma components |
 | --- | --- |
-| `button.rs` | Button (Primary / Secondary / Ghost / Danger), Icon Button (Ghost / Selected / Primary, SM / MD), Tool Button |
+| `button.rs` | Button (Primary / Secondary / Ghost / Danger), Icon Button (Ghost / Selected / Primary, SM / MD), Tool Button (`ToolButton::corner_hit` = flyout corner hit area) |
 | `field.rs` | Field (prefix, unit, scrub, ↑/↓, ⇧×10, `stepper()` = Stepper Field, `presets()` = Combo Field), Text Field, Search, Select, Color Field, Line Style Select |
 | `inspector.rs` | DragField (inspector number field with drag-to-scrub and type-to-edit), Type Header |
-| `toggle.rs` | Checkbox, Switch, Radio, Slider |
+| `toggle.rs` | Checkbox, Switch, Radio, Slider (`SliderValue::{None, Field, Inline}`) |
 | `segmented.rs` | Segmented Control / Segment |
-| `headers.rs` | Dock Tab, Panel Tab, Script Tab, Section Header, Panel Header, Floating Panel Header, Dialog Header |
+| `headers.rs` | Dock Tab, Panel Tab, Script Tab, Section Header, Panel Header, Floating Panel Header, Dialog Header, Document Tab |
 | `tree.rs` | Tree Item, Table Row |
-| `menu.rs` | Menu Item, Menu Section, Menu Separator, Menu Bar Item, menu bar, popovers, context menus, submenus |
+| `menu.rs` | Menu Item (incl. keyboard `highlighted`), Menu Section, Menu Separator, Menu Bar Item, menu bar, popovers, context menus, submenus |
 | `breadcrumb.rs` | Breadcrumb Item / Separator / Overflow |
 | `color.rs` | Color Well, Fill Stroke Chip, Swatch Cell, Registration Picker, Icon Group |
 | `icon_group_items.rs` | Icon Group with per-item disabled state and shortcut tooltips |
-| `display.rs` | Badge, Kbd, Tooltip, Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State |
+| `display.rs` | Badge, Kbd, Tooltip, Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State, Inline Message |
 | `unavailable.rs` | "Not available yet" tooltip for disabled controls |
 | `surface.rs` | Surfaces (App, Panel, Floating, Popover, Dialog, Canvas), scrim, dialog footer, status bar, Zoom Control, Dock Zone, Dock Compass, Drop Indicator, Splitter, Drag Ghost |
 | `docking.rs` | dock target and drag ghost helpers |
 | `timeline.rs` | TL Layer, TL Toggle, TL Layers Header, TL Grid, TL Grid Lines, TL Span (incl. Sound decoded peaks, `paint_sound_peaks`), TL Marker, TL Frame Label, TL Ruler, TL Onion Range, TL Playhead |
-| `code.rs` | Code Editor: syntax highlighter (NF2 syntax tokens), gutter, markers, current line, script status, compiler messages, log lines |
+| `code.rs` | Code Editor: syntax highlighter (NF2 syntax tokens), gutter, markers, current line, script status, compiler messages, log lines, range underline, Error peek (error / warning) |
+| `weight.rs` | Publish weight bar, legend and totals |
+| `brushes.rs` | Tool Flyout Item, Brush Preset, Brush Shape, Brush Cursor, `NF2 Brush/*` sample strokes |
 | `text_area.rs` | multi-line Text Field |
 | `ease.rs` | Ease Preset, Ease Graph (0–100 %, Overshoot, Undershoot), preview track |
 | `motion.rs` | Motion editor lanes |
@@ -125,6 +127,19 @@ in `neoflash-ui`. They appear in the generated reference with the next export.
 | `NF2/TL Span · Sound — decoded peaks` | One mirrored 1 pt column per point in `success/default`; stereo uses two lanes; while not yet decoded, a 1 pt centre line at 50 % (R-010). |
 | Paste motion special dialog | Checkbox grid of properties, two override options, Select none · Cancel · **Paste** (R-006). |
 | Properties — Classic tween | Rotate × count + Direction, then Orient to path, Snap to motion guide, Sync graphic symbols and Scale (R-007). |
+
+Shared pieces of the 5 November 2026 answers (R-022, R-032, R-033, R-035, R-036, R-038; page `v2 · Panels`, frames
+`124:18100` Dark / `132:19052` Light) and the v2.2 shelf "Brushes & tool flyouts" (`96:793`):
+
+| Component | Rule |
+| --- | --- |
+| `NF2/Document Tab` (`DocumentTab`) | 32 pt, radius md, 12 / 8 pt padding, file icon, `NF2/Small` label, 16 pt trailing slot; width 96–220 with ending ellipsis. Active = `bg/selected`, Hover = `bg/hover`; dot when dirty, × on hover and on the clean active tab; tooltip = path; equal names add the folder in tertiary text (R-035). |
+| Inline message (`InlineMessage`) | 16 pt icon, 8 pt gap, wrapped `NF2/Small`. Info `text/secondary`, Warning `warning/default`, Error `danger/default` (R-032, R-036, R-022). |
+| Publish weight (`WeightBar`, `weight_legend`, `weight_totals`) | 8 pt bar, 2 pt gaps, radius sm, on-disk bytes; parts WebAssembly `accent/default`, Runtime scripts `syntax/keyword`, Project scripts `syntax/function`, Content `layer/green`, Resources `warning/default`, Fonts `syntax/type`, Page `text/tertiary`. Wrapped legend (8 pt swatch, label, value) and totals. No per-part gzip, no budget marker (R-032). |
+| Range underline (`paint_range_underline`) | 1.2 pt zigzag, 2 pt high, ~3 pt period under the exact range; `syntax/error` or `syntax/warning` (R-033). |
+| Error peek (`ErrorPeek`) | `danger/subtle` or `warning/subtle`, 1 pt `syntax/error` / `syntax/warning` border, radius md, 10 × 6 padding, icon, `NF2/Small` message, `NF2/Small Strong` accent action (R-033). |
+| Menu Item `highlighted` | Keyboard-chosen row in a ↑↓ menu (quick fixes) drawn like hover (R-033). |
+| v2.2 `ToolFlyoutItem`, `BrushPreset`, `BrushShape`, `brush_cursor`, `brush_stroke_sample` | As on the shelf. The brush cursor follows zoom: at least 4 pt, above 400 pt a crosshair and value chip; Resize is dashed with a chip (R-038). |
 
 ### Panel files (`crates/neoflash-editor/src/panels/`)
 
