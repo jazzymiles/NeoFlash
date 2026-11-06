@@ -22,6 +22,13 @@ struct LayoutCache {
 const CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 impl crate::app::Editor {
+    pub(crate) fn focus_selected_text_editor(&mut self, ctx: &egui::Context) {
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("properties-tool-tab"), false);
+            data.insert_temp(egui::Id::new("nf2-focus-text-edit"), true);
+        });
+    }
+
     pub(crate) fn text_box_properties(
         &mut self,
         ui: &mut egui::Ui,
@@ -46,15 +53,33 @@ impl crate::app::Editor {
         changes.note(numeric_row(ui, "Height", height, 0. ..=10000., 1.));
         changes.note(ui.checkbox(multiline, "Multiline"));
         changes.note(ui.checkbox(word_wrap, "Word wrap"));
+        let focus_text = ctx.data_mut(|data| {
+            data.remove_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))
+                .unwrap_or(false)
+        });
         egui::ScrollArea::vertical()
             .id_salt("text-box-content")
             .max_height(120.)
             .themed()
             .show(ui, |ui| {
-                changes.note(ui.add_sized(
+                let response = ui.add_sized(
                     [ui.available_width(), 74.],
                     egui::TextEdit::multiline(text).desired_rows(3),
-                ));
+                );
+                if focus_text {
+                    response.request_focus();
+                    if let Some(mut state) = egui::TextEdit::load_state(ctx, response.id) {
+                        let end = egui::text::CCursor::new(text.chars().count());
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                end,
+                            )));
+                        state.store(ctx, response.id);
+                    }
+                }
+                changes.note(response);
             });
         let before_font = format.font.clone();
         let mut response = property_row(ui, "Font", |ui| {

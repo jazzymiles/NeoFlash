@@ -898,6 +898,14 @@ impl Editor {
                                     ..Default::default()
                                 },
                             );
+                            if self.selected_element().is_some_and(|e| {
+                                matches!(
+                                    e.kind,
+                                    ElementKind::Text { .. } | ElementKind::TextBox { .. }
+                                )
+                            }) {
+                                self.focus_selected_text_editor(ctx);
+                            }
                         }
                         self.vector_stage(ui, &content, origin, page, &response);
                     }

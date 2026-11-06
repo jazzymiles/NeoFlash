@@ -975,3 +975,91 @@ fn svg_clipboard_paste_respects_editable_paths_toggle_position_and_undo() {
     assert!(!editor.history.can_undo());
     assert!(editor.status.starts_with("Paste failed:"));
 }
+
+#[test]
+fn new_stage_text_and_selected_text_accept_plain_text_paste_and_focus_editor() {
+    use crate::{
+        app::Tool,
+        tests::{rectangle_stage, stage_input_frame},
+    };
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Text);
+    for step in 1..4 {
+        stage_input_frame(&mut editor, &ctx, step as f64 * 0.1, vec![]);
+    }
+    let click_pos = page.min + egui::vec2(120., 120.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![
+            Event::PointerMoved(click_pos),
+            primary_button(click_pos, true),
+        ],
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.1,
+        vec![primary_button(click_pos, false)],
+    );
+    let created = editor
+        .selected_element()
+        .expect("new TextBox stays selected")
+        .clone();
+    assert!(matches!(
+        &created.kind,
+        ElementKind::TextBox { text, .. } if text == "Your text"
+    ));
+    assert_eq!(
+        ctx.data(|d| d.get_temp::<bool>(egui::Id::new("properties-tool-tab"))),
+        Some(false)
+    );
+    assert_eq!(
+        ctx.data(|d| d.get_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))),
+        Some(true)
+    );
+
+    // Plain-text Paste while the stage TextBox is selected replaces its text in one Undo step.
+    let after_create = editor.project.clone();
+    frame(
+        &mut editor,
+        &ctx,
+        1.2,
+        vec![Event::Paste("Midnight Express\r\nEpisode 3".into())],
+        Modifiers::COMMAND,
+        None,
+    );
+    editor.project.validate().unwrap();
+    assert_eq!(editor.status, "Pasted text.");
+    match &editor.selected_element().unwrap().kind {
+        ElementKind::TextBox { text, .. } => {
+            assert_eq!(text, "Midnight Express\nEpisode 3");
+        }
+        other => panic!("expected TextBox, got {other:?}"),
+    }
+    editor.undo();
+    assert_eq!(editor.project, after_create);
+
+    // Rendering Properties when focus is requested focuses the TextBox editor and selects all text.
+    editor.focus_selected_text_editor(&ctx);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(1280., 900.),
+            )),
+            time: Some(1.3),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.properties(ui, ctx);
+            });
+        },
+    );
+    assert!(
+        ctx.wants_keyboard_input(),
+        "Properties text editor should receive keyboard focus"
+    );
+}

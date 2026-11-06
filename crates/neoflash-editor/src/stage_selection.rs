@@ -1561,6 +1561,14 @@ impl Editor {
             }) = self.selected_element().cloned()
             {
                 self.enter_symbol(symbol_id);
+            } else if self.selected_element().is_some_and(|e| {
+                matches!(
+                    e.kind,
+                    ElementKind::Text { .. } | ElementKind::TextBox { .. }
+                )
+            }) {
+                self.show_panel(crate::workspace::PanelId::Properties);
+                self.focus_selected_text_editor(ui.ctx());
             } else if let Some(target) = self.selection.single().cloned() {
                 self.expand_merge_double_click_selection(&target);
             }

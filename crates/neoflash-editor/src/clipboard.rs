@@ -244,7 +244,7 @@ impl Editor {
                     self.paste_svg(text, in_place);
                 } else if let Some((media_type, bytes)) = parse_image_data_url(text) {
                     self.paste_image_bytes(ctx, &bytes, &media_type, in_place);
-                } else {
+                } else if !self.paste_plain_text_into_selected_text(text) {
                     self.message("The clipboard does not contain NeoFlash objects.");
                 }
                 return;
@@ -293,6 +293,64 @@ impl Editor {
             }
             Err(error) => self.message(format!("Paste failed: {error}")),
         }
+    }
+    fn paste_plain_text_into_selected_text(&mut self, raw_text: &str) -> bool {
+        if self.selection.single().is_none() || !self.selected_editable() {
+            return false;
+        }
+        let Some(sampled) = self.selected_sampled() else {
+            return false;
+        };
+        let normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
+        let next_text = match &sampled.kind {
+            neoflash_core::ElementKind::Text { .. } => normalized.replace('\n', " "),
+            neoflash_core::ElementKind::TextBox {
+                width,
+                height,
+                format,
+                multiline,
+                word_wrap,
+                ..
+            } => {
+                let candidate = if *multiline {
+                    normalized
+                } else {
+                    normalized.replace('\n', " ")
+                };
+                let candidate_kind = neoflash_core::ElementKind::TextBox {
+                    text: candidate.clone(),
+                    width: *width,
+                    height: *height,
+                    format: format.clone(),
+                    word_wrap: *word_wrap,
+                    multiline: *multiline,
+                };
+                if let Some(state) = neoflash_core::TextFieldState::from_kind(&candidate_kind)
+                    && let Err(error) = state.validate()
+                {
+                    self.message(format!("Paste failed: {error}"));
+                    return true;
+                }
+                candidate
+            }
+            _ => return false,
+        };
+        self.finish_edits();
+        self.playing = false;
+        self.transact_named("Paste text", |s| {
+            s.ensure_selected_key();
+            if let Some(element) = s.selected_element_mut() {
+                match &mut element.kind {
+                    neoflash_core::ElementKind::Text { text, .. }
+                    | neoflash_core::ElementKind::TextBox { text, .. } => {
+                        *text = next_text;
+                    }
+                    _ => {}
+                }
+            }
+        });
+        self.message("Pasted text.");
+        true
     }
     fn paste_svg(&mut self, text: &str, in_place: bool) {
         self.finish_edits();

@@ -135,7 +135,22 @@ impl Editor {
                             changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
                         }
                         ElementKind::Text { text, font_family, font_size, color } => {
-                            changes.note(text_row(ui, "Text", text));
+                            let focus_text = ctx.data_mut(|data| {
+                                data.remove_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))
+                                    .unwrap_or(false)
+                            });
+                            let text_resp = text_row(ui, "Text", text);
+                            if focus_text {
+                                text_resp.request_focus();
+                                if let Some(mut state) = egui::TextEdit::load_state(ctx, text_resp.id) {
+                                    let end = egui::text::CCursor::new(text.chars().count());
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::two(egui::text::CCursor::new(0), end),
+                                    ));
+                                    state.store(ctx, text_resp.id);
+                                }
+                            }
+                            changes.note(text_resp);
                             changes.note(numeric_row(ui, "Size", font_size, 4. ..=512., 1.));
                             changes.note(paint_row(ui, "text-color", "Color", color));
                             let before = font_family.clone();
