@@ -1804,10 +1804,10 @@ fn trace_half_edge_cycles_with_chains(
     }
 
     let mut visited = vec![false; n_he];
-    // Position of each half-edge inside the walk that visited it, so closing a cycle is O(1)
-    // instead of a linear search of the current walk (quadratic on long contours).
-    let mut walk_of = vec![usize::MAX; n_he];
-    let mut walk_pos = vec![0usize; n_he];
+    // Position of each source vertex inside the active walk stack so closing a cycle (including
+    // figure-8 / kissing cycles at a shared pinch vertex) is O(1) and decomposes into simple rings.
+    let mut vert_walk = vec![usize::MAX; n_verts];
+    let mut vert_pos = vec![0usize; n_verts];
     let mut cycles = Vec::new();
 
     for start_idx in 0..n_he {
@@ -1815,19 +1815,40 @@ fn trace_half_edge_cycles_with_chains(
             continue;
         }
         let mut cycle_edges = Vec::new();
-        let mut curr = start_idx;
-        while !visited[curr] {
-            visited[curr] = true;
-            walk_of[curr] = start_idx;
-            walk_pos[curr] = cycle_edges.len();
-            cycle_edges.push(curr);
-            let (u, v) = half_edges[curr];
+        let mut next_opt = Some(start_idx);
+        while let Some(curr) = next_opt.take() {
+            if !visited[curr] {
+                let (u_curr, v_curr) = half_edges[curr];
+                visited[curr] = true;
+                vert_walk[u_curr] = start_idx;
+                vert_pos[u_curr] = cycle_edges.len();
+                cycle_edges.push(curr);
+
+                if vert_walk[v_curr] == start_idx {
+                    let pos = vert_pos[v_curr];
+                    let sub_cycle: Vec<usize> = cycle_edges.drain(pos..).collect();
+                    for &he in &sub_cycle {
+                        vert_walk[half_edges[he].0] = usize::MAX;
+                    }
+                    let points: usize = sub_cycle
+                        .iter()
+                        .map(|&he| 1 + chain_of(he).map_or(0, Vec::len))
+                        .sum();
+                    if points >= 3 {
+                        cycles.push(sub_cycle);
+                    }
+                }
+            }
+            let Some(&last_he) = cycle_edges.last() else {
+                break;
+            };
+            let (u, v) = half_edges[last_he];
             let list = &outgoing[v];
             if list.is_empty() {
                 break;
             }
             let a = vertices[v];
-            let b = chain_of(curr).map_or(vertices[u], |c| c[c.len() - 1]);
+            let b = chain_of(last_he).map_or(vertices[u], |c| c[c.len() - 1]);
             let dy = if (b[1] - a[1]).abs() == 0.0 {
                 0.0
             } else {
@@ -1835,21 +1856,17 @@ fn trace_half_edge_cycles_with_chains(
             };
             let rev_angle = dy.atan2(b[0] - a[0]);
             let idx_first_ge = list.partition_point(|&(_, ang)| ang < rev_angle - 1e-9);
-            let next_pos = (idx_first_ge + list.len() - 1) % list.len();
-            let next_he = list[next_pos].0;
-            if walk_of[next_he] == start_idx {
-                let pos = walk_pos[next_he];
-                let sub_cycle = cycle_edges[pos..].to_vec();
-                let points: usize = sub_cycle
-                    .iter()
-                    .map(|&he| 1 + chain_of(he).map_or(0, Vec::len))
-                    .sum();
-                if points >= 3 {
-                    cycles.push(sub_cycle);
-                }
+            let chosen = (0..list.len())
+                .map(|step| list[(idx_first_ge + list.len() - 1 - step) % list.len()].0)
+                .find(|&he| !visited[he]);
+            if let Some(next_he) = chosen {
+                next_opt = Some(next_he);
+            } else {
                 break;
             }
-            curr = next_he;
+        }
+        for &he in &cycle_edges {
+            vert_walk[half_edges[he].0] = usize::MAX;
         }
     }
     cycles
@@ -1971,33 +1988,65 @@ fn assemble_shells_and_holes(rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<PathCommand>>
     let mut prepared_shells: Vec<Option<PreparedRings>> = (0..shells.len()).map(|_| None).collect();
     for hole in holes {
         let hole_area = signed_ring_area(&hole).abs();
-        let sample = hole
+        let n = hole.len();
+        let mut candidates = Vec::with_capacity(6);
+        if let Some(mid_pt) = (0..n)
+            .map(|i| {
+                let a = hole[i];
+                let b = hole[(i + 1) % n];
+                [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
+            })
+            .find(|&pt| !shell_bvh.any_within_distance(&shell_segs, pt, SNAP_EPS * 2.0))
+        {
+            candidates.push(mid_pt);
+        }
+        if let Some(v_pt) = hole
             .iter()
             .copied()
-            .find(|&pt| !shell_bvh.any_within_distance(&shell_segs, pt, SNAP_EPS))
-            .unwrap_or(hole[0]);
-        let found =
-            shells
-                .iter()
-                .enumerate()
-                .position(|(idx, (shell, shell_area, (s_min, s_max), _))| {
-                    if !(*shell_area > hole_area
-                        && sample[0] >= s_min[0]
-                        && sample[0] <= s_max[0]
-                        && sample[1] >= s_min[1]
-                        && sample[1] <= s_max[1])
-                    {
-                        return false;
-                    }
-                    if shell.len() < 64 {
-                        return ring_winding_number(sample, shell) != 0;
-                    }
-                    prepared_shells[idx]
-                        .get_or_insert_with(|| {
-                            PreparedRings::new(std::slice::from_ref(shell), FillRule::NonZero)
-                        })
-                        .contains(sample)
-                });
+            .find(|&pt| !shell_bvh.any_within_distance(&shell_segs, pt, SNAP_EPS * 2.0))
+        {
+            candidates.push(v_pt);
+        }
+        candidates.push(hole[0]);
+        if n > 1 {
+            candidates.push(hole[n / 2]);
+        }
+        let found = candidates
+            .iter()
+            .find_map(|&sample| {
+                shells.iter().enumerate().position(
+                    |(idx, (shell, shell_area, (s_min, s_max), _))| {
+                        if !(*shell_area > hole_area
+                            && sample[0] >= s_min[0] - SNAP_EPS
+                            && sample[0] <= s_max[0] + SNAP_EPS
+                            && sample[1] >= s_min[1] - SNAP_EPS
+                            && sample[1] <= s_max[1] + SNAP_EPS)
+                        {
+                            return false;
+                        }
+                        if shell.len() < 64 {
+                            return ring_winding_number(sample, shell) != 0;
+                        }
+                        prepared_shells[idx]
+                            .get_or_insert_with(|| {
+                                PreparedRings::new(std::slice::from_ref(shell), FillRule::NonZero)
+                            })
+                            .contains(sample)
+                    },
+                )
+            })
+            .or_else(|| {
+                let (h_min, h_max) = ring_bounds(&hole)?;
+                shells
+                    .iter()
+                    .position(|(_, shell_area, (s_min, s_max), _)| {
+                        *shell_area > hole_area
+                            && h_min[0] >= s_min[0] - SNAP_EPS * 4.0
+                            && h_max[0] <= s_max[0] + SNAP_EPS * 4.0
+                            && h_min[1] >= s_min[1] - SNAP_EPS * 4.0
+                            && h_max[1] <= s_max[1] + SNAP_EPS * 4.0
+                    })
+            });
         if let Some(idx) = found {
             shells[idx].3.push(hole);
         }
@@ -2812,6 +2861,14 @@ fn ensure_existing_merge_normalized(elements: &mut Vec<Element>) {
 ///
 /// Returns the IDs of the newly created Merge element(s).
 pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: Element) -> Vec<Id> {
+    apply_merge_shape_to_keyframe_inner(elements, new_element, false)
+}
+
+fn apply_merge_shape_to_keyframe_inner(
+    elements: &mut Vec<Element>,
+    new_element: Element,
+    already_dissolved: bool,
+) -> Vec<Id> {
     ensure_existing_merge_normalized(elements);
     let Some((mut new_fill_opt, new_strokes)) = decompose_element_to_merge_parts(&new_element)
     else {
@@ -2836,7 +2893,7 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
         {
             // Dissolve internal overlaps of compound / Brush strokes up front so the stroke
             // stores and tests only its clean exterior boundary and holes.
-            if new_rings.len() > 1 {
+            if new_rings.len() > 1 && !already_dissolved {
                 let dissolved = dissolve_rings_to_islands(&new_rings, new_rule);
                 if !dissolved.is_empty() {
                     new_cmds = dissolved.into_iter().flatten().collect();
@@ -2920,7 +2977,7 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                     }
                     // Different colour (or separated by new shape's outline stroke): subtract
                     // `new_fill` from `existing`.
-                    let (diff, interacted) = boolean_rings_with_interaction(
+                    let (mut diff, interacted) = boolean_rings_with_interaction(
                         &ex_rings,
                         ex_rule,
                         &new_rings,
@@ -2930,6 +2987,24 @@ pub fn apply_merge_shape_to_keyframe(elements: &mut Vec<Element>, new_element: E
                     if !interacted {
                         next_elements.push(existing);
                         continue;
+                    }
+                    let extends_outside_new = ex_bbox.0[0] < new_bbox.0[0] - SNAP_EPS * 8.0
+                        || ex_bbox.0[1] < new_bbox.0[1] - SNAP_EPS * 8.0
+                        || ex_bbox.1[0] > new_bbox.1[0] + SNAP_EPS * 8.0
+                        || ex_bbox.1[1] > new_bbox.1[1] + SNAP_EPS * 8.0;
+                    if diff.is_empty() && extends_outside_new {
+                        diff = boolean_rings_full(
+                            &ex_rings,
+                            ex_rule,
+                            &new_rings,
+                            new_rule,
+                            BooleanOp::Difference,
+                        )
+                        .0;
+                        if diff.is_empty() {
+                            next_elements.push(existing);
+                            continue;
+                        }
                     }
                     if let Some(ex_fp) = extract_fill_paint(&existing.kind) {
                         for (idx, piece_cmds) in diff.into_iter().enumerate() {
@@ -3217,10 +3292,14 @@ pub fn remerge_moved_elements_in_keyframe(
     elements: &mut Vec<Element>,
     moved_ids: &[Id],
 ) -> Vec<Id> {
+    if moved_ids.is_empty() {
+        return Vec::new();
+    }
+    let moved_set: std::collections::HashSet<&str> = moved_ids.iter().map(String::as_str).collect();
     let mut moved = Vec::new();
     let mut remaining = Vec::with_capacity(elements.len());
     for el in elements.drain(..) {
-        if el.merge && moved_ids.iter().any(|id| id == &el.id) {
+        if el.merge && moved_set.contains(el.id.as_str()) {
             moved.push(el);
         } else {
             remaining.push(el);
@@ -3230,9 +3309,50 @@ pub fn remerge_moved_elements_in_keyframe(
     if moved.is_empty() {
         return Vec::new();
     }
+    let batch_same_paint = moved.len() > 16;
     let mut result_ids = Vec::new();
-    for el in moved {
-        result_ids.extend(apply_merge_shape_to_keyframe(elements, el));
+    let mut idx = 0;
+    while idx < moved.len() {
+        if batch_same_paint
+            && is_already_normalized_merge_part(&moved[idx])
+            && is_merge_fill(&moved[idx])
+            && let Some(fp) = extract_fill_paint(&moved[idx].kind)
+            && let Some((mut combined_cmds, FillRule::NonZero)) =
+                element_world_commands(&moved[idx])
+        {
+            let mut end = idx + 1;
+            while end < moved.len()
+                && is_already_normalized_merge_part(&moved[end])
+                && is_merge_fill(&moved[end])
+                && extract_fill_paint(&moved[end].kind).as_ref() == Some(&fp)
+                && let Some((cmds, FillRule::NonZero)) = element_world_commands(&moved[end])
+            {
+                combined_cmds.extend(cmds);
+                end += 1;
+            }
+            if end > idx + 1 {
+                let batched = build_fill_element(
+                    &moved[idx],
+                    moved[idx].id.clone(),
+                    combined_cmds,
+                    FillRule::NonZero,
+                    &fp,
+                    true,
+                );
+                result_ids.extend(apply_merge_shape_to_keyframe_inner(elements, batched, true));
+                idx = end;
+                continue;
+            }
+        }
+        let el = moved[idx].clone();
+        let already_dissolved = is_already_normalized_merge_part(&el)
+            && matches!(element_world_commands(&el), Some((_, FillRule::NonZero)));
+        result_ids.extend(apply_merge_shape_to_keyframe_inner(
+            elements,
+            el,
+            already_dissolved,
+        ));
+        idx += 1;
     }
     result_ids
 }
@@ -4705,5 +4825,56 @@ mod tests {
                 "expected sub-500ms second repro move, got {repro_move2_elapsed:?}"
             );
         }
+    }
+
+    #[test]
+    fn pinch_vertex_and_kissing_hole_never_drop_hole_or_flood_fill() {
+        // Outer shell [0..200, 0..200] with an interior triangular hole [20,100] -> [100,180] -> [100,20]
+        // whose vertices kiss a second hole and a figure-8 pinch point at (100, 100).
+        let vertices = vec![
+            [0.0, 0.0],     // 0
+            [200.0, 0.0],   // 1
+            [200.0, 200.0], // 2
+            [0.0, 200.0],   // 3
+            [100.0, 100.0], // 4: shared pinch vertex
+            [40.0, 160.0],  // 5
+            [40.0, 40.0],   // 6
+            [160.0, 40.0],  // 7
+            [160.0, 160.0], // 8
+        ];
+        // Outer shell (0->1->2->3->0, area > 0) + two negative-area holes kissing at vertex 4
+        // (4->6->5->4 and 4->8->7->4, area < 0).
+        let half_edges = vec![
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 6),
+            (6, 5),
+            (5, 4),
+            (4, 8),
+            (8, 7),
+            (7, 4),
+        ];
+        let cycles = trace_half_edge_cycles(&vertices, &half_edges);
+        assert_eq!(
+            cycles.len(),
+            3,
+            "both kissing holes and the outer shell must close without dropping any cycle"
+        );
+        let rings: Vec<Vec<[f64; 2]>> = cycles
+            .into_iter()
+            .map(|c| c.into_iter().map(|he| vertices[half_edges[he].0]).collect())
+            .collect();
+        let islands = assemble_shells_and_holes(rings);
+        assert_eq!(islands.len(), 1);
+        let move_count = islands[0]
+            .iter()
+            .filter(|cmd| matches!(cmd, PathCommand::MoveTo { .. }))
+            .count();
+        assert_eq!(
+            move_count, 3,
+            "assembled compound path must retain outer shell and both interior holes"
+        );
     }
 }

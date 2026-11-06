@@ -745,27 +745,60 @@ impl Editor {
                     let handles = tl::paint_onion_range(&rp, &ctx, ruler, x0, x1);
                     let mid = (x0 + x1) * 0.5;
                     let r0 = Rect::from_min_max(
-                        handles.0.min,
-                        Pos2::new(handles.0.max.x.min(mid), handles.0.max.y),
+                        Pos2::new(handles.0.min.x - 3.0, ruler.top()),
+                        Pos2::new((handles.0.max.x + 3.0).min(mid), ruler.bottom()),
                     );
                     let r1 = Rect::from_min_max(
-                        Pos2::new(handles.1.min.x.max(mid), handles.1.min.y),
-                        handles.1.max,
+                        Pos2::new((handles.1.min.x - 3.0).max(mid), ruler.top()),
+                        Pos2::new(handles.1.max.x + 3.0, ruler.bottom()),
                     );
                     let last = count.saturating_sub(1);
                     for (is_start, r) in [(true, r0), (false, r1)] {
+                        let hit_rect = r.intersect(ruler);
+                        let handle_id = ui.id().with(("onion", is_start));
                         let handle = ui.interact(
-                            r.intersect(ruler),
-                            ui.id().with(("onion", is_start)),
+                            hit_rect,
+                            handle_id,
                             Sense::click_and_drag(),
                         );
-                        if handle.hovered() || handle.dragged() || handle.clicked() {
+                        let press_key = handle_id.with("press_origin_x");
+                        let released_drag_pos = if ctx.input(|i| i.pointer.primary_down()) {
+                            if let Some(origin) = ctx.input(|i| i.pointer.press_origin())
+                                && hit_rect.contains(origin)
+                            {
+                                ui.data_mut(|d| d.insert_temp(press_key, origin.x));
+                            }
+                            None
+                        } else if let Some(origin_x) =
+                            ui.data_mut(|d| d.remove_temp::<f32>(press_key))
+                        {
+                            ctx.input(|i| {
+                                i.pointer
+                                    .latest_pos()
+                                    .or_else(|| i.pointer.interact_pos())
+                                    .filter(|latest| (latest.x - origin_x).abs() >= 1.0)
+                            })
+                        } else {
+                            None
+                        };
+                        if handle.hovered()
+                            || handle.dragged()
+                            || handle.drag_stopped()
+                            || handle.clicked()
+                            || handle.is_pointer_button_down_on()
+                            || released_drag_pos.is_some()
+                        {
                             onion_handle_busy = true;
                             ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                         }
-                        if handle.dragged()
-                            && let Some(pos) = handle.interact_pointer_pos()
-                        {
+                        let active_pos = released_drag_pos.or_else(|| {
+                            (handle.dragged() || handle.drag_stopped()).then(|| {
+                                handle
+                                    .interact_pointer_pos()
+                                    .or_else(|| ctx.input(|i| i.pointer.latest_pos()))
+                            })?
+                        });
+                        if let Some(pos) = active_pos {
                             let raw = (pos.x - grid_rect.left()) / cell_width
                                 - if is_start { 0.0 } else { 1.0 };
                             let f = (raw.round().max(0.) as u32).min(last);
@@ -785,6 +818,7 @@ impl Editor {
                             } else {
                                 self.onion_after = f.max(self.frame).saturating_sub(self.frame);
                             }
+                            self.workspace.onion_range = [self.onion_before, self.onion_after];
                         }
                     }
                 }

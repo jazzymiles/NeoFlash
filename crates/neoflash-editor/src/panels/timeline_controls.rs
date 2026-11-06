@@ -540,6 +540,7 @@ impl Editor {
                                 self.frame.saturating_sub(self.anchored_range.0.min(last));
                             self.onion_after =
                                 self.anchored_range.1.min(last).saturating_sub(self.frame);
+                            self.workspace.onion_range = [self.onion_before, self.onion_after];
                         }
                     }
                 });
@@ -562,6 +563,7 @@ impl Editor {
                     {
                         let v = before.round().max(0.0) as u32;
                         self.onion_before = v;
+                        self.workspace.onion_range = [self.onion_before, self.onion_after];
                         if self.onion_anchor {
                             self.anchored_range.0 = self
                                 .frame
@@ -586,6 +588,7 @@ impl Editor {
                     {
                         let v = after.round().max(0.0) as u32;
                         self.onion_after = v;
+                        self.workspace.onion_range = [self.onion_before, self.onion_after];
                         if self.onion_anchor {
                             self.anchored_range.1 = (self.frame + v)
                                 .min(last)

@@ -5205,6 +5205,33 @@ fn onion_skin_outline_mode_and_ruler_range_handles_work_without_off_by_one() {
     assert_eq!(d.editor.frame, 5);
     assert_eq!(d.editor.onion_before, 4);
     assert_eq!(d.editor.onion_range(), (1, 10));
+    assert_eq!(d.editor.workspace.onion_range, [4, 5]);
+
+    // Same-tick move+release drag (as synthesized by macOS CUA) on the right handle updates onion_after.
+    let bars = handle_rects(&d.out);
+    let right_from = bars[1].center();
+    let right_to = right_from - Vec2::new(2.0 * cw, 0.0);
+    d.step(vec![
+        Event::PointerMoved(right_from),
+        primary_button(right_from, true),
+    ]);
+    d.step(vec![
+        Event::PointerMoved(right_to),
+        primary_button(right_to, false),
+    ]);
+    d.settle();
+    assert_eq!(d.editor.frame, 5);
+    assert_eq!(d.editor.onion_after, 3);
+    assert_eq!(d.editor.workspace.onion_range, [4, 3]);
+
+    // Reopening/installing a document in the same app retains onion_before/onion_after from workspace.onion_range.
+    let reopened = d.editor.project.clone();
+    d.editor.install_document(&d.ctx, reopened, None, true);
+    assert_eq!(
+        (d.editor.onion_before, d.editor.onion_after),
+        (4, 3),
+        "reopening a document in the same app must retain onion range"
+    );
 }
 
 #[test]

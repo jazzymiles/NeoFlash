@@ -83,6 +83,7 @@ impl Editor {
         let recovery = self.recovery.for_document(path.as_deref());
         let mut incoming =
             DocumentSession::new(project, path, self.workspace.undo_levels as usize, recovery);
+        [incoming.onion_before, incoming.onion_after] = self.workspace.onion_range;
         incoming.stage_view.prefs = self.stage_view.prefs.clone();
         if !saved {
             incoming.saved_project = None;
@@ -190,6 +191,7 @@ impl Editor {
         let recovery = self.recovery.for_document(path.as_deref());
         let mut incoming =
             DocumentSession::new(project, path, self.workspace.undo_levels as usize, recovery);
+        [incoming.onion_before, incoming.onion_after] = self.workspace.onion_range;
         incoming.stage_view.prefs = self.workspace.view_defaults.clone().unwrap_or_default();
         incoming.exchange(self);
         if had_document {
